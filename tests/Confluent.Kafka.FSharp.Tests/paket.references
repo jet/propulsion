@@ -1,0 +1,6 @@
+FSharp.Core
+System.ValueTuple
+NUnit
+NUnit3TestAdapter
+Newtonsoft.Json
+Microsoft.NET.Test.Sdk

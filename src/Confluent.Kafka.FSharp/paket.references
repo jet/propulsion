@@ -1,0 +1,6 @@
+FSharp.Core
+System.ValueTuple
+
+Confluent.Kafka
+System.Reactive
+NLog
