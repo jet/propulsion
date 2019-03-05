@@ -1,8 +1,0 @@
-FSharp.Core
-FSharp.Control.AsyncSeq
-Confluent.Kafka
-
-group Legacy
-    FSharp.Core
-    FSharp.Control.AsyncSeq
-    Confluent.Kafka
