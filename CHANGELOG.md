@@ -20,14 +20,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Equinox.Projection.Kafka` consumer metrics emission, see [#94](https://github.com/jet/equinox/pull/94) @michaelliao5
-- Initial release as part of `Equinox.Cosmos` projection facilities, see [#87](https://github.com/jet/equinox/pull/87)
+- `Equinox.Projection.Kafka` consumer metrics emission, see [Equinox #94](https://github.com/jet/equinox/pull/94) @michaelliao5
+- Initial release as part of `Equinox.Cosmos` projection facilities, see [Equinox #87](https://github.com/jet/equinox/pull/87) @michaelliao5
 
-<a name="1.0.0-initial"></a>
-## [1.0.0-initial]
+<a name="1.0.0-bare"></a>
+## [1.0.0-bare]
 
-(Stripped down repo for history purposes)
+(Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/-kafka-fsharp/compare/1.0.0-preview1...HEAD
-[1.0.0-preview1]: https://github.com/jet/-kafka-fsharp/compare/1.0.0-alpha...1.0.0-preview1
-[1.0.0-initial]: https://github.com/jet/confluent-kafka-fsharp/compare/e4bc8ff53b4f4400308b09c02fe8da6fc7e61d82...1.0.0-initial
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-preview1...HEAD
+[1.0.0-preview1]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-bare...1.0.0-preview1
+[1.0.0-bare]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/e4bc8ff53b4f4400308b09c02fe8da6fc7e61d82...1.0.0-bare
