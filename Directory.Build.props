@@ -1,26 +1,35 @@
 <Project ToolsVersion="15.0">
   <PropertyGroup>
-    <VersionPrefix>0.9.4</VersionPrefix>
-    <Authors>@jet @eulerfx @eirik</Authors>
+    <Authors>@jet @eulerfx @eiriktsarpalis @michaelliao5 and contributors</Authors>
     <Company>Jet.com</Company>
     <Description>Lightweight F# wrapper for Confluent.Kafka</Description>
     <PackageProjectUrl>https://github.com/jet/confluent-kafka-fsharp</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/jet/confluent-kafka-fsharp</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
     <PackageTags>kafka;fsharp</PackageTags>
-    <PackageLicenseUrl>https://github.com/jet/confluent-kafka-fsharp/blob/master/LICENSE.txt</PackageLicenseUrl>
-    <Copyright>Copyright Â© 2018</Copyright>
-  </PropertyGroup>
+    <PackageLicense>Apache-2.0</PackageLicense>
+    <Copyright>Copyright © 2016-9</Copyright>
 
-  <PropertyGroup>
-    <RepoRootDir>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</RepoRootDir>
-    <NupkgsDir>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)/bin/nupkg"))</NupkgsDir>
-    <MonoOrEmpty Condition=" '$(OS)' != 'Windows_NT' ">mono </MonoOrEmpty>
+    <RepoDir>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</RepoDir>
 
+    <!-- SourceLink related properties https://github.com/dotnet/SourceLink#using-sourcelink -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
     <!-- disable sourcelink on mono, to workaround https://github.com/dotnet/sourcelink/issues/155 -->
     <EnableSourceLink Condition=" '$(OS)' != 'Windows_NT' AND '$(MSBuildRuntimeType)' != 'Core' ">false</EnableSourceLink>
-    <EnableSourceControlManagerQueries>$(EnableSourceLink)</EnableSourceControlManagerQueries>
 
-    <NoWarn>$(NoWarn);FS2003</NoWarn>
+    <!-- suppress false positive warning FS2003 about invalid version of AssemblyInformationalVersionAttribute -->
+    <!-- supress NU5105 triggered by trailing dotted elements such as .43 and .2 in e.g.: pr.43-rc1.2: The package version '<X>' uses SemVer 2.0.0 or components of SemVer 1.0.0 that are not supported on legacy clients. Change the package version to a SemVer 1.0.0 string. If the version contains a release label it must start with a letter. This message can be ignored if the package is not intended for older clients. -->
+    <NoWarn>$(NoWarn);FS2003;NU5105</NoWarn>
   </PropertyGroup>
+
+  <!-- Workaround for https://github.com/xunit/xunit/issues/1357 -->
+  <PropertyGroup>
+    <ThisDirAbsolute>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</ThisDirAbsolute>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(ThisDirAbsolute)tests/xunit.runner.json" Condition=" '$(OS)' != 'Windows_NT' AND '$(IsTestProject)' != 'false'">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

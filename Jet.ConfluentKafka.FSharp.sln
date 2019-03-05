@@ -1,0 +1,61 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28606.126
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".github", ".github", "{1A62C9CF-EA99-4D42-8DB3-F050981267AD}"
+	ProjectSection(SolutionItems) = preProject
+		.github\ISSUE_TEMPLATE.md = .github\ISSUE_TEMPLATE.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{302B09C4-7F38-4CF7-93B9-1B7A6035386E}"
+	ProjectSection(SolutionItems) = preProject
+		tests\xunit.runner.json = tests\xunit.runner.json
+	EndProjectSection
+EndProject
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Jet.ConfluentKafka.FSharp.Integration", "tests\Jet.ConfluentKafka.FSharp.Integration\Jet.ConfluentKafka.FSharp.Integration.fsproj", "{1D205901-2742-45EA-8255-E6322B49E3BB}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{6EADC23C-D6CA-4CBB-AB71-DA4A218AE24D}"
+	ProjectSection(SolutionItems) = preProject
+		.gitattributes = .gitattributes
+		.gitignore = .gitignore
+		azure-pipelines.yml = azure-pipelines.yml
+		build.proj = build.proj
+		CHANGELOG.md = CHANGELOG.md
+		Directory.Build.props = Directory.Build.props
+		Directory.Build.targets = Directory.Build.targets
+		global.json = global.json
+		LICENSE = LICENSE
+		README.md = README.md
+		SECURITY.md = SECURITY.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}"
+EndProject
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Jet.ConfluentKafka.FSharp", "src\Jet.ConfluentKafka.FSharp\Jet.ConfluentKafka.FSharp.fsproj", "{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1D205901-2742-45EA-8255-E6322B49E3BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1D205901-2742-45EA-8255-E6322B49E3BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1D205901-2742-45EA-8255-E6322B49E3BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1D205901-2742-45EA-8255-E6322B49E3BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1D205901-2742-45EA-8255-E6322B49E3BB} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
+		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}
+	EndGlobalSection
+EndGlobal
