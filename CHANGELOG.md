@@ -13,12 +13,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="1.0.0-rc1"></a>
+## [1.0.0-rc1] - 2019-03-27
+
+### Changed
+
+- Updated to target `Confluent.Kafka 1.0.0-RC2` (which references `librdkafka.redist 1.0.0`) [#23](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/23)
+- Pins `rdkafka` and `Confluent.Kafka` dependencies to specific known good versions as above [#22](https://github.com/jet/Jet.ConfluentKafka.FSharp/issues/22)
+
 <a name="1.0.0-preview2"></a>
 ## [1.0.0-preview2] - 2019-03-26
 
 ### Changed
 
-- Updated to target `Confluent.Kafka 1.0.0-RC1` (triggered relatively minor changes internally due to sane API fixes, does not update rdkafka, which is still `0.9.6-PRE2`)
+- Updated to target `Confluent.Kafka 1.0.0-RC1` (triggered relatively minor changes internally due to sane API fixes, does not update to rdkafka 1.0.0, still `1.0.0-RC9`) [#21](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/21)
 
 <a name="1.0.0-preview1"></a>
 ## [1.0.0-preview1] - 2019-03-05
