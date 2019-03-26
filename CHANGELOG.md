@@ -14,11 +14,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Fixed
 
 <a name="1.0.0-preview2"></a>
-## [1.0.0-preview1] - 2019-03-26
+## [1.0.0-preview2] - 2019-03-26
 
 ### Changed
 
-- Targets `Confluent.Kafka 1.0.0-RC1`
+- Updated to target `Confluent.Kafka 1.0.0-RC1` (triggered relatively minor changes internally due to sane API fixes, does not update rdkafka, which is still `0.9.6-PRE2`)
 
 <a name="1.0.0-preview1"></a>
 ## [1.0.0-preview1] - 2019-03-05
