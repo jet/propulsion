@@ -13,6 +13,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="1.0.0-rc6"></a>
+## [1.0.0-rc6] - 2019-04-24
+
+### Changed
+
+- Updated to target `Confluent.Kafka 1.0.0`
+
 <a name="1.0.0-rc5"></a>
 ## [1.0.0-rc5] - 2019-04-24
 
@@ -75,7 +82,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc5...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...HEAD
+[1.0.0-rc6]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc5...1.0.0-rc6
 [1.0.0-rc5]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc4...1.0.0-rc5
 [1.0.0-rc4]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc3...1.0.0-rc4
 [1.0.0-rc3]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc2...1.0.0-rc3
