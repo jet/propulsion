@@ -13,6 +13,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="1.0.0-rc7"></a>
+## [1.0.0-rc7] - 2019-05-16
+
+### Added
+
+- Exposed [single-item] `ProduceAsync` in `KafkaProducer`
+
 <a name="1.0.0-rc6"></a>
 ## [1.0.0-rc6] - 2019-04-24
 
@@ -82,7 +89,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc7...HEAD
+[1.0.0-rc7]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...1.0.0-rc7
 [1.0.0-rc6]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc5...1.0.0-rc6
 [1.0.0-rc5]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc4...1.0.0-rc5
 [1.0.0-rc4]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc3...1.0.0-rc4
