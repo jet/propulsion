@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.0-rc10"></a>
+## [1.0.0-rc10] - 2019-05-22
+
+### Added
 
 - mechanism to remove logging regarding polling backoff [#32](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/32) HT [@szer](https://github.com/Szer) re [#31](https://github.com/jet/Jet.ConfluentKafka.FSharp/issues/31)
 
@@ -17,9 +25,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - split batching behaviors out into `BatchedProducer`/`BatchedConsumer` [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
 - default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
 - removed curried `member` Method arguments in `Start` methods
-
-### Removed
-### Fixed
 
 <a name="1.0.0-rc9"></a>
 ## [1.0.0-rc9] - 2019-05-22
@@ -117,7 +122,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc9...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...HEAD
+[1.0.0-rc10]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc10
 [1.0.0-rc9]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc9
 [1.0.0-rc8]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc7...1.0.0-rc8
 [1.0.0-rc7]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...1.0.0-rc7
