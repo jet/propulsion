@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.0-rc9"></a>
+## [1.0.0-rc9] - 2019-05-22
+
+### Added
 
 - each configuration DSL now has a `customize` function to admit post-processing after defaults and `custom` have taken effect [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
 - Producer/Consumer both have an `Inner` to enable custom logic [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
@@ -17,11 +25,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
 
-### Removed
-### Fixed
-
 <a name="1.0.0-rc8"></a>
-## [1.0.0-rc8] - 2019-05-23
+## [1.0.0-rc8] - 2019-05-21
 
 ### Fixed
 
@@ -103,8 +108,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...HEAD
-[1.0.0-rc8]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...1.0.0-rc8
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc9...HEAD
+[1.0.0-rc9]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc9
+[1.0.0-rc8]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc7...1.0.0-rc8
 [1.0.0-rc7]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...1.0.0-rc7
 [1.0.0-rc6]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc5...1.0.0-rc6
 [1.0.0-rc5]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc4...1.0.0-rc5
