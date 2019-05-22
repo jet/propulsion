@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- reinstated `AutoOffsetReset` logging in `ConsumerConfig` 
+
 ### Changed
 ### Removed
 ### Fixed
