@@ -9,7 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- each configuration DSL now has a `customize` function to admit post-processing after defaults and `custom` have taken effect [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
+- Producer/Consumer both have an `Inner` to enable custom logic [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
+
 ### Changed
+
+- default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
+
 ### Removed
 ### Fixed
 
@@ -18,7 +25,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
-# Make custom parameters in consumer config a seq once again [#28](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/28) [@szer](https://github.com/Szer)
+- Make custom parameters in consumer config a seq once again [#28](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/28) [@szer](https://github.com/Szer)
 
 <a name="1.0.0-rc7"></a>
 ## [1.0.0-rc7] - 2019-05-16
