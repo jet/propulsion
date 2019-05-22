@@ -53,18 +53,19 @@ module Helpers =
                 |> Async.Parallel
         }
 
-    type KafkaConsumer with
+    type BatchedConsumer with
         member c.StopAfter(delay : TimeSpan) =
             Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
 
     type TestMessage = { producerId : int ; messageId : int }
     [<NoComparison; NoEquality>]
     type ConsumedTestMessage = { consumerId : int ; message : ConsumeResult<string,string> ; payload : TestMessage }
-    type ConsumerCallback = KafkaConsumer -> ConsumedTestMessage [] -> Async<unit>
+    type ConsumerCallback = BatchedConsumer -> ConsumedTestMessage [] -> Async<unit>
 
     let runProducers log (broker : Uri) (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
         let runProducer (producerId : int) = async {
-            use producer = KafkaProducer.Create(log, KafkaProducerConfig.Create("panther", broker, Acks.Leader, maxInFlight = 10000), topic)
+            let cfg = KafkaProducerConfig.Create("panther", broker, Acks.Leader)
+            use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight = 10000)
 
             let! results =
                 [1 .. messagesPerProducer]
@@ -96,7 +97,8 @@ module Helpers =
                 | None -> Thread.SpinWait 20; getConsumer()
                 | Some c -> c
 
-            let consumer = KafkaConsumer.Start log config (fun batch -> handler (getConsumer()) (Array.map deserialize batch))
+            let partitionHandler batch = handler (getConsumer()) (Array.map deserialize batch)
+            let consumer = BatchedConsumer.Start(log, config, partitionHandler)
 
             consumerCell := Some consumer
 
@@ -124,7 +126,7 @@ type T1(testOutputHelper) =
         let groupId = newId()
     
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage[]>()
-        let consumerCallback (consumer:KafkaConsumer) batch = async {
+        let consumerCallback (consumer:BatchedConsumer) batch = async {
             do consumedBatches.Add batch
             let messageCount = consumedBatches |> Seq.sumBy Array.length
             // signal cancellation if consumed items reaches expected size

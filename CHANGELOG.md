@@ -9,7 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- split batching behaviors out into `BatchedProducer`/`BatchedConsumer` [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
+
 ### Changed
+
+- default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
+- removed curried `member` Method arguments in `Start` methods
+
 ### Removed
 ### Fixed
 
@@ -24,6 +31,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
+- default `fetchMinBytes` dropped from 10 to 1 (which is the `Confluent.Kafka` default) [#29](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/29)
 
 <a name="1.0.0-rc8"></a>
 ## [1.0.0-rc8] - 2019-05-21
