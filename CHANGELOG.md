@@ -10,10 +10,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- split batching behaviors out into `BatchedProducer`/`BatchedConsumer` [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
+- mechanism to remove logging regarding polling backoff [#32](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/32) HT [@szer](https://github.com/Szer) re [#31](https://github.com/jet/Jet.ConfluentKafka.FSharp/issues/31)
 
 ### Changed
 
+- split batching behaviors out into `BatchedProducer`/`BatchedConsumer` [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
 - default auto-commit interval dropped from 10s to 5s (which is the `Confluent.Kafka` default) [#30](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/30)
 - removed curried `member` Method arguments in `Start` methods
 
