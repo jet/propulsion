@@ -9,14 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- `ParallelConsumer` [#33](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/33)
-
 ### Changed
 ### Removed
 ### Fixed
 
-- reinstated `AutoOffsetReset` logging in `ConsumerConfig` 
+<a name="1.0.0-rc11"></a>
+## [1.0.0-rc11] - 2019-05-27
+
+### Added
+
+- `ParallelConsumer` [#33](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/33)
+
+### Fixed
+
+- reinstated `AutoOffsetReset` logging in `KafkaConsumerConfig` 
 
 <a name="1.0.0-rc10"></a>
 ## [1.0.0-rc10] - 2019-05-22
@@ -127,8 +133,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...HEAD
-[1.0.0-rc10]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc10
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc11...HEAD
+[1.0.0-rc11]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...1.0.0-rc11
+[1.0.0-rc10]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc9...1.0.0-rc10
 [1.0.0-rc9]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc9
 [1.0.0-rc8]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc7...1.0.0-rc8
 [1.0.0-rc7]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc6...1.0.0-rc7
