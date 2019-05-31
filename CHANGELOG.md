@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.0-rc12"></a>
+## [1.0.0-rc12] - 2019-05-31
+
+### Added
 
 - Included `totalLag` in Consumer Stats
 
@@ -17,8 +25,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - Default `minInFlightBytes` is now 2/3 of `maxInFlightBytes`
 - Reduced `Thread.Sleep` when over `maxInFlightBytes` threshold from `5` to `1` ms 
 
-### Removed
 ### Fixed
+
+- Singificant tuning / throughput improvements for `ParallelConsumer` 
 
 <a name="1.0.0-rc11"></a>
 ## [1.0.0-rc11] - 2019-05-27
@@ -140,7 +149,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc11...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc12...HEAD
+[1.0.0-rc12]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc11...1.0.0-rc12
 [1.0.0-rc11]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...1.0.0-rc11
 [1.0.0-rc10]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc9...1.0.0-rc10
 [1.0.0-rc9]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc8...1.0.0-rc9
