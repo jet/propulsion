@@ -11,7 +11,7 @@ open System.Threading
 open System.Threading.Tasks
 
 [<AutoOpen>]
-module private Impl =
+module private Helpers =
 
     /// Maintains a Stopwatch used to drive a periodic loop, computing the remaining portion of the period per invocation
     /// - `Some remainder` if the interval has time remaining
@@ -115,7 +115,7 @@ module KafkaIngestion =
 /// Consumption pipeline that attempts to maximize concurrency of `handle` invocations (up to `dop` concurrently).
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitCompletion()`.
-type PipelinedConsumer private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
+type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
 
     interface IDisposable with member __.Dispose() = __.Stop()
 
@@ -176,7 +176,7 @@ type PipelinedConsumer private (inner : IConsumer<string, string>, task : Task<u
             do! Async.AwaitTaskCorrect tcs.Task
         }
         let task = Async.StartAsTask machine
-        new PipelinedConsumer(consumer, task, triggerStop)
+        new ConsumerPipeline(consumer, task, triggerStop)
 
 [<AbstractClass; Sealed>]
 type ParallelConsumer private () =
@@ -198,7 +198,7 @@ type ParallelConsumer private () =
             scheduler.Submit x
             x.messages.Length
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, pumpInterval)
-        PipelinedConsumer.Start(log, config, mapResult, submitter.Ingest, submitter.Pump(), scheduler.Pump, dispatcher.Pump(), statsInterval)
+        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump(), scheduler.Pump, dispatcher.Pump(), statsInterval)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.

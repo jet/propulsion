@@ -55,14 +55,14 @@ module Helpers =
                 |> Async.Parallel
         }
 
-    type PipelinedConsumer with
+    type ConsumerPipeline with
         member c.StopAfter(delay : TimeSpan) =
             Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
 
     type TestMessage = { producerId : int ; messageId : int }
     [<NoComparison; NoEquality>]
     type ConsumedTestMessage = { consumerId : int ; raw : ConsumeResult<string,string> ; payload : TestMessage }
-    type ConsumerCallback = PipelinedConsumer -> ConsumedTestMessage -> Async<unit>
+    type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
 
     let runProducers log (broker : Uri) (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
         let runProducer (producerId : int) = async {
@@ -128,7 +128,7 @@ type T1(testOutputHelper) =
         let groupId = newId()
     
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
-        let consumerCallback (consumer:PipelinedConsumer) msg = async {
+        let consumerCallback (consumer:ConsumerPipeline) msg = async {
             do consumedBatches.Add msg
             let messageCount = consumedBatches |> Seq.length
             // signal cancellation if consumed items reaches expected size

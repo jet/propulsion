@@ -13,6 +13,7 @@
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Propulsion.fs" />
+    <Compile Include="Parallel.fs" />
   </ItemGroup>
 
   <ItemGroup>

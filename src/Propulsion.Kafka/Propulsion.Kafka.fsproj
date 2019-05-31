@@ -12,8 +12,7 @@
 
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
-    <Compile Include="ParallelPropulsion.fs" />
-    <Compile Include="PropulsionConfluentKafka.fs" />
+    <Compile Include="Consumers.fs" />
   </ItemGroup>
 
   <ItemGroup>

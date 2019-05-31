@@ -16,6 +16,8 @@
 
   <Target Name="Pack">
     <Exec Command="dotnet pack src/Jet.ConfluentKafka.FSharp $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
   </Target>
 
   <Target Name="VSTest">
