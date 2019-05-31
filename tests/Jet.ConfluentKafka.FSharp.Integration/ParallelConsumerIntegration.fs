@@ -2,6 +2,7 @@
 
 open Jet.ConfluentKafka.FSharp
 open Newtonsoft.Json
+open Propulsion.Kafka
 open Serilog
 open Swensen.Unquote
 open System

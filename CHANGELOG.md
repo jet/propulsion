@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Split reusable components of `ParallelConsumer` out into indepedent `Projection` and `Projection.Kafka` libraries [#34](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/34)
+
 ### Removed
 ### Fixed
 
