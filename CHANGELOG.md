@@ -9,7 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- Included `totalLag` in Consumer Stats
+
 ### Changed
+
+- Default `minInFlightBytes` is now 2/3 of `maxInFlightBytes`
+- Reduced `Thread.Sleep` when over `maxInFlightBytes` threshold from `5` to `1` ms 
+
 ### Removed
 ### Fixed
 
