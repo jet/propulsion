@@ -9,7 +9,7 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
 
     interface IDisposable with member __.Dispose() = __.Stop()
 
-    member __.StartIngester(rangeLog : ILogger) : 'Ingester = startIngester rangeLog
+    member __.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
 
     /// Inspects current status of processing task
     member __.Status = task.Status

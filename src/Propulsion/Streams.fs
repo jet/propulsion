@@ -592,13 +592,13 @@ module Projector =
                 log.Warning(exn,"Could not write {b:n0} bytes {e:n0}e in stream {stream}", bs, es, stream)
 
     type StreamsIngester =
-        static member Start(log, maxRead, submit, ?statsInterval, ?sleepInterval) =
-            let makeBatch onCompletion (partitionId,items : StreamItem<_> seq) =
+        static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
+            let makeBatch onCompletion (items : StreamItem<_> seq) =
                 let items = Array.ofSeq items
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
                 batch,(streams.Count,items.Length)
-            Ingestion.Ingester<int*StreamItem<_> seq,Submission.SubmissionBatch<StreamItem<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+            Ingestion.Ingester<StreamItem<_> seq,Submission.SubmissionBatch<StreamItem<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsProjectorPipeline =
         static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition) =
@@ -616,7 +616,7 @@ module Projector =
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
             let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue)
-            let startIngester rangeLog = StreamsIngester.Start(rangeLog, maxReadAhead, submitter.Ingest)
+            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 type StreamsProjector =
