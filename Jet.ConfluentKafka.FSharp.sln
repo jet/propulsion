@@ -37,6 +37,8 @@ Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion", "src\Propulsio
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Kafka", "src\Propulsion.Kafka\Propulsion.Kafka.fsproj", "{5F176C54-609B-4D2E-804B-3C1F60ADDAF4}"
 EndProject
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Tests", "tests\Propulsion.Tests\Propulsion.Tests.fsproj", "{BBD50DA2-7932-4D24-888D-C168F4788705}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -59,6 +61,10 @@ Global
 		{5F176C54-609B-4D2E-804B-3C1F60ADDAF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5F176C54-609B-4D2E-804B-3C1F60ADDAF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5F176C54-609B-4D2E-804B-3C1F60ADDAF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BBD50DA2-7932-4D24-888D-C168F4788705}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BBD50DA2-7932-4D24-888D-C168F4788705}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BBD50DA2-7932-4D24-888D-C168F4788705}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BBD50DA2-7932-4D24-888D-C168F4788705}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -68,6 +74,7 @@ Global
 		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{0F72360F-1C14-46E3-9A60-B6BF87BD726D} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{5F176C54-609B-4D2E-804B-3C1F60ADDAF4} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{BBD50DA2-7932-4D24-888D-C168F4788705} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}

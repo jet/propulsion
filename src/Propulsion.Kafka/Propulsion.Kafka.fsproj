@@ -13,6 +13,7 @@
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Consumers.fs" />
+    <Compile Include="Producers.fs" />
   </ItemGroup>
 
   <ItemGroup>

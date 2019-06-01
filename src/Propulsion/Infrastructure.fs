@@ -7,6 +7,9 @@ open System.Threading.Tasks
 module Array =
     let takeWhile p = Seq.takeWhile p >> Array.ofSeq
     let head = Seq.head
+
+module Option = 
+    let toNullable option = match option with None -> System.Nullable() | Some v -> System.Nullable(v)
 #endif
 
 [<AutoOpen>]

@@ -208,3 +208,36 @@ type ParallelConsumer private () =
         let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key, x.Value)
         ParallelConsumer.Start<KeyValuePair<string,string>>(log, config, maxDop, mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
+
+type StreamsConsumer =
+    /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
+    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
+    static member Start<'M>
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamItems, handle, categorize,
+            ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?stateInterval, ?logExternalStats) =
+        let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
+        let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
+        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
+
+        let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
+        let stats = Streams.Scheduling.Stats(log, statsInterval, stateInterval)
+        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
+            logExternalStats |> Option.iter (fun f -> f log)
+            streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
+        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, stats, handle, dumpStreams)
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
+            let onCompletion () = x.onCompletion(); onCompletion()
+            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect enumStreamItems x.messages) |> fst
+        let tryCompactQueue (queue : Queue<Streams.Scheduling.StreamsBatch<_>>) =
+            let mutable acc, worked = None, false
+            for x in queue do
+                match acc with
+                | None -> acc <- Some x
+                | Some a -> if a.TryMerge x then worked <- true
+            worked
+        let submitStreamsBatch (x : Streams.Scheduling.StreamsBatch<_>) : int =
+            streamsScheduler.Submit x
+            x.RemainingStreamsCount
+        let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, submitStreamsBatch, statsInterval, pumpInterval, tryCompactQueue)
+        let mapResult (x : Confluent.Kafka.ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
+        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
