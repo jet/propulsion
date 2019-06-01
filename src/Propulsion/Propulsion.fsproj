@@ -16,7 +16,6 @@
     <Compile Include="Ingestion.fs" />
     <Compile Include="Projector.fs" />
     <Compile Include="Parallel.fs" />
-    <Compile Include="Parallel.fs" />
     <Compile Include="Streams.fs" />
   </ItemGroup>
 

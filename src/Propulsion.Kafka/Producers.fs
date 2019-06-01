@@ -5,6 +5,18 @@ open Jet.ConfluentKafka.FSharp
 open Serilog
 open System
 
+type ParallelProducer =
+    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, ?statsInterval)
+            : Propulsion.ProjectorPipeline<_> =
+        let producer =
+            let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, maxInFlight = 1_000_000, linger = TimeSpan.Zero)
+            KafkaProducer.Create(log, producerConfig, topic)
+        let handle item = async {
+            let key, value = render item
+            let! _res = producer.ProduceAsync(key, value)
+            return () }
+        Propulsion.Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle >> Async.Catch, ?statsInterval=statsInterval)
+
 type StreamsProducer =
     static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, categorize, ?statsInterval, ?stateInterval)
             : Propulsion.ProjectorPipeline<_> =

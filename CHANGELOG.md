@@ -10,7 +10,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- Add `StreamsConsumer` and `StreamsProducer` [#35](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/35)
+- `StreamsConsumer` and `StreamsProducer` [#35](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/35)
+- `ParallelProducer` [#36](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/36)
 
 ### Changed
 
@@ -33,7 +34,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
-- Singificant tuning / throughput improvements for `ParallelConsumer` 
+- Significant tuning / throughput improvements for `ParallelConsumer` 
 
 <a name="1.0.0-rc11"></a>
 ## [1.0.0-rc11] - 2019-05-27

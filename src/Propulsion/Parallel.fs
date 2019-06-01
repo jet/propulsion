@@ -171,3 +171,28 @@ module Scheduling =
         /// Feeds a batch of work into the queue; the caller is expected to ensure sumbissions are timely to avoid starvation, but throttled to ensure fair ordering
         member __.Submit(batches : Batch<'M>) =
             incoming.Enqueue batches
+
+type ParallelIngester<'Item> =
+    static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
+        let makeBatch onCompletion (items : 'Item seq) =
+            let items = Array.ofSeq items
+            let batch : Submission.SubmissionBatch<'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
+            batch,(items.Length,items.Length)
+        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+
+type ParallelProjector =
+    static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition)
+            : ProjectorPipeline<_> =
+        let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
+        let dispatcher = Scheduling.Dispatcher maxDop
+        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval)
+        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
+        let mapBatch onCompletion (x : Submission.SubmissionBatch<'Item>) : Scheduling.Batch<'Item> =
+            let onCompletion () = x.onCompletion(); onCompletion()
+            { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
+        let submitBatch (x : Scheduling.Batch<'Item>) : int =
+            scheduler.Submit x
+            0
+        let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
+        let startIngester (rangeLog,partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest)
+        ProjectorPipeline.Start(log, dispatcher.Pump(), scheduler.Pump, submitter.Pump(), startIngester)
