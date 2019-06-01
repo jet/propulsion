@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.0-rc13"></a>
+## [1.0.0-rc13] - 2019-06-01
+
+### Added
 
 - `StreamsConsumer` and `StreamsProducer` [#35](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/35)
 - `ParallelProducer` [#36](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/36)
@@ -16,9 +24,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - Split reusable components of `ParallelConsumer` out into independent `Propulsion` and `Propulsion.Kafka` libraries [#34](https://github.com/jet/Jet.ConfluentKafka.FSharp/pull/34)
-
-### Removed
-### Fixed
 
 <a name="1.0.0-rc12"></a>
 ## [1.0.0-rc12] - 2019-05-31
@@ -156,7 +161,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc12...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc13...HEAD
+[1.0.0-rc13]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc12...1.0.0-rc13
 [1.0.0-rc12]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc11...1.0.0-rc12
 [1.0.0-rc11]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...1.0.0-rc11
 [1.0.0-rc10]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc9...1.0.0-rc10
