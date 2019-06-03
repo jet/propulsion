@@ -1,5 +1,6 @@
 ﻿module Propulsion.Ingestion
 
+open Propulsion.Internal // Helpers
 open Serilog
 open System
 open System.Collections.Concurrent
@@ -79,12 +80,6 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
         let due = statsDue ()
         if due then dumpStats readState
         due
-
-type Sem(max) =
-    let inner = new SemaphoreSlim(max)
-    member __.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
-    member __.Release() = inner.Release() |> ignore
-    member __.State = max-inner.CurrentCount,max
 
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us

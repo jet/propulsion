@@ -3,30 +3,13 @@
 open Propulsion.Streams
 open Propulsion.Streams.Buffering
 open Swensen.Unquote
-open System
 open Xunit
 
 let canonicalTime = System.DateTimeOffset.UtcNow
 
-/// An Event about to be written, see IEvent for further information
-type EventData<'Format> =
-    { eventType : string; data : 'Format; meta : 'Format; timestamp: DateTimeOffset }
-    interface IEvent<'Format> with
-        member __.EventType = __.eventType
-        member __.Data = __.data
-        member __.Meta = __.meta
-        member __.Timestamp = __.timestamp
-
-type EventData =
-    static member Create(eventType, data, ?meta, ?timestamp) =
-        {   eventType = eventType
-            data = data
-            meta = defaultArg meta null
-            timestamp = match timestamp with Some ts -> ts | None -> DateTimeOffset.UtcNow }
-
-let mk p c : StreamSpan<string> = { index = p; events = [| for x in 0..c-1 -> EventData.Create(p + int64 x |> string, null, timestamp=canonicalTime) |] }
-let mergeSpans = Span.merge
-let trimSpans = Span.dropBeforeIndex
+let mk p c : StreamSpan<string> = { index = p; events = [| for x in 0..c-1 -> Internal.EventData.Create(p + int64 x |> string, null, timestamp=canonicalTime) |] }
+let mergeSpans = StreamSpan.merge
+let trimSpans = StreamSpan.dropBeforeIndex
 let is (xs : StreamSpan<string>[]) (res : StreamSpan<string>[]) =
     (xs,res) ||> Seq.forall2 (fun x y -> x.index = y.index && (x.events,y.events) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType))
 

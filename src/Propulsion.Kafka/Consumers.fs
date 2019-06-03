@@ -3,6 +3,7 @@
 open Confluent.Kafka
 open Jet.ConfluentKafka.FSharp
 open Propulsion
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
@@ -30,17 +31,17 @@ module KafkaIngestion =
 
     /// Retains the messages we've accumulated for a given Partition
     [<NoComparison>]
-    type PartitionSpan<'M> =
+    type PartitionBuffer<'M> =
         {   mutable reservation : int64 // accumulate reserved in flight bytes so we can reverse the reservation when it completes
             mutable highWaterMark : ConsumeResult<string,string> // hang on to it so we can generate a checkpointing lambda
             messages : ResizeArray<'M> }
-        member __.Append(sz, message, mapMessage) =
+        member __.Enqueue(sz, message, mapMessage) =
             __.highWaterMark <- message 
             __.reservation <- __.reservation + sz // size we need to unreserve upon completion
             __.messages.Add(mapMessage message)
         static member Create(sz,message,mapMessage) =
             let x = { reservation = 0L; highWaterMark = null; messages = ResizeArray(256) }
-            x.Append(sz, message, mapMessage)
+            x.Enqueue(sz, message, mapMessage)
             x
 
     /// guesstimate approximate message size in bytes
@@ -72,8 +73,8 @@ module KafkaIngestion =
             intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
             let partitionId = let p = message.Partition in p.Value
             match acc.TryGetValue partitionId with
-            | false, _ -> acc.[partitionId] <- PartitionSpan<'M>.Create(sz,message,mapMessage)
-            | true, span -> span.Append(sz,message,mapMessage)
+            | false, _ -> acc.[partitionId] <- PartitionBuffer<'M>.Create(sz,message,mapMessage)
+            | true, span -> span.Enqueue(sz,message,mapMessage)
         let submit () =
             match acc.Count with
             | 0 -> ()
@@ -220,7 +221,7 @@ type StreamsConsumer =
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
 
         let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
-        let stats = Streams.Scheduling.Stats(log, statsInterval, stateInterval)
+        let stats = Streams.Scheduling.StreamSchedulerStats(log, statsInterval, stateInterval)
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalStats |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)

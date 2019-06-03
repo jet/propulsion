@@ -7,7 +7,6 @@ open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
 
-[<AutoOpen>]
 module Internal =
 
     /// Gathers stats relating to how many items of a given partition have been observed
@@ -29,6 +28,16 @@ module Internal =
             if due then timer.Restart()
             due
 
+    type Sem(max) =
+        let inner = new SemaphoreSlim(max)
+        member __.HasCapacity = inner.CurrentCount <> 0
+        member __.State = max-inner.CurrentCount,max
+        member __.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
+        member __.Release() = inner.Release() |> ignore
+        member __.TryTake() = inner.Wait 0
+
+open Internal
+
 /// Holds batches from the Ingestion pipe, feeding them continuously to the scheduler in an appropriate order
 module Submission =
 
@@ -38,9 +47,9 @@ module Submission =
 
     /// Holds the queue for a given partition, together with a semaphore we use to ensure the number of in-flight batches per partition is constrained
     [<NoComparison>]
-    type PartitionQueue<'B> = { submissions: SemaphoreSlim; queue : Queue<'B> } with
+    type PartitionQueue<'B> = { submissions: Sem; queue : Queue<'B> } with
         member __.Append(batch) = __.queue.Enqueue batch
-        static member Create(maxSubmits) = { submissions = new SemaphoreSlim(maxSubmits); queue = Queue(maxSubmits * 2) } 
+        static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits * 2) } 
 
     /// Holds the stream of incoming batches, grouping by partition
     /// Manages the submission of batches into the Scheduler in a fair manner
@@ -71,7 +80,7 @@ module Submission =
                 more <- false
                 for KeyValue(pi,pq) in buffer do
                     if pq.queue.Count <> 0 then
-                        if pq.submissions.Wait(0) then
+                        if pq.submissions.TryTake() then
                             worked <- true
                             more <- true
                             let count = submitBatch <| pq.queue.Dequeue()
@@ -86,7 +95,7 @@ module Submission =
                     match buffer.TryGetValue pid with
                     | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer.[pid] <- t; t
                     | true, pq -> pq
-                let mapped = mapBatch (fun () -> pq.submissions.Release() |> ignore) batch
+                let mapped = mapBatch (fun () -> pq.submissions.Release()) batch
                 pq.Append(mapped)
             propagate()
         /// We use timeslices where we're we've fully provisioned the scheduler to index any waiting Batches

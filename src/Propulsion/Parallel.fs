@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.Parallel
 
 open Propulsion
+open Propulsion.Internal // Helpers
 open Serilog
 open System
 open System.Collections.Concurrent
@@ -22,19 +23,19 @@ module Scheduling =
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
         let work = new BlockingCollection<_>(ConcurrentQueue<_>()) 
-        let dop = new SemaphoreSlim(maxDop)
+        let dop = Sem maxDop
         /// Attempt to dispatch the supplied task - returns false if processing is presently running at full capacity
         member __.TryAdd task =
-            if dop.Wait 0 then work.Add task; true
+            if dop.TryTake() then work.Add task; true
             else false
         /// Loop that continuously drains the work queue
         member __.Pump() = async {
             let! ct = Async.CancellationToken
             for workItem in work.GetConsumingEnumerable ct do
                 Async.Start(async {
-                try do! workItem
-                // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
-                finally dop.Release() |> ignore }) }
+                    try do! workItem
+                    // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
+                    finally dop.Release() }) }
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
