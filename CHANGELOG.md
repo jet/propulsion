@@ -14,6 +14,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.EventStore`, `Propulsion.Cosmos` (productized from `Equinox.Templates`'s `eqxsync` and `eqxprojector`)
 
 ### Changed
+
+- Targets `Confluent.Kafka` v `1.0.1`, `librdkafka.redist` v `1.0.1`
+
 ### Removed
 ### Fixed
 
