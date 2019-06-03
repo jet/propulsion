@@ -9,6 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+## [Unreleased]
+
+<a name="1.0.1-rc1"></a>
+## [1.0.0-rc1] - 2019-06-03
+
+### Added
 
 - `Propulsion.Kafka.Codec.RenderedSpan` (nee `Equinox.Projection.Codec.RenderedSpan`, which is deprecated and is being removed)
 - `Propulsion.EventStore`, `Propulsion.Cosmos` (productized from `Equinox.Templates`'s `eqxsync` and `eqxprojector`)
@@ -168,7 +178,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`v0` branch](tree/v0) for implementation targeting `Confluent.Kafka` v `0.9.4`)
 
-[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc13...HEAD
+[Unreleased]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.1-rc1...HEAD
+[1.0.1-rc1]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc13...1.0.1-rc1
 [1.0.0-rc13]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc12...1.0.0-rc13
 [1.0.0-rc12]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc11...1.0.0-rc12
 [1.0.0-rc11]: https://github.com/jet/Jet.ConfluentKafka.FSharp/compare/1.0.0-rc10...1.0.0-rc11
