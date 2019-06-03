@@ -11,6 +11,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Codec.fs" />
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Consumers.fs" />
     <Compile Include="Producers.fs" />

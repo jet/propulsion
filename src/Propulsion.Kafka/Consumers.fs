@@ -214,7 +214,7 @@ type StreamsConsumer =
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start<'M>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamItems, handle, categorize,
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamEvents, handle, categorize,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?stateInterval, ?logExternalStats) =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
@@ -228,7 +228,7 @@ type StreamsConsumer =
         let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, stats, handle, dumpStreams)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect enumStreamItems x.messages) |> fst
+            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect enumStreamEvents x.messages) |> fst
         let tryCompactQueue (queue : Queue<Streams.Scheduling.StreamsBatch<_>>) =
             let mutable acc, worked = None, false
             for x in queue do
