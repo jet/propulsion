@@ -7,16 +7,18 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Integration.fs" />
+    <Compile Include="ParallelIntegration.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Jet.ConfluentKafka.FSharp\Jet.ConfluentKafka.FSharp.fsproj" />
+    <ProjectReference Include="..\..\src\Propulsion.Kafka\Propulsion.Kafka.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="15.9.0" />
     <PackageReference Include="Destructurama.FSharp.NetCore" Version="1.0.14" />
+    <PackageReference Include="Newtonsoft.Json" Version="11.0.2" />
     <PackageReference Include="unquote" Version="4.0" />
     <PackageReference Include="xunit" Version="2.4.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.0">

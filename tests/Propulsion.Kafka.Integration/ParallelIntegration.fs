@@ -1,4 +1,4 @@
-﻿namespace Jet.ConfluentKafka.FSharp.Integration.Parallel
+﻿namespace Propulsion.Kafka.Integration.Parallel
 
 open Jet.ConfluentKafka.FSharp
 open Newtonsoft.Json
@@ -119,7 +119,7 @@ type FactIfBroker() =
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``ConfluentKafka producer-consumer basic roundtrip`` () = async {
+    let [<FactIfBroker>] ``producer-consumer basic roundtrip`` () = async {
         let numProducers = 10
         let numConsumers = 10
         let messagesPerProducer = 1000
@@ -174,7 +174,7 @@ type T1(testOutputHelper) =
 type T2(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``ConfluentKafka consumer should have expected exception semantics`` () = async {
+    let [<FactIfBroker>] ``consumer pipeline should have expected exception semantics`` () = async {
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
@@ -299,7 +299,7 @@ type T3(testOutputHelper) =
             fun partition -> state.GetOrAdd(partition, fun _ -> ref 0)
 
         let concurrentCalls = ref 0
-        let  foundNonMonotonic = ref false
+        let foundNonMonotonic = ref false
 
         do! runConsumers log config 1 None
                 (fun c m -> async {
@@ -324,5 +324,4 @@ type T3(testOutputHelper) =
 
         test <@ !foundNonMonotonic @> //  "offset for partition should be monotonic"
         test <@ !concurrentCalls > 1 @> // "partitions should definitely schedule more than one batch concurrently")
-        test <@ numMessages = !globalMessageCount @>
-    }
+        test <@ numMessages = !globalMessageCount @> }

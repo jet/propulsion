@@ -21,8 +21,9 @@
   </Target>
 
   <Target Name="VSTest">
-    <Exec Command="dotnet test tests/Jet.ConfluentKafka.FSharp.Integration $(Cfg) $(TestOptions)" />
     <Exec Command="dotnet test tests/Propulsion.Tests $(Cfg) $(TestOptions)" />
+    <Exec Command="dotnet test tests/Jet.ConfluentKafka.FSharp.Integration $(Cfg) $(TestOptions)" />
+    <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
   </Target>
 
   <Target Name="Build" DependsOnTargets="Pack;VSTest" />
