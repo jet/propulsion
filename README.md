@@ -1,10 +1,10 @@
-# Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=7) [![release](https://img.shields.io/github/release-pre/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/vpre/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg)
+# Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=16) [![release](https://img.shields.io/github/release-pre/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/vpre/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg)
 
 This is pre-production code; unfortunately it's also pre-documentation atm (will be adding more over the coming weeks)
 
 ## QuickStart
 
-See [the Equinox QuickStart](https://github.com/jet/equinox#quickstart) covers the Kafka aspect to a minor degree, but really, this is still a TODO item.
+See [the Equinox QuickStart](https://github.com/jet/equinox#quickstart) covers the Kafka aspect to a minor degree, but really, this is still a TODO item - for now the best place to look for examples and/or to infer a raison d'etre is to look in https://github.com/jet/dotnet-templates.
 
 ## Components
 
