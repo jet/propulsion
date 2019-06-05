@@ -1,12 +1,12 @@
 <Project ToolsVersion="15.0">
   <PropertyGroup>
-    <Authors>@jet @eulerfx @eiriktsarpalis @michaelliao5 and contributors</Authors>
+    <Authors>@jet @bartelink @eiriktsarpalis and contributors</Authors>
     <Company>Jet.com</Company>
-    <Description>Lightweight F# wrapper for Confluent.Kafka</Description>
-    <PackageProjectUrl>https://github.com/jet/Jet.ConfluentKafka.FSharp</PackageProjectUrl>
-    <PackageTags>kafka fsharp</PackageTags>
+    <Description>Composable high performance event streaming pipelines</Description>
+    <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
+    <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor eventstore kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
-    <Copyright>Copyright © 2016-9</Copyright>
+    <Copyright>Copyright Â© 2018-9</Copyright>
 
     <RepoDir>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</RepoDir>
 

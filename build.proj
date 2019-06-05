@@ -15,7 +15,6 @@
   </PropertyGroup>
 
   <Target Name="Pack">
-    <Exec Command="dotnet pack src/Jet.ConfluentKafka.FSharp $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
@@ -24,7 +23,6 @@
 
   <Target Name="VSTest">
     <Exec Command="dotnet test tests/Propulsion.Tests $(Cfg) $(TestOptions)" />
-    <Exec Command="dotnet test tests/Jet.ConfluentKafka.FSharp.Integration $(Cfg) $(TestOptions)" />
     <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
   </Target>
 

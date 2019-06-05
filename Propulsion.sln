@@ -12,8 +12,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{302B09C4
 		tests\xunit.runner.json = tests\xunit.runner.json
 	EndProjectSection
 EndProject
-Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Jet.ConfluentKafka.FSharp.Integration", "tests\Jet.ConfluentKafka.FSharp.Integration\Jet.ConfluentKafka.FSharp.Integration.fsproj", "{1D205901-2742-45EA-8255-E6322B49E3BB}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{6EADC23C-D6CA-4CBB-AB71-DA4A218AE24D}"
 	ProjectSection(SolutionItems) = preProject
 		.gitattributes = .gitattributes
@@ -30,8 +28,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}"
-EndProject
-Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Jet.ConfluentKafka.FSharp", "src\Jet.ConfluentKafka.FSharp\Jet.ConfluentKafka.FSharp.fsproj", "{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}"
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion", "src\Propulsion\Propulsion.fsproj", "{0F72360F-1C14-46E3-9A60-B6BF87BD726D}"
 EndProject
@@ -51,14 +47,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{1D205901-2742-45EA-8255-E6322B49E3BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1D205901-2742-45EA-8255-E6322B49E3BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1D205901-2742-45EA-8255-E6322B49E3BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1D205901-2742-45EA-8255-E6322B49E3BB}.Release|Any CPU.Build.0 = Release|Any CPU
-		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE}.Release|Any CPU.Build.0 = Release|Any CPU
 		{0F72360F-1C14-46E3-9A60-B6BF87BD726D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{0F72360F-1C14-46E3-9A60-B6BF87BD726D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0F72360F-1C14-46E3-9A60-B6BF87BD726D}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -88,8 +76,6 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{1D205901-2742-45EA-8255-E6322B49E3BB} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
-		{76802BE3-00C2-4B1D-96A2-95A3E2136DBE} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{0F72360F-1C14-46E3-9A60-B6BF87BD726D} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{5F176C54-609B-4D2E-804B-3C1F60ADDAF4} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{BBD50DA2-7932-4D24-888D-C168F4788705} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
