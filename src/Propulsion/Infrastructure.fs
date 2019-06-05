@@ -15,6 +15,7 @@ module Option =
 [<AutoOpen>]
 module private AsyncHelpers =
     type Async with
+        static member Sleep(t : TimeSpan) : Async<unit> = Async.Sleep(int t.TotalMilliseconds)
         static member AwaitTaskCorrect (task : Task<'T>) : Async<'T> =
             Async.FromContinuations <| fun (k,ek,_) ->
                 task.ContinueWith (fun (t:Task<'T>) ->

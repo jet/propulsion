@@ -10,8 +10,7 @@ open System.Threading
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)
 /// - retries until success or a new item is posted
 type ProgressWriter<'Res when 'Res: equality>(?period,?sleep) =
-    let sleepSpan = defaultArg sleep (TimeSpan.FromMilliseconds 100.)
-    let writeInterval,sleepPeriod = defaultArg period (TimeSpan.FromSeconds 5.), int sleepSpan.TotalMilliseconds
+    let writeInterval,sleepPeriod = defaultArg period (TimeSpan.FromSeconds 5.), defaultArg sleep (TimeSpan.FromMilliseconds 100.)
     let due = intervalCheck writeInterval
     let mutable committedEpoch = None
     let mutable validatedPos = None
@@ -41,7 +40,7 @@ type private InternalMessage =
     | Added of streams: int * events: int
 
 type private Stats(log : ILogger, statsInterval : TimeSpan) =
-    let mutable validatedEpoch, comittedEpoch : int64 option * int64 option = None, None
+    let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
     let progCommitFails, progCommits = ref 0, ref 0 
     let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
     let statsDue = intervalCheck statsInterval
@@ -49,7 +48,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
         log.Information("Buffering Cycles {cycles} Ingested {batches} ({streams:n0}s {events:n0}e)", !cycles, !batchesPended, !streamsPended, !eventsPended)
         cycles := 0; batchesPended := 0; streamsPended := 0; eventsPended := 0
         if !progCommitFails <> 0 || !progCommits <> 0 then
-            match comittedEpoch with
+            match committedEpoch with
             | None ->
                 log.Error("Uncommitted {activeReads}/{maxReads} @ {validated}; writing failing: {failures} failures ({commits} successful commits)",
                         activeReads, maxReads, Option.toNullable validatedEpoch, !progCommitFails, !progCommits)
@@ -62,13 +61,13 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
             progCommits := 0; progCommitFails := 0
         else
             log.Information("Uncommitted {activeReads}/{maxReads} @ {validated} (committed: {committed})",
-                    activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable comittedEpoch)
+                    activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch)
     member __.Handle : InternalMessage -> unit = function
         | Validated epoch ->
             validatedEpoch <- Some epoch
         | ProgressResult (Choice1Of2 epoch) ->
             incr progCommits
-            comittedEpoch <- Some epoch
+            committedEpoch <- Some epoch
         | ProgressResult (Choice2Of2 (_exn : exn)) ->
             incr progCommitFails
         | Added (streams,events) ->
@@ -88,7 +87,6 @@ type Ingester<'Items,'Batch> private
         makeBatch : (unit->unit) -> 'Items -> ('Batch * (int * int)),
         submit : 'Batch -> unit,
         cts : CancellationTokenSource) =
-    let sleepInterval = int sleepInterval.TotalMilliseconds
     let maxRead = Sem maxRead
     let incoming = new ConcurrentQueue<_>()
     let messages = new ConcurrentQueue<InternalMessage>()
@@ -128,7 +126,7 @@ type Ingester<'Items,'Batch> private
                 if not worked then do! Async.Sleep sleepInterval
             with e -> log.Error(e, "Ingester exception") }
         
-    /// Starts an independent Task which handles
+    /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
     static member Start<'Item>(log, maxRead, makeBatch, submit, ?statsInterval, ?sleepInterval) =
@@ -149,4 +147,4 @@ type Ingester<'Items,'Batch> private
         return maxRead.State }
 
     /// As range assignments get revoked, a user is expected to `Stop `the active processing thread for the Ingester before releasing references to it
-    member __.Stop() = cts.Cancel() 
+    member __.Stop() = cts.Cancel()

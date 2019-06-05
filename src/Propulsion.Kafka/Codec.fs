@@ -2,8 +2,10 @@ namespace Propulsion.Kafka.Codec
 
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
+open Propulsion.Streams
 
 /// Manages injecting prepared json into the data being submitted to DocDb as-is, on the basis we can trust it to be valid json as DocDb will need it to be
+// NB this code is cloned from the Equinox repo and should remain in sync with that - there are tests pinning various behaviors to go with it there
 type VerbatimUtf8JsonConverter() =
     inherit JsonConverter()
     
@@ -38,6 +40,7 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         [<JsonConverter(typeof<VerbatimUtf8JsonConverter>)>]
         [<JsonProperty(Required=Required.Default, NullValueHandling=NullValueHandling.Ignore)>]
         m: byte[] }
+
     interface Propulsion.Streams.IEvent<byte[]> with
         member __.EventType = __.c
         member __.Data = __.d
@@ -55,12 +58,16 @@ type [<NoEquality; NoComparison>] RenderedSpan =
         /// The Events comprising this span
         e: RenderedEvent[] }
 
-/// Helpers for mapping to/from `Equinox.Codec` types
+/// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
-    let ofStreamSpan (stream : string) (span : Propulsion.Streams.StreamSpan<_>) : RenderedSpan =
+
+    let ofStreamSpan (stream : string) (span : StreamSpan<_>) : RenderedSpan =
         {   s = stream
             i = span.index
-            e = [| for x in span.events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
-    let enumEvents (span : RenderedSpan) : seq<Propulsion.Streams.IEvent<byte[]>> = Seq.cast span.e
-    let enumStreamEvents (span: RenderedSpan) : seq<Propulsion.Streams.StreamEvent<_>> = 
+            e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
+
+    let enumEvents (span : RenderedSpan) : IEvent<byte[]> seq =
+        Seq.cast span.e
+
+    let enumStreamEvents (span: RenderedSpan) : StreamEvent<_> seq = 
         enumEvents span |> Seq.mapi (fun i e -> { stream = span.s; index = span.i + int64 i; event = e })
