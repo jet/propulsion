@@ -1,6 +1,8 @@
 FSharp.Core
-System.ValueTuple
-
+FSharp.Control.AsyncSeq
 Confluent.Kafka
-System.Reactive
-NLog
+
+group Legacy
+    FSharp.Core
+    FSharp.Control.AsyncSeq
+    Confluent.Kafka

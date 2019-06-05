@@ -1,0 +1,26 @@
+type project
+id Jet.ConfluentKafka.fsharp
+title Jet.ConfluentKafka.fsharp
+requireLicenseAcceptance false
+projectUrl https://github.com/jet/confluent-kafka-fsharp
+licenseUrl https://github.com/jet/confluent-kafka-fsharp/blob/master/LICENSE.txt
+authors @jet @eulerfx @eirik
+copyright Copyright © 2018
+tags
+    kafka, fsharp
+dependencies
+  framework: net45
+    FSharp.Core >= LOCKEDVERSION-Legacy
+    FSharp.Control.AsyncSeq >= LOCKEDVERSION-Legacy
+    Confluent.Kafka == LOCKEDVERSION-Legacy
+    librdkafka.redist == LOCKEDVERSION-Legacy
+  framework: netstandard2.0
+    FSharp.Core >= LOCKEDVERSION
+    FSharp.Control.AsyncSeq >= LOCKEDVERSION
+    Confluent.Kafka == LOCKEDVERSION
+    librdkafka.redist == LOCKEDVERSION
+files
+    bin/Release/net45/Confluent.Kafka.FSharp.dll ==> lib/net45
+    bin/Release/net45/Confluent.Kafka.FSharp.xml ==> lib/net45
+    bin/Release/netstandard2.0/Confluent.Kafka.FSharp.dll ==> lib/netstandard2.0
+    bin/Release/netstandard2.0/Confluent.Kafka.FSharp.xml ==> lib/netstandard2.0

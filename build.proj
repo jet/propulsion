@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+
+  <Import Project="Directory.Build.props" />
+
+  <Target Name="Restore">
+    <Exec Command="$(MonoOrEmpty)paket.exe restore" WorkingDirectory=".paket" ConsoleToMSBuild="true" />
+  </Target>
+
+  <Target Name="Build">
+    <Exec Command='dotnet build src/Confluent.Kafka.FSharp -c Release --version-suffix "$(VersionSuffix)" ' WorkingDirectory="$(RepoRootDir)" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="Pack" DependsOnTargets="Build">
+    <PropertyGroup>
+      <NupkgVersion Condition=" '$(VersionSuffix)' == '' ">$(VersionPrefix)</NupkgVersion>
+      <NupkgVersion Condition=" '$(VersionSuffix)' != '' ">$(VersionPrefix)-$(VersionSuffix)</NupkgVersion>
+    </PropertyGroup>
+
+    <Exec Command='$(MonoOrEmpty)paket.exe pack "$(NupkgsDir)" --template "$(RepoRootDir)/src/Confluent.Kafka.FSharp/paket.template" --version $(NupkgVersion) ' WorkingDirectory=".paket" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="Test">
+    <Exec Command='dotnet test tests/Confluent.Kafka.FSharp.Tests -f netcoreapp2.0 -c Release --logger:trx' WorkingDirectory="$(RepoRootDir)" IgnoreStandardErrorWarningFormat="true" />
+  </Target>
+
+  <Target Name="VSTest" DependsOnTargets="Test" />
+
+</Project>
