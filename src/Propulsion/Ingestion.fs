@@ -19,7 +19,7 @@ type ProgressWriter<'Res when 'Res: equality>(?period,?sleep) =
     member __.Post(version,f) =
         Volatile.Write(&validatedPos,Some (version,f))
     member __.CommittedEpoch = Volatile.Read(&committedEpoch)
-    member __.Pump() = async {
+    member __.Pump = async {
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
             match Volatile.Read &validatedPos with
@@ -83,7 +83,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
 type Ingester<'Items,'Batch> private
-    (   log : ILogger, stats : Stats, maxRead, sleepInterval : TimeSpan,
+    (   stats : Stats, maxRead, sleepInterval : TimeSpan,
         makeBatch : (unit->unit) -> 'Items -> ('Batch * (int * int)),
         submit : 'Batch -> unit,
         cts : CancellationTokenSource) =
@@ -95,19 +95,20 @@ type Ingester<'Items,'Batch> private
         if x.TryDequeue &tmp then Some tmp
         else None
     let progressWriter = ProgressWriter<_>()
-    let rec tryIncoming () =
+    let tryIncoming () =
         match tryDequeue incoming with
         | None -> false
-        | Some (epoch,checkpoint,items) ->
+        | Some (epoch,checkpoint,items,outerMarkCompleted) ->
             let markCompleted () =
                 maxRead.Release()
+                outerMarkCompleted |> Option.iter (fun f -> f ()) // we guarantee this happens before checkpoint can be called
                 messages.Enqueue (Validated epoch)
                 progressWriter.Post(epoch,checkpoint)
             let batch,(streamCount, itemCount) = makeBatch markCompleted items
             submit batch
             messages.Enqueue(Added (streamCount,itemCount))
             true
-    let rec tryHandle () =
+    let tryHandle () =
         match tryDequeue messages with
         | None -> false
         | Some x ->
@@ -117,14 +118,13 @@ type Ingester<'Items,'Batch> private
     member private __.Pump() = async {
         let! ct = Async.CancellationToken
         use _ = progressWriter.Result.Subscribe(ProgressResult >> messages.Enqueue)
-        Async.Start(progressWriter.Pump(), ct)
+        let! _ = Async.StartChild(progressWriter.Pump)
         while not ct.IsCancellationRequested do
             // arguably the impl should be submitting while unpacking but
             // - maintaining consistency between incoming order and submit order is required
             // - in general maxRead will be double maxSubmit so this will only be relevant in catchup situations
-            try let worked = tryHandle () || tryIncoming () || stats.TryDump(maxRead.State)
-                if not worked then do! Async.Sleep sleepInterval
-            with e -> log.Error(e, "Ingester exception") }
+            let worked = tryHandle () || tryIncoming () || stats.TryDump(maxRead.State)
+            if not worked then do! Async.Sleep sleepInterval }
         
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
@@ -133,15 +133,17 @@ type Ingester<'Items,'Batch> private
         let maxWait, statsInterval = defaultArg sleepInterval (TimeSpan.FromMilliseconds 5.), defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let cts = new CancellationTokenSource()
         let stats = Stats(log, statsInterval)
-        let instance = Ingester<_,_>(log, stats, maxRead, maxWait, makeBatch, submit, cts)
+        let instance = Ingester<_,_>(stats, maxRead, maxWait, makeBatch, submit, cts)
         Async.Start(instance.Pump(), cts.Token)
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
     /// Returns (reads in flight,maximum reads in flight)
-    member __.Submit(epoch, checkpoint, items) = async {
+    /// markCompleted will (if supplied) be triggered when the supplied batch has completed processing
+    ///   (but prior to the calling of the checkpoint method, which will take place asynchronously)
+    member __.Submit(epoch, checkpoint, items, ?markCompleted) = async {
         // If we've read it, feed it into the queue for unpacking
-        incoming.Enqueue (epoch, checkpoint, items)
+        incoming.Enqueue (epoch, checkpoint, items, markCompleted)
         // ... but we might hold off on yielding if we're at capacity
         do! maxRead.Await(cts.Token)
         return maxRead.State }
