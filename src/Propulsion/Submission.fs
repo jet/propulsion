@@ -59,13 +59,13 @@ module Submission =
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
         let incoming = new BlockingCollection<SubmissionBatch<'M>[]>(ConcurrentQueue())
         let buffer = Dictionary<int,PartitionQueue<'B>>()
-        let mutable cycles, ingested, compacted = 0, 0, 0
+        let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
         let submittedBatches,submittedMessages = PartitionStats(), PartitionStats()
         let dumpStats () =
             let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then yield x.Key, x.Value.queue.Count } |> Seq.sortBy (fun (_,snd) -> -snd)
             log.Information("Submitter {cycles} cycles {ingested} accepted {compactions} compactions Holding {@waiting}", cycles, ingested, compacted, waiting)
-            log.Information(" Submitted Batches {@batches} Messages {@messages}", submittedBatches.StatsDescending, submittedMessages.StatsDescending)
-            ingested <- 0; compacted <- 0; cycles <- 0; submittedBatches.Clear(); submittedMessages.Clear()
+            log.Information(" Submitted {@batches} Completed {completed} Messages {@messages}", submittedBatches.StatsDescending, completed, submittedMessages.StatsDescending)
+            cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
         let maybeLogStats =
             let due = intervalCheck statsInterval
             fun () ->
@@ -95,7 +95,10 @@ module Submission =
                     match buffer.TryGetValue pid with
                     | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer.[pid] <- t; t
                     | true, pq -> pq
-                let mapped = mapBatch (fun () -> pq.submissions.Release()) batch
+                let markCompleted () =
+                    Interlocked.Increment(&completed) |> ignore
+                    pq.submissions.Release()
+                let mapped = mapBatch markCompleted batch
                 pq.Append(mapped)
             propagate()
         /// We use timeslices where we're we've fully provisioned the scheduler to index any waiting Batches

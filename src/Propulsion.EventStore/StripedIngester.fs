@@ -22,7 +22,7 @@ module StripedIngesterImpl =
             let count (xs : IDictionary<int,ResizeArray<_>>) = seq { for x in xs do buffered <- buffered + x.Value.Count; yield x.Key, x.Value.Count } |> Seq.sortBy fst |> Seq.toArray
             let ahead, ready = count readingAhead, count ready
             log.Information("Read {ingested} Cycles {cycles} Holding {buffered} Reading {@reading} Ready {@ready} Buffering {currentBuffer}/{maxBuffer}",
-                ingested, cycles, buffered, ahead, ready, currentBuffer,maxBuffer)
+                ingested, cycles, buffered, ahead, ready, currentBuffer, maxBuffer)
             ingested <- 0; cycles <- 0
         member __.Handle : InternalMessage -> unit = function
             | Batch _ -> ingested <- ingested + 1
@@ -63,10 +63,7 @@ type StripedIngester
         | Batch (seriesId, epoch, checkpoint, items) ->
             let batchInfo =
                 let items = Array.ofSeq items
-                let markCompleted = async {
-                    readMax.Release() // NB release needs to be before checkpoint, as that can fail, and will not be retried
-                    do! checkpoint }
-                epoch,markCompleted,items
+                epoch,checkpoint,items,(fun () -> readMax.Release())
             if activeSeries = seriesId then pending.Enqueue batchInfo
             else
                 match readingAhead.TryGetValue seriesId with
@@ -107,7 +104,8 @@ type StripedIngester
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
                 | false, _ -> itemLimit <- 0
             while pending.Count <> 0 do
-                let! _,_ = inner.Submit(pending.Dequeue()) in ()
+                let epoch,checkpoint,items,markCompleted = pending.Dequeue()
+                let! _,_ = inner.Submit(epoch, checkpoint, items, markCompleted) in ()
             stats.TryDump(readMax.State,readingAhead,ready)
             do! Async.Sleep pumpInterval }
 

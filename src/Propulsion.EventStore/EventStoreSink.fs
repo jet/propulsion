@@ -151,6 +151,7 @@ type EventStoreSink =
         let dumpStats (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, conns, dispatcher, projectionStats, dumpStats)
         let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
+            let onCompletion () = x.onCompletion(); onCompletion()
             Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
         let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
             streamScheduler.Submit x

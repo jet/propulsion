@@ -167,6 +167,8 @@ module Buffering =
             | None, _ -> true
     module StreamState =
         let eventsSize (x : StreamState<byte[]>) =
+            if x.IsEmpty then 0L else
+
             let mutable acc = 0
             for x in x.queue do
                 for x in x.events do
@@ -597,9 +599,10 @@ module Projector =
             Ingestion.Ingester<StreamEvent<_> seq,Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsProjectorPipeline =
-        static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition) =
+        static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
+                let onCompletion () = x.onCompletion(); onCompletion()
                 Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
             let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
                 submitStreamsBatch x
@@ -612,7 +615,7 @@ module Projector =
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
             let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue)
-            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest)
+            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 type StreamsProjector =
