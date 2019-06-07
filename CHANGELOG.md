@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
 
-- `Propulsion.EventStore.EventStoreSource` (productized from `Equinox.Templates`'s `eqxsync`)
+<a name="1.0.1-rc2"></a>
+## [1.0.1-rc2] - 2019-06-07
+
+### Added
+
+- `Propulsion.EventStore.EventStoreSource` (productized from `Equinox.Templates`'s `eqxsync`) [#1](https://github.com/jet/propulsion/pull/1)
 
 ### Changed
 
 - Targets `Microsoft.Azure.DocumentDB.ChangeFeedProcessor` v `2.2.7`, which includes critical lease management improvements
-
-### Removed
-### Fixed
 
 <a name="1.0.1-rc1"></a>
 ## [1.0.1-rc1] - 2019-06-03
@@ -59,6 +64,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc2...HEAD
+[1.0.1-rc2]: https://github.com/jet/propulsion/compare/1.0.1-rc1...1.0.1-rc2
 [1.0.1-rc1]: https://github.com/jet/propulsion/compare/1.0.0-rc13...1.0.1-rc1
 [1.0.0-rc13]: https://github.com/jet/propulsion/compare/d2caf9a007a137994e91ab709c87eb29fe32489b...1.0.0-rc13
