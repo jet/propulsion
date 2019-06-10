@@ -24,14 +24,15 @@ type StreamsProducer =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
         let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, ?customize = customize)
-        let producer = KafkaProducer.Create(log, producerConfig, topic)
+        let producers = Array.init 1 (*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
+        let robin = 0
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
             let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
             let ((eventCount,_) as stats), span = Propulsion.Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let spanJson = render (stream, span)
+            let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
             try let! _res = producer.ProduceAsync(stream,spanJson)
-                let res = ()
-                return Choice1Of2 (span.index + int64 eventCount,stats,res)
+                return Choice1Of2 (span.index + int64 eventCount,stats,())
             with e -> return Choice2Of2 (stats,e) }
         let interpretWriteResultProgress _streams _stream = function
             | Choice1Of2 (i',_, _) -> Some i'

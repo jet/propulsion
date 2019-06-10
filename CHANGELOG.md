@@ -9,6 +9,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- Average Streams latency measurements/loggging for `StreamsConsumer`
+- `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods
+
 ### Changed
 ### Removed
 ### Fixed
