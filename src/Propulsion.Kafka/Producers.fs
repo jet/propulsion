@@ -6,23 +6,24 @@ open Serilog
 open System
 
 type ParallelProducer =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, ?statsInterval)
-            : Propulsion.ProjectorPipeline<_> =
+    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, ?statsInterval, ?customize)
+        : Propulsion.ProjectorPipeline<_> =
+        let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let producer =
-            let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, maxInFlight = 1_000_000, linger = TimeSpan.Zero)
+            let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, ?customize = customize)
             KafkaProducer.Create(log, producerConfig, topic)
         let handle item = async {
             let key, value = render item
             let! _res = producer.ProduceAsync(key, value)
             return () }
-        Propulsion.Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle >> Async.Catch, ?statsInterval=statsInterval)
+        Propulsion.Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle >> Async.Catch, statsInterval=statsInterval)
 
 type StreamsProducer =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, categorize, ?statsInterval, ?stateInterval)
-            : Propulsion.ProjectorPipeline<_> =
+    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, categorize, ?statsInterval, ?stateInterval, ?customize)
+        : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
-        let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, maxInFlight = 1_000_000, linger = TimeSpan.Zero)
+        let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, ?customize = customize)
         let producer = KafkaProducer.Create(log, producerConfig, topic)
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
             let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
