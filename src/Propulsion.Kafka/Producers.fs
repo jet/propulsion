@@ -28,7 +28,7 @@ type StreamsProducer =
         let producerConfig =
             KafkaProducerConfig.Create
                 (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
-        let producers = Array.init 1 (*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
+        let producers = Array.init Environment.ProcessorCount (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
         let robin = 0
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
             let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
