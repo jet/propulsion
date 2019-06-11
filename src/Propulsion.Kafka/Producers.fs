@@ -9,11 +9,8 @@ type ParallelProducer =
     static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, clientId, broker, topic, render, ?statsInterval, ?customize)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
-        let producer =
-            let producerConfig =
-                KafkaProducerConfig.Create
-                    (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
-            KafkaProducer.Create(log, producerConfig, topic)
+        let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
+        let producer = KafkaProducer.Create(log, cfg, topic)
         let handle item = async {
             let key, value = render item
             let! _res = producer.ProduceAsync(key, value)
@@ -25,10 +22,8 @@ type StreamsProducer =
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
-        let producerConfig =
-            KafkaProducerConfig.Create
-                (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
-        let producers = Array.init Environment.ProcessorCount (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
+        let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
+        let producers = Array.init 2(*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, cfg, topic))
         let robin = 0
         let s = Propulsion.Streams.Internal.LatencyStats("json")
         let due = Propulsion.Internal.intervalCheck (TimeSpan.FromMinutes 1.)
@@ -37,8 +32,9 @@ type StreamsProducer =
             let ((eventCount,_) as stats), span = Propulsion.Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let spanJson = render (stream, span)
+            let jsonElapsed = sw.Elapsed
             lock s (fun () ->
-                s.Record sw.Elapsed
+                s.Record jsonElapsed
                 if due () then s.Dump log)
             let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
             try let! _res = producer.ProduceAsync(stream,spanJson)
