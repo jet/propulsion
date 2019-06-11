@@ -66,35 +66,42 @@ module Internal =
 
             avg    : TimeSpan
             stddev : TimeSpan option }
+    let private dumpStats (kind : string) (xs : TimeSpan seq) (log : ILogger) =
+        let sortedLatencies = xs |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
+
+        let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
+        let l = {
+            avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
+            stddev =
+                let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
+                // stdev of singletons is NaN
+                if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
+
+            min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
+            max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
+            p50 = pc 50
+            p95 = pc 95
+            p99 = pc 99 }
+        let inline sec (t:TimeSpan) = t.TotalSeconds
+        let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
+        log.Information(" {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
+            kind, sortedLatencies.Length, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
+
+    type ConcurrentLatencyStats(kind) =
+        let buffer = ConcurrentStack<TimeSpan>()
+        member __.Record value = buffer.Push value
+        member __.Dump(log : ILogger) =
+            if not buffer.IsEmpty then
+                dumpStats kind buffer log
+                buffer.Clear() // yes, there is a race
 
     type LatencyStats(kind) =
         let buffer = ResizeArray<TimeSpan>()
         member __.Record value = buffer.Add value
         member __.Dump(log : ILogger) =
-            match buffer.Count with
-            | 0 -> ()
-            | count ->
-
-            let sortedLatencies = buffer |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
-            buffer.Clear()
-
-            let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
-            let l = {
-                avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
-                stddev =
-                    let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
-                    // stdev of singletons is NaN
-                    if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
-
-                min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
-                max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
-                p50 = pc 50
-                p95 = pc 95
-                p99 = pc 99 }
-            let inline sec (t:TimeSpan) = t.TotalSeconds
-            let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
-            log.Information( " {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
-                             kind, count, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
+            if buffer.Count <> 0 then
+                dumpStats kind buffer log
+                buffer.Clear()
 
 open Internal
 
