@@ -25,18 +25,18 @@ type StreamsProducer =
         let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
         let producers = Array.init 2(*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, cfg, topic))
         let robin = 0
-        let s = Propulsion.Streams.Internal.ConcurrentLatencyStats("json")
-        let due = Propulsion.Internal.intervalCheck (TimeSpan.FromMinutes 1.)
+        let jsonStats = Propulsion.Streams.Internal.ConcurrentLatencyStats("json")
+        let produceStats = Propulsion.Streams.Internal.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
             let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
             let ((eventCount,_) as stats), span = Propulsion.Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let spanJson = render (stream, span)
-            let jsonElapsed = sw.Elapsed
-            s.Record jsonElapsed
-            if due () then s.Dump log
+            jsonStats.Record sw.Elapsed
             let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
-            try let! _res = producer.ProduceAsync(stream,spanJson)
+            try let sw = System.Diagnostics.Stopwatch.StartNew()
+                let! _res = producer.ProduceAsync(stream,spanJson)
+                produceStats.Record sw.Elapsed
                 return Choice1Of2 (span.index + int64 eventCount,stats,())
             with e -> return Choice2Of2 (stats,e) }
         let interpretWriteResultProgress _streams _stream = function
@@ -46,5 +46,9 @@ type StreamsProducer =
         let streamScheduler =
             Propulsion.Streams.Scheduling.StreamSchedulingEngine<_,_>(
                 dispatcher, projectionAndKafkaStats, attemptWrite, interpretWriteResultProgress,
-                fun s l -> s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize))
-        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
+                fun s l ->
+                    s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
+                    produceStats.Dump l
+                    jsonStats.Dump l)
+        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start
+            (log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)

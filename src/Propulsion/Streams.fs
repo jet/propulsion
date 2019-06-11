@@ -87,6 +87,7 @@ module Internal =
         log.Information(" {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
             kind, sortedLatencies.Length, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
 
+    /// Operations on an instance are safe cross-thread
     type ConcurrentLatencyStats(kind) =
         let buffer = ConcurrentStack<TimeSpan>()
         member __.Record value = buffer.Push value
@@ -95,6 +96,7 @@ module Internal =
                 dumpStats kind buffer log
                 buffer.Clear() // yes, there is a race
 
+    /// Should only be used on one thread
     type LatencyStats(kind) =
         let buffer = ResizeArray<TimeSpan>()
         member __.Record value = buffer.Add value
@@ -666,7 +668,8 @@ module Projector =
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
             let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue)
-            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
+            let startIngester (rangeLog, projectionId) =
+                StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 type StreamsProjector =

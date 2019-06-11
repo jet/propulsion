@@ -39,7 +39,7 @@ type private InternalMessage =
     /// Internal message for stats purposes
     | Added of streams: int * events: int
 
-type private Stats(log : ILogger, statsInterval : TimeSpan) =
+type private Stats(log : ILogger, statsInterval : TimeSpan, ?dumpExtraStats) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
     let progCommitFails, progCommits = ref 0, ref 0 
     let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
@@ -77,7 +77,9 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
     member __.TryDump(readState) =
         incr cycles
         let due = statsDue ()
-        if due then dumpStats readState
+        if due then
+            dumpStats readState
+            dumpExtraStats |> Option.iter (fun f -> f log)
         due
 
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
@@ -129,10 +131,10 @@ type Ingester<'Items,'Batch> private
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Item>(log, maxRead, makeBatch, submit, ?statsInterval, ?sleepInterval) =
+    static member Start<'Item>(log, maxRead, makeBatch, submit, ?statsInterval, ?sleepInterval, ?dumpExtraStats) =
         let maxWait, statsInterval = defaultArg sleepInterval (TimeSpan.FromMilliseconds 5.), defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let cts = new CancellationTokenSource()
-        let stats = Stats(log, statsInterval)
+        let stats = Stats(log, statsInterval, ?dumpExtraStats = dumpExtraStats)
         let instance = Ingester<_,_>(stats, maxRead, maxWait, makeBatch, submit, cts)
         Async.Start(instance.Pump(), cts.Token)
         instance
