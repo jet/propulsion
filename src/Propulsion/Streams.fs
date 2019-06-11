@@ -57,6 +57,45 @@ module Internal =
         member __.Clear() = cats.Clear()
         member __.StatsDescending = cats |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
 
+    type private Data =
+        {   min    : TimeSpan
+            p50    : TimeSpan
+            p95    : TimeSpan
+            p99    : TimeSpan
+            max    : TimeSpan
+
+            avg    : TimeSpan
+            stddev : TimeSpan option }
+
+    type LatencyStats(kind) =
+        let buffer = ResizeArray<TimeSpan>()
+        member __.Record value = buffer.Add value
+        member __.Dump(log : ILogger) =
+            match buffer.Count with
+            | 0 -> ()
+            | count ->
+
+            let sortedLatencies = buffer |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
+            buffer.Clear()
+
+            let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
+            let l = {
+                avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
+                stddev =
+                    let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
+                    // stdev of singletons is NaN
+                    if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
+
+                min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
+                max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
+                p50 = pc 50
+                p95 = pc 95
+                p99 = pc 99 }
+            let inline sec (t:TimeSpan) = t.TotalSeconds
+            let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
+            log.Information( " {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
+                             kind, count, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
+
 open Internal
 
 [<AutoOpen>]
@@ -313,38 +352,6 @@ module Scheduling =
         /// Result of processing on stream - result (with basic stats) or the `exn` encountered
         | Result of duration : TimeSpan * (string * 'R)
        
-    module LatencyStatistics =
-        type private Data =
-            {   min    : TimeSpan
-                p50    : TimeSpan
-                p95    : TimeSpan
-                p99    : TimeSpan
-                max    : TimeSpan
-
-                avg    : TimeSpan
-                stddev : TimeSpan option }
-        let log (log : ILogger) (kind : string) (testResults : ResizeArray<TimeSpan>) =
-            if testResults.Count = 0 then () else
-
-            let sortedLatencies = testResults |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
-            let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
-            let l = {
-                avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
-                stddev =
-                    let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
-                    // stdev of singletons is NaN
-                    if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
-
-                min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
-                max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
-                p50 = pc 50
-                p95 = pc 95
-                p99 = pc 99 }
-            let inline sec (t:TimeSpan) = t.TotalSeconds
-            let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
-            log.Information( " {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
-                             kind, testResults.Count, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
-
     type BufferState = Idle | Busy | Full | Slipstreaming
 
     /// Gathers stats pertaining to the core projection/ingestion activity
@@ -353,14 +360,12 @@ module Scheduling =
         let batchesPended, streamsPended, eventsSkipped, eventsPended = ref 0, ref 0, ref 0, ref 0
         let statsDue, stateDue = intervalCheck statsInterval, intervalCheck stateInterval
         let mutable dt,ft,it,st,mt = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
-        let oks, exns = ResizeArray(), ResizeArray()
+        let oks, exns = LatencyStats("ok"), LatencyStats("exceptions")
         let dumpStats (dispatchActive,dispatchMax) batchesWaiting =
             log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors}",
                 !cycles, !fullCycles, states.StatsDescending, dispatchActive, dispatchMax)
             cycles := 0; fullCycles := 0; states.Clear()
-            LatencyStatistics.log log "ok" oks
-            LatencyStatistics.log log "exceptions" exns
-            oks.Clear(); exns.Clear()
+            oks.Dump log; exns.Dump log
             log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{skipped:n0}e)",
                 batchesWaiting, !batchesPended, !streamsPended, !eventsSkipped + !eventsPended, !eventsSkipped)
             batchesPended := 0; streamsPended := 0; eventsSkipped := 0; eventsPended := 0
@@ -375,9 +380,9 @@ module Scheduling =
                 eventsPended := !eventsPended + events
                 eventsSkipped := !eventsSkipped + skipped
             | Result (duration, (_stream, Choice1Of2 _)) ->
-                oks.Add duration
+                oks.Record duration
             | Result (duration, (_stream, Choice2Of2 _)) ->
-                exns.Add duration
+                exns.Record duration
         member __.DumpStats((used,max), batchesWaiting) =
             incr cycles
             if statsDue () then

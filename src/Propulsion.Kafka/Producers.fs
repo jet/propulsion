@@ -30,10 +30,16 @@ type StreamsProducer =
                 (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
         let producers = Array.init Environment.ProcessorCount (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
         let robin = 0
+        let s = Propulsion.Streams.Internal.LatencyStats("json")
+        let due = Propulsion.Internal.intervalCheck (TimeSpan.FromMinutes 1.)
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
             let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
             let ((eventCount,_) as stats), span = Propulsion.Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
+            let sw = System.Diagnostics.Stopwatch.StartNew()
             let spanJson = render (stream, span)
+            lock s (fun () ->
+                s.Record sw.Elapsed
+                if due () then s.Dump log)
             let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
             try let! _res = producer.ProduceAsync(stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,stats,())
