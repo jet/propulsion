@@ -21,7 +21,7 @@ type StreamsProducer =
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
-        let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.FromMilliseconds 2., maxInFlight = 1_000_000, ?customize = customize)
+        let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.FromMilliseconds 5., maxInFlight = 1_000_000, ?customize = customize)
         let producers = Array.init (defaultArg producerParallelism 1) (fun _i -> KafkaProducer.Create(log, cfg, topic))
         let robin = 0
         let jsonStats = Propulsion.Streams.Internal.ConcurrentLatencyStats("json")
