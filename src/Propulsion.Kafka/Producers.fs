@@ -13,8 +13,7 @@ type ParallelProducer =
         let producer = KafkaProducer.Create(log, cfg, topic)
         let handle item = async {
             let key, value = render item
-            let! _res = producer.ProduceAsync(key, value)
-            return () }
+            do! Async.Ignore <| producer.ProduceAsync(key, value) }
         Propulsion.Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle >> Async.Catch, statsInterval=statsInterval)
 
 type StreamsProducer =
@@ -23,7 +22,7 @@ type StreamsProducer =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
         let cfg = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
-        let producers = Array.init 2(*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, cfg, topic))
+        let producers = Array.init 1(*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, cfg, topic))
         let robin = 0
         let jsonStats = Propulsion.Streams.Internal.ConcurrentLatencyStats("json")
         let produceStats = Propulsion.Streams.Internal.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
@@ -50,5 +49,4 @@ type StreamsProducer =
                     s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
                     produceStats.Dump l
                     jsonStats.Dump l)
-        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start
-            (log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
+        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
