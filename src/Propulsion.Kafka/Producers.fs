@@ -10,7 +10,9 @@ type ParallelProducer =
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let producer =
-            let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, ?customize = customize)
+            let producerConfig =
+                KafkaProducerConfig.Create
+                    (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
             KafkaProducer.Create(log, producerConfig, topic)
         let handle item = async {
             let key, value = render item
@@ -23,7 +25,9 @@ type StreamsProducer =
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionAndKafkaStats = Propulsion.Streams.Projector.Stats(log.ForContext<Propulsion.Streams.Projector.Stats>(), categorize, statsInterval, stateInterval)
-        let producerConfig = KafkaProducerConfig.Create(clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, ?customize = customize)
+        let producerConfig =
+            KafkaProducerConfig.Create
+                (   clientId, broker, Acks.Leader, compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000, ?customize = customize)
         let producers = Array.init 1 (*Environment.ProcessorCount*) (fun _i -> KafkaProducer.Create(log, producerConfig, topic))
         let robin = 0
         let attemptWrite (_writePos,stream,fullBuffer : Propulsion.Streams.StreamSpan<_>) = async {
