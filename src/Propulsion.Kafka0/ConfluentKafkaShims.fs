@@ -39,7 +39,7 @@ module Config =
 
     (* shared keys applying to producers and consumers alike *)
 
-    let bootstrapServers              = mkKey "bootstrap.servers" id<string>
+    let bootstrapServers    = mkKey "bootstrap.servers" id<string>
     let clientId            = mkKey "client.id" id<string>
     let logConnectionClose  = mkKey "log.connection.close" id<bool>
     let maxInFlight         = mkKey "max.in.flight.requests.per.connection" id<int>

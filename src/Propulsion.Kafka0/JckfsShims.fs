@@ -213,10 +213,12 @@ type ConsumerBuilder =
             log.Error("Consuming... Error reason={reason} code={code} broker={isBrokerError}", e.Reason, e.Code, e.IsBrokerError))
         let d3 = c.OnPartitionsAssigned.Subscribe(fun tps ->
             for topic,partitions in tps |> Seq.groupBy (fun p -> p.Topic) |> Seq.map (fun (t,ps) -> t, [| for p in ps -> p.Partition |]) do
-                log.Information("Consuming... Assigned {topic:l} {partitions}", topic, partitions))
+                log.Information("Consuming... Assigned {topic:l} {partitions}", topic, partitions)
+            c.Assign tps)
         let d4 = c.OnPartitionsRevoked.Subscribe(fun tps ->
             for topic,partitions in tps |> Seq.groupBy (fun p -> p.Topic) |> Seq.map (fun (t,ps) -> t, [| for p in ps -> p.Partition |]) do
                 log.Information("Consuming... Revoked {topic:l} {partitions}", topic, partitions)
+            c.Unassign ()
             onRevoke |> Option.iter (fun f -> f tps))
         let d5 = c.OnPartitionEOF.Subscribe(fun tpo ->
             log.Verbose("Consuming... EOF {topic} partition={partition} offset={offset}", tpo.Topic, tpo.Partition, let o = tpo.Offset in o.Value))
