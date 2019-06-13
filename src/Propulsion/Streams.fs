@@ -365,11 +365,10 @@ module Scheduling =
 
     /// Gathers stats pertaining to the core projection/ingestion activity
     type StreamSchedulerStats<'R,'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
-        let states, fullCycles, cycles = CatStats(), ref 0, ref 0
+        let cycles, fullCycles, states, oks, exns = ref 0, ref 0, CatStats(), LatencyStats("ok"), LatencyStats("exceptions")
         let batchesPended, streamsPended, eventsSkipped, eventsPended = ref 0, ref 0, ref 0, ref 0
         let statsDue, stateDue = intervalCheck statsInterval, intervalCheck stateInterval
         let mutable dt,ft,it,st,mt = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
-        let oks, exns = LatencyStats("ok"), LatencyStats("exceptions")
         let dumpStats (dispatchActive,dispatchMax) batchesWaiting =
             log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors}",
                 !cycles, !fullCycles, states.StatsDescending, dispatchActive, dispatchMax)
