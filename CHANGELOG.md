@@ -14,6 +14,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods
 
 ### Changed
+
+- Tidied Cosmos ingester lag breakdown
+
 ### Removed
 ### Fixed
 
