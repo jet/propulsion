@@ -47,12 +47,6 @@ module private Config =
 
         else u.Authority
 
-[<AutoOpen>]
-module Impl =
-    let encoding = System.Text.Encoding.UTF8
-    let mkSerializer() = new Confluent.Kafka.Serialization.StringSerializer(encoding)
-    let mkDeserializer() = new Confluent.Kafka.Serialization.StringDeserializer(encoding)
-
 /// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md for documentation on the implications of specfic settings
 [<NoComparison>]
 type KafkaProducerConfig private (inner, broker : Uri) =
@@ -105,6 +99,12 @@ type KafkaProducerConfig private (inner, broker : Uri) =
         customize |> Option.iter (fun f -> f c)
         KafkaProducerConfig(c, broker)
 
+[<AutoOpen>]
+module Impl =
+    let encoding = System.Text.Encoding.UTF8
+    let mkSerializer() = new Confluent.Kafka.Serialization.StringSerializer(encoding)
+    let mkDeserializer() = new Confluent.Kafka.Serialization.StringDeserializer(encoding)
+
 /// Creates and wraps a Confluent.Kafka Producer with the supplied configuration
 type KafkaProducer private (inner : Producer<string, string>, topic : string, unsub) =
     member __.Inner = inner
@@ -130,6 +130,72 @@ type KafkaProducer private (inner : Producer<string, string>, topic : string, un
         let d2 = p.OnError.Subscribe(fun e -> log.Error("Producing... {reason} code={code} isBrokerError={isBrokerError}", e.Reason, e.Code, e.IsBrokerError))
         new KafkaProducer(p, topic, fun () -> for x in [d1;d2] do x.Dispose())
 
+type IProducer<'K,'V> = Confluent.Kafka.Producer<'K,'V>
+type DeliveryReport<'K,'V> = Confluent.Kafka.Message<'K,'V>
+
+type BatchedProducer private (log: ILogger, inner : IProducer<string, string>, topic : string) =
+    member __.Inner = inner
+    member __.Topic = topic
+
+    interface IDisposable with member __.Dispose() = inner.Dispose()
+
+    /// Produces a batch of supplied key/value messages. Results are returned in order of writing (which may vary from order of submission).
+    /// <throws>
+    ///    1. if there is an immediate local config issue
+    ///    2. upon receipt of the first failed `DeliveryReport` (NB without waiting for any further reports, which can potentially leave some results in doubt should a 'batch' get split) </throws>
+    /// <remarks>
+    ///    Note that the delivery and/or write order may vary from the supplied order unless `maxInFlight` is 1 (which massively constrains throughput).
+    ///    Thus it's important to note that supplying >1 item into the queue bearing the same key without maxInFlight=1 risks them being written out of order onto the topic.<remarks/>
+    member __.ProduceBatch(keyValueBatch : (string * string)[]) = async {
+        if Array.isEmpty keyValueBatch then return [||] else
+
+        let! ct = Async.CancellationToken
+
+        let tcs = new TaskCompletionSource<DeliveryReport<_,_>[]>()
+        let numMessages = keyValueBatch.Length
+        let results = Array.zeroCreate<DeliveryReport<_,_>> numMessages
+        let numCompleted = ref 0
+
+        use _ = ct.Register(fun _ -> tcs.TrySetCanceled() |> ignore)
+
+        let handler (m : DeliveryReport<string,string>) =
+            if m.Error.HasError then
+                let errorMsg = exn (sprintf "Error on message topic=%s code=%O reason=%s" m.Topic m.Error.Code m.Error.Reason)
+                tcs.TrySetException errorMsg |> ignore
+            else
+                let i = Interlocked.Increment numCompleted
+                results.[i - 1] <- m
+                if i = numMessages then tcs.TrySetResult results |> ignore 
+        let handler' =
+            { new IDeliveryHandler<string, string> with
+                member __.MarshalData = false
+                member __.HandleDeliveryReport m = handler m }
+        for key,value in keyValueBatch do
+            inner.ProduceAsync(topic, key, value, blockIfQueueFull = true, deliveryHandler = handler')
+        log.Debug("Produced {count}",!numCompleted)
+        return! Async.AwaitTaskCorrect tcs.Task }
+
+    /// Creates and wraps a Confluent.Kafka Producer that affords a batched production mode.
+    /// The default settings represent a best effort at providing batched, ordered delivery semantics
+    /// NB See caveats on the `ProduceBatch` API for further detail as to the semantics
+    static member CreateWithConfigOverrides
+        (   log : ILogger, config : KafkaProducerConfig, topic : string,
+            /// Default: 1
+            /// NB Having a <> 1 value for maxInFlight runs two risks due to the intrinsic lack of
+            /// batching mechanisms within the Confluent.Kafka client:
+            /// 1) items within the initial 'batch' can get written out of order in the face of timeouts and/or retries
+            /// 2) items beyond the linger period may enter a separate batch, which can potentially get scheduled for transmission out of order
+            ?maxInFlight,
+            /// Having a non-zero linger is critical to items getting into the correct groupings
+            /// (even if it of itself does not guarantee anything based on Kafka's guarantees). Default: 100ms
+            ?linger: TimeSpan) : BatchedProducer =
+        let lingerMs = match linger with Some x -> int x.TotalMilliseconds | None -> 100
+        log.Information("Producing... Using batch Mode with linger={lingerMs}", lingerMs)
+        config.Inner.LingerMs <- Nullable lingerMs
+        config.Inner.MaxInFlight <- Nullable (defaultArg maxInFlight 1)
+        let inner = KafkaProducer.Create(log, config, topic)
+        new BatchedProducer(log, inner.Inner, topic)
+        
 /// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md for documentation on the implications of specfic settings
 [<NoComparison>]
 type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list; buffering: Core.ConsumerBufferingConfig } with
@@ -248,69 +314,3 @@ type ConsumerBuilder =
         consumer.Subscribe config.topics
         let unsubLog = ConsumerBuilder.WithLogging(log, consumer, config.topics, ?onRevoke = onRevoke)
         consumer, unsubLog
-
-type IProducer<'K,'V> = Confluent.Kafka.Producer<'K,'V>
-type DeliveryReport<'K,'V> = Confluent.Kafka.Message<'K,'V>
-
-type BatchedProducer private (log: ILogger, inner : IProducer<string, string>, topic : string) =
-    member __.Inner = inner
-    member __.Topic = topic
-
-    interface IDisposable with member __.Dispose() = inner.Dispose()
-
-    /// Produces a batch of supplied key/value messages. Results are returned in order of writing (which may vary from order of submission).
-    /// <throws>
-    ///    1. if there is an immediate local config issue
-    ///    2. upon receipt of the first failed `DeliveryReport` (NB without waiting for any further reports, which can potentially leave some results in doubt should a 'batch' get split) </throws>
-    /// <remarks>
-    ///    Note that the delivery and/or write order may vary from the supplied order unless `maxInFlight` is 1 (which massively constrains throughput).
-    ///    Thus it's important to note that supplying >1 item into the queue bearing the same key without maxInFlight=1 risks them being written out of order onto the topic.<remarks/>
-    member __.ProduceBatch(keyValueBatch : (string * string)[]) = async {
-        if Array.isEmpty keyValueBatch then return [||] else
-
-        let! ct = Async.CancellationToken
-
-        let tcs = new TaskCompletionSource<DeliveryReport<_,_>[]>()
-        let numMessages = keyValueBatch.Length
-        let results = Array.zeroCreate<DeliveryReport<_,_>> numMessages
-        let numCompleted = ref 0
-
-        use _ = ct.Register(fun _ -> tcs.TrySetCanceled() |> ignore)
-
-        let handler (m : DeliveryReport<string,string>) =
-            if m.Error.HasError then
-                let errorMsg = exn (sprintf "Error on message topic=%s code=%O reason=%s" m.Topic m.Error.Code m.Error.Reason)
-                tcs.TrySetException errorMsg |> ignore
-            else
-                let i = Interlocked.Increment numCompleted
-                results.[i - 1] <- m
-                if i = numMessages then tcs.TrySetResult results |> ignore 
-        let handler' =
-            { new IDeliveryHandler<string, string> with
-                member __.MarshalData = false
-                member __.HandleDeliveryReport m = handler m }
-        for key,value in keyValueBatch do
-            inner.ProduceAsync(topic, key, value, blockIfQueueFull = true, deliveryHandler = handler')
-        log.Debug("Produced {count}",!numCompleted)
-        return! Async.AwaitTaskCorrect tcs.Task }
-
-    /// Creates and wraps a Confluent.Kafka Producer that affords a batched production mode.
-    /// The default settings represent a best effort at providing batched, ordered delivery semantics
-    /// NB See caveats on the `ProduceBatch` API for further detail as to the semantics
-    static member CreateWithConfigOverrides
-        (   log : ILogger, config : KafkaProducerConfig, topic : string,
-            /// Default: 1
-            /// NB Having a <> 1 value for maxInFlight runs two risks due to the intrinsic lack of
-            /// batching mechanisms within the Confluent.Kafka client:
-            /// 1) items within the initial 'batch' can get written out of order in the face of timeouts and/or retries
-            /// 2) items beyond the linger period may enter a separate batch, which can potentially get scheduled for transmission out of order
-            ?maxInFlight,
-            /// Having a non-zero linger is critical to items getting into the correct groupings
-            /// (even if it of itself does not guarantee anything based on Kafka's guarantees). Default: 100ms
-            ?linger: TimeSpan) : BatchedProducer =
-        let lingerMs = match linger with Some x -> int x.TotalMilliseconds | None -> 100
-        log.Information("Producing... Using batch Mode with linger={lingerMs}", lingerMs)
-        config.Inner.LingerMs <- Nullable lingerMs
-        config.Inner.MaxInFlight <- Nullable (defaultArg maxInFlight 1)
-        let inner = KafkaProducer.Create(log, config, topic)
-        new BatchedProducer(log, inner.Inner, topic)
