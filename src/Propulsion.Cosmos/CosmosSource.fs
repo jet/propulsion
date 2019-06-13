@@ -33,8 +33,14 @@ type CosmosSource =
             discovery, connectionPolicy, source,
             aux, leaseId, startFromTail, createObserver,
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxDiscovery) = async {
-        let logLag (interval : TimeSpan) (remainingWork : (int*int64) seq) = async {
-            log.Information("Backlog {backlog:n0} (by range: {@rangeLags})", remainingWork |> Seq.map snd |> Seq.sum, remainingWork |> Seq.sortBy fst)
+        let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
+            let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
+            for partitionId, lag as value in remainingWork do
+                total := !total + lag
+                incr count
+                if lag = 0L then synced.Add partitionId else lagged.Add value
+            log.Information("Backlog {backlog:n0} / {count} Lagging {lagging} Synced {in-sync}",
+                !total, !count, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
         let! _feedEventHost =
