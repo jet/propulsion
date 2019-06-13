@@ -19,11 +19,13 @@
     <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.Kafka0 $(Cfg) $(PackOptions)" />
   </Target>
 
   <Target Name="VSTest">
     <Exec Command="dotnet test tests/Propulsion.Tests $(Cfg) $(TestOptions)" />
     <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
+    <Exec Command="dotnet test tests/Propulsion.Kafka0.Integration $(Cfg) $(TestOptions)" />
   </Target>
 
   <Target Name="Build" DependsOnTargets="Pack;VSTest" />
