@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Streams
 
+open MathNet.Numerics.Statistics
 open Propulsion
 open Serilog
 open System
@@ -55,6 +56,54 @@ module Internal =
         member __.Any = cats.Count <> 0
         member __.Clear() = cats.Clear()
         member __.StatsDescending = cats |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
+
+    type private Data =
+        {   min    : TimeSpan
+            p50    : TimeSpan
+            p95    : TimeSpan
+            p99    : TimeSpan
+            max    : TimeSpan
+
+            avg    : TimeSpan
+            stddev : TimeSpan option }
+    let private dumpStats (kind : string) (xs : TimeSpan seq) (log : ILogger) =
+        let sortedLatencies = xs |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
+
+        let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
+        let l = {
+            avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
+            stddev =
+                let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
+                // stdev of singletons is NaN
+                if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
+
+            min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
+            max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
+            p50 = pc 50
+            p95 = pc 95
+            p99 = pc 99 }
+        let inline sec (t:TimeSpan) = t.TotalSeconds
+        let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
+        log.Information(" {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
+            kind, sortedLatencies.Length, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
+
+    /// Operations on an instance are safe cross-thread
+    type ConcurrentLatencyStats(kind) =
+        let buffer = ConcurrentStack<TimeSpan>()
+        member __.Record value = buffer.Push value
+        member __.Dump(log : ILogger) =
+            if not buffer.IsEmpty then
+                dumpStats kind buffer log
+                buffer.Clear() // yes, there is a race
+
+    /// Should only be used on one thread
+    type LatencyStats(kind) =
+        let buffer = ResizeArray<TimeSpan>()
+        member __.Record value = buffer.Add value
+        member __.Dump(log : ILogger) =
+            if buffer.Count <> 0 then
+                dumpStats kind buffer log
+                buffer.Clear()
 
 open Internal
 
@@ -310,19 +359,21 @@ module Scheduling =
         /// Stats per submitted batch for stats listeners to aggregate
         | Added of streams: int * skip: int * events: int
         /// Result of processing on stream - result (with basic stats) or the `exn` encountered
-        | Result of stream: string * outcome: 'R
+        | Result of duration : TimeSpan * (string * 'R)
        
     type BufferState = Idle | Busy | Full | Slipstreaming
+
     /// Gathers stats pertaining to the core projection/ingestion activity
     type StreamSchedulerStats<'R,'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
-        let states, fullCycles, cycles, resultCompleted, resultExn = CatStats(), ref 0, ref 0, ref 0, ref 0
+        let cycles, fullCycles, states, oks, exns = ref 0, ref 0, CatStats(), LatencyStats("ok"), LatencyStats("exceptions")
         let batchesPended, streamsPended, eventsSkipped, eventsPended = ref 0, ref 0, ref 0, ref 0
         let statsDue, stateDue = intervalCheck statsInterval, intervalCheck stateInterval
         let mutable dt,ft,it,st,mt = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
         let dumpStats (dispatchActive,dispatchMax) batchesWaiting =
-            log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors} Completed {completed} Exceptions {exns}",
-                !cycles, !fullCycles, states.StatsDescending, dispatchActive, dispatchMax, !resultCompleted, !resultExn)
-            cycles := 0; fullCycles := 0; states.Clear(); resultCompleted := 0; resultExn:= 0
+            log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors}",
+                !cycles, !fullCycles, states.StatsDescending, dispatchActive, dispatchMax)
+            cycles := 0; fullCycles := 0; states.Clear()
+            oks.Dump log; exns.Dump log
             log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{skipped:n0}e)",
                 batchesWaiting, !batchesPended, !streamsPended, !eventsSkipped + !eventsPended, !eventsSkipped)
             batchesPended := 0; streamsPended := 0; eventsSkipped := 0; eventsPended := 0
@@ -336,10 +387,10 @@ module Scheduling =
                 streamsPended := !streamsPended + streams
                 eventsPended := !eventsPended + events
                 eventsSkipped := !eventsSkipped + skipped
-            | Result (_stream, Choice1Of2 _) ->
-                incr resultCompleted
-            | Result (_stream, Choice2Of2 _) ->
-                incr resultExn
+            | Result (duration, (_stream, Choice1Of2 _)) ->
+                oks.Record duration
+            | Result (duration, (_stream, Choice2Of2 _)) ->
+                exns.Record duration
         member __.DumpStats((used,max), batchesWaiting) =
             incr cycles
             if statsDue () then
@@ -366,11 +417,12 @@ module Scheduling =
     type Dispatcher<'R>(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag'sthread-affinity
         let work = new BlockingCollection<_>(ConcurrentQueue<_>()) 
-        let result = Event<'R>()
+        let result = Event<TimeSpan * 'R>()
         let dop = Sem maxDop
         let dispatch work = async {
+            let sw = Stopwatch.StartNew()
             let! res = work
-            result.Trigger res
+            result.Trigger(sw.Elapsed, res)
             dop.Release() } 
         [<CLIEvent>] member __.Result = result.Publish
         member __.HasCapacity = dop.HasCapacity
@@ -448,7 +500,7 @@ module Scheduling =
                     let x = workLocalBuffer.[i]
                     match x with
                     | Added _ -> () // Only processed in Stats (and actually never enters this queue)
-                    | Result (stream,res) ->
+                    | Result (_duration,(stream,res)) ->
                         match interpretProgress streams stream res with
                         | None -> streams.MarkFailed stream
                         | Some index ->
@@ -577,12 +629,12 @@ module Projector =
             base.Handle message
             match message with
             | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.Result (stream, Choice1Of2 (_,(es,bs),_r)) ->
+            | Scheduling.Result (_duration, (stream, Choice1Of2 (_,(es,bs),_r))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 incr resultOk
-            | Scheduling.Result (stream, Choice2Of2 ((es,bs),exn)) ->
+            | Scheduling.Result (_duration, (stream, Choice2Of2 ((es,bs),exn))) ->
                 bads stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs

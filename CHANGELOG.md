@@ -9,9 +9,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Core`: Average Streams latency measurements/loggging for `StreamsConsumer` [#3](https://github.com/jet/propulsion/pull/3)
+- `Kafka`: `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods [#3](https://github.com/jet/propulsion/pull/3)
+- `Kafka`: `producerParallelism` option [#3](https://github.com/jet/propulsion/pull/3)
+
 ### Changed
 
-- Tidied Cosmos ingester lag breakdown
+- `Propulsion.Cosmos`: Tidied Cosmos ingester lag breakdown
+- Targeted `Jet.ConfluentKafka.FSharp` v `1.0.1` [#3](https://github.com/jet/propulsion/pull/3)
 
 ### Removed
 ### Fixed
