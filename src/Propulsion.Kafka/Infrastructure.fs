@@ -1,10 +1,10 @@
-namespace Propulsion.Kafka
+namespace Propulsion.Kafka.Internal
 
 open System
 open System.Threading.Tasks
 
 [<AutoOpen>]
-module private AsyncHelpers =
+module AsyncHelpers =
     type Async with
         static member AwaitTaskCorrect (task : Task<'T>) : Async<'T> =
             Async.FromContinuations <| fun (k,ek,_) ->

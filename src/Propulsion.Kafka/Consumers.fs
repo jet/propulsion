@@ -3,7 +3,8 @@
 open Confluent.Kafka
 open Jet.ConfluentKafka.FSharp
 open Propulsion
-open Propulsion.Internal
+open Propulsion.Internal // intervalCheck
+open Propulsion.Kafka.Internal // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
@@ -12,7 +13,7 @@ open System.Threading
 open System.Threading.Tasks
 
 [<AutoOpen>]
-module private Helpers =
+module private Impl =
 
     /// Maintains a Stopwatch used to drive a periodic loop, computing the remaining portion of the period per invocation
     /// - `Some remainder` if the interval has time remaining
@@ -23,11 +24,6 @@ module private Helpers =
             match period - timer.Elapsed with
             | remainder when remainder.Ticks > 0L -> Some remainder
             | _ -> timer.Restart(); None
-
-/// Manages efficiently and continuously reading from the Confluent.Kafka consumer, offloading the pushing of those batches onward to the Submitter
-/// Responsible for ensuring we over-read, which would cause the rdkafka buffers to overload the system in terms of memory usage
-[<AutoOpen>]
-module KafkaIngestion =
 
     /// Retains the messages we've accumulated for a given Partition
     [<NoComparison>]
@@ -49,71 +45,70 @@ module KafkaIngestion =
         let inline len (x:string) = match x with null -> 0 | x -> sizeof<char> * x.Length
         16 + len message.Key + len message.Value |> int64
 
-    /// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accummulated messages as
-    ///   checkpointable Batches
-    /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
-    type KafkaIngestionEngine<'M>
-        (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
-            emitInterval, statsInterval) =
-        let acc = Dictionary()
-        let remainingIngestionWindow = intervalTimer emitInterval
-        let mutable intervalMsgs, intervalChars, totalMessages, totalChars = 0L, 0L, 0L, 0L
-        let dumpStats () =
-            totalMessages <- totalMessages + intervalMsgs; totalChars <- totalChars + intervalChars
-            log.Information("Ingested {msgs:n0}m, {chars:n0}c In-flight ~{inflightMb:n1}MB Σ {totalMessages:n0} messages, {totalChars:n0} chars",
-                intervalMsgs, intervalChars, counter.InFlightMb, totalMessages, totalChars)
-            intervalMsgs <- 0L; intervalChars <- 0L
-        let maybeLogStats =
-            let due = intervalCheck statsInterval
-            fun () -> if due () then dumpStats ()
-        let ingest message =
-            let sz = approximateMessageBytes message
-            counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
-            intervalMsgs <- intervalMsgs + 1L
-            intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
-            let partitionId = let p = message.Partition in p.Value
-            match acc.TryGetValue partitionId with
-            | false, _ -> acc.[partitionId] <- PartitionBuffer<'M>.Create(sz,message,mapMessage)
-            | true, span -> span.Enqueue(sz,message,mapMessage)
-        let submit () =
-            match acc.Count with
-            | 0 -> ()
-            | partitionsWithMessagesThisInterval ->
-                let tmp = ResizeArray<Submission.SubmissionBatch<'M>>(partitionsWithMessagesThisInterval)
-                for KeyValue(partitionIndex,span) in acc do
-                    let checkpoint () =
-                        counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, above
-                        try consumer.StoreOffset(span.highWaterMark)
-                        with e -> log.Error(e, "Consuming... storing offsets failed")
-                    tmp.Add { partitionId = partitionIndex; onCompletion = checkpoint; messages = span.messages.ToArray() }
-                acc.Clear()
-                emit <| tmp.ToArray()
-        member __.Pump() = async {
-            let! ct = Async.CancellationToken
-            use _ = consumer // Dispose it at the end (NB but one has to Close first or risk AccessViolations etc)
-            try while not ct.IsCancellationRequested do
-                    match counter.IsOverLimitNow(), remainingIngestionWindow () with
-                    | true, _ ->
-                        let busyWork () =
-                            submit()
-                            maybeLogStats()
-                            Thread.Sleep 1
-                        counter.AwaitThreshold busyWork
-                    | false, None ->
+/// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accummulated messages as
+///   checkpointable Batches
+/// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
+type KafkaIngestionEngine<'M>
+    (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
+        emitInterval, statsInterval) =
+    let acc = Dictionary<int,_>()
+    let remainingIngestionWindow = intervalTimer emitInterval
+    let mutable intervalMsgs, intervalChars, totalMessages, totalChars = 0L, 0L, 0L, 0L
+    let dumpStats () =
+        totalMessages <- totalMessages + intervalMsgs; totalChars <- totalChars + intervalChars
+        log.Information("Ingested {msgs:n0}m, {chars:n0}c In-flight ~{inflightMb:n1}MB Σ {totalMessages:n0} messages, {totalChars:n0} chars",
+            intervalMsgs, intervalChars, counter.InFlightMb, totalMessages, totalChars)
+        intervalMsgs <- 0L; intervalChars <- 0L
+    let maybeLogStats =
+        let due = intervalCheck statsInterval
+        fun () -> if due () then dumpStats ()
+    let ingest message =
+        let sz = approximateMessageBytes message
+        counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
+        intervalMsgs <- intervalMsgs + 1L
+        intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
+        let partitionId = let p = message.Partition in p.Value
+        match acc.TryGetValue partitionId with
+        | false, _ -> acc.[partitionId] <- PartitionBuffer<'M>.Create(sz,message,mapMessage)
+        | true, span -> span.Enqueue(sz,message,mapMessage)
+    let submit () =
+        match acc.Count with
+        | 0 -> ()
+        | partitionsWithMessagesThisInterval ->
+            let tmp = ResizeArray<Submission.SubmissionBatch<'M>>(partitionsWithMessagesThisInterval)
+            for KeyValue(partitionIndex,span) in acc do
+                let checkpoint () =
+                    counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, above
+                    try consumer.StoreOffset(span.highWaterMark)
+                    with e -> log.Error(e, "Consuming... storing offsets failed")
+                tmp.Add { partitionId = partitionIndex; onCompletion = checkpoint; messages = span.messages.ToArray() }
+            acc.Clear()
+            emit <| tmp.ToArray()
+    member __.Pump() = async {
+        let! ct = Async.CancellationToken
+        use _ = consumer // Dispose it at the end (NB but one has to Close first or risk AccessViolations etc)
+        try while not ct.IsCancellationRequested do
+                match counter.IsOverLimitNow(), remainingIngestionWindow () with
+                | true, _ ->
+                    let busyWork () =
                         submit()
                         maybeLogStats()
-                    | false, Some intervalRemainder ->
-                        try match consumer.Consume(intervalRemainder) with
-                            | null -> ()
-                            | message -> ingest message
-                        with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
-                            | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
-            finally
-                submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
-                dumpStats () // Unconditional logging when completing
-                consumer.Close() (* Orderly Close() before Dispose() is critical *) }
+                        Thread.Sleep 1
+                    counter.AwaitThreshold busyWork
+                | false, None ->
+                    submit()
+                    maybeLogStats()
+                | false, Some intervalRemainder ->
+                    try match consumer.Consume(intervalRemainder) with
+                        | null -> ()
+                        | message -> ingest message
+                    with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
+                        | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
+        finally
+            submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
+            dumpStats () // Unconditional logging when completing
+            consumer.Close() (* Orderly Close() before Dispose() is critical *) }
 
-/// Consumption pipeline that attempts to maximize concurrency of `handle` invocations (up to `dop` concurrently).
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitCompletion()`.
 type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
@@ -148,7 +143,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let tcs = new TaskCompletionSource<unit>()
         let triggerStop () =
             log.Information("Consuming ... Stopping {name}", consumer.Name)
-            cts.Cancel();  
+            cts.Cancel()
         let start name f =
             let wrap (name : string) computation = async {
                 try do! computation
