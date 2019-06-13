@@ -10,12 +10,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- Average Streams latency measurements/loggging for `StreamsConsumer`
-- `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods
+- `Core`: Average Streams latency measurements/loggging for `StreamsConsumer`
+- `Kafka`: `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods
+- `Kafka`: `producerParallelism` option
 
 ### Changed
 
-- Tidied Cosmos ingester lag breakdown
+- `Propulsion.Cosmos`: Tidied Cosmos ingester lag breakdown
+- Targeted `Jet.ConfluentKafka.FSharp` v `1.0.1`
 
 ### Removed
 ### Fixed
