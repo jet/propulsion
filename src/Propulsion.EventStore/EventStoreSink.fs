@@ -44,9 +44,9 @@ module Internal =
                     member __.Data = x.Data
                     member __.Meta = x.Meta
                     member __.Timestamp = x.Timestamp }
-        let write (log : ILogger) (gateway : GesGateway) stream span = async {
+        let write (log : ILogger) (context : Context) stream span = async {
             log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
-            let! res = gateway.Sync(log, stream, span.index - 1L, span.events |> Array.map EquinoxEvent.ofStreamEvent)
+            let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map EquinoxEvent.ofStreamEvent)
             let ress =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->
