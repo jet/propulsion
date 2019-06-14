@@ -45,7 +45,7 @@ module Internal =
                     member __.Data = x.Data
                     member __.Meta = x.Meta
                     member __.Timestamp = x.Timestamp }
-        let write (log : ILogger) (ctx : CosmosContext) stream span = async {
+        let write (log : ILogger) (ctx : Context) stream span = async {
             let stream = ctx.CreateStream stream
             log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
             let! res = ctx.Sync(stream, { index = span.index; etag = None }, span.events |> Array.map EquinoxEvent.ofStreamEvent)
