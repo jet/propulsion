@@ -16,12 +16,6 @@ type Partitioner = Random | Consistent | ConsistentRandom
 [<RequireQualifiedAccess; Struct>]
 type AutoOffsetReset = Earliest | Latest | None
 
-[<AutoOpen>]
-module private NullableHelpers =
-    let (|Null|HasValue|) (x:Nullable<'T>) =
-        if x.HasValue then HasValue x.Value
-        else Null
-
 [<RequireQualifiedAccess>]
 module Config =
 
@@ -64,6 +58,12 @@ module Config =
         let groupId             = mkKey "group.id" id<string>
         let fetchMaxBytes       = mkKey "fetch.message.max.bytes" id<int>
         let fetchMinBytes       = mkKey "fetch.min.bytes" id<int>
+
+[<AutoOpen>]
+module private NullableHelpers =
+    let (|Null|HasValue|) (x:Nullable<'T>) =
+        if x.HasValue then HasValue x.Value
+        else Null
 
 type ProducerConfig() =
     let vals = Dictionary<string,obj>()
