@@ -18,7 +18,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `Propulsion.Cosmos`: Tidied Cosmos ingester lag breakdown
 - Targeted `Jet.ConfluentKafka.FSharp` v `1.0.1` [#3](https://github.com/jet/propulsion/pull/3)
-- Moved `RenderedSpan` et al to `Propulsion.Codec.NewtonsoftJson` [#4](https://github.com/jet/propulsion/pull/4)
+- Moved `RenderedSpan` et al to `Propulsion.Codec.NewtonsoftJson` [#5](https://github.com/jet/propulsion/pull/5)
 
 ### Removed
 ### Fixed
