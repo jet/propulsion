@@ -1,4 +1,7 @@
-namespace Propulsion.Kafka.Codec
+// Defines a canonical format for representations of a span of events when serialized as json
+// NB logically, this could become a separated Propulsion.Codec nuget
+// (and/or series of nugets, with an implementation per concrete serialization stack)
+namespace Propulsion.Codec.NewtonsoftJson
 
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
