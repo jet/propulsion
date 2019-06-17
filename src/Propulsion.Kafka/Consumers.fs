@@ -1,4 +1,6 @@
-﻿namespace Propulsion.Kafka
+﻿/// Manages efficiently and continuously reading from the Confluent.Kafka consumer, offloading the pushing of those batches onward to the Submitter
+/// Responsible for ensuring we don't over-read, which would cause the rdkafka buffers to overload the system in terms of memory usage
+namespace Propulsion.Kafka
 
 open Confluent.Kafka
 open Jet.ConfluentKafka.FSharp
@@ -49,7 +51,7 @@ module private Impl =
 ///   checkpointable Batches
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'M>
-    (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
+    (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, closeConsumer, mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
         emitInterval, statsInterval) =
     let acc = Dictionary<int,_>()
     let remainingIngestionWindow = intervalTimer emitInterval
@@ -67,7 +69,7 @@ type KafkaIngestionEngine<'M>
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
         intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
-        let partitionId = let p = message.Partition in p.Value
+        let partitionId = Bindings.partitionId message
         match acc.TryGetValue partitionId with
         | false, _ -> acc.[partitionId] <- PartitionBuffer<'M>.Create(sz,message,mapMessage)
         | true, span -> span.Enqueue(sz,message,mapMessage)
@@ -79,8 +81,7 @@ type KafkaIngestionEngine<'M>
             for KeyValue(partitionIndex,span) in acc do
                 let checkpoint () =
                     counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, above
-                    try consumer.StoreOffset(span.highWaterMark)
-                    with e -> log.Error(e, "Consuming... storing offsets failed")
+                    Bindings.storeOffset log consumer span.highWaterMark
                 tmp.Add { partitionId = partitionIndex; onCompletion = checkpoint; messages = span.messages.ToArray() }
             acc.Clear()
             emit <| tmp.ToArray()
@@ -99,15 +100,11 @@ type KafkaIngestionEngine<'M>
                     submit()
                     maybeLogStats()
                 | false, Some intervalRemainder ->
-                    try match consumer.Consume(intervalRemainder) with
-                        | null -> ()
-                        | message -> ingest message
-                    with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
-                        | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
+                    Bindings.tryConsume log consumer intervalRemainder ingest
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
             dumpStats () // Unconditional logging when completing
-            consumer.Close() (* Orderly Close() before Dispose() is critical *) }
+            closeConsumer() (* Orderly Close() before Dispose() is critical *) }
 
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitCompletion()`.
@@ -136,8 +133,8 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., (let t = config.Buffering.maxBatchDelay in t.TotalSeconds))
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = new Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
-        let consumer = ConsumerBuilder.WithLogging(log, config) // teardown is managed by ingester.Pump()
-        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, mapResult, submit, emitInterval = config.Buffering.maxBatchDelay, statsInterval = statsInterval)
+        let consumer, closeConsumer = Bindings.createConsumer log config // teardown is managed by ingester.Pump()
+        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, emitInterval = config.Buffering.maxBatchDelay, statsInterval = statsInterval)
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = new TaskCompletionSource<unit>()
@@ -200,8 +197,7 @@ type ParallelConsumer private () =
     static member Start
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string,string> -> Async<unit>,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
-        let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key, x.Value)
-        ParallelConsumer.Start<KeyValuePair<string,string>>(log, config, maxDop, mapConsumeResult, handle >> Async.Catch,
+        ParallelConsumer.Start<KeyValuePair<string,string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
 type StreamsConsumer =
@@ -234,5 +230,4 @@ type StreamsConsumer =
             streamsScheduler.Submit x
             x.RemainingStreamsCount
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, submitStreamsBatch, statsInterval, pumpInterval, tryCompactQueue)
-        let mapResult (x : Confluent.Kafka.ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
-        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
+        ConsumerPipeline.Start(log, config, Bindings.mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
