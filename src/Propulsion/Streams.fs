@@ -592,26 +592,28 @@ module Scheduling =
         member __.Submit(x : StreamsBatch<_>) =
             pending.Enqueue(x)
     type StreamSchedulingEngine =
-        static member Create
-            (   dispatcher : Dispatcher<string*Choice<int64,exn>>, stats : StreamSchedulerStats<int64,exn>, handle : string*StreamSpan<byte[]> -> Async<int>, dumpStreams,
-                ?maxBatches, ?enableSlipstreaming)
-            : StreamSchedulingEngine<int64,exn> =
-            let project (_maybeWritePos, stream, span) : Async<Choice<int64,exn>> = async {
-                try let! count = handle (stream,span)
-                    return Choice1Of2 (span.index + int64 count)
-                with e -> return Choice2Of2 e }
-            let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64,exn> -> Option<int64> = function
-                | Choice1Of2 index -> Some index
+        static member Create<'Stats,'Req,'Outcome>
+            (   dispatcher : Dispatcher<string*Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
+                prepare : string*StreamSpan<byte[]> -> 'Stats*'Req, handle : 'Req -> Async<int*'Outcome>,
+                dumpStreams, ?maxBatches, ?enableSlipstreaming)
+            : StreamSchedulingEngine<int64*'Stats*'Outcome,'Stats*exn> =
+            let project (_maybeWritePos, stream, span) : Async<Choice<int64*'Stats*'Outcome, 'Stats*exn>> = async {
+                let stats,req = prepare (stream,span)
+                try let! count,outcome = handle req
+                    return Choice1Of2 ((span.index + int64 count),stats,outcome)
+                with e -> return Choice2Of2 (stats,e) }
+            let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64*'Stats*'Outcome,'Stats*exn> -> Option<int64> = function
+                | Choice1Of2 (index,_stats,_outcome) -> Some index
                 | Choice2Of2 _ -> None
             StreamSchedulingEngine(dispatcher, stats, project, interpretProgress, dumpStreams, ?maxBatches = maxBatches, ?enableSlipstreaming=enableSlipstreaming)
 
 module Projector =
 
-    type OkResult = int64 * (int*int) * unit
+    type OkResult<'R> = int64 * (int*int) * 'R
     type FailResult = (int*int) * exn
 
-    type Stats(log : ILogger, categorize, statsInterval, statesInterval) =
-        inherit Scheduling.StreamSchedulerStats<OkResult,FailResult>(log, statsInterval, statesInterval)
+    type Stats<'R>(log : ILogger, categorize, statsInterval, statesInterval) =
+        inherit Scheduling.StreamSchedulerStats<OkResult<'R>,FailResult>(log, statsInterval, statesInterval)
         let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -678,10 +680,10 @@ module Projector =
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 type StreamsProjector =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, project, categorize, ?statsInterval, ?stateInterval)
+    static member Start<'Req,'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, project, categorize, ?statsInterval, ?stateInterval)
             : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let projectionStats = Scheduling.StreamSchedulerStats<_,_>(log.ForContext<Scheduling.StreamSchedulerStats<_,_>>(), statsInterval, stateInterval)
+        let projectionStats = Projector.Stats<'Outcome>(log.ForContext<Projector.Stats<'Outcome>>(), categorize, statsInterval, stateInterval)
         let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
-        let streamScheduler = Scheduling.StreamSchedulingEngine.Create(dispatcher, projectionStats, project, fun s l -> s.Dump(l, Buffering.StreamState.eventsSize, categorize))
+        let streamScheduler = Scheduling.StreamSchedulingEngine.Create<_,'Req,'Outcome>(dispatcher, projectionStats, prepare, project, fun s l -> s.Dump(l, Buffering.StreamState.eventsSize, categorize))
         Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
