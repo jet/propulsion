@@ -14,6 +14,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Kafka`: `customize` option for `ParallelConsumer` and `StreamsConsumer`'s `.Create` methods [#3](https://github.com/jet/propulsion/pull/3)
 - `Kafka`: `producerParallelism` option [#3](https://github.com/jet/propulsion/pull/3)
 - `Kafka0`: Provides source-compatibility with `Propulsion.Kafka` targeting `Jet.ConfluentKafka.FSharp` v `0.9.1` / `Confluent.Kafka` v `1.0.1` [#4](https://github.com/jet/propulsion/pull/4)
+- `Kafka`/`Kafka0`: `Producers` - Common Kafka producer wrapper with metrics [#9](https://github.com/jet/propulsion/pull/9)
+- `Kafka`/`Kafka0`: `StreamsConsumerStats` - Consumer outcome / statistics / logging support [#9](https://github.com/jet/propulsion/pull/9)
 
 ### Changed
 
