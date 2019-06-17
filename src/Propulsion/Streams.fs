@@ -687,3 +687,13 @@ type StreamsProjector =
         let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let streamScheduler = Scheduling.StreamSchedulingEngine.Create<_,'Req,'Outcome>(dispatcher, projectionStats, prepare, project, fun s l -> s.Dump(l, Buffering.StreamState.eventsSize, categorize))
         Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
+
+    static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize, ?statsInterval, ?stateInterval)
+            : ProjectorPipeline<_> =
+        let prepare (streamName,span) =
+            let stats = Buffering.StreamSpan.stats span
+            stats,(streamName,span)
+        let handle (streamName,span : StreamSpan<_>) = async {
+            let! res = handle (streamName,span)
+            return span.events.Length,res }
+        StreamsProjector.Start<_,'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, categorize, ?statsInterval=statsInterval, ?stateInterval=stateInterval)
