@@ -189,6 +189,8 @@ module Buffering =
             curr |> Option.iter buffer.Add
             if buffer.Count = 0 then null else buffer.ToArray()
         let inline estimateBytesAsJsonUtf8 (x: IEvent<'Format[]>) = arrayBytes x.Data + arrayBytes x.Meta + (x.EventType.Length * 2) + 96
+        let stats (x : StreamSpan<_>) =
+            x.events.Length, x.events |> Seq.sumBy estimateBytesAsJsonUtf8
         let slice (maxEvents,maxBytes) streamSpan =
             let mutable count,bytes = 0, 0
             let mutable countBudget, bytesBudget = maxEvents,maxBytes
@@ -201,8 +203,7 @@ module Buffering =
                 if res then count <- count + 1; bytes <- bytes + eventBytes
                 res
             let trimmed = { streamSpan with events = streamSpan.events |> Array.takeWhile withinLimits }
-            let stats = trimmed.events.Length, trimmed.events |> Seq.sumBy estimateBytesAsJsonUtf8
-            stats, trimmed
+            stats trimmed, trimmed
 
     [<NoComparison; NoEquality>] 
     type StreamState<'Format> = { isMalformed: bool; write: int64 option; queue: StreamSpan<'Format>[] } with
@@ -395,7 +396,7 @@ module Scheduling =
             incr cycles
             if statsDue () then
                 dumpStats (used,max) batchesWaiting
-                __.DumpExtraStats()
+                __.DumpStats()
         member __.TryDumpState(state,dump,(_dt,_ft,_mt,_it,_st)) =
             dt <- dt + _dt
             ft <- ft + _ft
@@ -410,8 +411,8 @@ module Scheduling =
                 dump log
             due
         /// Allows an ingester or projector to wire in custom stats (typically based on data gathered in a `Handle` override)
-        abstract DumpExtraStats : unit -> unit
-        default __.DumpExtraStats () = ()
+        abstract DumpStats : unit -> unit
+        default __.DumpStats () = ()
 
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
     type Dispatcher<'R>(maxDop) =
@@ -614,11 +615,13 @@ module Projector =
         let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-        override __.DumpExtraStats() =
-            log.Information("Produced {mb:n0}MB {completed:n0}m {streams:n0}s {events:n0}e ({ok:n0} ok)", mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
+        override __.DumpStats() =
+            log.Information("Projected {mb:n0}MB {completed:n0}m {streams:n0}s {events:n0}e ({ok:n0} ok)",
+                mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
             okStreams.Clear(); resultOk := 0; okEvents <- 0; okBytes <- 0L
             if !resultExnOther <> 0 then
-                log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e", mb exnBytes, !resultExnOther, failStreams.Count, exnEvents)
+                log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+                    mb exnBytes, !resultExnOther, failStreams.Count, exnEvents)
                 resultExnOther := 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
                 log.Warning("Malformed cats {@badCats}", badCats.StatsDescending)
                 badCats.Clear()
@@ -639,7 +642,7 @@ module Projector =
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 incr resultExnOther
-                log.Warning(exn,"Could not write {b:n0} bytes {e:n0}e in stream {stream}", bs, es, stream)
+                log.Warning(exn,"Failed processing {b:n0} bytes {e:n0}e in stream {stream}", bs, es, stream)
 
     type StreamsIngester =
         static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
@@ -650,12 +653,9 @@ module Projector =
                 batch,(streams.Count,items.Length)
             Ingestion.Ingester<StreamEvent<_> seq,Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
-    type StreamsProjectorPipeline =
-        static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
+    type StreamsSubmitter =
+        static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-            let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
-                let onCompletion () = x.onCompletion(); onCompletion()
-                Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
             let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
                 submitStreamsBatch x
                 x.RemainingStreamsCount
@@ -666,7 +666,14 @@ module Projector =
                     | None -> acc <- Some x
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
-            let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue)
+            Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue, ?pumpInterval=pumpInterval)
+
+    type StreamsProjectorPipeline =
+        static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
+            let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
+                let onCompletion () = x.onCompletion(); onCompletion()
+                Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
+            let submitter = StreamsSubmitter.Create(log, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 

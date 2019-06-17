@@ -182,11 +182,11 @@ type ParallelIngester<'Item> =
         Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
 type ParallelProjector =
-    static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition)
+    static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition, ?logExternalStats)
             : ProjectorPipeline<_> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Scheduling.Dispatcher maxDop
-        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval)
+        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats = logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<'Item>) : Scheduling.Batch<'Item> =
             let onCompletion () = x.onCompletion(); onCompletion()

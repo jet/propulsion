@@ -95,7 +95,7 @@ module Internal =
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-        override __.DumpExtraStats() =
+        override __.DumpStats() =
             let results = !resultOk + !resultDup + !resultPartialDup + !resultPrefix
             log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
                 mb okBytes, results, okStreams.Count, okEvents, !resultOk, !resultDup, !resultPartialDup, !resultPrefix)
@@ -142,12 +142,12 @@ module Internal =
             : Scheduling.StreamSchedulingEngine<_,_> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
-            let attemptWrite (_maybeWritePos,stream,span) = async {
+            let attemptWrite (_maybeWritePos,stream,fullBuffer) = async {
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts.[index]
                 let maxEvents, maxBytes = 16384, 1024 * 1024 - (*fudge*)4096
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents,maxBytes) span
-                try let! res = Writer.write log selectedConnection stream span'
+                let stats,span = Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
+                try let! res = Writer.write log selectedConnection stream span
                     return Choice1Of2 (stats,res)
                 with e -> return Choice2Of2 (stats,e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -165,27 +165,15 @@ module Internal =
             Scheduling.StreamSchedulingEngine(dispatcher, stats, attemptWrite, interpretWriteResultProgress, dumpStreams, enableSlipstreaming=true, ?maxBatches = maxBatches)
 
 type CosmosSink =
-    static member Start(log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams, categorize, ?statsInterval, ?stateInterval, ?maxSubmissionsPerPartition)
-            : Propulsion.ProjectorPipeline<_> =
+    static member Start
+        (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams, categorize,
+            ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
+        : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let projectionStats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), categorize, statsInterval, stateInterval)
+        let stats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), categorize, statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
-        let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, projectionStats, dumpStreams)
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
-            let onCompletion () = x.onCompletion(); onCompletion()
-            Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
-        let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
-            streamScheduler.Submit x
-            x.RemainingStreamsCount
-        let tryCompactQueue (queue : Queue<Scheduling.StreamsBatch<_>>) =
-            let mutable acc, worked = None, false
-            for x in queue do
-                match acc with
-                | None -> acc <- Some x
-                | Some a -> if a.TryMerge x then worked <- true
-            worked
-        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let submitter = Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue)
-        let startIngester (rangeLog, projectionId) = Projector.StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest)
-        ProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, submitter.Pump(), startIngester)
+        let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
+        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
+            log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+            ?ingesterStatsInterval = ingesterStatsInterval, ?maxSubmissionsPerPartition = maxSubmissionsPerPartition)

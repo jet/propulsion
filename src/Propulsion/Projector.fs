@@ -5,11 +5,11 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
+/// Runs triggered by a `Start` method , until `Stop()` is requested or `handle` yields a fault.
+/// Conclusion of processing can be awaited by via `AwaitCompletion()`.
+type Pipeline (task : Task<unit>, triggerStop) =
 
     interface IDisposable with member __.Dispose() = __.Stop()
-
-    member __.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
 
     /// Inspects current status of processing task
     member __.Status = task.Status
@@ -21,6 +21,11 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
 
     /// Asynchronously awaits until consumer stops or a `handle` invocation yields a fault
     member __.AwaitCompletion() = Async.AwaitTaskCorrect task
+
+type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
+    inherit Pipeline(task, triggerStop)
+
+    member __.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
 
     static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
         let cts = new CancellationTokenSource()

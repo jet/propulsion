@@ -109,21 +109,10 @@ type KafkaIngestionEngine<'M>
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitCompletion()`.
 type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
-
-    interface IDisposable with member __.Dispose() = __.Stop()
+    inherit Pipeline(task, triggerStop)
 
     /// Provides access to the Confluent.Kafka interface directly
     member __.Inner = inner
-    /// Inspects current status of processing task
-    member __.Status = task.Status
-    /// After AwaitCompletion, can be used to infer whether exit was clean
-    member __.RanToCompletion = task.Status = TaskStatus.RanToCompletion 
-
-    /// Request cancellation of processing
-    member __.Stop() = triggerStop ()
-
-    /// Asynchronously awaits until consumer stops or a `handle` invocation yields a fault
-    member __.AwaitCompletion() = Async.AwaitTaskCorrect task
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
@@ -179,10 +168,10 @@ type ParallelConsumer private () =
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
-        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
         let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'M>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'M> =
             let onCompletion' () = x.onCompletion(); onCompletion()
             { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; } 
