@@ -15,6 +15,7 @@
     <Compile Include="Bindings.fs" />
     <Compile Include="Consumers.fs" />
     <Compile Include="Producers.fs" />
+    <Compile Include="ProducerSinks.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -18,6 +18,7 @@
     <Compile Include="Bindings.fs" />
     <Compile Include="..\Propulsion.Kafka\Consumers.fs" Link="Consumers.fs" />
     <Compile Include="..\Propulsion.Kafka\Producers.fs" Link="Producers.fs" />
+    <Compile Include="..\Propulsion.Kafka\ProducerSinks.fs" Link="ProducerSinks.fs" />
   </ItemGroup>
 
   <ItemGroup>

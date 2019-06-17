@@ -46,6 +46,7 @@ module private Impl =
     let approximateMessageBytes (message : ConsumeResult<string, string>) =
         let inline len (x:string) = match x with null -> 0 | x -> sizeof<char> * x.Length
         16 + len message.Key + len message.Value |> int64
+    let inline mb x = float x / 1024. / 1024.
 
 /// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accummulated messages as
 ///   checkpointable Batches
@@ -189,34 +190,72 @@ type ParallelConsumer private () =
         ParallelConsumer.Start<KeyValuePair<string,string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
-type StreamsConsumer =
-    /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
-    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
-    static member Start<'M>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamEvents, handle, categorize,
-            ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?stateInterval, ?logExternalStats) =
-        let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
-        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
+type OkResult<'R> = int64*(int*int)*'R
+type FailResult = (int*int) * exn
 
+[<AbstractClass>]
+type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
+    inherit Streams.Scheduling.StreamSchedulerStats<OkResult<'R>,FailResult>(log, statsInterval, stateInterval)
+    let okStreams, failStreams = HashSet(), HashSet()
+    let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
+
+    override __.DumpStats() =
+        if okStreams.Count <> 0 && failStreams.Count <> 0 then
+            log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
+                mb okBytes, okStreams.Count, okEvents, mb exnBytes, failStreams.Count, exnEvents)
+        okStreams.Clear(); okEvents <- 0; okBytes <- 0L
+
+    override __.Handle message =
+        let inline adds x (set:HashSet<_>) = set.Add x |> ignore
+        base.Handle message
+        match message with
+        | Propulsion.Streams.Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
+        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_,(es,bs),res))) ->
+            adds stream okStreams
+            okEvents <- okEvents + es
+            okBytes <- okBytes + int64 bs
+            __.HandleOk res
+        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es,bs),_exn))) ->
+            adds stream failStreams
+            exnEvents <- exnEvents + es
+            exnBytes <- exnBytes + int64 bs
+
+    abstract member HandleOk : outcome : 'R -> unit
+
+type StreamsConsumer =
+    /// Starts a Kafka Consumer processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
+    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
+    static member Start<'M,'Req,'Res>
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamEvents,
+            prepare, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState) =
+        let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
         let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
-        let stats = Streams.Scheduling.StreamSchedulerStats(log, statsInterval, stateInterval)
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
-            logExternalStats |> Option.iter (fun f -> f log)
+            logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
-        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, stats, handle, dumpStreams)
+        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_,'Req,_>(dispatcher, stats, prepare, handle, dumpStreams)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect enumStreamEvents x.messages) |> fst
-        let tryCompactQueue (queue : Queue<Streams.Scheduling.StreamsBatch<_>>) =
-            let mutable acc, worked = None, false
-            for x in queue do
-                match acc with
-                | None -> acc <- Some x
-                | Some a -> if a.TryMerge x then worked <- true
-            worked
-        let submitStreamsBatch (x : Streams.Scheduling.StreamsBatch<_>) : int =
-            streamsScheduler.Submit x
-            x.RemainingStreamsCount
-        let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, submitStreamsBatch, statsInterval, pumpInterval, tryCompactQueue)
-        ConsumerPipeline.Start(log, config, Bindings.mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
+        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+        ConsumerPipeline.Start(log, config, Bindings.mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
+
+    /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
+    /// Processor statistics are accumulated serially into the supplied `stats` buffer
+    static member Start<'M,'Res>
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop,
+            enumStreamEvents, handle : string * Streams.StreamSpan<_> -> Async<'Res>, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState) =
+        let prepare (streamName,span) =
+            let stats = Streams.Buffering.StreamSpan.stats span
+            stats,(streamName,span)
+        let handle (streamName,span : Streams.StreamSpan<_>) = async {
+            let! res = handle (streamName,span)
+            return span.events.Length,res }
+        StreamsConsumer.Start<'M,(string*Propulsion.Streams.StreamSpan<_>),'Res>(
+            log, config, maxDop, enumStreamEvents, prepare, handle, stats, categorize,
+            ?pipelineStatsInterval=pipelineStatsInterval,
+            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
+            ?pumpInterval=pumpInterval,
+            ?logExternalState=logExternalState)
