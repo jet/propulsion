@@ -362,4 +362,4 @@ type KafkaMonitor<'k,'v>
     /// Commences a child task per subscribed topic that will ob
     member __.StartAsChild(target : IConsumer<'k,'v>, group) = async {
         for topic in target.Subscription do
-            let! _ = Async.StartChild(__.Pump(target, topic, group)) in () }
+            Async.Start(__.Pump(target, topic, group)) }
