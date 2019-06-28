@@ -165,7 +165,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
 /// Specification for work to be performed by a reader thread
 [<NoComparison>]
 type Req =
-    | EofDetected of pos : Position
+    | EofDetected
     /// Tail from a given start position, at intervals of the specified timespan (no waiting if catching up)
     | Tail of seriesId: int * startPos: Position * max : Position * interval: TimeSpan * batchSize : int
     /// Read a given segment of a stream (used when a stream needs to be rolled forward to lay down an event for which the preceding events are missing)
@@ -198,7 +198,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
         let adjust batchSize = if batchSize > minBatchSize then batchSize - 128 else batchSize
         //let postSpan = ReadResult.StreamSpan >> post >> Async.Ignore
         match req with
-        | EofDetected _ as x -> failwithf "Unexpected %A" x
+        | EofDetected as x -> failwithf "Unexpected %A" x
         //| StreamPrefix (name,pos,len,batchSize) ->
         //    use _ = Serilog.Context.LogContext.PushProperty("Tranche",name)
         //    Log.Warning("Reading stream prefix; pos {pos} len {len} batch size {bs}", pos, len, batchSize)
@@ -225,10 +225,10 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
             let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent categorize postBatch |> Stopwatch.Time
             match res with
-            | PullResult.Eof pos ->
+            | PullResult.Eof _pos ->
                 Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
-                work.Enqueue <| EofDetected pos
+                work.Enqueue EofDetected
             | PullResult.EndOfTranche ->
                 Log.Information("completed tranche in {ms:n1}m", let e = t.Elapsed in e.TotalMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
@@ -294,35 +294,32 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                 work.Enqueue <| Req.Tail (seriesId, initialPos, max, tailInterval, defaultBatchSize)
                 None
         let! ct = Async.CancellationToken
-        let mutable tailStartPos = None
+        let mutable endDetected = false
         while not ct.IsCancellationRequested do
             overallStats.DumpIfIntervalExpired()
             let! _ = dop.Await ct
             match work.TryDequeue(), remainder with
-            | (true, EofDetected pos), _ ->
-                dop.Release() |> ignore
-                match tailStartPos with
-                | None ->
+            | (true, EofDetected), Some nextChunk ->
+                if endDetected then
+                    dop.Release()
+                else
                     Log.Warning("No further ingestion work to commence, transitioning to tailing...")
-                    tailStartPos <- Some pos
+                    overallStats.DumpIfIntervalExpired(true)
+                    endDetected <- true
                     remainder <- None
-                | Some currMax when pos.CommitPosition > currMax.CommitPosition ->
-                    tailStartPos <- Some pos
-                | Some _ -> ()
+                    seriesId <- seriesId + 1
+                    /// TODO shed excess connections as transitioning
+                    do! forkRunRelease <| Req.Tail (seriesId, nextChunk, nextChunk, tailInterval, defaultBatchSize)
+            // Process requeuing etc
             | (true, task), _ ->
                 do! forkRunRelease task
+            // Start a chunk if no work and eof detection has yet to call a halt
             | (false, _), Some nextChunk -> 
-                seriesId <- seriesId  + 1
+                seriesId <- seriesId + 1
                 let nextPos = posFromChunkAfter nextChunk
                 remainder <- Some nextPos
                 do! forkRunRelease <| Req.Chunk (seriesId, Range(nextChunk, Some nextPos, max), defaultBatchSize)
-            | (false, _), None when Option.isSome tailStartPos ->
-                seriesId <- seriesId  + 1
-                let pos = tailStartPos.Value
-                tailStartPos <- None
-                overallStats.DumpIfIntervalExpired(true)
-                /// TODO shed excess connections
-                do! forkRunRelease <| Req.Tail (seriesId, pos, pos, tailInterval, defaultBatchSize)
+            // Otherwise sleep for remainder of interval
             | (false, _), None ->
                 dop.Release()
                 do! Async.Sleep sleepIntervalMs }
