@@ -83,10 +83,10 @@ type T2(testOutputHelper) =
         use _ = monitor.OnStatus.Subscribe(partitionsObserver)
         do! monitor.StartAsChild(consumerOne.Inner, group)
         // first consumer is only member of group, should have all partitions
-        while 4 <> Volatile.Read(&numPartitions) do
+        while Volatile.Read(&numPartitions) < testPartitionCount do
             do! Async.Sleep 1000
 
-        4 =! numPartitions
+        testPartitionCount =! numPartitions
 
         // create second consumer and join group to trigger rebalance
         use _consumerTwo = startConsumer log broker topic group onlyConsumeFirstBatchHandler
@@ -104,7 +104,6 @@ type T3(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     [<Fact>]
-
     let ``Monitor should not join consumer group`` () = async {
         let topic, group = newId (), newId () // dev kafka topics are created and truncated automatically
         let noopObserver _ = ()
@@ -113,8 +112,10 @@ type T3(testOutputHelper) =
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(noopObserver)
         do! monitor.StartAsChild(consumer.Inner, group)
-        while consumer.Inner.Assignment.Count = 0 do
+        while consumer.Inner.Assignment.Count < testPartitionCount do
             do! Async.Sleep 1000
+        // consumer should have all partitions assigned to it
+        testPartitionCount =! consumer.Inner.Assignment.Count
 
 #if KAFKA0
         let ac = consumer.Inner
@@ -125,6 +126,4 @@ type T3(testOutputHelper) =
 
         // should be one member in group
         1 =! ac.ListGroup(group, TimeSpan.FromSeconds 30.).Members.Count
-        // consumer should have all 4 partitions assigned to it
-        4 =! consumer.Inner.Assignment.Count
     }
