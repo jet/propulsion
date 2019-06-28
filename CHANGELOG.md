@@ -16,6 +16,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Gorging -> Tailing transition [#10](https://github.com/jet/propulsion/issues/10)
+
 <a name="1.0.1-rc3"></a>
 ## [1.0.1-rc3] - 2019-06-18
 
