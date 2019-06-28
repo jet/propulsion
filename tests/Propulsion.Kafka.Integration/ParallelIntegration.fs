@@ -9,6 +9,7 @@ open System
 open System.Collections.Concurrent
 open System.ComponentModel
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 
 [<AutoOpen>]
