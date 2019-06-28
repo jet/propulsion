@@ -105,7 +105,7 @@ let fetchMax (conn : IEventStoreConnection) = async {
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, mb max.CommitPosition/1024.)
     return max }
 
-/// `fetchMax` wrapped in a retry loop; Sync process is entirely reliant on establishing the max so we have a crude retry loop
+/// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
 let establishMax (conn : IEventStoreConnection) = async {
     let mutable max = None
     while Option.isNone max do
@@ -135,20 +135,23 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream,pos,limit : int
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
 type [<NoComparison>] PullResult = Exn of exn: exn | Eof of Position | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
-        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
+        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) categorize (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
     let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
+    let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
         let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos = false) |> Async.AwaitTaskCorrect
-        sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
+        sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
         let postSw = Stopwatch.StartNew()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
-        let batches = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
-        let streams = batches |> Seq.groupBy (fun b -> b.stream) |> Array.ofSeq
-        let usedStreams, usedCats = streams.Length, streams |> Seq.map fst |> Seq.distinct |> Seq.length
-        let! (cur,max) = postBatch currentSlice.NextPosition batches
+        let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
+        streams.Clear(); cats.Clear()
+        for x in events do
+            if streams.Add x.stream then
+                cats.Add (categorize x.stream) |> ignore
+        let! (cur,max) = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
             range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
-            batchEvents, usedCats, usedStreams, batches.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
+            batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
         if not (range.TryNext currentSlice.NextPosition && not once && not currentSlice.IsEndOfStream) then
             if currentSlice.IsEndOfStream then return Eof currentSlice.NextPosition
             else return EndOfTranche
@@ -219,7 +222,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
             let postBatch pos items = post (Res.Batch (series, pos, items))
             use _ = Serilog.Context.LogContext.PushProperty("Tranche", series)
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
-            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent postBatch |> Stopwatch.Time
+            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent categorize postBatch |> Stopwatch.Time
             match res with
             | PullResult.Eof pos ->
                 Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
@@ -254,7 +257,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                         count, currentPos.CommitPosition, chunk currentPos)
                     progressSw.Restart()
                 count <- count + 1
-                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent postBatch
+                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent categorize postBatch
                 do! awaitInterval
                 match res with
                 | PullResult.EndOfTranche | PullResult.Eof _ -> ()
