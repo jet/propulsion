@@ -9,6 +9,7 @@ open System.Collections.Generic
 module Bindings =
     let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
     let inline partitionId (x : ConsumeResult<_,_>) = let p = x.Partition in p.Value
+    let partitionValue (partition : Partition) = let p = partition in p.Value
     let createConsumer log config : IConsumer<string,string> * (unit -> unit) =
         let consumer = ConsumerBuilder.WithLogging(log, config)
         consumer, consumer.Close

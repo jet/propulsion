@@ -89,10 +89,10 @@ type KafkaProducerConfig private (inner, broker : Uri) =
                 MessageSendMaxRetries = Nullable (defaultArg retries 60), // default 2
                 Acks = Nullable acks,
                 SocketKeepaliveEnable = Nullable (defaultArg socketKeepAlive true), // default: false
-                LogConnectionClose = Nullable false) // https://github.com/confluentinc/confluent-kafka-dotnet/issues/124#issuecomment-289727017
-        maxInFlight |> Option.iter (fun x -> c.MaxInFlight <- Nullable x) // default 1_000_000
+                LogConnectionClose = Nullable false, // https://github.com/confluentinc/confluent-kafka-dotnet/issues/124#issuecomment-289727017
+                MaxInFlight = Nullable (defaultArg maxInFlight 1_000_000)) // default 1_000_000
         linger |> Option.iter<TimeSpan> (fun x -> c.LingerMs <- Nullable (int x.TotalMilliseconds)) // default 0
-        partitioner |> Option.iter (fun x -> c.Partitioner <- x)
+        partitioner |> Option.iter (fun x -> c.Partitioner <- Nullable x)
         compression |> Option.iter (fun x -> c.CompressionType <- Nullable x)
         statisticsInterval |> Option.iter<TimeSpan> (fun x -> c.StatisticsIntervalMs <- Nullable (int x.TotalMilliseconds))
         custom |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
@@ -271,8 +271,21 @@ type KafkaPartitionMetrics =
         [<JsonProperty("consumer_lag")>]
         consumerLag: int64 }        
 
+type OffsetValue =
+    | Unset
+    | Valid of value: int64
+    override this.ToString() =
+        match this with
+        | Unset -> "Unset"
+        | Valid value -> value.ToString()
+module OffsetValue =
+    let ofOffset (offset : Offset) =
+        match offset.Value with
+        | _ when offset = Offset.Invalid -> Unset
+        | valid -> Valid valid
+
 type ConsumerBuilder =
-    static member private WithLogging(log: ILogger, c : Consumer<_,_>, topics, ?onRevoke) =
+    static member private WithLogging(log: ILogger, c : Consumer<_,_>, ?onRevoke) =
         let d1 = c.OnLog.Subscribe(fun m ->
             log.Information("Consuming... {message} level={level} name={name} facility={facility}", m.Message, m.Level, m.Name, m.Facility))
         let d2 = c.OnError.Subscribe(fun e ->
@@ -290,14 +303,14 @@ type ConsumerBuilder =
             log.Verbose("Consuming... EOF {topic} partition={partition} offset={offset}", tpo.Topic, tpo.Partition, let o = tpo.Offset in o.Value))
         let d6 = c.OnOffsetsCommitted.Subscribe(fun cos ->
             for t,ps in cos.Offsets |> Seq.groupBy (fun p -> p.Topic) do
-                let o = [for p in ps -> p.Partition, let o = p.Offset in if o.IsSpecial then box (string o) else box o.Value(*, fmtError p.Error*)]
+                let o = seq { for p in ps -> p.Partition, OffsetValue.ofOffset p.Offset(*, fmtError p.Error*) }
                 let e = cos.Error
-                if not e.HasError then log.Information("Consuming... Committed {topic} {@offsets}", t, o)
-                else log.Warning("Consuming... Committed {topic} {@offsets} reason={error} code={code} isBrokerError={isBrokerError}", t, o, e.Reason, e.Code, e.IsBrokerError))
+                if not e.HasError then log.Information("Consuming... Committed {topic} {offsets}", t, o)
+                else log.Warning("Consuming... Committed {topic} {offsets} reason={error} code={code} isBrokerError={isBrokerError}", t, o, e.Reason, e.Code, e.IsBrokerError))
         let d7 = c.OnStatistics.Subscribe(fun json ->
             let stats = JToken.Parse json
             for t in stats.Item("topics").Children() do
-                if t.HasValues && topics |> Seq.exists (fun ct -> ct = t.First.Item("topic").ToString()) then
+                if t.HasValues && c.Subscription |> Seq.exists (fun ct -> ct = t.First.Item("topic").ToString()) then
                     let topic, partitions = let tm = t.First in tm.Item("topic").ToString(), tm.Item("partitions").Children()
                     let metrics = [|
                         for tm in partitions do
@@ -308,9 +321,7 @@ type ConsumerBuilder =
                     let totalLag = metrics |> Array.sumBy (fun x -> x.consumerLag)
                     log.Information("Consuming... Stats {topic:l} totalLag {totalLag} {@stats}", topic, totalLag, metrics))
         fun () -> for d in [d1;d2;d3;d4;d5;d6;d7] do d.Dispose()
-    static member WithLogging(log : ILogger, config, ?onRevoke) =
-        if List.isEmpty config.topics then invalidArg "config" "must specify at least one topic"
-        let consumer = new Consumer<_,_>(config.inner.Render(), mkDeserializer(), mkDeserializer())
-        consumer.Subscribe config.topics
-        let unsubLog = ConsumerBuilder.WithLogging(log, consumer, config.topics, ?onRevoke = onRevoke)
+    static member WithLogging(log : ILogger, config : ConsumerConfig, ?onRevoke) =
+        let consumer = new Consumer<_,_>(config.Render(), mkDeserializer(), mkDeserializer())
+        let unsubLog = ConsumerBuilder.WithLogging(log, consumer, ?onRevoke = onRevoke)
         consumer, unsubLog

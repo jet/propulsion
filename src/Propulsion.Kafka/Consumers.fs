@@ -123,7 +123,8 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., (let t = config.Buffering.maxBatchDelay in t.TotalSeconds))
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = new Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
-        let consumer, closeConsumer = Bindings.createConsumer log config // teardown is managed by ingester.Pump()
+        let consumer, closeConsumer = Bindings.createConsumer log config.Inner // teardown is managed by ingester.Pump()
+        consumer.Subscribe config.Topics
         let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, emitInterval = config.Buffering.maxBatchDelay, statsInterval = statsInterval)
         let cts = new CancellationTokenSource()
         let ct = cts.Token
@@ -137,7 +138,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
                     log.Information("Exiting pipeline component {name}", name)
                 with e ->
                     log.Fatal(e, "Abend from pipeline component {name}", name)
-                    triggerStop() }
+                    triggerStop () }
             Async.Start(wrap name f, ct)
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns : AggregateException) =

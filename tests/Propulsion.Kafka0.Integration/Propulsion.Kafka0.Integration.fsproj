@@ -4,10 +4,11 @@
     <TargetFrameworks>netcoreapp2.1;net461</TargetFrameworks>
     <WarningLevel>5</WarningLevel>
     <IsPackable>false</IsPackable>
+    <DefineConstants>KAFKA0</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="ParallelIntegration.fs" />
+    <Compile Include="..\Propulsion.Kafka.Integration\ParallelIntegration.fs" Link="ParallelIntegration.fs" />
   </ItemGroup>
 
   <ItemGroup>

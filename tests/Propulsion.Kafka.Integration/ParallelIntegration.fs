@@ -303,7 +303,7 @@ type T3(testOutputHelper) =
 
         do! runConsumers log config 1 None
                 (fun c m -> async {
-                    let partition = let p = m.raw.Partition in p.Value
+                    let partition = Bindings.partitionValue m.raw.Partition
 
                     // check per-partition handlers are serialized
                     let concurrentBatchCell = getBatchPartitionCount partition
