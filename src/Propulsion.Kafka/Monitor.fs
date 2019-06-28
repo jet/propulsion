@@ -6,6 +6,7 @@ open Confluent.Kafka
 open Jet.ConfluentKafka.FSharp
 open Serilog
 open System
+open System.Diagnostics
 
 type PartitionResult =
     | OkReachedZero // check 1
@@ -74,20 +75,22 @@ module MonitorImpl =
                 
         /// Returns consumer progress information.
         /// Note that this does not join the group as a consumer instance
-        let progress (consumer:IConsumer<'k,'v>) (topic:string) (ps:int[]) = async {
+        let progress (timeout : TimeSpan) (consumer:IConsumer<'k,'v>) (topic:string) (ps:int[]) = async {
             let topicPartitions = ps |> Seq.map (Bindings.topicPartition topic)
 
+            let sw = System.Diagnostics.Stopwatch.StartNew()
             let committedOffsets =
-                consumer.Committed(topicPartitions, TimeSpan.FromSeconds(20.))
+                consumer.Committed(topicPartitions, timeout)
                 |> Seq.sortBy(fun e -> Bindings.partitionValue e.Partition)
                 |> Seq.map(fun e -> Bindings.partitionValue e.Partition, e)
                 |> Map.ofSeq
+            
+            let timeout = let elapsed = sw.Elapsed in if elapsed > timeout then TimeSpan.Zero else timeout - elapsed
             let! watermarkOffsets =
                 topicPartitions
                 |> Seq.map(fun tp -> async {
-                    return Bindings.partitionValue tp.Partition, consumer.QueryWatermarkOffsets(tp, TimeSpan.FromSeconds 40.)} )
+                    return Bindings.partitionValue tp.Partition, consumer.QueryWatermarkOffsets(tp, timeout)} )
                 |> Async.Parallel
-
             let watermarkOffsets = watermarkOffsets |> Map.ofArray
 
             let partitions =
@@ -239,12 +242,12 @@ module MonitorImpl =
             |> Seq.groupBy (fun p -> p.partition)
             |> Seq.map (fun (p, info) -> p, checkRulesForPartition (Array.ofSeq info))
 
-    let private queryConsumerProgress (consumer : IConsumer<'k,'v>) (topic : string) = async {
+    let private queryConsumerProgress intervalMs  (consumer : IConsumer<'k,'v>) (topic : string) = async {
         let partitionIds = [| for t in consumer.Assignment do if t.Topic = topic then yield Bindings.partitionValue t.Partition |] 
-        let! r = ConsumerInfo.progress consumer topic partitionIds
+        let! r = ConsumerInfo.progress intervalMs consumer topic partitionIds
         return createPartitionInfoList r }
 
-    let run (consumer : IConsumer<'k,'v> ) (intervalMs,windowSize,failResetCount) (topic : string) (group : string) (onQuery,onCheckFailed,onStatus) =
+    let run (consumer : IConsumer<'k,'v> ) (interval,windowSize,failResetCount) (topic : string) (group : string) (onQuery,onCheckFailed,onStatus) =
         let getAssignedPartitions () = seq { for x in consumer.Assignment do if x.Topic = topic then yield Bindings.partitionValue x.Partition }
         let buffer = new RingBuffer<_>(windowSize)
         let validateAssignments =
@@ -257,7 +260,7 @@ module MonitorImpl =
                 assignments.Count <> 0
 
         let checkConsumerProgress () = async {
-            let! res = queryConsumerProgress consumer topic
+            let! res = queryConsumerProgress interval consumer topic
             onQuery res
             buffer.Add res
             match buffer.TryCopyFull() with
@@ -267,6 +270,7 @@ module MonitorImpl =
                 onStatus topic group states }
 
         let rec loop failCount = async {
+            let sw = Stopwatch.StartNew()
             let! failCount = async {
                 try if validateAssignments () then
                         do! checkConsumerProgress()
@@ -279,7 +283,11 @@ module MonitorImpl =
                     onCheckFailed count' exn
                     return count'
             }
-            do! Async.Sleep intervalMs
+            match sw.Elapsed with
+            | e when e < interval ->
+                let rem = interval-e
+                do! Async.Sleep (int rem.TotalMilliseconds)
+            | _ -> ()
             return! loop failCount }
         loop 0
 
@@ -327,7 +335,7 @@ type KafkaMonitor<'k,'v>
         /// Number of failed calls to broker that should trigger discarding of buffered readings in order to avoid false positives. Default 3.
         ?failResetCount) =
     let failResetCount = defaultArg failResetCount 3
-    let interval = let i = defaultArg interval (TimeSpan.FromSeconds 30.) in int i.TotalMilliseconds
+    let interval = defaultArg interval (TimeSpan.FromSeconds 30.)
     let windowSize = defaultArg windowSize 10
     let onStatus, onCheckFailed = new Event<string*(int *PartitionResult) list>(), new Event<string*int*exn>()
 
