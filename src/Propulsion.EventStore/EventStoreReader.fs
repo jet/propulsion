@@ -133,7 +133,7 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream,pos,limit : int
 
 /// Walks the $all stream, yielding batches together with the associated Position info for the purposes of checkpointing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-type [<NoComparison>] PullResult = Exn of exn: exn | Eof of Position | EndOfTranche
+type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
         (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) categorize (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
     let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
@@ -153,7 +153,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
             range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
             batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
         if not (range.TryNext currentSlice.NextPosition && not once && not currentSlice.IsEndOfStream) then
-            if currentSlice.IsEndOfStream then return Eof currentSlice.NextPosition
+            if currentSlice.IsEndOfStream then return Eof
             else return EndOfTranche
         else
             sw.Restart() // restart the clock as we hand off back to the Reader
@@ -225,7 +225,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
             let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent categorize postBatch |> Stopwatch.Time
             match res with
-            | PullResult.Eof _pos ->
+            | PullResult.Eof ->
                 Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
                 work.Enqueue EofDetected
