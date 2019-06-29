@@ -44,7 +44,7 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
             exnBytes <- exnBytes + int64 bs
 
 type StreamsProducerSink =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, render, producers : Producers, categorize, ?statsInterval, ?stateInterval)
+    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, render, producers : Producers, categorize, ?statsInterval, ?stateInterval, ?idleDelay)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = StreamsProducerStats(log.ForContext<StreamsProducerStats>(), statsInterval, stateInterval)
@@ -62,9 +62,10 @@ type StreamsProducerSink =
             | Choice2Of2 (_,_) -> None
         let dispatcher = Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
-            Streams.Scheduling.StreamSchedulingEngine<OkResult<TimeSpan>,FailResult>(
-                dispatcher, stats, attemptWrite, interpretWriteResultProgress,
-                fun s l ->
-                    s.Dump(l, Streams.Buffering.StreamState.eventsSize, categorize)
-                    producers.DumpStats l)
+            Streams.Scheduling.StreamSchedulingEngine<OkResult<TimeSpan>,FailResult>
+                (   dispatcher, stats, attemptWrite, interpretWriteResultProgress,
+                    (fun s l ->
+                        s.Dump(l, Streams.Buffering.StreamState.eventsSize, categorize)
+                        producers.DumpStats l),
+                    ?idleDelay=idleDelay)
         Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)

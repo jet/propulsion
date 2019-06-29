@@ -230,13 +230,13 @@ type StreamsConsumer =
     static member Start<'M,'Req,'Res>
         (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, enumStreamEvents,
             prepare, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
-            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState) =
+            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
         let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
         let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
-        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_,'Req,_>(dispatcher, stats, prepare, handle, dumpStreams)
+        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_,'Req,_>(dispatcher, stats, prepare, handle, dumpStreams, ?idleDelay=idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect enumStreamEvents x.messages) |> fst
@@ -248,7 +248,7 @@ type StreamsConsumer =
     static member Start<'M,'Res>
         (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop,
             enumStreamEvents, handle : string * Streams.StreamSpan<_> -> Async<'Res>, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
-            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState) =
+            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
         let prepare (streamName,span) =
             let stats = Streams.Buffering.StreamSpan.stats span
             stats,(streamName,span)
@@ -257,7 +257,8 @@ type StreamsConsumer =
             return span.events.Length,res }
         StreamsConsumer.Start<'M,(string*Propulsion.Streams.StreamSpan<_>),'Res>(
             log, config, maxDop, enumStreamEvents, prepare, handle, stats, categorize,
-            ?pipelineStatsInterval=pipelineStatsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-            ?pumpInterval=pumpInterval,
-            ?logExternalState=logExternalState)
+            ?pipelineStatsInterval = pipelineStatsInterval,
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?pumpInterval = pumpInterval,
+            ?logExternalState = logExternalState,
+            ?idleDelay = idleDelay)

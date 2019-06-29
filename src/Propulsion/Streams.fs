@@ -471,11 +471,14 @@ module Scheduling =
     type StreamSchedulingEngine<'R,'E>
         (   dispatcher : Dispatcher<string*Choice<'R,'E>>, stats : StreamSchedulerStats<'R,'E>,
             project : int64 option * string * StreamSpan<byte[]> -> Async<Choice<_,_>>, interpretProgress, dumpStreams,
-            /// Tune number of batches to ingest at a time. Default 4
+            /// Tune number of batches to ingest at a time. Default 5.
             ?maxBatches,
-            /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            ?idleDelay,
+            /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
-        let sleepIntervalMs, maxBatches, slipstreamingEnabled = 5, defaultArg maxBatches 4, defaultArg enableSlipstreaming false
+        let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 2.)
+        let maxBatches, sleepIntervalMs, slipstreamingEnabled = defaultArg maxBatches 5, int idleDelay.TotalMilliseconds, defaultArg enableSlipstreaming false
         let work = ConcurrentStack<InternalMessage<Choice<'R,'E>>>() // dont need them ordered so Queue is unwarranted; usage is cross-thread so Bag is not better
         let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
         let streams = StreamStates<byte[]>()
@@ -590,11 +593,12 @@ module Scheduling =
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
         member __.Submit(x : StreamsBatch<_>) =
             pending.Enqueue(x)
+
     type StreamSchedulingEngine =
         static member Create<'Stats,'Req,'Outcome>
             (   dispatcher : Dispatcher<string*Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
                 prepare : string*StreamSpan<byte[]> -> 'Stats*'Req, handle : 'Req -> Async<int*'Outcome>,
-                dumpStreams, ?maxBatches, ?enableSlipstreaming)
+                dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64*'Stats*'Outcome,'Stats*exn> =
             let project (_maybeWritePos, stream, span) : Async<Choice<int64*'Stats*'Outcome, 'Stats*exn>> = async {
                 let stats,req = prepare (stream,span)
@@ -604,7 +608,9 @@ module Scheduling =
             let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64*'Stats*'Outcome,'Stats*exn> -> Option<int64> = function
                 | Choice1Of2 (index,_stats,_outcome) -> Some index
                 | Choice2Of2 _ -> None
-            StreamSchedulingEngine(dispatcher, stats, project, interpretProgress, dumpStreams, ?maxBatches = maxBatches, ?enableSlipstreaming=enableSlipstreaming)
+            StreamSchedulingEngine
+                (   dispatcher, stats, project, interpretProgress, dumpStreams,
+                    ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
 module Projector =
 
@@ -680,7 +686,7 @@ module Projector =
 
 type StreamsProjector =
     static member Start<'Req,'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, project, categorize, ?statsInterval, ?stateInterval)
-            : ProjectorPipeline<_> =
+        : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionStats = Projector.Stats<'Outcome>(log.ForContext<Projector.Stats<'Outcome>>(), categorize, statsInterval, stateInterval)
         let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
@@ -688,7 +694,7 @@ type StreamsProjector =
         Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
 
     static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize, ?statsInterval, ?stateInterval)
-            : ProjectorPipeline<_> =
+        : ProjectorPipeline<_> =
         let prepare (streamName,span) =
             let stats = Buffering.StreamSpan.stats span
             stats,(streamName,span)
