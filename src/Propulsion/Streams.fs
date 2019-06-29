@@ -475,7 +475,7 @@ module Scheduling =
             ?maxBatches,
             /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps
             ?enableSlipstreaming) =
-        let sleepIntervalMs, maxBatches, slipstreamingEnabled = 2, defaultArg maxBatches 4, defaultArg enableSlipstreaming false
+        let sleepIntervalMs, maxBatches, slipstreamingEnabled = 5, defaultArg maxBatches 4, defaultArg enableSlipstreaming false
         let work = ConcurrentStack<InternalMessage<Choice<'R,'E>>>() // dont need them ordered so Queue is unwarranted; usage is cross-thread so Bag is not better
         let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
         let streams = StreamStates<byte[]>()
@@ -585,7 +585,7 @@ module Scheduling =
                     // This loop can take a long time; attempt logging of stats per iteration
                     (fun () -> stats.DumpStats(dispatcher.State,pending.Count)) |> accStopwatch <| fun t -> st <- st + t
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                if not (stats.TryDumpState(dispatcherState,dumpStreams streams,(dt,ft,mt,it,st))) && not idle then
+                if not (stats.TryDumpState(dispatcherState,dumpStreams streams,(dt,ft,mt,it,st))) && idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
         member __.Submit(x : StreamsBatch<_>) =
