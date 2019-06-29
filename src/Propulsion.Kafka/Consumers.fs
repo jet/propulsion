@@ -130,7 +130,8 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let ct = cts.Token
         let tcs = new TaskCompletionSource<unit>()
         let triggerStop () =
-            log.Information("Consuming ... Stopping {name}", consumer.Name)
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information 
+            log.Write(level, "Consuming... Stopping {name}", consumer.Name)
             cts.Cancel()
         let start name f =
             let wrap (name : string) computation = async {

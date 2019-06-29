@@ -494,8 +494,7 @@ module Scheduling =
             let mutable worked, more = false, true
             while more do
                 let c = work.TryPopRange(workLocalBuffer)
-                if c = 0 (*&& work.IsEmpty*) then
-                    more <- false
+                if c = 0 then more <- false
                 else worked <- true
                 for i in 0..c-1 do
                     let x = workLocalBuffer.[i]

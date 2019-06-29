@@ -1,9 +1,9 @@
 ﻿module Propulsion.EventStore.Reader
 
 open Equinox.Store // AwaitTaskCorrect
+open EventStore.ClientAPI
 open Propulsion.Internal // Sem
 open Propulsion.Streams
-open EventStore.ClientAPI
 open Serilog // NB Needs to shadow ILogger
 open System
 open System.Collections.Generic
@@ -27,8 +27,8 @@ type OverallStats(?statsInterval) =
     member __.Events = totalEvents
     member __.DumpIfIntervalExpired(?force) =
         if progressStart.ElapsedMilliseconds > intervalMs || force = Some true then
-            let totalMb = mb totalBytes
             if totalEvents <> 0L then
+                let totalMb = mb totalBytes
                 Log.Information("Reader Throughput {events} events {gb:n1}GB {mb:n2}MB/s",
                     totalEvents, totalMb/1024., totalMb*1000./float overallStart.ElapsedMilliseconds)
             progressStart.Restart()
@@ -112,7 +112,7 @@ let establishMax (conn : IEventStoreConnection) = async {
         try let! currentMax = fetchMax conn
             max <- Some currentMax
         with e ->
-            Log.Warning(e,"Could not establish max position")
+            Log.Warning(e, "Could not establish max position")
             do! Async.Sleep 5000 
     return Option.get max }
 
@@ -308,5 +308,5 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                 // TODO release connections, reduce DOP, implement stream readers
                 remainder <- None
             | (false, _), None ->
-                dop.Release() |> ignore
+                dop.Release()
                 do! Async.Sleep sleepIntervalMs }

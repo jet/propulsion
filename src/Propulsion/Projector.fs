@@ -55,6 +55,7 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             do! Async.AwaitTaskCorrect tcs.Task }
         let task = Async.StartAsTask machine
         let triggerStop () =
-            log.Information("Stopping")
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            log.Write(level, "Stopping")
             cts.Cancel();  
         new ProjectorPipeline<_>(task, triggerStop, startIngester)

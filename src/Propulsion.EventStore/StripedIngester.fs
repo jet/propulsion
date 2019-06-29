@@ -1,12 +1,12 @@
 ﻿namespace Propulsion.EventStore
 
 open Propulsion.Streams
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Threading
-open Propulsion.Internal
 
 type [<NoComparison; NoEquality>] Message =
     | Batch of seriesIndex: int * epoch: int64 * checkpoint: Async<unit> * items: StreamEvent<byte[]> seq
@@ -118,6 +118,7 @@ type StripedIngester
             // NB readMax.Release() is effected in the Batch handler's MarkCompleted()
         | Message.CloseSeries seriesId ->
             work.Enqueue <| CloseSeries seriesId
+            // Release semaphore as this message turns out not to necessitate a reservation against the 'reads being held' count
             readMax.Release()
         return readMax.State }
 

@@ -142,9 +142,7 @@ type T1(testOutputHelper) =
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval=(TimeSpan.FromSeconds 5.))
         let consumers = runConsumers log config numConsumers None consumerCallback
 
-        do! [ producers ; consumers ]
-            |> Async.Parallel
-            |> Async.Ignore
+        let! _ = Async.Parallel [ producers ; consumers ]
 
         // Section: assertion checks
         let ``consumed batches should be non-empty`` =
@@ -161,13 +159,10 @@ type T1(testOutputHelper) =
 
         test <@ ``all message keys should have expected value`` @> // "all message keys should have expected value"
 
-        let ``should have consumed all expected messages`` =
-            allMessages
-            |> Array.groupBy (fun msg -> msg.payload.producerId)
-            |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
-            |> Array.forall (fun gp -> gp.Length = messagesPerProducer)
-
-        test <@ ``should have consumed all expected messages`` @> // "should have consumed all expected messages"
+        test <@ allMessages // ``should have consumed all expected messages`
+                |> Array.groupBy (fun msg -> msg.payload.producerId)
+                |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
+                |> Array.forall (fun gp -> gp.Length = messagesPerProducer) @>
     }
 
 // separated test type to allow the tests to run in parallel
