@@ -16,6 +16,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Idling logic bug [#13](https://github.com/jet/propulsion/pull/13)
+- Gorging -> Tailing transition [#10](https://github.com/jet/propulsion/issues/10) [#13](https://github.com/jet/propulsion/pull/13)
+
 <a name="1.0.1-rc3"></a>
 ## [1.0.1-rc3] - 2019-06-18
 

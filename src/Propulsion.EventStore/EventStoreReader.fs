@@ -105,7 +105,7 @@ let fetchMax (conn : IEventStoreConnection) = async {
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, mb max.CommitPosition/1024.)
     return max }
 
-/// `fetchMax` wrapped in a retry loop; Sync process is entirely reliant on establishing the max so we have a crude retry loop
+/// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
 let establishMax (conn : IEventStoreConnection) = async {
     let mutable max = None
     while Option.isNone max do
@@ -133,24 +133,27 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream,pos,limit : int
 
 /// Walks the $all stream, yielding batches together with the associated Position info for the purposes of checkpointing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-type [<NoComparison>] PullResult = Exn of exn: exn | Eof of Position | EndOfTranche
+type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
-        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
+        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) categorize (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
     let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
+    let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
         let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos = false) |> Async.AwaitTaskCorrect
-        sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
+        sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
         let postSw = Stopwatch.StartNew()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
-        let batches = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
-        let streams = batches |> Seq.groupBy (fun b -> b.stream) |> Array.ofSeq
-        let usedStreams, usedCats = streams.Length, streams |> Seq.map fst |> Seq.distinct |> Seq.length
-        let! (cur,max) = postBatch currentSlice.NextPosition batches
+        let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
+        streams.Clear(); cats.Clear()
+        for x in events do
+            if streams.Add x.stream then
+                cats.Add (categorize x.stream) |> ignore
+        let! (cur,max) = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
             range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
-            batchEvents, usedCats, usedStreams, batches.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
+            batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
         if not (range.TryNext currentSlice.NextPosition && not once && not currentSlice.IsEndOfStream) then
-            if currentSlice.IsEndOfStream then return Eof currentSlice.NextPosition
+            if currentSlice.IsEndOfStream then return Eof
             else return EndOfTranche
         else
             sw.Restart() // restart the clock as we hand off back to the Reader
@@ -162,6 +165,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
 /// Specification for work to be performed by a reader thread
 [<NoComparison>]
 type Req =
+    | EofDetected
     /// Tail from a given start position, at intervals of the specified timespan (no waiting if catching up)
     | Tail of seriesId: int * startPos: Position * max : Position * interval: TimeSpan * batchSize : int
     /// Read a given segment of a stream (used when a stream needs to be rolled forward to lay down an event for which the preceding events are missing)
@@ -188,13 +192,13 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
     let sleepIntervalMs = 100
     let overallStats = OverallStats(?statsInterval=statsInterval)
     let slicesStats = SliceStatsBuffer(categorize)
-    let mutable eofSpottedInChunk = 0
 
     /// Invoked by pump to process a tranche of work; can have parallel invocations
     let exec conn req = async {
         let adjust batchSize = if batchSize > minBatchSize then batchSize - 128 else batchSize
         //let postSpan = ReadResult.StreamSpan >> post >> Async.Ignore
         match req with
+        | EofDetected as x -> failwithf "Unexpected %A" x
         //| StreamPrefix (name,pos,len,batchSize) ->
         //    use _ = Serilog.Context.LogContext.PushProperty("Tranche",name)
         //    Log.Warning("Reading stream prefix; pos {pos} len {len} batch size {bs}", pos, len, batchSize)
@@ -219,13 +223,12 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
             let postBatch pos items = post (Res.Batch (series, pos, items))
             use _ = Serilog.Context.LogContext.PushProperty("Tranche", series)
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
-            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent postBatch |> Stopwatch.Time
+            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent categorize postBatch |> Stopwatch.Time
             match res with
-            | PullResult.Eof pos ->
+            | PullResult.Eof ->
                 Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
-                overallStats.DumpIfIntervalExpired(true)
                 let! _ = post (Res.EndOfChunk series) in ()
-                if 1 = Interlocked.Increment &eofSpottedInChunk then work.Enqueue <| Req.Tail (series+1, pos, pos, tailInterval, defaultBatchSize)
+                work.Enqueue EofDetected
             | PullResult.EndOfTranche ->
                 Log.Information("completed tranche in {ms:n1}m", let e = t.Elapsed in e.TotalMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
@@ -254,7 +257,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                         count, currentPos.CommitPosition, chunk currentPos)
                     progressSw.Restart()
                 count <- count + 1
-                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent postBatch
+                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent categorize postBatch
                 do! awaitInterval
                 match res with
                 | PullResult.EndOfTranche | PullResult.Eof _ -> ()
@@ -285,28 +288,38 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
         let mutable remainder =
             if conns.Length > 1 then
                 let nextPos = posFromChunkAfter initialPos
-                work.Enqueue <| Req.Chunk (initialSeriesId, new Range(initialPos, Some nextPos, max), defaultBatchSize)
+                work.Enqueue <| Req.Chunk (seriesId, new Range(initialPos, Some nextPos, max), defaultBatchSize)
                 Some nextPos
             else
-                work.Enqueue <| Req.Tail (initialSeriesId, initialPos, max, tailInterval, defaultBatchSize)
+                work.Enqueue <| Req.Tail (seriesId, initialPos, max, tailInterval, defaultBatchSize)
                 None
         let! ct = Async.CancellationToken
+        let mutable endDetected = false
         while not ct.IsCancellationRequested do
             overallStats.DumpIfIntervalExpired()
             let! _ = dop.Await ct
             match work.TryDequeue(), remainder with
+            | (true, EofDetected), Some nextChunk ->
+                if endDetected then
+                    dop.Release()
+                else
+                    Log.Warning("No further ingestion work to commence, transitioning to tailing...")
+                    overallStats.DumpIfIntervalExpired(true)
+                    endDetected <- true
+                    remainder <- None
+                    seriesId <- seriesId + 1
+                    /// TODO shed excess connections as transitioning
+                    do! forkRunRelease <| Req.Tail (seriesId, nextChunk, nextChunk, tailInterval, defaultBatchSize)
+            // Process requeuing etc
             | (true, task), _ ->
                 do! forkRunRelease task
-            | (false, _), Some nextChunk when eofSpottedInChunk = 0 -> 
-                seriesId <- seriesId  + 1
+            // Start a chunk if no work and eof detection has yet to call a halt
+            | (false, _), Some nextChunk -> 
+                seriesId <- seriesId + 1
                 let nextPos = posFromChunkAfter nextChunk
                 remainder <- Some nextPos
                 do! forkRunRelease <| Req.Chunk (seriesId, Range(nextChunk, Some nextPos, max), defaultBatchSize)
-            | (false, _), Some _ ->
-                dop.Release() |> ignore
-                Log.Warning("No further ingestion work to commence, transitioning to tailing...")
-                // TODO release connections, reduce DOP, implement stream readers
-                remainder <- None
+            // Otherwise sleep for remainder of interval
             | (false, _), None ->
                 dop.Release()
                 do! Async.Sleep sleepIntervalMs }

@@ -17,20 +17,20 @@ module StripedIngesterImpl =
     type Stats(log : ILogger, statsInterval) =
         let statsDue = intervalCheck statsInterval
         let mutable cycles, ingested = 0, 0
-        let dumpStats (currentBuffer,maxBuffer) (readingAhead,ready) =
+        let dumpStats activeSeries (readingAhead,ready) (currentBuffer,maxBuffer) =
             let mutable buffered = 0
             let count (xs : IDictionary<int,ResizeArray<_>>) = seq { for x in xs do buffered <- buffered + x.Value.Count; yield x.Key, x.Value.Count } |> Seq.sortBy fst |> Seq.toArray
             let ahead, ready = count readingAhead, count ready
-            log.Information("Read {ingested} Cycles {cycles} Holding {buffered} Reading {@reading} Ready {@ready} Buffering {currentBuffer}/{maxBuffer}",
-                ingested, cycles, buffered, ahead, ready, currentBuffer, maxBuffer)
+            log.Information("Read {ingested} Cycles {cycles} Series {series} Holding {buffered} Reading {@reading} Ready {@ready} Active {currentBuffer}/{maxBuffer}",
+                ingested, cycles, activeSeries, buffered, ahead, ready, currentBuffer, maxBuffer)
             ingested <- 0; cycles <- 0
         member __.Handle : InternalMessage -> unit = function
             | Batch _ -> ingested <- ingested + 1
-            | ActivateSeries _ | CloseSeries _-> () // stats are managed via Added internal message in same cycle
-        member __.TryDump(readState, readingAhead, ready) =
+            | ActivateSeries _ | CloseSeries _ -> ()
+        member __.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
             if statsDue () then
-                dumpStats readState (readingAhead,ready)
+                dumpStats activeSeries (readingAhead,ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
         | Batch of seriesIndex: int * epoch: int64 * checkpoint: Async<unit> * items: StreamEvent<byte[]> seq
@@ -98,7 +98,7 @@ type StripedIngester
 
     member __.Pump = async {
         while not cts.IsCancellationRequested do
-            let mutable itemLimit = 4096
+            let mutable itemLimit = 1024
             while itemLimit > 0 do
                 match work.TryDequeue() with
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
@@ -106,7 +106,7 @@ type StripedIngester
             while pending.Count <> 0 do
                 let epoch,checkpoint,items,markCompleted = pending.Dequeue()
                 let! _,_ = inner.Submit(epoch, checkpoint, items, markCompleted) in ()
-            stats.TryDump(readMax.State,readingAhead,ready)
+            stats.TryDump(activeSeries,readingAhead,ready,readMax.State)
             do! Async.Sleep pumpInterval }
 
     /// Awaits space in `read` to limit reading ahead - yields (used,maximum) counts from Read Semaphore for logging purposes
