@@ -10,14 +10,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Targeted `Jet.ConfluentKafka.FSharp` v `1.1.0`
-
 ### Removed
 ### Fixed
 
+<a name="1.0.1-rc4"></a>
+## [1.0.1-rc4] - 2019-07-01
+
+### Changed
+
+- `.Kafka`: Targeted `Jet.ConfluentKafka.FSharp` v `1.1.0`
+
+### Fixed
+
 - Idling logic bug [#13](https://github.com/jet/propulsion/pull/13)
-- Gorging -> Tailing transition [#10](https://github.com/jet/propulsion/issues/10) [#13](https://github.com/jet/propulsion/pull/13)
+- `EventStoreSource`: Gorging -> Tailing transition [#10](https://github.com/jet/propulsion/issues/10) [#13](https://github.com/jet/propulsion/pull/13)
 
 <a name="1.0.1-rc3"></a>
 ## [1.0.1-rc3] - 2019-06-18
@@ -89,7 +95,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc3...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc4...HEAD
+[1.0.1-rc4]: https://github.com/jet/propulsion/compare/1.0.1-rc3...1.0.1-rc4
 [1.0.1-rc3]: https://github.com/jet/propulsion/compare/1.0.1-rc2...1.0.1-rc3
 [1.0.1-rc2]: https://github.com/jet/propulsion/compare/1.0.1-rc1...1.0.1-rc2
 [1.0.1-rc1]: https://github.com/jet/propulsion/compare/1.0.0-rc13...1.0.1-rc1
