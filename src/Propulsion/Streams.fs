@@ -22,11 +22,20 @@ type IEvent<'Format> =
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
-type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Format> }
+type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Format> } with
+    interface IEvent<'Format> with
+        member __.EventType = __.event.EventType
+        member __.Data = __.event.Data
+        member __.Meta = __.event.Meta
+        member __.Timestamp = __.event.Timestamp
 
-/// Span of events from a Stream
+/// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] }
+type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] } with
+    interface IEnumerable<IEvent<'Format>> with
+        member __.GetEnumerator() = let e : seq<IEvent<'Format>> = __.events :> _ in e.GetEnumerator()
+    interface System.Collections.IEnumerable with
+        member __.GetEnumerator() = __.events.GetEnumerator()
 
 module Internal =
 

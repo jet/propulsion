@@ -9,6 +9,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion`: Implement `IEvent` on `StreamEvent`, `IEnumerable<IEvent>` on `StreamEventSpan`
+- `Propulsion.Kafka`: Implemented `IEnumerable<IEvent>` on `RenderedSpan`
+- `Propulsion.Kafka`: Added `Parse`, `parseStreamEvents` helpers to `RenderedSpan`
+
 ### Changed
 ### Removed
 ### Fixed

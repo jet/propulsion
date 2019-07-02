@@ -29,10 +29,10 @@ module EquinoxCosmosParser =
         && d.GetPropertyValue "n" <> null && d.GetPropertyValue "e" <> null
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents (batch : Equinox.Cosmos.Store.Batch) : StreamEvent<_> seq =
+    let enumEquinoxCosmosEvents (batch : Equinox.Cosmos.Store.Batch) : StreamEvent<byte[]> seq =
         batch.e |> Seq.mapi (fun offset (PropulsionEvent x) -> { stream = batch.p; index = batch.i + int64 offset; event = x })
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumStreamEvents (d : Document) : StreamEvent<_> seq =
+    let enumStreamEvents (d : Document) : StreamEvent<byte[]> seq =
         if isEquinoxBatch d then d.Cast<Equinox.Cosmos.Store.Batch>() |> enumEquinoxCosmosEvents
         else Seq.empty
