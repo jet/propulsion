@@ -22,3 +22,5 @@ module Bindings =
             | message -> ingest message
         with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
             | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
+    let produceAsync produceAsync (key,value) = async {
+        do! Async.Ignore <| produceAsync (key, value) }
