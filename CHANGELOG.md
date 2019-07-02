@@ -9,14 +9,18 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.1-rc5"></a>
+## [1.0.1-rc5] - 2019-07-02
+
+### Added
 
 - `Propulsion`: Implement `IEvent` on `StreamEvent`, `IEnumerable<IEvent>` on `StreamEventSpan`
 - `Propulsion.Kafka`: Implemented `IEnumerable<IEvent>` on `RenderedSpan`
 - `Propulsion.Kafka`: Added `Parse`, `parseStreamEvents` helpers to `RenderedSpan`
-
-### Changed
-### Removed
-### Fixed
 
 <a name="1.0.1-rc4"></a>
 ## [1.0.1-rc4] - 2019-07-01
@@ -100,7 +104,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc4...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc5...HEAD
+[1.0.1-rc5]: https://github.com/jet/propulsion/compare/1.0.1-rc4...1.0.1-rc5
 [1.0.1-rc4]: https://github.com/jet/propulsion/compare/1.0.1-rc3...1.0.1-rc4
 [1.0.1-rc3]: https://github.com/jet/propulsion/compare/1.0.1-rc2...1.0.1-rc3
 [1.0.1-rc2]: https://github.com/jet/propulsion/compare/1.0.1-rc1...1.0.1-rc2
