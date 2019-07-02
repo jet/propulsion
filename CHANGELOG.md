@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- `Kafka0` - added missing error check on produce [#14](https://github.com/jet/propulsion/pull/14)
+
 <a name="1.0.1-rc5"></a>
 ## [1.0.1-rc5] - 2019-07-02
 
