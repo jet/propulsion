@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`: Rename `Producers` to `Producer`, add deprecation not to [renamed] `degreeOfParallelism` parameter
+
 ### Removed
 ### Fixed
 

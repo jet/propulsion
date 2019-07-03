@@ -7,13 +7,13 @@ open System
 open System.Collections.Generic
 
 type ParallelProducerSink =
-    static member Start(maxReadAhead, maxDop, render, producers : Producers, ?statsInterval)
+    static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
         : ProjectorPipeline<_> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item = async {
             let key, value = render item
-            do! Bindings.produceAsync producers.ProduceAsync (key, value) }
-        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats = producers.DumpStats)
+            do! Bindings.produceAsync producer.ProduceAsync (key, value) }
+        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats = producer.DumpStats)
 
 type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
     inherit Streams.Scheduling.StreamSchedulerStats<OkResult<TimeSpan>,FailResult>(log, statsInterval, stateInterval)
@@ -44,7 +44,7 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
             exnBytes <- exnBytes + int64 bs
 
 type StreamsProducerSink =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, render, producers : Producers, categorize, ?statsInterval, ?stateInterval, ?idleDelay)
+    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize, ?statsInterval, ?stateInterval, ?idleDelay)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = StreamsProducerStats(log.ForContext<StreamsProducerStats>(), statsInterval, stateInterval)
@@ -54,7 +54,7 @@ type StreamsProducerSink =
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let spanJson = render (stream, span)
             let jsonElapsed = sw.Elapsed
-            try do! Bindings.produceAsync producers.ProduceAsync (stream,spanJson)
+            try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
             with e -> return Choice2Of2 ((eventCount,bytesCount),e) }
         let interpretWriteResultProgress _streams _stream = function
@@ -66,6 +66,6 @@ type StreamsProducerSink =
                 (   dispatcher, stats, attemptWrite, interpretWriteResultProgress,
                     (fun s l ->
                         s.Dump(l, Streams.Buffering.StreamState.eventsSize, categorize)
-                        producers.DumpStats l),
+                        producer.DumpStats l),
                     ?idleDelay=idleDelay)
         Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
