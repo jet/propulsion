@@ -31,11 +31,7 @@ type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Forma
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] } with
-    interface IEnumerable<IEvent<'Format>> with
-        member __.GetEnumerator() = let e : seq<IEvent<'Format>> = __.events :> _ in e.GetEnumerator()
-    interface System.Collections.IEnumerable with
-        member __.GetEnumerator() = __.events.GetEnumerator()
+type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] }
 
 module Internal =
 

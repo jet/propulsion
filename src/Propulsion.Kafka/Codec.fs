@@ -60,10 +60,6 @@ type [<NoEquality; NoComparison>] RenderedSpan =
 
         /// The Events comprising this span
         e: RenderedEvent[] }
-    interface System.Collections.Generic.IEnumerable<Propulsion.Streams.IEvent<byte[]>> with
-        member __.GetEnumerator() = let e = Seq.cast __.e in e.GetEnumerator()
-    interface System.Collections.IEnumerable with
-        member __.GetEnumerator() = __.e.GetEnumerator()
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
     static member Parse(spanJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSpan =
         match serializerSettings with
@@ -79,7 +75,7 @@ module RenderedSpan =
             e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
 
     let enumStreamEvents (span: RenderedSpan) : StreamEvent<_> seq = 
-        span |> Seq.mapi (fun i e -> { stream = span.s; index = span.i + int64 i; event = e })
+        span.e |> Seq.mapi (fun i e -> { stream = span.s; index = span.i + int64 i; event = e })
 
     let parseStreamEvents (spanJson: string) : StreamEvent<_> seq = 
         spanJson |> RenderedSpan.Parse |> enumStreamEvents
