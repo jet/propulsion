@@ -167,7 +167,7 @@ type T1(testOutputHelper) =
             |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
         let unconsumedCounts =
             unconsumed
-            |> Seq.map (fun gp -> gp.[0].consumerId, gp.Length)
+            |> Seq.map (fun gp -> gp.[0].payload.producerId, gp.Length)
             |> Array.ofSeq
         test <@ Array.isEmpty unconsumedCounts @>
     }
