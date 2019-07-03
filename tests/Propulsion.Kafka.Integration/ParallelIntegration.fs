@@ -128,11 +128,11 @@ type T1(testOutputHelper) =
         let groupId = newId()
     
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
+        let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
             do consumedBatches.Add msg
-            let messageCount = consumedBatches |> Seq.length
             // signal cancellation if consumed items reaches expected size
-            if messageCount >= numProducers * messagesPerProducer then
+            if consumedBatches |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length = expectedUniqueMessages then
                 consumer.Stop()
         } 
 
@@ -159,10 +159,17 @@ type T1(testOutputHelper) =
 
         test <@ ``all message keys should have expected value`` @> // "all message keys should have expected value"
 
-        test <@ allMessages // ``should have consumed all expected messages`
-                |> Array.groupBy (fun msg -> msg.payload.producerId)
-                |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
-                |> Array.forall (fun gp -> gp.Length = messagesPerProducer) @>
+        // ``should have consumed all expected messages`
+        let unconsumed =
+            allMessages
+            |> Array.groupBy (fun msg -> msg.payload.producerId)
+            |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
+            |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
+        let unconsumedCounts =
+            unconsumed
+            |> Seq.map (fun gp -> gp.[0].payload.producerId, gp.Length)
+            |> Array.ofSeq
+        test <@ Array.isEmpty unconsumedCounts @>
     }
 
 // separated test type to allow the tests to run in parallel

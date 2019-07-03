@@ -25,3 +25,6 @@ module Bindings =
                 if message.Error.HasError then log.Warning("Consuming... error {e}", message.Error)
                 else ingest message 
         with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
+    let produceAsync produceAsync (key,value) = async {
+        let! (res : Message<'K,'V>) = produceAsync(key, value)
+        if res.Error.HasError then return invalidOp res.Error.Reason }// CK 1.x throws, we do the same here for consistency
