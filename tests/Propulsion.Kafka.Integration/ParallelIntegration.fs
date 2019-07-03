@@ -162,9 +162,9 @@ type T1(testOutputHelper) =
         // ``should have consumed all expected messages`
         let unconsumed =
             allMessages
-                |> Array.groupBy (fun msg -> msg.payload.producerId)
-                |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
-                |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
+            |> Array.groupBy (fun msg -> msg.payload.producerId)
+            |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
+            |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
         let unconsumedCounts =
             unconsumed
             |> Seq.map (fun gp -> gp.[0].consumerId, gp.Length)
