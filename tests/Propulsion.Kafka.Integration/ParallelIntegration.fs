@@ -159,10 +159,17 @@ type T1(testOutputHelper) =
 
         test <@ ``all message keys should have expected value`` @> // "all message keys should have expected value"
 
-        test <@ allMessages // ``should have consumed all expected messages`
+        // ``should have consumed all expected messages`
+        let unconsumed =
+            allMessages
                 |> Array.groupBy (fun msg -> msg.payload.producerId)
                 |> Array.map (fun (_, gp) -> gp |> Array.distinctBy (fun msg -> msg.payload.messageId))
-                |> Array.forall (fun gp -> gp.Length = messagesPerProducer) @>
+                |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
+        let unconsumedCounts =
+            unconsumed
+            |> Seq.map (fun gp -> gp.[0].consumerId, gp.Length)
+            |> Array.ofSeq
+        test <@ Array.isEmpty unconsumedCounts @>
     }
 
 // separated test type to allow the tests to run in parallel
