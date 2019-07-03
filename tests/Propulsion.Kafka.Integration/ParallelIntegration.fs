@@ -135,7 +135,7 @@ type T1(testOutputHelper) =
             // signal cancellation if consumed items reaches expected size
             if messageCount >= expectedUniqueMessages
                 // at least once processing will be fine
-                && expectedUniqueMessages = (consumedBatches.ToArray() |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length) then
+                && consumedBatches.ToArray() |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length = expectedUniqueMessages then
                 consumer.Stop()
         } 
 
