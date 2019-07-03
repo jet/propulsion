@@ -128,11 +128,14 @@ type T1(testOutputHelper) =
         let groupId = newId()
     
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
+        let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
             do consumedBatches.Add msg
             let messageCount = consumedBatches |> Seq.length
             // signal cancellation if consumed items reaches expected size
-            if messageCount >= numProducers * messagesPerProducer then
+            if messageCount >= expectedUniqueMessages
+                // at least once processing will be fine
+                && expectedUniqueMessages = (consumedBatches.ToArray() |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length) then
                 consumer.Stop()
         } 
 
