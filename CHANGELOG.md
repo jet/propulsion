@@ -9,12 +9,18 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.1-rc7"></a>
+## [1.0.1-rc7] - 2019-07-04
+
+### Added
 
 - `Kafka`: Log `Producer` exceptions
 - `Kafka`: `StreamsProducerSink` Enable control of `maxEvents`, `maxBytes`
 
-### Changed
-### Removed
 ### Fixed
 
 - `Propulsion`/`Propulsion.Kafka`/`Propulsion.Kafka0`: Removed `IEvent` on `StreamEvent`, `IEnumerable<IEvent>` on `StreamEventSpan`
@@ -121,7 +127,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc6...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc7...HEAD
+[1.0.1-rc7]: https://github.com/jet/propulsion/compare/1.0.1-rc6...1.0.1-rc7
 [1.0.1-rc6]: https://github.com/jet/propulsion/compare/1.0.1-rc5...1.0.1-rc6
 [1.0.1-rc5]: https://github.com/jet/propulsion/compare/1.0.1-rc4...1.0.1-rc5
 [1.0.1-rc4]: https://github.com/jet/propulsion/compare/1.0.1-rc3...1.0.1-rc4
