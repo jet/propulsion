@@ -57,9 +57,11 @@ type StreamsProducerSink =
             try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
             with e -> return Choice2Of2 ((eventCount,bytesCount),e) }
-        let interpretWriteResultProgress _streams _stream = function
+        let interpretWriteResultProgress _streams (stream : string) = function
             | Choice1Of2 (i',_,_) -> Some i'
-            | Choice2Of2 (_,_) -> None
+            | Choice2Of2 (_,exn : exn) ->
+                log.Warning(exn,"Writing   {stream} failed, retrying", stream)
+                None
         let dispatcher = Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
             Streams.Scheduling.StreamSchedulingEngine<OkResult<TimeSpan>,FailResult>

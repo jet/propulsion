@@ -9,12 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Kafka`: Log `Producer` exceptions
+
 ### Changed
 ### Removed
 ### Fixed
 
 - `Propulsion`/`Propulsion.Kafka`/`Propulsion.Kafka0`: Removed `IEvent` on `StreamEvent`, `IEnumerable<IEvent>` on `StreamEventSpan`
-
 
 <a name="1.0.1-rc6"></a>
 ## [1.0.1-rc6] - 2019-07-03
