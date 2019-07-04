@@ -61,7 +61,8 @@ type StreamsProducerSink =
             let spanJson :string = render (stream, span)
             let jsonElapsed = sw.Elapsed
             match spanJson.Length with
-            | x when x > 512*1024 && log.IsEnabled(Serilog.Events.LogEventLevel.Debug) -> log.Debug("Message on {stream} had length {length}", stream, x)
+            | x when x > maxBytes ->
+                log.Warning("Message on {stream} had String.Length {length} using {events}/{availableEvents}", stream, x, span.events.Length,fullBuffer.events.Length)
             | _ -> ()
             try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
@@ -69,7 +70,7 @@ type StreamsProducerSink =
         let interpretWriteResultProgress _streams (stream : string) = function
             | Choice1Of2 (i',_,_) -> Some i'
             | Choice2Of2 ((eventCount,bytesCount),exn : exn) ->
-                log.Warning(exn,"Writing   {n0}e {n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
+                log.Warning(exn,"Writing   {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                 None
         let dispatcher = Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
