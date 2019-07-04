@@ -11,6 +11,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - `Kafka`: Log `Producer` exceptions
+- `Kafka`: `StreamsProducerSink` Enable control of `maxEvents`, `maxBytes`
 
 ### Changed
 ### Removed

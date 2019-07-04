@@ -44,23 +44,32 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
             exnBytes <- exnBytes + int64 bs
 
 type StreamsProducerSink =
-    static member Start(log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize, ?statsInterval, ?stateInterval, ?idleDelay)
+    static member Start
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize,
+            ?statsInterval, ?stateInterval, ?idleDelay,
+            // Default 1 MiB
+            ?maxBytes,
+            // Default 16384
+            ?maxEvents)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = StreamsProducerStats(log.ForContext<StreamsProducerStats>(), statsInterval, stateInterval)
         let attemptWrite (_writePos,stream,fullBuffer : Streams.StreamSpan<_>) = async {
-            let maxEvents, maxBytes = 16384, 1_000_000 - (*fudge*)4096
+            let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes 1024*1024 - (*fudge*)4096
             let (eventCount,bytesCount),span = Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let sw = System.Diagnostics.Stopwatch.StartNew()
-            let spanJson = render (stream, span)
+            let spanJson :string = render (stream, span)
             let jsonElapsed = sw.Elapsed
+            match spanJson.Length with
+            | x when x > 512*1024 && log.IsEnabled(Serilog.Events.LogEventLevel.Debug) -> log.Debug("Message on {stream} had length {length}", stream, x)
+            | _ -> ()
             try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
             with e -> return Choice2Of2 ((eventCount,bytesCount),e) }
         let interpretWriteResultProgress _streams (stream : string) = function
             | Choice1Of2 (i',_,_) -> Some i'
-            | Choice2Of2 (_,exn : exn) ->
-                log.Warning(exn,"Writing   {stream} failed, retrying", stream)
+            | Choice2Of2 ((eventCount,bytesCount),exn : exn) ->
+                log.Warning(exn,"Writing   {n0}e {n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                 None
         let dispatcher = Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
