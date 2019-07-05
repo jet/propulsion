@@ -478,12 +478,15 @@ module Scheduling =
             project : int64 option * string * StreamSpan<byte[]> -> Async<Choice<_,_>>, interpretProgress, dumpStreams,
             /// Tune number of batches to ingest at a time. Default 5.
             ?maxBatches,
+            /// Tune the max number of check/dispatch cyles. Default 16.
+            ?maxCycles,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
             ?idleDelay,
             /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 2.)
-        let maxBatches, sleepIntervalMs, slipstreamingEnabled = defaultArg maxBatches 5, int idleDelay.TotalMilliseconds, defaultArg enableSlipstreaming false
+        let sleepIntervalMs = int idleDelay.TotalMilliseconds
+        let maxCycles, maxBatches, slipstreamingEnabled = defaultArg maxCycles 16, defaultArg maxBatches 5, defaultArg enableSlipstreaming false
         let work = ConcurrentStack<InternalMessage<Choice<'R,'E>>>() // dont need them ordered so Queue is unwarranted; usage is cross-thread so Bag is not better
         let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
         let streams = StreamStates<byte[]>()
@@ -552,7 +555,7 @@ module Scheduling =
             use _ = dispatcher.Result.Subscribe(Result >> work.Push)
             let! ct = Async.CancellationToken
             while not ct.IsCancellationRequested do
-                let mutable idle, dispatcherState, remaining = true, Idle, 16
+                let mutable idle, dispatcherState, remaining = true, Idle, maxCycles
                 let mutable dt,ft,mt,it,st = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
                 while remaining <> 0 do
                     remaining <- remaining - 1

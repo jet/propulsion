@@ -47,17 +47,19 @@ type StreamsProducerSink =
     static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize,
             ?statsInterval, ?stateInterval,
-            // Default 1 ms
+            /// Default .5 ms
             ?idleDelay,
-            // Default 1 MiB
+            /// Default 1 MiB
             ?maxBytes,
-            // Default 16384
+            /// Default 16384
             ?maxEvents,
-            // Max schedling readahead. Default 1024.
-            ?maxBatches)
+            /// Max scheduling readahead. Default 128.
+            ?maxBatches,
+            /// Max inner cycles per loop. Default 128.
+            ?maxCycles)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 1024, defaultArg maxEvents 16384, (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
+        let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
         let stats = StreamsProducerStats(log.ForContext<StreamsProducerStats>(), statsInterval, stateInterval)
         let attemptWrite (_writePos,stream,fullBuffer : Streams.StreamSpan<_>) = async {
             let (eventCount,bytesCount),span = Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
@@ -84,6 +86,8 @@ type StreamsProducerSink =
                     (fun s l ->
                         s.Dump(l, Streams.Buffering.StreamState.eventsSize, categorize)
                         producer.DumpStats l),
-                    maxBatches=maxBatches,
-                    idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 1.))
-        Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches)
+                    maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128,
+                    idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+        Streams.Projector.StreamsProjectorPipeline.Start(
+            log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+            maxSubmissionsPerPartition=maxBatches)
