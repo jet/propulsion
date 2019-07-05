@@ -204,7 +204,7 @@ module Buffering =
                 let eventBytes = estimateBytesAsJsonUtf8 y
                 bytesBudget <- bytesBudget - eventBytes
                 // always send at least one event in order to surface the problem and have the stream marked malformed
-                let res = count = 0 || (countBudget >= 0 && bytesBudget >= 0)
+                let res = count = 0 || (countBudget > 0 && bytesBudget > 0)
                 if res then count <- count + 1; bytes <- bytes + eventBytes
                 res
             let trimmed = { streamSpan with events = streamSpan.events |> Array.takeWhile withinLimits }

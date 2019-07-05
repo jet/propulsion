@@ -46,23 +46,28 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
 type StreamsProducerSink =
     static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize,
-            ?statsInterval, ?stateInterval, ?idleDelay,
+            ?statsInterval, ?stateInterval,
+            // Default 1 ms
+            ?idleDelay,
             // Default 1 MiB
             ?maxBytes,
             // Default 16384
-            ?maxEvents)
+            ?maxEvents,
+            // Max schedling readahead. Default 1024.
+            ?maxBatches)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
+        let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 1024, defaultArg maxEvents 16384, (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
         let stats = StreamsProducerStats(log.ForContext<StreamsProducerStats>(), statsInterval, stateInterval)
         let attemptWrite (_writePos,stream,fullBuffer : Streams.StreamSpan<_>) = async {
-            let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes 1024*1024 - (*fudge*)4096
             let (eventCount,bytesCount),span = Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let sw = System.Diagnostics.Stopwatch.StartNew()
-            let spanJson :string = render (stream, span)
+            let spanJson : string = render (stream, span)
             let jsonElapsed = sw.Elapsed
             match spanJson.Length with
             | x when x > maxBytes ->
-                log.Warning("Message on {stream} had String.Length {length} using {events}/{availableEvents}", stream, x, span.events.Length,fullBuffer.events.Length)
+                log.Warning("Message on {stream} had String.Length {length} using {events}/{availableEvents}",
+                    stream, x, span.events.Length, fullBuffer.events.Length)
             | _ -> ()
             try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
                 return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
@@ -79,5 +84,6 @@ type StreamsProducerSink =
                     (fun s l ->
                         s.Dump(l, Streams.Buffering.StreamState.eventsSize, categorize)
                         producer.DumpStats l),
-                    ?idleDelay=idleDelay)
-        Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
+                    maxBatches=maxBatches,
+                    idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 1.))
+        Streams.Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches)

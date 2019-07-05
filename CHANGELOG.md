@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`/`Kafka0`: Tuned stream producer params
+
 ### Removed
 ### Fixed
 
