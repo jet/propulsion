@@ -1,6 +1,11 @@
 ﻿namespace Propulsion.Kafka.Integration.Parallel
 
+#if KAFKA0
+open Propulsion.Kafka0.Confluent.Kafka
+open Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
+#else
 open Jet.ConfluentKafka.FSharp
+#endif
 open Newtonsoft.Json
 open Propulsion.Kafka
 open Serilog
