@@ -4,7 +4,7 @@
     <TargetFrameworks>netcoreapp2.1;net461</TargetFrameworks>
     <WarningLevel>5</WarningLevel>
     <IsPackable>false</IsPackable>
-    <DefineConstants>KAFKA0</DefineConstants>
+    <DefineConstants>KAFKA0;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
