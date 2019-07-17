@@ -3,7 +3,11 @@
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
+#if CONFLUENT_KAFKA_SHIMS
+open Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
+#else
 open Jet.ConfluentKafka.FSharp
+#endif
 open Propulsion
 open Propulsion.Internal // intervalCheck
 open Propulsion.Kafka.Internal // AwaitTaskCorrect
@@ -228,7 +232,7 @@ type StreamsConsumer =
     /// Starts a Kafka Consumer processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start<'M,'Req,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, parseStreamEvents,
+        (   log : ILogger, config : KafkaConsumerConfig, maxDop, parseStreamEvents,
             prepare, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
             categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
         let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
@@ -246,7 +250,7 @@ type StreamsConsumer =
     /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
     /// Processor statistics are accumulated serially into the supplied `stats` buffer
     static member Start<'M,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop,
+        (   log : ILogger, config : KafkaConsumerConfig, maxDop,
             parseStreamEvents, handle : string * Streams.StreamSpan<_> -> Async<'Res>, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
             categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
         let prepare (streamName,span) =

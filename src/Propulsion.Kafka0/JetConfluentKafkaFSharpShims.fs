@@ -1,10 +1,11 @@
 // Shims for stuff that's present in Jet.ConfluentKafka.FSharp 1.x
-namespace Jet.ConfluentKafka.FSharp
+namespace Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
 
 open Confluent.Kafka
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
 open Propulsion.Kafka.Internal // Async Helpers
+open Propulsion.Kafka0.Confluent.Kafka // Confluent.Kafka shims
 open Serilog
 open System
 open System.Threading

@@ -1,7 +1,12 @@
 ﻿namespace Propulsion.Kafka
 
 open Confluent.Kafka
+#if CONFLUENT_KAFKA_SHIMS
+open Propulsion.Kafka0.Confluent.Kafka
+open Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
+#else
 open Jet.ConfluentKafka.FSharp
+#endif
 open Propulsion
 open Serilog
 open System

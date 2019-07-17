@@ -1,5 +1,5 @@
 ﻿// Stand-ins for stuff presented in Confluent.Kafka v1
-namespace Confluent.Kafka
+namespace Propulsion.Kafka0.Confluent.Kafka
 
 open System
 open System.Collections.Generic

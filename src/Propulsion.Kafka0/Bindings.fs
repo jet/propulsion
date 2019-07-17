@@ -1,7 +1,8 @@
 ﻿namespace Propulsion.Kafka
 
 open Confluent.Kafka
-open Jet.ConfluentKafka.FSharp
+open Propulsion.Kafka0.Confluent.Kafka
+open Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
 open Serilog
 open System
 open System.Collections.Generic
