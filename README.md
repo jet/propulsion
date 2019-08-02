@@ -23,7 +23,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
     - `proProjector` template for example `CosmosSource` logic consuming from a CosmosDb `ChangeFeedProcessor`.
     - `proProjector` template (in `-k` mode) for example producer logic using `StreamsProducer`, `StreamsProjector` and `ParallelProducer`.
     - `proConsumer` template for example consumer logic using `ParallelConsumer` and `StreamsConsumer`.
-    - `eqxsync` template for examples of binding a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`.
+    - `proSync` template for examples of binding a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`.
 
 - See [the `Jet.ConfluentKafka.FSharp` repo](https://github.com/jet/Jet.ConfluentKafka.FSharp) for `BatchedProducer` and `BatchedConsumer` implementations (together with the `KafkaConsumerConfig` and `KafkaProducerConfig` used in the Parallel and Streams wrappers in `Propulsion.Kafka`)
 
@@ -38,7 +38,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
     dotnet tool uninstall Propulsion.Tool -g
     dotnet tool install Propulsion.Tool -g --version 1.0.1-rc*
 
-    propulsion initAux -ru 400 cosmos # generates a -aux collection for the ChangeFeedProcessor to maintain consumer group progress within
+    propulsion init -ru 400 cosmos # generates a -aux collection for the ChangeFeedProcessor to maintain consumer group progress within
     # -v for verbose ChangeFeedProcessor logging
     # `projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
     # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
