@@ -2,30 +2,26 @@
 
 open Argu
 open Jet.ConfluentKafka.FSharp
-open Propulsion.Cosmos
 open Equinox.Store.Infrastructure
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Serilog
-open Propulsion.Streams
-open Propulsion.Codec.NewtonsoftJson
-open Propulsion.Tool.Infrastructure
 open Serilog.Events
+open Propulsion.Codec.NewtonsoftJson
+open Propulsion.Cosmos
+open Propulsion.Tool.Infrastructure
+open Propulsion.Streams
 open System
 open System.Collections.Generic
 open System.Diagnostics
 
 exception MissingArg of string
 
-[<RequireQualifiedAccess; NoEquality; NoComparison>]
-type StorageConfig =
-    | Cosmos of Equinox.Cosmos.Gateway * Equinox.Cosmos.CachingStrategy * unfolds: bool * databaseId: string * collectionId: string
-    
-module Cosmos =
-    let envBackstop msg key =
-        match Environment.GetEnvironmentVariable key with
-        | null -> raise <| MissingArg (sprintf "Please provide a %s, either as an argment or via the %s environment variable" msg key)
-        | x -> x 
+let envBackstop msg key =
+    match Environment.GetEnvironmentVariable key with
+    | null -> raise <| MissingArg (sprintf "Please provide a %s, either as an argment or via the %s environment variable" msg key)
+    | x -> x 
 
+module Cosmos =
     type [<NoEquality; NoComparison>] Arguments =
         | [<AltCommandLine("-vs")>] VerboseStore
         | [<AltCommandLine("-m")>] ConnectionMode of Equinox.Cosmos.ConnectionMode
@@ -71,15 +67,15 @@ type Arguments =
     | [<AltCommandLine("-v")>] Verbose
     | [<AltCommandLine("-vc")>] VerboseConsole
     | [<AltCommandLine("-S")>] LocalSeq
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] InitAux of ParseResults<InitAuxArguments>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxArguments>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectArguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Verbose -> "Include low level logging regarding specific test runs."
             | VerboseConsole -> "Include low level test and store actions logging in on-screen output to console."
             | LocalSeq -> "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
-            | InitAux _ -> "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
-            | Project _ -> "Project from store specified as the last argument, storing state in the specified `aux` Store (see initAux)."
+            | Init _ -> "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Project _ -> "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 and [<NoComparison>]InitDbArguments =
     | [<AltCommandLine("-ru"); Mandatory>] Rus of int
     | [<AltCommandLine("-P")>] SkipStoredProc
@@ -158,7 +154,7 @@ module CosmosInit =
             let auxCollName = let collSuffix = iargs.GetResult(InitAuxArguments.Suffix,"-aux") in baseCollName + collSuffix
             let rus = iargs.GetResult(InitAuxArguments.Rus)
             log.Information("Provisioning Lease/`aux` Collection {collName} for {rus:n0} RU/s", auxCollName, rus)
-            let! conn = connector.Connect("equinox-tool", discovery)
+            let! conn = connector.Connect("propulsion-tool", discovery)
             return! initAux conn.Client (dbName,auxCollName) rus
         | _ -> failwith "please specify a `cosmos` endpoint" }
 
@@ -173,12 +169,8 @@ let main argv =
         let verbose = args.Contains Verbose
         let log = createDomainLog verbose verboseConsole maybeSeq
         match args.GetSubCommand() with
-        | InitAux iargs -> CosmosInit.aux (log, verboseConsole, maybeSeq) iargs |> Async.RunSynchronously
+        | Init iargs -> CosmosInit.aux (log, verboseConsole, maybeSeq) iargs |> Async.RunSynchronously
         | Project pargs ->
-            let envBackstop msg key =
-                match Environment.GetEnvironmentVariable key with
-                | null -> failwithf "Please provide a %s, either as an argment or via the %s environment variable" msg key
-                | x -> x 
             let broker, topic, storeArgs =
                 match pargs.GetSubCommand() with
                 | Kafka kargs ->
@@ -203,7 +195,7 @@ let main argv =
                 let producer, disposeProducer =
                     match broker,topic with
                     | Some b,Some t ->
-                        let cfg = KafkaProducerConfig.Create("equinox-tool", Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
+                        let cfg = KafkaProducerConfig.Create("propulsion-tool", Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
                         let p = BatchedProducer.CreateWithConfigOverrides(log, cfg, t)
                         Some p, (p :> IDisposable).Dispose
                     | _ -> None, id
@@ -247,7 +239,7 @@ let main argv =
                         ?reportLagAndAwaitNextEstimation = maybeLogLag)
                 return! Async.AwaitKeyboardInterrupt() }
             Async.RunSynchronously run
-        | _ -> failwith "Please specify a valid subcommand :- initAux or project"
+        | _ -> failwith "Please specify a valid subcommand :- init or project"
         0
     with :? Argu.ArguParseException as e -> eprintfn "%s" e.Message; 1
         | MissingArg msg -> eprintfn "%s" msg; 1
