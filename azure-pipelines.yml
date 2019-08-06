@@ -24,8 +24,6 @@ jobs:
   pool:
     vmImage: 'ubuntu-16.04'
   steps:
-  - script: echo "##vso[task.setvariable variable=FrameworkPathOverride]$(dirname $(which mono))/../lib/mono/4.5/"
-    displayName: Workaround .NET reference assemblies on linux
   - script: |
       docker network create kafka-net
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4
@@ -48,7 +46,5 @@ jobs:
   pool:
     vmImage: 'macOS-10.13'
   steps:
-  - script: echo "##vso[task.setvariable variable=FrameworkPathOverride]$(dirname $(which mono))/../lib/mono/4.5/"
-    displayName: Workaround .NET reference assemblies on linux
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
