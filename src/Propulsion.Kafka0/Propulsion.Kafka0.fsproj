@@ -8,7 +8,7 @@
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile Condition=" '$(Configuration)' == 'Release' ">true</GenerateDocumentationFile>
     <DefineConstants Condition=" '$(TargetFramework)' == 'net461' ">NET461;$(DefineConstants)</DefineConstants>
-    <DefineConstants>CONFLUENT_KAFKA_SHIMS;$(DefineConstants)</DefineConstants>
+    <DefineConstants>KAFKA0;$(DefineConstants)</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

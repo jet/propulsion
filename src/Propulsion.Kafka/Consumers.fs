@@ -3,7 +3,7 @@
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
-#if CONFLUENT_KAFKA_SHIMS
+#if KAFKA0
 open Propulsion.Kafka0.Jet.ConfluentKafka.FSharp
 #else
 open Jet.ConfluentKafka.FSharp
