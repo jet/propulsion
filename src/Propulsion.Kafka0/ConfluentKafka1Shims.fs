@@ -1,4 +1,4 @@
-﻿namespace Confluent.Kafka
+﻿namespace Jet.ConfluentKafka.FSharp
 
 open System
 open System.Collections.Generic
@@ -22,7 +22,7 @@ namespace Propulsion.Kafka0.Confluent.Kafka
 
 open System
 open System.Collections.Generic
-open Confluent.Kafka
+open Jet.ConfluentKafka.FSharp
 
 [<RequireQualifiedAccess>]
 module Config =
