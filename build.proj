@@ -20,6 +20,7 @@
     <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka0 $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
   </Target>
 
   <Target Name="VSTest">

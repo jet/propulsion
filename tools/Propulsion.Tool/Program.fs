@@ -1,0 +1,246 @@
+﻿module Propulsion.Tool.Program
+
+open Argu
+open Jet.ConfluentKafka.FSharp
+open Equinox.Store.Infrastructure
+open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+open Serilog
+open Serilog.Events
+open Propulsion.Codec.NewtonsoftJson
+open Propulsion.Cosmos
+open Propulsion.Tool.Infrastructure
+open Propulsion.Streams
+open System
+open System.Collections.Generic
+open System.Diagnostics
+
+exception MissingArg of string
+
+let envBackstop msg key =
+    match Environment.GetEnvironmentVariable key with
+    | null -> raise <| MissingArg (sprintf "Please provide a %s, either as an argment or via the %s environment variable" msg key)
+    | x -> x 
+
+module Cosmos =
+    type [<NoEquality; NoComparison>] Arguments =
+        | [<AltCommandLine("-vs")>] VerboseStore
+        | [<AltCommandLine("-m")>] ConnectionMode of Equinox.Cosmos.ConnectionMode
+        | [<AltCommandLine("-o")>] Timeout of float
+        | [<AltCommandLine("-r")>] Retries of int
+        | [<AltCommandLine("-rt")>] RetriesWaitTime of int
+        | [<AltCommandLine("-s")>] Connection of string
+        | [<AltCommandLine("-d")>] Database of string
+        | [<AltCommandLine("-c")>] Collection of string
+        interface IArgParserTemplate with
+            member a.Usage =
+                match a with
+                | VerboseStore ->       "Include low level Store logging."
+                | Timeout _ ->          "specify operation timeout in seconds (default: 5)."
+                | Retries _ ->          "specify operation retries (default: 1)."
+                | RetriesWaitTime _ ->  "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
+                | Connection _ ->       "specify a connection string for a Cosmos account (defaults: envvar:EQUINOX_COSMOS_CONNECTION, Cosmos Emulator)."
+                | ConnectionMode _ ->   "override the connection mode (default: DirectTcp)."
+                | Database _ ->         "specify a database name for Cosmos account (defaults: envvar:EQUINOX_COSMOS_DATABASE, test)."
+                | Collection _ ->       "specify a collection name for Cosmos account (defaults: envvar:EQUINOX_COSMOS_COLLECTION, test)."
+    type Info(args : ParseResults<Arguments>) =
+        member __.Mode = args.GetResult(ConnectionMode,Equinox.Cosmos.ConnectionMode.DirectTcp)
+        member __.Connection =  match args.TryGetResult Connection  with Some x -> x | None -> envBackstop "Connection" "EQUINOX_COSMOS_CONNECTION"
+        member __.Database =    match args.TryGetResult Database    with Some x -> x | None -> envBackstop "Database"   "EQUINOX_COSMOS_DATABASE"
+        member __.Collection =  match args.TryGetResult Collection  with Some x -> x | None -> envBackstop "Collection" "EQUINOX_COSMOS_COLLECTION"
+
+        member __.Timeout = args.GetResult(Timeout,5.) |> TimeSpan.FromSeconds
+        member __.Retries = args.GetResult(Retries,1)
+        member __.MaxRetryWaitTime = args.GetResult(RetriesWaitTime, 5)
+
+    open Equinox.Cosmos
+
+    let connection (log: ILogger, storeLog: ILogger) (a : Info) =
+        let (Discovery.UriAndKey (endpointUri,_)) as discovery = a.Connection|> Discovery.FromConnectionString
+        log.Information("CosmosDb {mode} {connection} Database {database} Collection {collection}",
+            a.Mode, endpointUri, a.Database, a.Collection)
+        log.Information("CosmosDb timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
+            (let t = a.Timeout in t.TotalSeconds), a.Retries, a.MaxRetryWaitTime)
+        discovery, a.Database, a.Collection, Connector(a.Timeout, a.Retries, a.MaxRetryWaitTime, log=storeLog, mode=a.Mode)
+
+[<NoEquality; NoComparison>]
+type Arguments =
+    | [<AltCommandLine("-v")>] Verbose
+    | [<AltCommandLine("-vc")>] VerboseConsole
+    | [<AltCommandLine("-S")>] LocalSeq
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxArguments>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectArguments>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Verbose -> "Include low level logging regarding specific test runs."
+            | VerboseConsole -> "Include low level test and store actions logging in on-screen output to console."
+            | LocalSeq -> "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
+            | Init _ -> "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Project _ -> "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
+and [<NoComparison>]InitDbArguments =
+    | [<AltCommandLine("-ru"); Mandatory>] Rus of int
+    | [<AltCommandLine("-P")>] SkipStoredProc
+    | [<CliPrefix(CliPrefix.None)>] Cosmos of ParseResults<Cosmos.Arguments>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Rus _ -> "Specify RU/s level to provision for the Database."
+            | SkipStoredProc -> "Inhibit creation of stored procedure in cited Collection."
+            | Cosmos _ -> "Cosmos Connection parameters."
+and [<NoComparison>]InitAuxArguments =
+    | [<AltCommandLine("-ru"); Mandatory>] Rus of int
+    | [<AltCommandLine("-s")>] Suffix of string
+    | [<CliPrefix(CliPrefix.None)>] Cosmos of ParseResults<Cosmos.Arguments>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Rus _ -> "Specify RU/s level to provision for the Aux Collection."
+            | Suffix _ -> "Specify Collection Name suffix (default: `-aux`)."
+
+            | Cosmos _ -> "Cosmos Connection parameters."
+and [<NoComparison; RequireSubcommand>]ProjectArguments =
+    | [<MainCommand; ExactlyOnce>] LeaseId of string
+    | [<AltCommandLine("-s"); Unique>] Suffix of string
+    | [<AltCommandLine("-z"); Unique>] FromTail
+    | [<AltCommandLine("-md"); Unique>] MaxDocuments of int
+    | [<AltCommandLine("-l"); Unique>] LagFreqM of float
+    | [<CliPrefix(CliPrefix.None); Last>] Stats of ParseResults<StatsTarget>
+    | [<CliPrefix(CliPrefix.None); Last>] Kafka of ParseResults<KafkaTarget>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | LeaseId _ -> "Projector instance context name."
+            | Suffix _ -> "Specify Collection Name suffix (default: `-aux`)."
+            | FromTail _ -> "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
+            | MaxDocuments _ -> "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
+            | LagFreqM _ -> "Specify frequency to dump lag stats. Default: off"
+
+            | Stats _ -> "Do not emit events, only stats."
+            | Kafka _ -> "Project to Kafka."
+and [<NoComparison>] KafkaTarget =
+    | [<AltCommandLine("-t"); Unique; MainCommand>] Topic of string
+    | [<AltCommandLine("-b"); Unique>] Broker of string
+    | [<CliPrefix(CliPrefix.None); Last>] Cosmos of ParseResults<Cosmos.Arguments>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Topic _ -> "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
+            | Broker _ -> "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
+            | Cosmos _ -> "Cosmos Connection parameters."
+and [<NoComparison>] StatsTarget =
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Cosmos.Arguments>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Cosmos _ -> "Cosmos Connection parameters."
+
+let createStoreLog verbose verboseConsole maybeSeqEndpoint =
+    let c = LoggerConfiguration().Destructure.FSharpTypes()
+    let c = if verbose then c.MinimumLevel.Debug() else c
+    let c = c.WriteTo.Sink(Equinox.Cosmos.Store.Log.InternalMetrics.Stats.LogSink())
+    let c = c.WriteTo.Console((if verbose && verboseConsole then LogEventLevel.Debug else LogEventLevel.Warning), theme = Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
+    let c = match maybeSeqEndpoint with None -> c | Some endpoint -> c.WriteTo.Seq(endpoint)
+    c.CreateLogger() :> ILogger
+
+let createDomainLog verbose verboseConsole maybeSeqEndpoint =
+    let c = LoggerConfiguration().Destructure.FSharpTypes().Enrich.FromLogContext()
+    let c = if verbose then c.MinimumLevel.Debug() else c
+    let c = c.WriteTo.Sink(Equinox.Cosmos.Store.Log.InternalMetrics.Stats.LogSink())
+    let c = c.WriteTo.Console((if verboseConsole then LogEventLevel.Debug else LogEventLevel.Information), theme = Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
+    let c = match maybeSeqEndpoint with None -> c | Some endpoint -> c.WriteTo.Seq(endpoint)
+    c.CreateLogger()
+
+module CosmosInit =
+    open Equinox.Cosmos.Store.Sync.Initialization
+    let aux (log: ILogger, verboseConsole, maybeSeq) (iargs: ParseResults<InitAuxArguments>) = async {
+        match iargs.TryGetSubCommand() with
+        | Some (InitAuxArguments.Cosmos sargs) ->
+            let storeLog = createStoreLog (sargs.Contains Cosmos.Arguments.VerboseStore) verboseConsole maybeSeq
+            let discovery, dbName, baseCollName, connector = Cosmos.connection (log,storeLog) (Cosmos.Info sargs)
+            let auxCollName = let collSuffix = iargs.GetResult(InitAuxArguments.Suffix,"-aux") in baseCollName + collSuffix
+            let rus = iargs.GetResult(InitAuxArguments.Rus)
+            log.Information("Provisioning Lease/`aux` Collection {collName} for {rus:n0} RU/s", auxCollName, rus)
+            let! conn = connector.Connect("propulsion-tool", discovery)
+            return! initAux conn.Client (dbName,auxCollName) rus
+        | _ -> failwith "please specify a `cosmos` endpoint" }
+
+[<EntryPoint>]
+let main argv =
+    let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
+    let parser = ArgumentParser.Create<Arguments>(programName = programName)
+    try
+        let args = parser.ParseCommandLine argv
+        let verboseConsole = args.Contains VerboseConsole
+        let maybeSeq = if args.Contains LocalSeq then Some "http://localhost:5341" else None
+        let verbose = args.Contains Verbose
+        let log = createDomainLog verbose verboseConsole maybeSeq
+        match args.GetSubCommand() with
+        | Init iargs -> CosmosInit.aux (log, verboseConsole, maybeSeq) iargs |> Async.RunSynchronously
+        | Project pargs ->
+            let broker, topic, storeArgs =
+                match pargs.GetSubCommand() with
+                | Kafka kargs ->
+                    let broker = match kargs.TryGetResult Broker with Some x -> x | None -> envBackstop "Broker" "PROPULSION_KAFKA_BROKER"
+                    let topic = match kargs.TryGetResult Topic with Some x -> x | None -> envBackstop "Topic" "PROPULSION_KAFKA_TOPIC"
+                    Some broker, Some topic,kargs.GetResult KafkaTarget.Cosmos
+                | Stats sargs -> None, None, sargs.GetResult StatsTarget.Cosmos
+                | x -> failwithf "Invalid subcommand %A" x
+            let storeLog = createStoreLog (storeArgs.Contains Cosmos.Arguments.VerboseStore) verboseConsole maybeSeq
+            let discovery, dbName, collName, connector = Cosmos.connection (log, storeLog) (Cosmos.Info storeArgs)
+            pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("Requesting ChangeFeed Maximum Document Count {changeFeedMaxItemCount}", bs))
+            pargs.TryGetResult LagFreqM |> Option.iter (fun s -> log.Information("Dumping lag stats at {lagS:n0}m intervals", s))
+            let auxCollName = collName + pargs.GetResult(ProjectArguments.Suffix,"-aux")
+            let leaseId = pargs.GetResult(LeaseId)
+            log.Information("Processing using LeaseId {leaseId} in Aux coll {auxCollName}", leaseId, auxCollName)
+            if pargs.Contains FromTail then log.Warning("(If new projection prefix) Skipping projection of all existing events.")
+            let source = { database = dbName; collection = collName }
+            let aux = { database = dbName; collection = auxCollName }
+
+            let buildRangeProjector () =
+                let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
+                let producer, disposeProducer =
+                    match broker,topic with
+                    | Some b,Some t ->
+                        let cfg = KafkaProducerConfig.Create("propulsion-tool", Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
+                        let p = BatchedProducer.CreateWithConfigOverrides(log, cfg, t)
+                        Some p, (p :> IDisposable).Dispose
+                    | _ -> None, id
+                let projectBatch (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
+                    sw.Stop() // Stop the clock after CFP hands off to us
+                    let render (e: StreamEvent<_>) = RenderedSpan.ofStreamSpan e.stream { StreamSpan.index = e.index; events=[| e.event |] }
+                    let pt, events = (fun () -> docs |> Seq.collect EquinoxCosmosParser.enumStreamEvents |> Seq.map render |> Array.ofSeq) |> Stopwatch.Time 
+                    let! et = async {
+                        match producer with
+                        | None ->
+                            let! et,() = ctx.Checkpoint() |> Stopwatch.Time
+                            return et
+                        | Some producer ->
+                            let es = [| for e in events -> e.s, Newtonsoft.Json.JsonConvert.SerializeObject e |]
+                            let! et,() = async {
+                                let! _ = producer.ProduceBatch es
+                                return! ctx.Checkpoint() } |> Stopwatch.Time 
+                            return et }
+                            
+                    if log.IsEnabled LogEventLevel.Debug then log.Debug("Response Headers {0}", let hs = ctx.FeedResponse.ResponseHeaders in [for h in hs -> h, hs.[h]])
+                    let r = ctx.FeedResponse
+                    log.Information("{range} Fetch: {token} {requestCharge:n0}RU {count} docs {l:n1}s; Parse: s {streams} e {events} {p:n3}s; Emit: {e:n1}s",
+                        ctx.PartitionKeyRangeId, r.ResponseContinuation.Trim[|'"'|], r.RequestCharge, docs.Count, float sw.ElapsedMilliseconds / 1000., 
+                        events.Length, (let e = pt.Elapsed in e.TotalSeconds), (let e = et.Elapsed in e.TotalSeconds))
+                    sw.Restart() // restart the clock as we handoff back to the CFP
+                }
+                ChangeFeedObserver.Create(log, projectBatch, dispose = disposeProducer)
+
+            let run = async {
+                let logLag (interval : TimeSpan) remainingWork = async {
+                    let logLevel = if remainingWork |> Seq.exists (fun (_r,rw) -> rw <> 0L) then Events.LogEventLevel.Information else Events.LogEventLevel.Debug
+                    log.Write(logLevel, "Lags {@rangeLags} <- [Range Id, documents count] ", remainingWork)
+                    return! Async.Sleep(int interval.TotalMilliseconds) }
+                let maybeLogLag = pargs.TryGetResult LagFreqM |> Option.map (TimeSpan.FromMinutes >> logLag)
+                let! _cfp =
+                    ChangeFeedProcessor.Start
+                      ( log, discovery, connector.ConnectionPolicy, source, aux, buildRangeProjector,
+                        leasePrefix = leaseId,
+                        startFromTail = pargs.Contains FromTail,
+                        ?maxDocuments = pargs.TryGetResult MaxDocuments,
+                        ?reportLagAndAwaitNextEstimation = maybeLogLag)
+                return! Async.AwaitKeyboardInterrupt() }
+            Async.RunSynchronously run
+        | _ -> failwith "Please specify a valid subcommand :- init or project"
+        0
+    with :? Argu.ArguParseException as e -> eprintfn "%s" e.Message; 1
+        | MissingArg msg -> eprintfn "%s" msg; 1
+        | e -> eprintfn "%s" e.Message; 1

@@ -9,7 +9,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.Tool`: `initAux` and `project` facilties moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
+
 ### Changed
+
+- Targeted `Equinox`.* v `2.0.0-rc2`
+
 ### Removed
 ### Fixed
 
@@ -81,7 +87,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.Cosmos`: Tidied Cosmos ingester lag breakdown
 - Moved `RenderedSpan` et al to `Propulsion.Codec.NewtonsoftJson` [#5](https://github.com/jet/propulsion/pull/5)
 - Targeted `Jet.ConfluentKafka.FSharp` v `1.0.1` [#3](https://github.com/jet/propulsion/pull/3)
-- Targeted `Equinox`.* v `2.0.0-rc1` [#3](https://github.com/jet/propulsion/pull/7)
+- Targeted `Equinox`.* v `2.0.0-rc1` [#7](https://github.com/jet/propulsion/pull/7)
 
 <a name="1.0.1-rc2"></a>
 ## [1.0.1-rc2] - 2019-06-07
