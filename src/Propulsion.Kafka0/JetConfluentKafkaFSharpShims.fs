@@ -5,6 +5,7 @@ open Confluent.Kafka
 open Newtonsoft.Json
 open Newtonsoft.Json.Linq
 open Propulsion.Kafka.Internal // Async Helpers
+open Propulsion.Kafka0.Confluent.Kafka
 open Serilog
 open System
 open System.Threading
