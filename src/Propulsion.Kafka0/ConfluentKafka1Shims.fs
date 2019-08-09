@@ -22,6 +22,7 @@ namespace Propulsion.Kafka0.Confluent.Kafka
 
 open System
 open System.Collections.Generic
+open Confluent.Kafka
 
 [<RequireQualifiedAccess>]
 module Config =
