@@ -1,20 +1,28 @@
-﻿// Stand-ins for stuff presented in Confluent.Kafka v1
-namespace Confluent.Kafka
+﻿namespace Jet.ConfluentKafka.FSharp
 
 open System
 open System.Collections.Generic
 
-[<RequireQualifiedAccess; Struct>]
-type CompressionType = None | GZip | Snappy | Lz4
+[<AutoOpen>]
+module Types =
+    [<RequireQualifiedAccess; Struct>]
+    type CompressionType = None | GZip | Snappy | Lz4
 
-[<RequireQualifiedAccess; Struct>]
-type Acks = Zero | Leader | All
+    [<RequireQualifiedAccess; Struct>]
+    type Acks = Zero | Leader | All
 
-[<RequireQualifiedAccess; Struct>]
-type Partitioner = Random | Consistent | ConsistentRandom
+    [<RequireQualifiedAccess; Struct>]
+    type Partitioner = Random | Consistent | ConsistentRandom
 
-[<RequireQualifiedAccess; Struct>]
-type AutoOffsetReset = Earliest | Latest | None
+    [<RequireQualifiedAccess; Struct>]
+    type AutoOffsetReset = Earliest | Latest | None
+
+// Stand-ins for stuff presented in Confluent.Kafka v1
+namespace Propulsion.Kafka0.Confluent.Kafka
+
+open System
+open System.Collections.Generic
+open Jet.ConfluentKafka.FSharp
 
 [<RequireQualifiedAccess>]
 module Config =
