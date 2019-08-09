@@ -1,20 +1,20 @@
 ﻿// Stand-ins for stuff presented in Confluent.Kafka v1
-namespace Confluent.Kafka
+namespace Propulsion.Kafka0.Confluent.Kafka
 
 open System
 open System.Collections.Generic
 
-[<RequireQualifiedAccess; Struct>]
-type CompressionType = None | GZip | Snappy | Lz4
+    [<RequireQualifiedAccess; Struct>]
+    type CompressionType = None | GZip | Snappy | Lz4
 
-[<RequireQualifiedAccess; Struct>]
-type Acks = Zero | Leader | All
+    [<RequireQualifiedAccess; Struct>]
+    type Acks = Zero | Leader | All
 
-[<RequireQualifiedAccess; Struct>]
-type Partitioner = Random | Consistent | ConsistentRandom
+    [<RequireQualifiedAccess; Struct>]
+    type Partitioner = Random | Consistent | ConsistentRandom
 
-[<RequireQualifiedAccess; Struct>]
-type AutoOffsetReset = Earliest | Latest | None
+    [<RequireQualifiedAccess; Struct>]
+    type AutoOffsetReset = Earliest | Latest | None
 
 [<RequireQualifiedAccess>]
 module Config =
