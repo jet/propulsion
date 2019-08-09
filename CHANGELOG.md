@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.1-rc9"></a>
+## [1.0.1-rc9] - 2019-08-09
+
+### Added
 
 - `Propulsion.Tool`: `initAux` and `project` facilties moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
 
@@ -16,8 +24,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Targeted `Equinox`.* v `2.0.0-rc2`
 
-### Removed
 ### Fixed
+
+- Resolve `Propulsion.Kafka0` conflicts with `Jet.ConfluentKafka.fsharp` v0 [#19](https://github.com/jet/propulsion/pull/19)
 
 <a name="1.0.1-rc8"></a>
 ## [1.0.1-rc8] - 2019-07-05
@@ -140,7 +149,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc8...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc9...HEAD
+[1.0.1-rc9]: https://github.com/jet/propulsion/compare/1.0.1-rc8...1.0.1-rc9
 [1.0.1-rc8]: https://github.com/jet/propulsion/compare/1.0.1-rc7...1.0.1-rc8
 [1.0.1-rc7]: https://github.com/jet/propulsion/compare/1.0.1-rc6...1.0.1-rc7
 [1.0.1-rc6]: https://github.com/jet/propulsion/compare/1.0.1-rc5...1.0.1-rc6

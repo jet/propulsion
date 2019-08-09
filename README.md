@@ -16,6 +16,10 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 The ubiquitous `Serilog` dependency is solely on the core module, not any sinks, i.e. you configure to emit to `NLog` etc.
 
+### `dotnet tool` provisioning / projections test tool
+
+- `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` collection for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. (Install via: `dotnet tool install Propulsion.Tool -g`)
+
 ## Related repos
 
 - See [the Jet `dotnet new` templates repo](https://github.com/jet/dotnet-templates) for examples using the packages herein:
@@ -72,15 +76,15 @@ See [this medium post regarding some patterns used at Jet in this space](https:/
 
 In CosmosDb, every document lives within a [logical partition, which is then hosted by a variable number of processor instances entitled _physical partitions_](https://docs.microsoft.com/en-gb/azure/cosmos-db/partition-data) (`Equinox.Cosmos` documents pertaining to an individual stream bear the same partition key in order to ensure correct ordering guarantees for the purposes of projection). Each front end processor has responsibility for a particular subset range of the partition key space.
 
-The ChangeFeed’s real world manifestation is as a long running Processor per frontend processor that repeatedly tails a query across the set of documents being managed by a given partition host (subject to topology changes - new processors can come and go, with the assigned ranges shuffling to balance the load per processor). e.g. if you allocate 30K RU/s to a collection and/or store >20GB of data, it will have at least 3 processors, each handling 1/3 of the partition key space, and running a change feed from that is a matter of maintaining 3 continuous queries, with a continuation token each being held/leased/controlled by a given Change Feed Processor.
+The ChangeFeedï¿½s real world manifestation is as a long running Processor per frontend processor that repeatedly tails a query across the set of documents being managed by a given partition host (subject to topology changes - new processors can come and go, with the assigned ranges shuffling to balance the load per processor). e.g. if you allocate 30K RU/s to a collection and/or store >20GB of data, it will have at least 3 processors, each handling 1/3 of the partition key space, and running a change feed from that is a matter of maintaining 3 continuous queries, with a continuation token each being held/leased/controlled by a given Change Feed Processor.
 
 ## Effect of ChangeFeed on Request Charges
 
-It should be noted that the ChangeFeed is not special-cased by CosmosDb itself in any meaningful way - something somewhere is going to be calling a DocumentDb API queries, paying Request Charges for the privilege (even a tail request based on a continuation token yielding zero documents incurs a charge). Its important to consider that every event written by `Equinox.Cosmos` into the CosmosDb collection will induce an approximately equivalent cost due to the fact that a freshly inserted document will be included in the next batch propagated by the Processor (each update of a document also ‘moves’ that document from it’s present position in the change order past the the notional tail of the ChangeFeed). Thus each insert/update also induces an (unavoidable) request charge based on the fact that the document will be included aggregate set of touched documents being surfaced per batch transferred from the ChangeFeed (charging is per KiB or part thereof). _The effect of this cost is multipled by the number of ChangeFeedProcessor instances one is running._
+It should be noted that the ChangeFeed is not special-cased by CosmosDb itself in any meaningful way - something somewhere is going to be calling a DocumentDb API queries, paying Request Charges for the privilege (even a tail request based on a continuation token yielding zero documents incurs a charge). Its important to consider that every event written by `Equinox.Cosmos` into the CosmosDb collection will induce an approximately equivalent cost due to the fact that a freshly inserted document will be included in the next batch propagated by the Processor (each update of a document also ï¿½movesï¿½ that document from itï¿½s present position in the change order past the the notional tail of the ChangeFeed). Thus each insert/update also induces an (unavoidable) request charge based on the fact that the document will be included aggregate set of touched documents being surfaced per batch transferred from the ChangeFeed (charging is per KiB or part thereof). _The effect of this cost is multipled by the number of ChangeFeedProcessor instances one is running._
 
 ## Change Feed Processors
 
-The CosmosDb ChangeFeed’s real world manifestation is a continuous query per DocumentDb Physical Partition node processor.
+The CosmosDb ChangeFeedï¿½s real world manifestation is a continuous query per DocumentDb Physical Partition node processor.
 
 For .NET, this is wrapped in a set of APIs presented within the standard `Microsoft.Azure.DocumentDb[.Core]` APIset (for example, the [`Sagan` library](https://github.com/jet/sagan) is built based on this, _but there be dragons; implementing a correct one you can trust, with tests, reliability and good performance is no trivial undertaking_).
 
@@ -88,7 +92,7 @@ A ChangeFeed _Processor_ consists of (per CosmosDb processor/range)
 - a host process running somewhere that will run the query and then do something with the results before marking off progress
 - a continuous query across the set of documents that fall within the partition key range hosted by a given physical partition host
 
-The implementation in this repo uses [Microsoft’s .NET `ChangeFeedProcessor` implementation](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring (_though NOT bug free at the present time_).
+The implementation in this repo uses [Microsoftï¿½s .NET `ChangeFeedProcessor` implementation](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring (_though NOT bug free at the present time_).
 
 See the [PR that added the initial support for CosmosDb Projections](https://github.com/jet/equinox/pull/87) and [the QuickStart](https://github.com/jet/equinox/blob/master/README.md#quickstart) for instructions.
 
