@@ -1,5 +1,4 @@
-﻿// Stand-ins for stuff presented in Confluent.Kafka v1
-namespace Propulsion.Kafka0.Confluent.Kafka
+﻿namespace Confluent.Kafka
 
 open System
 open System.Collections.Generic
@@ -17,6 +16,12 @@ module Types =
 
     [<RequireQualifiedAccess; Struct>]
     type AutoOffsetReset = Earliest | Latest | None
+
+// Stand-ins for stuff presented in Confluent.Kafka v1
+namespace Propulsion.Kafka0.Confluent.Kafka
+
+open System
+open System.Collections.Generic
 
 [<RequireQualifiedAccess>]
 module Config =
