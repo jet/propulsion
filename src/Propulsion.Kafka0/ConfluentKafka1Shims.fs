@@ -4,6 +4,8 @@ namespace Propulsion.Kafka0.Confluent.Kafka
 open System
 open System.Collections.Generic
 
+[<AutoOpen>]
+module Types =
     [<RequireQualifiedAccess; Struct>]
     type CompressionType = None | GZip | Snappy | Lz4
 
