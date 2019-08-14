@@ -28,4 +28,10 @@ packages.config
 
 ## CodeRush
 .cr/
+
+## VSCode/ionide
 /.ionide/
+
+# macOS
+
+.DS_Store

@@ -1,6 +1,6 @@
 # Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=16) [![release](https://img.shields.io/github/release-pre/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/vpre/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg) [<img src="https://img.shields.io/badge/slack-DDD--CQRS--ES%20%23equinox-yellow.svg?logo=slack">](https://t.co/MRxpx0rLH2)
 
-This is pre-production code; unfortunately it's also pre-documentation atm (will be adding more over the coming weeks).
+This is pre-production code; unfortunately it's also pre-documentation atm (there will be eventually, but it's competing with other issues for time...).
 
 If you're looking for a good discussion forum on these kinds of topics, look no further than the [DDD-CQRS-ES Slack](https://github.com/ddd-cqrs-es/slack-community)'s [#equinox channel](https://ddd-cqrs-es.slack.com/messages/CF5J67H6Z) ([invite link](https://t.co/MRxpx0rLH2)).
 
@@ -37,32 +37,32 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
 
 ### 1. Use `propulsion` tool to run a CosmosDb ChangeFeedProcessor
 
-    ```powershell
-    # TEMP: need to uninstall and use --version flag while this is in RC
-    dotnet tool uninstall Propulsion.Tool -g
-    dotnet tool install Propulsion.Tool -g --version 1.0.1-rc*
+```powershell
+# TEMP: need to uninstall and use --version flag while this is in RC
+dotnet tool uninstall Propulsion.Tool -g
+dotnet tool install Propulsion.Tool -g --version 1.0.1-rc*
 
-    propulsion init -ru 400 cosmos # generates a -aux collection for the ChangeFeedProcessor to maintain consumer group progress within
-    # -v for verbose ChangeFeedProcessor logging
-    # `projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
-    # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
-    # cosmos specifies source overrides (using defaults in step 1 in this instance)
-    propulsion -v project projector1 stats cosmos
-    ```
+propulsion init -ru 400 cosmos # generates a -aux collection for the ChangeFeedProcessor to maintain consumer group progress within
+# -v for verbose ChangeFeedProcessor logging
+# `projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
+# stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
+# cosmos specifies source overrides (using defaults in step 1 in this instance)
+propulsion -v project projector1 stats cosmos
+```
 
 ### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor, emitting to a Kafka topic
 
-    ```powershell
-    $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
+```powershell
+$env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 
-    # `-v` for verbose logging
-    # `projector3` represents the consumer group; >=1 are allowed, allowing multiple independent projections to run concurrently
-    # `-l 5` to report ChangeFeed lags every 5 minutes
-    # `kafka` specifies one wants to emit to Kafka
-    # `temp-topic` is the topic to emit to
-    # `cosmos` specifies source overrides (using defaults in step 1 in this instance)
-    propulsion -v project projector3 -l 5 kafka temp-topic cosmos
-    ```
+# `-v` for verbose logging
+# `projector3` represents the consumer group; >=1 are allowed, allowing multiple independent projections to run concurrently
+# `-l 5` to report ChangeFeed lags every 5 minutes
+# `kafka` specifies one wants to emit to Kafka
+# `temp-topic` is the topic to emit to
+# `cosmos` specifies source overrides (using defaults in step 1 in this instance)
+propulsion -v project projector3 -l 5 kafka temp-topic cosmos
+```
 
 # Projectors
 
@@ -135,7 +135,7 @@ The best place to start, sample-wise is with the [QuickStart](#quickstart), whic
 
 Please note the [QuickStart](#quickstart) is probably the best way to gain an overview, and the templates are the best way to see how to consume it; these instructions are intended mainly for people looking to make changes. 
 
-NB The `Propulsion.Kafka.Integration` tests are reliant on a `TEST_KAFKA_BROKER` environment variable pointing to a Broker that has been configured to auto-create ephemeral Kafka Topics as required by the tests (each test run writes to a guid-named topic)
+NB The `Propulsion.Kafka.Integration` tests are reliant on a `TEST_KAFKA_BROKER` environment variable pointing to a Broker that has been configured to auto-create ephemeral Kafka Topics as required by the tests (each test run blindly writes to a guid-named topic and trusts the broker will accept the write without any initialization step)
 
 ### build, including tests on net461 and netcoreapp2.1
 

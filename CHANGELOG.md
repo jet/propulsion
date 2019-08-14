@@ -18,7 +18,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Propulsion.Tool`: `initAux` and `project` facilties moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
+- `Propulsion.Tool`: `initAux` (now `init`) and `project` facilities moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
 
 ### Changed
 
