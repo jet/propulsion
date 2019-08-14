@@ -8,7 +8,7 @@
     <PrOption Condition =" '$(BUILD_PR)' != '%24(SYSTEM.PULLREQUEST.PULLREQUESTNUMBER)' ">/p:BUILD_PR=$(BUILD_PR) </PrOption>
     <PackOptions>/p:BUILD_ID=$(BUILD_ID) $(PrOption) -o $(ThisDirAbsolute)bin/nupkg</PackOptions>
 
-    <TestOptions>--logger:trx</TestOptions>
+    <TestOptions>-t --logger:trx -- RunConfiguration.TestSessionTimeout=300000 xunit.parallelizeAssembly=true</TestOptions>
   </PropertyGroup>
 
   <Target Name="Pack">
