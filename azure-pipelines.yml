@@ -33,7 +33,7 @@ jobs:
           ches/kafka
       sleep 15
     displayName: Docker kafka for integration tests
-  - script: dotnet build build.proj
+  - script: dotnet build build.proj -v d
     displayName: Run Integration tests
     env:
       TEST_KAFKA_BROKER: localhost:9092
