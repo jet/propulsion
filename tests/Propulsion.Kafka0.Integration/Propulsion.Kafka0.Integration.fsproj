@@ -11,7 +11,9 @@
 
   <ItemGroup>
     <Compile Include="..\Propulsion.Kafka.Integration\ParallelIntegration.fs" Link="ParallelIntegration.fs" />
-    <Compile Include="..\Propulsion.Kafka.Integration\MonitorTests.fs" Link="MonitorTests.fs" />
+    <None Include="..\Propulsion.Kafka.Integration\MonitorTests.fs">
+      <Link>MonitorTests.fs</Link>
+    </None>
     <Compile Include="..\Propulsion.Kafka.Integration\MonitorIntegration.fs" Link="MonitorIntegration.fs" />
   </ItemGroup>
 
