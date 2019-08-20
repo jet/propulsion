@@ -30,7 +30,7 @@ module Cosmos =
         | [<AltCommandLine("-rt")>] RetriesWaitTime of int
         | [<AltCommandLine("-s")>] Connection of string
         | [<AltCommandLine("-d")>] Database of string
-        | [<AltCommandLine("-c")>] Collection of string
+        | [<AltCommandLine("-c")>] Container of string
         interface IArgParserTemplate with
             member a.Usage =
                 match a with
@@ -40,13 +40,13 @@ module Cosmos =
                 | RetriesWaitTime _ ->  "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
                 | Connection _ ->       "specify a connection string for a Cosmos account (defaults: envvar:EQUINOX_COSMOS_CONNECTION, Cosmos Emulator)."
                 | ConnectionMode _ ->   "override the connection mode (default: DirectTcp)."
-                | Database _ ->         "specify a database name for Cosmos account (defaults: envvar:EQUINOX_COSMOS_DATABASE, test)."
-                | Collection _ ->       "specify a collection name for Cosmos account (defaults: envvar:EQUINOX_COSMOS_COLLECTION, test)."
+                | Database _ ->         "specify a database name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_DATABASE, test)."
+                | Container _ ->        "specify a container name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_CONTAINER, test)."
     type Info(args : ParseResults<Arguments>) =
-        member __.Mode = args.GetResult(ConnectionMode,Equinox.Cosmos.ConnectionMode.DirectTcp)
+        member __.Mode = args.GetResult(ConnectionMode,Equinox.Cosmos.ConnectionMode.Direct)
         member __.Connection =  match args.TryGetResult Connection  with Some x -> x | None -> envBackstop "Connection" "EQUINOX_COSMOS_CONNECTION"
         member __.Database =    match args.TryGetResult Database    with Some x -> x | None -> envBackstop "Database"   "EQUINOX_COSMOS_DATABASE"
-        member __.Collection =  match args.TryGetResult Collection  with Some x -> x | None -> envBackstop "Collection" "EQUINOX_COSMOS_COLLECTION"
+        member __.Container =   match args.TryGetResult Container   with Some x -> x | None -> envBackstop "Container"  "EQUINOX_COSMOS_CONTAINER"
 
         member __.Timeout = args.GetResult(Timeout,5.) |> TimeSpan.FromSeconds
         member __.Retries = args.GetResult(Retries,1)
@@ -56,11 +56,11 @@ module Cosmos =
 
     let connection (log: ILogger, storeLog: ILogger) (a : Info) =
         let (Discovery.UriAndKey (endpointUri,_)) as discovery = a.Connection|> Discovery.FromConnectionString
-        log.Information("CosmosDb {mode} {connection} Database {database} Collection {collection}",
-            a.Mode, endpointUri, a.Database, a.Collection)
+        log.Information("CosmosDb {mode} {connection} Database {database} Container {container}",
+            a.Mode, endpointUri, a.Database, a.Container)
         log.Information("CosmosDb timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
             (let t = a.Timeout in t.TotalSeconds), a.Retries, a.MaxRetryWaitTime)
-        discovery, a.Database, a.Collection, Connector(a.Timeout, a.Retries, a.MaxRetryWaitTime, log=storeLog, mode=a.Mode)
+        discovery, a.Database, a.Container, Connector(a.Timeout, a.Retries, a.MaxRetryWaitTime, log=storeLog, mode=a.Mode)
 
 [<NoEquality; NoComparison>]
 type Arguments =
@@ -83,7 +83,7 @@ and [<NoComparison>]InitDbArguments =
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ -> "Specify RU/s level to provision for the Database."
-            | SkipStoredProc -> "Inhibit creation of stored procedure in cited Collection."
+            | SkipStoredProc -> "Inhibit creation of stored procedure in cited Container."
             | Cosmos _ -> "Cosmos Connection parameters."
 and [<NoComparison>]InitAuxArguments =
     | [<AltCommandLine("-ru"); Mandatory>] Rus of int
@@ -91,9 +91,8 @@ and [<NoComparison>]InitAuxArguments =
     | [<CliPrefix(CliPrefix.None)>] Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Rus _ -> "Specify RU/s level to provision for the Aux Collection."
-            | Suffix _ -> "Specify Collection Name suffix (default: `-aux`)."
-
+            | Rus _ -> "Specify RU/s level to provision for the Aux Container."
+            | Suffix _ -> "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ -> "Cosmos Connection parameters."
 and [<NoComparison; RequireSubcommand>]ProjectArguments =
     | [<MainCommand; ExactlyOnce>] LeaseId of string
@@ -106,7 +105,7 @@ and [<NoComparison; RequireSubcommand>]ProjectArguments =
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | LeaseId _ -> "Projector instance context name."
-            | Suffix _ -> "Specify Collection Name suffix (default: `-aux`)."
+            | Suffix _ -> "Specify Container Name suffix (default: `-aux`)."
             | FromTail _ -> "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | MaxDocuments _ -> "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
             | LagFreqM _ -> "Specify frequency to dump lag stats. Default: off"
@@ -150,12 +149,12 @@ module CosmosInit =
         match iargs.TryGetSubCommand() with
         | Some (InitAuxArguments.Cosmos sargs) ->
             let storeLog = createStoreLog (sargs.Contains Cosmos.Arguments.VerboseStore) verboseConsole maybeSeq
-            let discovery, dbName, baseCollName, connector = Cosmos.connection (log,storeLog) (Cosmos.Info sargs)
-            let auxCollName = let collSuffix = iargs.GetResult(InitAuxArguments.Suffix,"-aux") in baseCollName + collSuffix
+            let discovery, dbName, baseContainerName, connector = Cosmos.connection (log,storeLog) (Cosmos.Info sargs)
+            let auxContainerName = let containerSuffix = iargs.GetResult(InitAuxArguments.Suffix,"-aux") in baseContainerName + containerSuffix
             let rus = iargs.GetResult(InitAuxArguments.Rus)
-            log.Information("Provisioning Lease/`aux` Collection {collName} for {rus:n0} RU/s", auxCollName, rus)
+            log.Information("Provisioning Lease/`aux` Container {containe} for {rus:n0} RU/s", auxContainerName, rus)
             let! conn = connector.Connect("propulsion-tool", discovery)
-            return! initAux conn.Client (dbName,auxCollName) rus
+            return! initAux conn.Client (dbName,auxContainerName) rus
         | _ -> failwith "please specify a `cosmos` endpoint" }
 
 [<EntryPoint>]
@@ -180,15 +179,15 @@ let main argv =
                 | Stats sargs -> None, None, sargs.GetResult StatsTarget.Cosmos
                 | x -> failwithf "Invalid subcommand %A" x
             let storeLog = createStoreLog (storeArgs.Contains Cosmos.Arguments.VerboseStore) verboseConsole maybeSeq
-            let discovery, dbName, collName, connector = Cosmos.connection (log, storeLog) (Cosmos.Info storeArgs)
+            let discovery, dbName, containerName, connector = Cosmos.connection (log, storeLog) (Cosmos.Info storeArgs)
             pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("Requesting ChangeFeed Maximum Document Count {changeFeedMaxItemCount}", bs))
             pargs.TryGetResult LagFreqM |> Option.iter (fun s -> log.Information("Dumping lag stats at {lagS:n0}m intervals", s))
-            let auxCollName = collName + pargs.GetResult(ProjectArguments.Suffix,"-aux")
+            let auxContainerName = containerName + pargs.GetResult(ProjectArguments.Suffix,"-aux")
             let leaseId = pargs.GetResult(LeaseId)
-            log.Information("Processing using LeaseId {leaseId} in Aux coll {auxCollName}", leaseId, auxCollName)
+            log.Information("Processing using LeaseId {leaseId} in Aux Container {auxContainerName}", leaseId, auxContainerName)
             if pargs.Contains FromTail then log.Warning("(If new projection prefix) Skipping projection of all existing events.")
-            let source = { database = dbName; collection = collName }
-            let aux = { database = dbName; collection = auxCollName }
+            let source = { database = dbName; container = containerName }
+            let aux = { database = dbName; container = auxContainerName }
 
             let buildRangeProjector () =
                 let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
@@ -232,7 +231,7 @@ let main argv =
                 let maybeLogLag = pargs.TryGetResult LagFreqM |> Option.map (TimeSpan.FromMinutes >> logLag)
                 let! _cfp =
                     ChangeFeedProcessor.Start
-                      ( log, discovery, connector.ConnectionPolicy, source, aux, buildRangeProjector,
+                      ( log, discovery, connector.ClientOptions, source, aux, buildRangeProjector,
                         leasePrefix = leaseId,
                         startFromTail = pargs.Contains FromTail,
                         ?maxDocuments = pargs.TryGetResult MaxDocuments,
