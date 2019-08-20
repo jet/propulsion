@@ -4,6 +4,7 @@ open Jet.ConfluentKafka.FSharp
 open Propulsion.Kafka
 open Propulsion.Kafka.MonitorImpl
 open Swensen.Unquote
+open System.Diagnostics
 open Xunit
 
 let partitionInfo partition consumerOffset lag : PartitionInfo =
@@ -41,8 +42,8 @@ let ``No errors because rule 1 is met`` () =
 
     let result = checkRules consumerInfos
 
-    test 
-        <@ result = 
+    test
+        <@ result =
                 [|  0, OkReachedZero
                     1, OkReachedZero |] @>
 
@@ -63,7 +64,7 @@ let ``Error because rule 2 is violated`` () =
 
     let result = checkRules consumerInfos
 
-    test <@ result = 
+    test <@ result =
                 [|  0, ErrorPartitionStalled 3L
                     1, OkReachedZero |] @>
 
@@ -84,7 +85,7 @@ let ``Error because rule 3 is violated`` () =
 
     let result = checkRules consumerInfos
 
-    test <@ result = 
+    test <@ result =
                 [|  0, WarningLagIncreasing
                     1, OkReachedZero |] @>
 
@@ -105,6 +106,6 @@ let ``No error because rule 3 is not violated`` () =
 
     let result = checkRules consumerInfos
 
-    test <@ result = 
+    test <@ result =
                 [|  0, Healthy
                     1, OkReachedZero |] @>
