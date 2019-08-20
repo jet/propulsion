@@ -16,12 +16,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Revised max read ahead reservation algorithm to enable effective control of striped-read buffering in `Propulsion.EventStore` [#20](https://github.com/jet/propulsion/pull/20)
+
 <a name="1.0.1-rc9"></a>
 ## [1.0.1-rc9] - 2019-08-09
 
 ### Added
 
 - `Propulsion.Tool`: `initAux` (now `init`) and `project` facilities moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
+- `Propulsion.Tool`: `initAux` and `project` facilities moved from Equinox [#17](https://github.com/jet/propulsion/pull/17)
 
 ### Changed
 

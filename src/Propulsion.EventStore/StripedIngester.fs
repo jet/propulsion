@@ -1,7 +1,7 @@
 ﻿namespace Propulsion.EventStore
 
-open Propulsion.Streams
 open Propulsion.Internal
+open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
@@ -49,27 +49,45 @@ open StripedIngesterImpl
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
     (   log : ILogger, inner : Propulsion.Ingestion.Ingester<seq<StreamEvent<byte[]>>,Propulsion.Submission.SubmissionBatch<StreamEvent<byte[]>>>,
-        maxRead, initialSeriesIndex, statsInterval : TimeSpan, ?pumpInterval) =
+        maxInFlightBatches, initialSeriesIndex, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
-    let readMax = Sem maxRead
+    let maxInFlightBatches = Sem maxInFlightBatches
     let stats = Stats(log, statsInterval)
     let pending = Queue<_>()
     let readingAhead, ready = Dictionary<int,ResizeArray<_>>(), Dictionary<int,ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 
+    let reserveAsInFlightBatch () = maxInFlightBatches.Await(cts.Token)
+    let releaseInFlightBatchAllocation () = maxInFlightBatches.Release()
+    
     let handle = function
         | Batch (seriesId, epoch, checkpoint, items) ->
+            let isForActiveStripe = activeSeries = seriesId
             let batchInfo =
                 let items = Array.ofSeq items
-                epoch,checkpoint,items,(fun () -> readMax.Release())
-            if activeSeries = seriesId then pending.Enqueue batchInfo
+                let onCompleted =
+                    if isForActiveStripe then
+                        // If this read represents a batch that we will immediately submit for processing, we will defer the releasing of the batch in out buffer
+                        // limit only when the batch's processing has concluded
+                        releaseInFlightBatchAllocation
+                    else
+                        // if the batch pertains to a stripe other than the active one, we don't count that as a 'buffered item'
+                        // (there will be indirect backpressure by virtue of the fact that the processing will not mark batches on 'active' series completed until
+                        //   any ones we hold and forward through `readingAhead` are processed)
+                        // - yield a null function as the onCompleted callback to be triggered when the batch's processing has concluded
+                        id
+                epoch,checkpoint,items,onCompleted
+            if isForActiveStripe then
+                pending.Enqueue batchInfo
             else
                 match readingAhead.TryGetValue seriesId with
                 | false, _ -> readingAhead.[seriesId] <- ResizeArray[|batchInfo|]
                 | true,current -> current.Add(batchInfo)
-        | CloseSeries seriesIndex ->
+                // As we'll be submitting `id` as the onCompleted callback, we now immediately release the allocation that gets `Await`ed in `Submit()`
+                releaseInFlightBatchAllocation()
+         | CloseSeries seriesIndex ->
             if activeSeries = seriesIndex then
                 log.Information("Completed reading active series {activeSeries}; moving to next", activeSeries)
                 work.Enqueue <| ActivateSeries (activeSeries + 1)
@@ -106,21 +124,20 @@ type StripedIngester
             while pending.Count <> 0 do
                 let epoch,checkpoint,items,markCompleted = pending.Dequeue()
                 let! _,_ = inner.Submit(epoch, checkpoint, items, markCompleted) in ()
-            stats.TryDump(activeSeries,readingAhead,ready,readMax.State)
+            stats.TryDump(activeSeries,readingAhead,ready,maxInFlightBatches.State)
             do! Async.Sleep pumpInterval }
 
-    /// Awaits space in `read` to limit reading ahead - yields (used,maximum) counts from Read Semaphore for logging purposes
+    /// Yields (used,maximum) of in-flight batches limit
+    /// return can be delayed where we're over the limit until such time as the background processing ingests the batch
     member __.Submit(content : Message) = async {
-        do! readMax.Await(cts.Token)
         match content with
         | Message.Batch (seriesId, epoch, checkpoint, events) ->
             work.Enqueue <| Batch (seriesId, epoch, checkpoint, events)
-            // NB readMax.Release() is effected in the Batch handler's MarkCompleted()
+            // each Await of the semaphore has an associated Release() in `handle`'s `Batch` case handling
+            do! reserveAsInFlightBatch()
         | Message.CloseSeries seriesId ->
             work.Enqueue <| CloseSeries seriesId
-            // Release semaphore as this message turns out not to necessitate a reservation against the 'reads being held' count
-            readMax.Release()
-        return readMax.State }
+        return maxInFlightBatches.State }
 
     /// As range assignments get revoked, a user is expected to `Stop `the active processing thread for the Ingester before releasing references to it
     member __.Stop() = cts.Cancel()
