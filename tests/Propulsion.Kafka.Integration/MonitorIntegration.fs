@@ -14,12 +14,12 @@ let mkProducer log broker topic =
     let config = KafkaProducerConfig.Create("tiger", broker, Acks.Leader, partitioner = Partitioner.Random)
     KafkaProducer.Create(log, config, topic)
 // test config creates topics with 4 partitions
-let testPartitionCount = 4 
+let testPartitionCount = 4
 let createConsumerConfig broker topic groupId =
     KafkaConsumerConfig.Create("tiger", broker, [topic], groupId, maxBatchSize = 1)
 let startConsumerFromConfig log config handler =
     let handler' r = async {
-        do! handler r 
+        do! handler r
         return Choice1Of2 () }
     ParallelConsumer.Start(log, config, testPartitionCount, id, handler')
 let startConsumer log broker topic groupId handler =
@@ -41,10 +41,12 @@ let onlyConsumeFirstBatchHandler =
         let partitionId = Bindings.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }
 
+let [<Literal>] timeout = 60_000
+
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    [<Fact>]
+    [<Fact(Timeout=timeout)>]
     let ``Monitor should detect stalled consumer`` () = async {
         let topic, group = newId (), newId () // dev kafka topics are created and truncated automatically
         let producer = mkProducer log broker topic
@@ -66,7 +68,7 @@ type T1(testOutputHelper) =
 type T2(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    [<Fact>]
+    [<Fact(Timeout=timeout)>]
     let ``Monitor should continue checking progress after rebalance`` () = async {
         let topic, group = newId (), newId () // dev kafka topics are created and truncated automatically
         let producer = mkProducer log broker topic
@@ -77,8 +79,8 @@ type T2(testOutputHelper) =
             numPartitions <- errors.Length
 
         let! _producerActivity = Async.StartChild <| producerOnePerSecondLoop producer
-        
-        use consumerOne = startConsumer log broker topic group onlyConsumeFirstBatchHandler 
+
+        use consumerOne = startConsumer log broker topic group onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(partitionsObserver)
         do! monitor.StartAsChild(consumerOne.Inner, group)
@@ -95,7 +97,7 @@ type T2(testOutputHelper) =
         // make sure the progress was checked after rebalance
         while 2 <> Volatile.Read(&numPartitions) do
             do! Async.Sleep 1000
-        
+
         // with second consumer in group, first consumer should have half of the partitions
         2 =! numPartitions
     }
@@ -103,7 +105,7 @@ type T2(testOutputHelper) =
 type T3(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    [<Fact>]
+    [<Fact(Timeout=timeout)>]
     let ``Monitor should not join consumer group`` () = async {
         let topic, group = newId (), newId () // dev kafka topics are created and truncated automatically
         let noopObserver _ = ()
