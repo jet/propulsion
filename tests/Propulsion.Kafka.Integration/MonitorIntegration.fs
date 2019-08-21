@@ -43,7 +43,7 @@ let onlyConsumeFirstBatchHandler =
 
 type FactIfBroker() =
     inherit FactAttribute()
-    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no EQUINOX_KAFKA_BROKER supplied"
+    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
     override __.Timeout = 60 * 10 * 1000
 
 type T1(testOutputHelper) =
