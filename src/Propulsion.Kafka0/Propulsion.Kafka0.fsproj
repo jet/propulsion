@@ -17,6 +17,7 @@
     <Compile Include="JetConfluentKafkaFSharpShims.fs" />
     <Compile Include="Bindings.fs" />
     <Compile Include="..\Propulsion.Kafka\Consumers.fs" Link="Consumers.fs" />
+    <Compile Include="..\Propulsion.Kafka\Monitor.fs" Link="Monitor.fs" />
     <Compile Include="..\Propulsion.Kafka\Producers.fs" Link="Producers.fs" />
     <Compile Include="..\Propulsion.Kafka\ProducerSinks.fs" Link="ProducerSinks.fs" />
   </ItemGroup>

@@ -29,11 +29,11 @@ jobs:
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4
       docker run -d --name kafka --network kafka-net --hostname localhost --publish 9092:9092 \
           --env KAFKA_ADVERTISED_HOST_NAME=127.0.0.1 --env ZOOKEEPER_IP=zookeeper \
-          --env KAFKA_AUTO_CREATE_TOPICS_ENABLE=true \
+          --env KAFKA_AUTO_CREATE_TOPICS_ENABLE=true --env KAFKA_NUM_PARTITIONS=4 \
           ches/kafka
       sleep 15
     displayName: Docker kafka for integration tests
-  - script: dotnet build build.proj
+  - script: dotnet build build.proj -v d
     displayName: Run Integration tests
     env:
       TEST_KAFKA_BROKER: localhost:9092

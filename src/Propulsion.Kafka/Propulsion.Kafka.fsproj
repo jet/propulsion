@@ -14,6 +14,7 @@
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Bindings.fs" />
     <Compile Include="Consumers.fs" />
+    <Compile Include="Monitor.fs" />
     <Compile Include="Producers.fs" />
     <Compile Include="ProducerSinks.fs" />
   </ItemGroup>
