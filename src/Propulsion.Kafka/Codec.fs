@@ -11,9 +11,9 @@ open Propulsion.Streams
 // NB this code is cloned from the Equinox repo and should remain in sync with that - there are tests pinning various behaviors to go with it there
 type VerbatimUtf8JsonConverter() =
     inherit JsonConverter()
-    
+
     static let enc = System.Text.Encoding.UTF8
-    
+
     override __.ReadJson(reader, _, _, _) =
         let token = JToken.Load reader
         if token.Type = JTokenType.Null then null
@@ -74,8 +74,41 @@ module RenderedSpan =
             i = span.index
             e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
 
-    let enumStreamEvents (span: RenderedSpan) : StreamEvent<_> seq = 
+    let enumStreamEvents (span: RenderedSpan) : StreamEvent<_> seq =
         span.e |> Seq.mapi (fun i e -> { stream = span.s; index = span.i + int64 i; event = e })
 
-    let parseStreamEvents (spanJson: string) : StreamEvent<_> seq = 
+    let parseStreamEvents (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSpan.Parse |> enumStreamEvents
+
+// Rendition of Summary Events representing the agregated state of a Stream at a known point / version
+type [<NoEquality; NoComparison>] RenderedSummary =
+    {   /// Stream Name
+        s: string
+
+        /// Version (the `i` value of the last included event), reflecting the version of the stream's state from which they were produced
+        i: int64
+
+        /// The Event-records summarizing the state as at version `i`
+        u: RenderedEvent[] }
+    /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
+    static member Parse(summaryJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSummary =
+        match serializerSettings with
+        | None -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson)
+        | Some s -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson, s)
+
+/// Helpers for mapping to/from `Propulsion.Streams` canonical event type
+module RenderedSummary =
+
+    let ofStreamEvents (stream : string) (index : int64) (events : IEvent<byte[]> seq) : RenderedSummary =
+        {   s = stream
+            i = index
+            u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
+
+    let ofStreamEvent (stream : string) (index : int64) (event : IEvent<byte[]>) : RenderedSummary =
+        ofStreamEvents stream index (Seq.singleton event)
+
+    let enumStreamSummaries (span: RenderedSummary) : StreamEvent<_> seq =
+        seq { for e in span.u -> { stream = span.s; index = span.i; event = e } }
+
+    let parseStreamSummaries (spanJson: string) : StreamEvent<_> seq =
+        spanJson |> RenderedSummary.Parse |> enumStreamSummaries

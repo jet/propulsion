@@ -18,7 +18,7 @@ type ParallelProducerSink =
 type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
     inherit Streams.Scheduling.StreamSchedulerStats<OkResult<TimeSpan>,FailResult>(log, statsInterval, stateInterval)
     let okStreams, failStreams = HashSet(), HashSet()
-    let jsonStats = Streams.Internal.LatencyStats("json")
+    let prepareStats = Streams.Internal.LatencyStats("prepare")
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
     override __.DumpStats() =
@@ -26,18 +26,18 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
             log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
                 mb okBytes, okStreams.Count, okEvents, mb exnBytes, failStreams.Count, exnEvents)
         okStreams.Clear(); okEvents <- 0; okBytes <- 0L
-        jsonStats.Dump log
+        prepareStats.Dump log
 
     override __.Handle message =
         let inline adds x (set:HashSet<_>) = set.Add x |> ignore
         base.Handle message
         match message with
         | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-        | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_,(es,bs),jsonElapsed))) ->
+        | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_,(es,bs),prepareElapsed))) ->
             adds stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
-            jsonStats.Record jsonElapsed
+            prepareStats.Record prepareElapsed
         | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es,bs),_exn))) ->
             adds stream failStreams
             exnEvents <- exnEvents + es
@@ -45,7 +45,7 @@ type StreamsProducerStats(log : ILogger, statsInterval, stateInterval) =
 
 type StreamsProducerSink =
     static member Start
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams, render, producer : Producer, categorize,
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, producer : Producer, categorize,
             ?statsInterval, ?stateInterval,
             /// Default .5 ms
             ?idleDelay,
@@ -64,15 +64,15 @@ type StreamsProducerSink =
         let attemptWrite (_writePos,stream,fullBuffer : Streams.StreamSpan<_>) = async {
             let (eventCount,bytesCount),span = Streams.Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
             let sw = System.Diagnostics.Stopwatch.StartNew()
-            let spanJson : string = render (stream, span)
-            let jsonElapsed = sw.Elapsed
-            match spanJson.Length with
+            let! (message : string) = prepare (stream, span)
+            let prepareElapsed = sw.Elapsed
+            match message.Length with
             | x when x > maxBytes ->
                 log.Warning("Message on {stream} had String.Length {length} using {events}/{availableEvents}",
                     stream, x, span.events.Length, fullBuffer.events.Length)
             | _ -> ()
-            try do! Bindings.produceAsync producer.ProduceAsync (stream,spanJson)
-                return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),jsonElapsed)
+            try do! Bindings.produceAsync producer.ProduceAsync (stream,message)
+                return Choice1Of2 (span.index + int64 eventCount,(eventCount,bytesCount),prepareElapsed)
             with e -> return Choice2Of2 ((eventCount,bytesCount),e) }
         let interpretWriteResultProgress _streams (stream : string) = function
             | Choice1Of2 (i',_,_) -> Some i'
