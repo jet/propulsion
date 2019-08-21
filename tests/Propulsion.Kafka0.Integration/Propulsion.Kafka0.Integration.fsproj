@@ -2,9 +2,9 @@
 
   <PropertyGroup>
     <TargetFrameworks>netcoreapp2.1;net461</TargetFrameworks>
-    <WarningLevel>5</WarningLevel>
     <!-- No idea if Confluent support Mono for 0.x (they definitely don't for 1.x) -->
-    <TargetFrameworks Condition=" '$(OS)' != 'Windows_NT' ">netcoreapp2.1</TargetFrameworks>
+    <TargetFrameworks Condition = " '$(OS)' != 'Windows_NT' ">netcoreapp2.1</TargetFrameworks>
+    <WarningLevel>5</WarningLevel>
     <IsPackable>false</IsPackable>
     <DefineConstants>KAFKA0</DefineConstants>
   </PropertyGroup>

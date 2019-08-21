@@ -4,7 +4,7 @@ name: $(Rev:r)
 #	Linux: Tests with netcoreapp2.1 using docker Kafka instance
 #		net461 on Mono is not working, no investigation why as yet, but local run validates it
 #	Windows: Builds and emits nupkg as artifacts
-#	MacOS: Builds only 
+#	MacOS: Builds only
 
 jobs:
 - job: Windows
@@ -15,7 +15,7 @@ jobs:
     displayName: dotnet pack build.proj
     env:
       BUILD_PR: $(SYSTEM.PULLREQUEST.PULLREQUESTNUMBER)
-      BUILD_ID: $(BUILD.BUILDNUMBER) 
+      BUILD_ID: $(BUILD.BUILDNUMBER)
   - task: PublishBuildArtifacts@1
     inputs:
       pathtoPublish: 'bin/nupkg'

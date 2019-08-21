@@ -15,7 +15,7 @@ module Bindings =
         consumer, consumer.Close
     let inline storeOffset (log : ILogger) (consumer : IConsumer<_,_>) (highWaterMark : ConsumeResult<string,string>) =
         try consumer.StoreOffset(highWaterMark)
-        with e -> log.Error(e, "Consuming... storing offsets failed") 
+        with e -> log.Error(e, "Consuming... storing offsets failed")
     let inline tryConsume (log : ILogger) (consumer : IConsumer<_,_>) (intervalRemainder : TimeSpan) ingest =
         try match consumer.Consume(intervalRemainder) with
             | null -> ()

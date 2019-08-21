@@ -23,7 +23,7 @@ module Bindings =
         try let mutable message = null
             if consumer.Consume(&message, intervalRemainder) then
                 if message.Error.HasError then log.Warning("Consuming... error {e}", message.Error)
-                else ingest message 
+                else ingest message
         with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
     let produceAsync produceAsync (key,value) = async {
         let! (res : Message<'K,'V>) = produceAsync(key, value)

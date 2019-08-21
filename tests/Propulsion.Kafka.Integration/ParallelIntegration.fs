@@ -35,7 +35,7 @@ module Helpers =
             .WriteTo.Seq("http://localhost:5341")
             .CreateLogger()
 
-    let getTestBroker() = 
+    let getTestBroker() =
         match Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" with
         | x when String.IsNullOrEmpty x -> invalidOp "missing environment variable 'TEST_KAFKA_BROKER'"
         | x -> Uri x
@@ -114,7 +114,8 @@ module Helpers =
 
 type FactIfBroker() =
     inherit FactAttribute()
-    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no EQUINOX_KAFKA_BROKER supplied"
+    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
+    override __.Timeout = 60 * 10 * 1000
 
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
@@ -126,7 +127,7 @@ type T1(testOutputHelper) =
 
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-    
+
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
@@ -134,7 +135,7 @@ type T1(testOutputHelper) =
             // signal cancellation if consumed items reaches expected size
             if consumedBatches |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length = expectedUniqueMessages then
                 consumer.Stop()
-        } 
+        }
 
         // Section: run the test
         let producers = runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
@@ -183,7 +184,7 @@ type T2(testOutputHelper) =
         let! _ = runProducers log broker topic 1 10 // populate the topic with a few messages
 
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
-        
+
         let! r = Async.Catch <| runConsumers log config 1 None (fun _ _ -> async { return raise <|IndexOutOfRangeException() })
         test <@ match r with
                 | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
@@ -200,7 +201,7 @@ type T2(testOutputHelper) =
         let messageCount = ref 0
         let groupId1 = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
-        do! runConsumers log config 1 None 
+        do! runConsumers log config 1 None
                 (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
 
         test <@ numMessages = !messageCount @>
@@ -226,7 +227,7 @@ type T2(testOutputHelper) =
         let messageCount = ref 0
         do! runConsumers log config 1 None
                 (fun c _m -> async {
-                    if Interlocked.Increment(messageCount) >= numMessages then 
+                    if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
@@ -236,8 +237,8 @@ type T2(testOutputHelper) =
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 (Some (TimeSpan.FromSeconds 10.)) 
-                (fun c _m -> async { 
+        do! runConsumers log config 1 (Some (TimeSpan.FromSeconds 10.))
+                (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
 
         test <@ 0 = !messageCount @>
@@ -259,7 +260,7 @@ type T3(testOutputHelper) =
         let messageCount = ref 0
         do! runConsumers log config 1 None
                 (fun c _m -> async {
-                    if Interlocked.Increment(messageCount) >= numMessages then 
+                    if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
@@ -271,7 +272,7 @@ type T3(testOutputHelper) =
         let messageCount = ref 0
         do! runConsumers log config 1 None
                 (fun c _m -> async {
-                    if Interlocked.Increment(messageCount) >= numMessages then 
+                    if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
@@ -292,7 +293,7 @@ type T3(testOutputHelper) =
 
         let globalMessageCount = ref 0
 
-        let getPartitionOffset = 
+        let getPartitionOffset =
             let state = new ConcurrentDictionary<int, int64 ref>()
             fun partition -> state.GetOrAdd(partition, fun _ -> ref -1L)
 
