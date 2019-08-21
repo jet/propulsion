@@ -32,21 +32,21 @@ module Folds =
         | Events.Unfolded runningState -> Running runningState
     let fold (state: State) = Seq.fold evolve state
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
-    let unfold state =
+    let private unfold state =
         match state with
         | NotStarted -> failwith "should never produce a NotStarted state"
         | Running state -> Events.Unfolded {config = state.config; state=state.state}
 
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
-    //let postProcess events state =
-    //    let checkpointEventIsRedundant (e: Events.Checkpointed) (s: Events.Unfolded) =
-    //        s.state.nextCheckpointDue = e.pos.nextCheckpointDue
-    //        && s.state.pos <> e.pos.pos
-    //    match events, state with
-    //    | [Events.Checkpointed e], (Running state as s) when checkpointEventIsRedundant e state ->
-    //        [],unfold s
-    //    | xs, state ->
-    //        xs,unfold state
+    let transmute events state =
+        let checkpointEventIsRedundant (e: Events.Checkpointed) (s: Events.Unfolded) =
+            s.state.nextCheckpointDue = e.pos.nextCheckpointDue
+            && s.state.pos <> e.pos.pos
+        match events, state with
+        | [Events.Checkpointed e], (Running state as s) when checkpointEventIsRedundant e state ->
+            [],unfold s
+        | xs, state ->
+            xs,unfold state
 
 type Command =
     | Start of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
@@ -64,7 +64,7 @@ module Commands =
         | Start (at, freq, pos), Folds.NotStarted ->
             let config, checkpoint = mk at freq pos
             [Events.Started { config = config; origin = checkpoint}]
-        | Override (at, freq, pos), Folds.Running _ -> 
+        | Override (at, freq, pos), Folds.Running _ ->
             let config, checkpoint = mk at freq pos
             [Events.Overrode { config = config; pos = checkpoint}]
         | Update (at,pos), Folds.Running state ->
