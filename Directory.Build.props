@@ -25,10 +25,4 @@
   <ItemGroup> <!-- net461 ref assemblies https://stackoverflow.com/a/57384175/11635 -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.0-preview.2" PrivateAssets="All" />
   </ItemGroup>
-  <!-- Workaround for https://github.com/xunit/xunit/issues/1357 -->
-  <ItemGroup>
-    <Content Include="$(ThisDirAbsolute)tests/xunit.runner.json" Condition=" '$(OS)' != 'Windows_NT' AND '$(IsTestProject)' != 'false'">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
 </Project>
