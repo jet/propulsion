@@ -44,7 +44,7 @@ let onlyConsumeFirstBatchHandler =
 type FactIfBroker() =
     inherit FactAttribute()
     override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
-    override __.Timeout = 60 * 10 * 1000
+    override __.Timeout = 60 * 15 * 1000
 
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
@@ -66,7 +66,7 @@ type T1(testOutputHelper) =
         use _ = monitor.OnStatus.Subscribe(observeErrorsMonitorHandler)
         do! monitor.StartAsChild(consumer.Inner, group)
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        while not <| Volatile.Read(&errorObserved) && sw.ElapsedMilliseconds < 5L*60L*60L do
+        while not <| Volatile.Read(&errorObserved) && sw.ElapsedMilliseconds < 10L*60L*60L do
             do! Async.Sleep 1000 }
 
 type T2(testOutputHelper) =
@@ -90,7 +90,7 @@ type T2(testOutputHelper) =
         do! monitor.StartAsChild(consumerOne.Inner, group)
         let sw = System.Diagnostics.Stopwatch.StartNew()
         // first consumer is only member of group, should have all partitions
-        while Volatile.Read(&numPartitions) < testPartitionCount && sw.ElapsedMilliseconds < 5L*60L*60L do
+        while Volatile.Read(&numPartitions) < testPartitionCount && sw.ElapsedMilliseconds < 10L*60L*60L do
             do! Async.Sleep 1000
 
         testPartitionCount =! numPartitions
@@ -100,7 +100,7 @@ type T2(testOutputHelper) =
         progressChecked <- false
 
         // make sure the progress was checked after rebalance
-        while 2 <> Volatile.Read(&numPartitions) && sw.ElapsedMilliseconds < 5L*60L*60L do
+        while 2 <> Volatile.Read(&numPartitions) && sw.ElapsedMilliseconds < 10L*60L*60L do
             do! Async.Sleep 1000
 
         // with second consumer in group, first consumer should have half of the partitions
@@ -120,7 +120,7 @@ type T3(testOutputHelper) =
         use _ = monitor.OnStatus.Subscribe(noopObserver)
         do! monitor.StartAsChild(consumer.Inner, group)
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        while consumer.Inner.Assignment.Count < testPartitionCount && sw.ElapsedMilliseconds < 5L*60L*60L do
+        while consumer.Inner.Assignment.Count < testPartitionCount && sw.ElapsedMilliseconds < 10L*60L*60L do
             do! Async.Sleep 1000
         // consumer should have all partitions assigned to it
         testPartitionCount =! consumer.Inner.Assignment.Count
