@@ -710,3 +710,77 @@ type StreamsProjector =
             let! res = handle (streamName,span)
             return span.events.Length,res }
         StreamsProjector.Start<_,'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, categorize, ?statsInterval=statsInterval, ?stateInterval=stateInterval)
+
+module Sync =
+    type StreamsSyncStats(log : ILogger, statsInterval, stateInterval) =
+        inherit Scheduling.StreamSchedulerStats<Projector.OkResult<TimeSpan>,Projector.FailResult>(log, statsInterval, stateInterval)
+        let okStreams, failStreams = HashSet(), HashSet()
+        let prepareStats = Internal.LatencyStats("prepare")
+        let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
+
+        override __.DumpStats() =
+            if okStreams.Count <> 0 && failStreams.Count <> 0 then
+                log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
+                    mb okBytes, okStreams.Count, okEvents, mb exnBytes, failStreams.Count, exnEvents)
+            okStreams.Clear(); okEvents <- 0; okBytes <- 0L
+            prepareStats.Dump log
+
+        override __.Handle message =
+            let inline adds x (set:HashSet<_>) = set.Add x |> ignore
+            base.Handle message
+            match message with
+            | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_,(es,bs),prepareElapsed))) ->
+                adds stream okStreams
+                okEvents <- okEvents + es
+                okBytes <- okBytes + int64 bs
+                prepareStats.Record prepareElapsed
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es,bs),_exn))) ->
+                adds stream failStreams
+                exnEvents <- exnEvents + es
+                exnBytes <- exnBytes + int64 bs
+
+    type StreamsSync =
+        static member Start
+            (   log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize,
+                ?statsInterval, ?stateInterval,
+                /// Default .5 ms
+                ?idleDelay,
+                /// Default 1 MiB
+                ?maxBytes,
+                /// Default 16384
+                ?maxEvents,
+                /// Max scheduling readahead. Default 128.
+                ?maxBatches,
+                /// Max inner cycles per loop. Default 128.
+                ?maxCycles,
+                /// Hook to wire in external stats
+                ?dumpExternalStats)
+            : ProjectorPipeline<_> =
+            let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
+            let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
+            let stats = StreamsSyncStats(log.ForContext<StreamsSyncStats>(), statsInterval, stateInterval)
+            let attemptWrite (_writePos,stream,fullBuffer : StreamSpan<_>) = async {
+                let (eventCount,bytesCount),span = Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
+                let sw = System.Diagnostics.Stopwatch.StartNew()
+                try let! version' = handle (stream, span)
+                    let prepareElapsed = sw.Elapsed
+                    return Choice1Of2 (version',(eventCount,bytesCount),prepareElapsed)
+                with e -> return Choice2Of2 ((eventCount,bytesCount),e) }
+            let interpretWriteResultProgress _streams (stream : string) = function
+                | Choice1Of2 (i',_,_) -> Some i'
+                | Choice2Of2 ((eventCount,bytesCount),exn : exn) ->
+                    log.Warning(exn,"Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
+                    None
+            let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
+            let streamScheduler =
+                Scheduling.StreamSchedulingEngine<Projector.OkResult<TimeSpan>,Projector.FailResult>
+                    (   dispatcher, stats, attemptWrite, interpretWriteResultProgress,
+                        (fun s l ->
+                            s.Dump(l, Buffering.StreamState.eventsSize, categorize)
+                            match dumpExternalStats with Some f -> f l | None -> ()),
+                        maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128,
+                        idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+            Projector.StreamsProjectorPipeline.Start(
+                log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+                maxSubmissionsPerPartition=maxBatches)
