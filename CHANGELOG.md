@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.0.1"></a>
+## [1.0.1] - 2019-08-26
+
+### Added
 
 - `EventStore`: Switched  `Checkpoints` to correctly only log one event per hour using Equinox `RollingUnfolds`/`transmute` mechanism
 - `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) [@jgardella](https://github.com/jgardella) 
@@ -156,7 +164,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1-rc9...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1...HEAD
+[1.0.1]: https://github.com/jet/propulsion/compare/1.0.1-rc9...1.0.1
 [1.0.1-rc9]: https://github.com/jet/propulsion/compare/1.0.1-rc8...1.0.1-rc9
 [1.0.1-rc8]: https://github.com/jet/propulsion/compare/1.0.1-rc7...1.0.1-rc8
 [1.0.1-rc7]: https://github.com/jet/propulsion/compare/1.0.1-rc6...1.0.1-rc7
