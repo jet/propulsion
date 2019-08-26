@@ -12,15 +12,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `EventStore`: Switched  `Checkpoints` to correctly only log one event per hour using Equinox `RollingUnfolds`/`transmute` mechanism
 - `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) [@jgardella](https://github.com/jgardella) 
+- Added overloads, `Codec.RenderedSummary` and `Propulsion.Streams.Sync` to support `dotnet new proSummaryProjector/Consumer` [#23](https://github.com/jet/propulsion/pull/23)
 
 ### Changed
 
 - Targeted `Equinox`.* v `2.0.0-rc3` [#22](https://github.com/jet/propulsion/pull/22)
-
-### Removed
-### Fixed
-
-- Revised max read ahead reservation algorithm to enable effective control of striped-read buffering in `Propulsion.EventStore` [#20](https://github.com/jet/propulsion/pull/20)
+- Targeted `Equinox`.* v `2.0.0-rc4`
 
 <a name="1.0.1-rc9"></a>
 ## [1.0.1-rc9] - 2019-08-09
