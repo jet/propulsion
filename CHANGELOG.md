@@ -17,11 +17,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - Targeted `Equinox`.* v `2.0.0-rc3` [#22](https://github.com/jet/propulsion/pull/22)
-
-### Removed
-### Fixed
-
-- Revised max read ahead reservation algorithm to enable effective control of striped-read buffering in `Propulsion.EventStore` [#20](https://github.com/jet/propulsion/pull/20)
+- Targeted `Equinox`.* v `2.0.0-rc4`
 
 <a name="1.0.1-rc9"></a>
 ## [1.0.1-rc9] - 2019-08-09
