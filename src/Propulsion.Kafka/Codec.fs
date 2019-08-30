@@ -7,6 +7,22 @@ open Gardelloyd.NewtonsoftJson
 open Newtonsoft.Json
 open Propulsion.Streams
 
+
+/// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
+type Serdes private () =
+
+    static let defaultSettings = lazy Settings.CreateDefault()
+    static let indentSettings = lazy Settings.CreateDefault(indent=true)
+
+    /// Serialize. indent defaults to `false`
+    static member Serialize<'T>(value : 'T, ?indent : bool) : string =
+        let settings = (if defaultArg indent false then defaultSettings else indentSettings).Value
+        Gardelloyd.NewtonsoftJson.Serdes.Serialize(value, settings)
+
+    /// Deserializes value of given type from json string.
+    static member Deserialize<'T>(json : string) =
+        Gardelloyd.NewtonsoftJson.Serdes.Deserialize<'T>(json, defaultSettings.Value)
+
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
     {   /// Event Type associated with event data in `d`
@@ -41,8 +57,8 @@ type [<NoEquality; NoComparison>] RenderedSpan =
         /// The Events comprising this span
         e: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
-    static member Parse(spanJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSpan =
-        Serdes.Deserialize(spanJson, ?settings = serializerSettings)
+    static member Parse(spanJson : string) : RenderedSpan =
+        Serdes.Deserialize(spanJson)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
@@ -69,8 +85,8 @@ type [<NoEquality; NoComparison>] RenderedSummary =
         /// The Event-records summarizing the state as at version `i`
         u: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
-    static member Parse(summaryJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSummary =
-        Serdes.Deserialize(summaryJson, ?settings = serializerSettings)
+    static member Parse(summaryJson : string) : RenderedSummary =
+        Serdes.Deserialize(summaryJson)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event type
 module RenderedSummary =
