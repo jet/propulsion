@@ -3,10 +3,9 @@
 // (and/or series of nugets, with an implementation per concrete serialization stack)
 namespace Propulsion.Codec.NewtonsoftJson
 
-open Gardelloyd.NewtonsoftJson
+open FsCodec.NewtonsoftJson
 open Newtonsoft.Json
 open Propulsion.Streams
-
 
 /// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
 type Serdes private () =
@@ -17,11 +16,11 @@ type Serdes private () =
     /// Serialize. indent defaults to `false`
     static member Serialize<'T>(value : 'T, ?indent : bool) : string =
         let settings = (if defaultArg indent false then defaultSettings else indentSettings).Value
-        Gardelloyd.NewtonsoftJson.Serdes.Serialize(value, settings)
+        FsCodec.NewtonsoftJson.Serdes.Serialize(value, settings)
 
     /// Deserializes value of given type from json string.
     static member Deserialize<'T>(json : string) =
-        Gardelloyd.NewtonsoftJson.Serdes.Deserialize<'T>(json, defaultSettings.Value)
+        FsCodec.NewtonsoftJson.Serdes.Deserialize<'T>(json, defaultSettings.Value)
 
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
@@ -40,7 +39,7 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         [<JsonProperty(Required=Required.Default, NullValueHandling=NullValueHandling.Ignore)>]
         m: byte[] }
 
-    interface Gardelloyd.IEvent<byte[]> with
+    interface FsCodec.IEvent<byte[]> with
         member __.EventType = __.c
         member __.Data = __.d
         member __.Meta = __.m
@@ -91,12 +90,12 @@ type [<NoEquality; NoComparison>] RenderedSummary =
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event type
 module RenderedSummary =
 
-    let ofStreamEvents (stream : string) (index : int64) (events : Gardelloyd.IEvent<byte[]> seq) : RenderedSummary =
+    let ofStreamEvents (stream : string) (index : int64) (events : FsCodec.IEvent<byte[]> seq) : RenderedSummary =
         {   s = stream
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
 
-    let ofStreamEvent (stream : string) (index : int64) (event : Gardelloyd.IEvent<byte[]>) : RenderedSummary =
+    let ofStreamEvent (stream : string) (index : int64) (event : FsCodec.IEvent<byte[]>) : RenderedSummary =
         ofStreamEvents stream index (Seq.singleton event)
 
     let enumStreamSummaries (span: RenderedSummary) : StreamEvent<_> seq =

@@ -11,6 +11,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - Rebased on `FcCodec` to enable cleaner interop with `Equinox`. Includes removing redundant Converters and helpers [#26](https://github.com/jet/propulsion/pull/26)
+- Targeted `Equinox`.* v `2.0.0-rc5` [#26](https://github.com/jet/propulsion/pull/26)
 
 ### Changed
 ### Removed

@@ -41,7 +41,7 @@ module Internal =
         let write (log : ILogger) (ctx : Context) stream span = async {
             let stream = ctx.CreateStream stream
             log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
-            let! res = ctx.Sync(stream, { index = span.index; etag = None }, (*TODO remove*)(Seq.cast >> Array.ofSeq) span.events)
+            let! res = ctx.Sync(stream, { index = span.index; etag = None }, span.events)
             let ress =
                 match res with
                 | AppendResult.Ok pos -> Ok pos.index

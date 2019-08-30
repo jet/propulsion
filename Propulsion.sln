@@ -41,10 +41,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{8DF0ED1F
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Tool", "tools\Propulsion.Tool\Propulsion.Tool.fsproj", "{0DBF5289-D429-406E-A195-1AB7785F51C1}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gardelloyd.NewtonsoftJson", "..\Gardelloyd\src\Gardelloyd.NewtonsoftJson\Gardelloyd.NewtonsoftJson.fsproj", "{D6EACEFF-5223-4257-9DAD-94575760B49F}"
-EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Gardelloyd", "..\Gardelloyd\src\Gardelloyd\Gardelloyd.fsproj", "{2CCF1987-3BDC-47A1-BAEF-6B96A62260F6}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -87,14 +83,6 @@ Global
 		{0DBF5289-D429-406E-A195-1AB7785F51C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0DBF5289-D429-406E-A195-1AB7785F51C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0DBF5289-D429-406E-A195-1AB7785F51C1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D6EACEFF-5223-4257-9DAD-94575760B49F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D6EACEFF-5223-4257-9DAD-94575760B49F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D6EACEFF-5223-4257-9DAD-94575760B49F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D6EACEFF-5223-4257-9DAD-94575760B49F}.Release|Any CPU.Build.0 = Release|Any CPU
-		{2CCF1987-3BDC-47A1-BAEF-6B96A62260F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{2CCF1987-3BDC-47A1-BAEF-6B96A62260F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{2CCF1987-3BDC-47A1-BAEF-6B96A62260F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{2CCF1987-3BDC-47A1-BAEF-6B96A62260F6}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

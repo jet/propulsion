@@ -1,6 +1,6 @@
 ﻿namespace Propulsion.Streams
 
-open Gardelloyd
+open FsCodec
 open MathNet.Numerics.Statistics
 open Propulsion
 open Serilog
