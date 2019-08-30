@@ -9,13 +9,17 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- Rebased on `FcCodec` to enable cleaner interop with `Equinox`. Includes removing redundant Converters and helpers [#26](https://github.com/jet/propulsion/pull/26)
-- Targeted `Equinox`.* v `2.0.0-rc5` [#26](https://github.com/jet/propulsion/pull/26)
-
 ### Changed
 ### Removed
 ### Fixed
+
+<a name="1.1.0"></a>
+## [1.1.0] - 2019-08-30
+
+### Added
+
+- Rebased on `FcCodec` to enable cleaner interop with `Equinox`. Includes removing redundant Converters and helpers [#26](https://github.com/jet/propulsion/pull/26)
+- Targeted `Equinox`.* v `2.0.0-rc5` [#26](https://github.com/jet/propulsion/pull/26)
 
 <a name="1.0.1"></a>
 ## [1.0.1] - 2019-08-26
@@ -168,7 +172,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.0.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.1.0...HEAD
+[1.1.0]: https://github.com/jet/propulsion/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/jet/propulsion/compare/1.0.1-rc9...1.0.1
 [1.0.1-rc9]: https://github.com/jet/propulsion/compare/1.0.1-rc8...1.0.1-rc9
 [1.0.1-rc8]: https://github.com/jet/propulsion/compare/1.0.1-rc7...1.0.1-rc8
