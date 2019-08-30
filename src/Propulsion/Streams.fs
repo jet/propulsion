@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Streams
 
+open Gardelloyd
 open MathNet.Numerics.Statistics
 open Propulsion
 open Serilog
@@ -8,17 +9,6 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
-
-/// An Event from a Stream
-type IEvent<'Format> =
-    /// The Event Type, used to drive deserialization
-    abstract member EventType : string
-    /// Event body, as UTF-8 encoded json ready to be injected into the Store
-    abstract member Data : 'Format
-    /// Optional metadata (null, or same as Data, not written if missing)
-    abstract member Meta : 'Format
-    /// The Event's Creation Time (as defined by the writer, i.e. in a mirror, this is intended to reflect the original time)
-    abstract member Timestamp : System.DateTimeOffset
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]

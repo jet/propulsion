@@ -16,8 +16,9 @@ module EquinoxCosmosParser =
             tmp.SetPropertyValue("content", document)
             tmp.GetPropertyValue<'T>("content")
 
+    // TODO remove when using Equinox rc5, where Event isa IEvent
     let (|PropulsionEvent|) (x: Equinox.Cosmos.Store.Event) =
-        { new IEvent<_> with
+        { new Gardelloyd.IEvent<_> with
             member __.EventType = x.c
             member __.Data = x.d
             member __.Meta = x.m

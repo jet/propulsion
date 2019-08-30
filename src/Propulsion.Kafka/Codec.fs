@@ -3,29 +3,9 @@
 // (and/or series of nugets, with an implementation per concrete serialization stack)
 namespace Propulsion.Codec.NewtonsoftJson
 
+open Gardelloyd.NewtonsoftJson
 open Newtonsoft.Json
-open Newtonsoft.Json.Linq
 open Propulsion.Streams
-
-/// Manages injecting prepared json into the data being submitted to DocDb as-is, on the basis we can trust it to be valid json as DocDb will need it to be
-// NB this code is cloned from the Equinox repo and should remain in sync with that - there are tests pinning various behaviors to go with it there
-type VerbatimUtf8JsonConverter() =
-    inherit JsonConverter()
-
-    static let enc = System.Text.Encoding.UTF8
-
-    override __.ReadJson(reader, _, _, _) =
-        let token = JToken.Load reader
-        if token.Type = JTokenType.Null then null
-        else token |> string |> enc.GetBytes |> box
-
-    override __.CanConvert(objectType) =
-        typeof<byte[]>.Equals(objectType)
-
-    override __.WriteJson(writer, value, serializer) =
-        let array = value :?> byte[]
-        if array = null || array.Length = 0 then serializer.Serialize(writer, null)
-        else writer.WriteRawValue(enc.GetString(array))
 
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
@@ -44,7 +24,7 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         [<JsonProperty(Required=Required.Default, NullValueHandling=NullValueHandling.Ignore)>]
         m: byte[] }
 
-    interface Propulsion.Streams.IEvent<byte[]> with
+    interface Gardelloyd.IEvent<byte[]> with
         member __.EventType = __.c
         member __.Data = __.d
         member __.Meta = __.m
@@ -62,9 +42,7 @@ type [<NoEquality; NoComparison>] RenderedSpan =
         e: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
     static member Parse(spanJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSpan =
-        match serializerSettings with
-        | None -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(spanJson)
-        | Some s -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(spanJson, s)
+        Serdes.Deserialize(spanJson, ?settings = serializerSettings)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
@@ -92,19 +70,17 @@ type [<NoEquality; NoComparison>] RenderedSummary =
         u: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
     static member Parse(summaryJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSummary =
-        match serializerSettings with
-        | None -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson)
-        | Some s -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson, s)
+        Serdes.Deserialize(summaryJson, ?settings = serializerSettings)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event type
 module RenderedSummary =
 
-    let ofStreamEvents (stream : string) (index : int64) (events : IEvent<byte[]> seq) : RenderedSummary =
+    let ofStreamEvents (stream : string) (index : int64) (events : Gardelloyd.IEvent<byte[]> seq) : RenderedSummary =
         {   s = stream
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
 
-    let ofStreamEvent (stream : string) (index : int64) (event : IEvent<byte[]>) : RenderedSummary =
+    let ofStreamEvent (stream : string) (index : int64) (event : Gardelloyd.IEvent<byte[]>) : RenderedSummary =
         ofStreamEvents stream index (Seq.singleton event)
 
     let enumStreamSummaries (span: RenderedSummary) : StreamEvent<_> seq =
