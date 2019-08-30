@@ -3,29 +3,24 @@
 // (and/or series of nugets, with an implementation per concrete serialization stack)
 namespace Propulsion.Codec.NewtonsoftJson
 
+open FsCodec.NewtonsoftJson
 open Newtonsoft.Json
-open Newtonsoft.Json.Linq
 open Propulsion.Streams
 
-/// Manages injecting prepared json into the data being submitted to DocDb as-is, on the basis we can trust it to be valid json as DocDb will need it to be
-// NB this code is cloned from the Equinox repo and should remain in sync with that - there are tests pinning various behaviors to go with it there
-type VerbatimUtf8JsonConverter() =
-    inherit JsonConverter()
+/// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
+type Serdes private () =
 
-    static let enc = System.Text.Encoding.UTF8
+    static let defaultSettings = lazy Settings.CreateDefault()
+    static let indentSettings = lazy Settings.CreateDefault(indent=true)
 
-    override __.ReadJson(reader, _, _, _) =
-        let token = JToken.Load reader
-        if token.Type = JTokenType.Null then null
-        else token |> string |> enc.GetBytes |> box
+    /// Serialize. indent defaults to `false`
+    static member Serialize<'T>(value : 'T, ?indent : bool) : string =
+        let settings = (if defaultArg indent false then defaultSettings else indentSettings).Value
+        FsCodec.NewtonsoftJson.Serdes.Serialize(value, settings)
 
-    override __.CanConvert(objectType) =
-        typeof<byte[]>.Equals(objectType)
-
-    override __.WriteJson(writer, value, serializer) =
-        let array = value :?> byte[]
-        if array = null || array.Length = 0 then serializer.Serialize(writer, null)
-        else writer.WriteRawValue(enc.GetString(array))
+    /// Deserializes value of given type from json string.
+    static member Deserialize<'T>(json : string) =
+        FsCodec.NewtonsoftJson.Serdes.Deserialize<'T>(json, defaultSettings.Value)
 
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
@@ -44,7 +39,7 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         [<JsonProperty(Required=Required.Default, NullValueHandling=NullValueHandling.Ignore)>]
         m: byte[] }
 
-    interface Propulsion.Streams.IEvent<byte[]> with
+    interface FsCodec.IEvent<byte[]> with
         member __.EventType = __.c
         member __.Data = __.d
         member __.Meta = __.m
@@ -61,10 +56,8 @@ type [<NoEquality; NoComparison>] RenderedSpan =
         /// The Events comprising this span
         e: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
-    static member Parse(spanJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSpan =
-        match serializerSettings with
-        | None -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(spanJson)
-        | Some s -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(spanJson, s)
+    static member Parse(spanJson : string) : RenderedSpan =
+        Serdes.Deserialize(spanJson)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
@@ -91,20 +84,18 @@ type [<NoEquality; NoComparison>] RenderedSummary =
         /// The Event-records summarizing the state as at version `i`
         u: RenderedEvent[] }
     /// Parses a contiguous span of Events from a Stream rendered in canonical `RenderedSpan` format
-    static member Parse(summaryJson : string, ?serializerSettings : Newtonsoft.Json.JsonSerializerSettings) : RenderedSummary =
-        match serializerSettings with
-        | None -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson)
-        | Some s -> Newtonsoft.Json.JsonConvert.DeserializeObject<_>(summaryJson, s)
+    static member Parse(summaryJson : string) : RenderedSummary =
+        Serdes.Deserialize(summaryJson)
 
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event type
 module RenderedSummary =
 
-    let ofStreamEvents (stream : string) (index : int64) (events : IEvent<byte[]> seq) : RenderedSummary =
+    let ofStreamEvents (stream : string) (index : int64) (events : FsCodec.IEvent<byte[]> seq) : RenderedSummary =
         {   s = stream
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
 
-    let ofStreamEvent (stream : string) (index : int64) (event : IEvent<byte[]>) : RenderedSummary =
+    let ofStreamEvent (stream : string) (index : int64) (event : FsCodec.IEvent<byte[]>) : RenderedSummary =
         ofStreamEvents stream index (Seq.singleton event)
 
     let enumStreamSummaries (span: RenderedSummary) : StreamEvent<_> seq =

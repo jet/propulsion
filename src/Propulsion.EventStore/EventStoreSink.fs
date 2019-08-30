@@ -37,16 +37,9 @@ module Internal =
             | stream, (Choice2Of2 (_, exn)) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        module EquinoxEvent =
-            let ofStreamEvent (x: Propulsion.Streams.IEvent<_>) =
-                { new Equinox.Codec.IEvent<_> with
-                    member __.EventType = x.EventType
-                    member __.Data = x.Data
-                    member __.Meta = x.Meta
-                    member __.Timestamp = x.Timestamp }
         let write (log : ILogger) (context : Context) stream span = async {
             log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
-            let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map EquinoxEvent.ofStreamEvent)
+            let! res = context.Sync(log, stream, span.index - 1L, span.events)
             let ress =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->

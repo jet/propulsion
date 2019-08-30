@@ -35,7 +35,7 @@ module Mapping =
         member __.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(__.CreatedEpoch)
 
     let (|PropulsionEvent|) (x : RecordedEvent) =
-        { new Propulsion.Streams.IEvent<_> with
+        { new FsCodec.IEvent<_> with
             member __.EventType = x.EventType
             member __.Data = if x.Data <> null && x.Data.Length = 0 then null else x.Data
             member __.Meta = if x.Metadata <> null && x.Metadata.Length = 0 then null else x.Metadata

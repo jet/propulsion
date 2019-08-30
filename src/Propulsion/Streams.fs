@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Streams
 
+open FsCodec
 open MathNet.Numerics.Statistics
 open Propulsion
 open Serilog
@@ -8,17 +9,6 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
-
-/// An Event from a Stream
-type IEvent<'Format> =
-    /// The Event Type, used to drive deserialization
-    abstract member EventType : string
-    /// Event body, as UTF-8 encoded json ready to be injected into the Store
-    abstract member Data : 'Format
-    /// Optional metadata (null, or same as Data, not written if missing)
-    abstract member Meta : 'Format
-    /// The Event's Creation Time (as defined by the writer, i.e. in a mirror, this is intended to reflect the original time)
-    abstract member Timestamp : System.DateTimeOffset
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
@@ -34,21 +24,6 @@ type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Forma
 type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] }
 
 module Internal =
-
-    type EventData<'Format> =
-        { eventType : string; data : 'Format; meta : 'Format; timestamp: DateTimeOffset }
-        interface IEvent<'Format> with
-            member __.EventType = __.eventType
-            member __.Data = __.data
-            member __.Meta = __.meta
-            member __.Timestamp = __.timestamp
-
-    type EventData =
-        static member Create(eventType, data, ?meta, ?timestamp) =
-            {   eventType = eventType
-                data = data
-                meta = defaultArg meta null
-                timestamp = match timestamp with Some ts -> ts | None -> DateTimeOffset.UtcNow }
 
     /// Gathers stats relating to how many items of a given category have been observed
     type CatStats() =

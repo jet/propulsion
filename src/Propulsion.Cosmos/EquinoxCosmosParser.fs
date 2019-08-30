@@ -16,13 +16,6 @@ module EquinoxCosmosParser =
             tmp.SetPropertyValue("content", document)
             tmp.GetPropertyValue<'T>("content")
 
-    let (|PropulsionEvent|) (x: Equinox.Cosmos.Store.Event) =
-        { new IEvent<_> with
-            member __.EventType = x.c
-            member __.Data = x.d
-            member __.Meta = x.m
-            member __.Timestamp = x.t }
-
     /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
     let isEquinoxBatch (d : Document) = 
         d.GetPropertyValue "p" <> null && d.GetPropertyValue "i" <> null
@@ -30,7 +23,7 @@ module EquinoxCosmosParser =
 
     /// Enumerates the events represented within a batch
     let enumEquinoxCosmosEvents (batch : Equinox.Cosmos.Store.Batch) : StreamEvent<byte[]> seq =
-        batch.e |> Seq.mapi (fun offset (PropulsionEvent x) -> { stream = batch.p; index = batch.i + int64 offset; event = x })
+        batch.e |> Seq.mapi (fun offset x -> { stream = batch.p; index = batch.i + int64 offset; event = x })
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumStreamEvents (d : Document) : StreamEvent<byte[]> seq =
