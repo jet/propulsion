@@ -25,21 +25,6 @@ type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] }
 
 module Internal =
 
-    type EventData<'Format> =
-        { eventType : string; data : 'Format; meta : 'Format; timestamp: DateTimeOffset }
-        interface IEvent<'Format> with
-            member __.EventType = __.eventType
-            member __.Data = __.data
-            member __.Meta = __.meta
-            member __.Timestamp = __.timestamp
-
-    type EventData =
-        static member Create(eventType, data, ?meta, ?timestamp) =
-            {   eventType = eventType
-                data = data
-                meta = defaultArg meta null
-                timestamp = match timestamp with Some ts -> ts | None -> DateTimeOffset.UtcNow }
-
     /// Gathers stats relating to how many items of a given category have been observed
     type CatStats() =
         let cats = Dictionary<string,int64>()
