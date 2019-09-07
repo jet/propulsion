@@ -24,7 +24,7 @@
     <PackageReference Include="FSharp.Core" Version="3.1.2.5" Condition=" '$(TargetFramework)' == 'net461' " />
     <PackageReference Include="FSharp.Core" Version="4.3.4" Condition=" '$(TargetFramework)' != 'net461' " />
 
-    <PackageReference Include="Equinox.Cosmos" Version="2.0.0-rc5" />
+    <PackageReference Include="Equinox.Cosmos" Version="2.0.0-rc6" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.2.7" />
   </ItemGroup>
 
