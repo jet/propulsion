@@ -21,7 +21,8 @@ module Events =
         | [<System.Runtime.Serialization.DataMember(Name="state-v1")>]
             Unfolded of Unfolded
         interface TypeShape.UnionContract.IUnionContract
-    let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
+    // Avoid binding to a specific serializer as a) nothing else is binding to it in here b) it should serialize with any serializer so we defer
+    // let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
 
 module Folds =
     type State = NotStarted | Running of Events.Unfolded
