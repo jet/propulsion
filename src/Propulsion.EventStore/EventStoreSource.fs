@@ -34,12 +34,10 @@ module Mapping =
     type RecordedEvent with
         member __.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(__.CreatedEpoch)
 
-    let (|PropulsionEvent|) (x : RecordedEvent) =
-        { new FsCodec.IEvent<_> with
-            member __.EventType = x.EventType
-            member __.Data = if x.Data <> null && x.Data.Length = 0 then null else x.Data
-            member __.Meta = if x.Metadata <> null && x.Metadata.Length = 0 then null else x.Metadata
-            member __.Timestamp = x.Timestamp }
+    let (|PropulsionEvent|) (x : RecordedEvent) : FsCodec.IEvent<_> =
+        let d = if x.Data <> null && x.Data.Length = 0 then null else x.Data
+        let m = if x.Metadata <> null && x.Metadata.Length = 0 then null else x.Metadata
+        FsCodec.Core.EventData.Create(x.EventType,d,m,x.Timestamp) :> _
     let (|PropulsionStreamEvent|) (x: RecordedEvent) : Propulsion.Streams.StreamEvent<_> =
         { stream = x.EventStreamId; index = x.EventNumber; event = (|PropulsionEvent|) x }
 

@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Targeted `Equinox`.* v `2.0.0-rc6`, `FsCodec`.* v `1.0.0-rc2` [#27](https://github.com/jet/propulsion/pull/27)
+
 ### Removed
 ### Fixed
 
