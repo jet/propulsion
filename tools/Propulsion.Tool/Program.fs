@@ -200,7 +200,7 @@ let main argv =
                     | _ -> None, id
                 let projectBatch (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
                     sw.Stop() // Stop the clock after CFP hands off to us
-                    let render (e: StreamEvent<_>) = RenderedSpan.ofStreamSpan e.stream { StreamSpan.index = e.index; events=[| e.event |] }
+                    let render (e: StreamEvent<_>) = RenderedSpan.ofStreamSpan e.stream { StreamSpan.index = e.event.Index; events=[| e.event |] }
                     let pt, events = (fun () -> docs |> Seq.collect EquinoxCosmosParser.enumStreamEvents |> Seq.map render |> Array.ofSeq) |> Stopwatch.Time 
                     let! et = async {
                         match producer with

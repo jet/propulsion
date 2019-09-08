@@ -68,7 +68,7 @@ module RenderedSpan =
             e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
 
     let enumStreamEvents (span: RenderedSpan) : StreamEvent<_> seq =
-        span.e |> Seq.mapi (fun i e -> { stream = span.s; index = span.i + int64 i; event = e })
+        span.e |> Seq.mapi (fun i e -> { stream = span.s; event = FsCodec.Core.IndexedEventData(span.i+int64 i,false,e.c,e.d,e.m,e.t) })
 
     let parseStreamEvents (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSpan.Parse |> enumStreamEvents
@@ -99,7 +99,7 @@ module RenderedSummary =
         ofStreamEvents stream index (Seq.singleton event)
 
     let enumStreamSummaries (span: RenderedSummary) : StreamEvent<_> seq =
-        seq { for e in span.u -> { stream = span.s; index = span.i; event = e } }
+        seq { for e in span.u -> { stream = span.s; event = FsCodec.Core.IndexedEventData(span.i,true,e.c,e.d,e.m,e.t) } }
 
     let parseStreamSummaries (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSummary.Parse |> enumStreamSummaries

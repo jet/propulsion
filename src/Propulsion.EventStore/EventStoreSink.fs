@@ -39,7 +39,7 @@ module Internal =
 
         let write (log : ILogger) (context : Context) stream span = async {
             log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
-            let! res = context.Sync(log, stream, span.index - 1L, span.events)
+            let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map (fun x -> x :> _))
             let ress =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->

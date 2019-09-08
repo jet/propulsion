@@ -12,21 +12,11 @@ open System.Threading
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
-type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Format> } with
-    interface IIndexedEvent<'Format> with
-        member __.Index = __.index
-        member __.IsUnfold = false
-        member __.EventType = __.event.EventType
-        member __.Data = __.event.Data
-        member __.Meta = __.event.Meta
-        member __.Timestamp = __.event.Timestamp
+type StreamEvent<'Format> = { stream: string; event: IIndexedEvent<'Format> }
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] } with
-    member __.Events =
-        __.events
-        |> Seq.mapi (fun i x -> FsCodec.Core.IndexedEventData(__.index+int64 i,false,x.EventType,x.Data,x.Meta,x.Timestamp))
+type StreamSpan<'Format> = { index: int64; events: IIndexedEvent<'Format>[] }
 
 module Internal =
 
@@ -230,7 +220,7 @@ module Buffering =
                 states.[stream] <- updated
 
         member __.Merge(item : StreamEvent<'Format>) =
-            merge item.stream { isMalformed = false; write = None; queue = [| { index = item.index; events = [| item.event |] } |] }
+            merge item.stream { isMalformed = false; write = None; queue = [| { index = item.event.Index; events = [| item.event |] } |] }
         member private __.States = states
         member __.Items = states :> seq<KeyValuePair<string,StreamState<'Format>>>
         member __.Merge(other: Streams<'Format>) =
@@ -432,7 +422,7 @@ module Scheduling =
             for item in items do
                 itemCount <- itemCount + 1
                 buffer.Merge(item)
-                match reqs.TryGetValue(item.stream), item.index + 1L with
+                match reqs.TryGetValue(item.stream), item.event.Index + 1L with
                 | (false, _), required -> reqs.[item.stream] <- required
                 | (true, actual), required when actual < required -> reqs.[item.stream] <- required
                 | (true,_), _ -> () // replayed same or earlier item
