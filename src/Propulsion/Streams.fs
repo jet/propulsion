@@ -13,7 +13,9 @@ open System.Threading
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
 type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Format> } with
-    interface IEvent<'Format> with
+    interface IIndexedEvent<'Format> with
+        member __.Index = __.index
+        member __.IsUnfold = false
         member __.EventType = __.event.EventType
         member __.Data = __.event.Data
         member __.Meta = __.event.Meta
@@ -21,7 +23,10 @@ type StreamEvent<'Format> = { stream: string; index: int64; event: IEvent<'Forma
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] }
+type StreamSpan<'Format> = { index: int64; events: IEvent<'Format>[] } with
+    member __.Events =
+        __.events
+        |> Seq.mapi (fun i x -> FsCodec.Core.IndexedEventData(__.index+int64 i,false,x.EventType,x.Data,x.Meta,x.Timestamp))
 
 module Internal =
 
