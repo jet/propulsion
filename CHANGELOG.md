@@ -10,12 +10,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="1.1.2"></a>
+## [1.1.2] - 2019-09-08
+
+### Changed
 
 - Use `IIndexedEvent` in lieu of `IIEvent` + `index` in `StreamSpan` and `StreamEvent` [#28](https://github.com/jet/propulsion/pull/28)
 - Shorten `Rendered*.parse*` to `Rendered*.parse` [#28](https://github.com/jet/propulsion/pull/28)
-
-### Removed
-### Fixed
 
 <a name="1.1.1"></a>
 ## [1.1.1] - 2019-09-07
@@ -183,7 +187,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.1.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.1.2...HEAD
+[1.1.2]: https://github.com/jet/propulsion/compare/1.1.1...1.1.2
 [1.1.1]: https://github.com/jet/propulsion/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/jet/propulsion/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/jet/propulsion/compare/1.0.1-rc9...1.0.1
