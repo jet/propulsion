@@ -133,9 +133,8 @@ module Internal =
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream,res)
                 ss.write
-            Scheduling.StreamSchedulingEngine
-                (   dispatcher, stats, attemptWrite, interpretWriteResultProgress, dumpStreams,
-                    enableSlipstreaming=true, ?maxBatches = maxBatches, idleDelay=TimeSpan.FromMilliseconds 2.)
+            let disp = Scheduling.StreamsDispatcher(dispatcher,attemptWrite,interpretWriteResultProgress,stats,dumpStreams)
+            Scheduling.StreamSchedulingEngine(disp, enableSlipstreaming=true, ?maxBatches = maxBatches, idleDelay=TimeSpan.FromMilliseconds 2.)
 
 type EventStoreSink =
     static member Start

@@ -416,11 +416,11 @@ module Scheduling =
                 Async.Start(dispatch item) }
 
     /// Defines interface between scheduler which (controls the pending work) and the handler which will handle the work
-    type IDispatcher<'Format,'R> =
+    type IDispatcher<'R> =
         [<CLIEvent>]
         abstract member Completed: FSharp.Control.IEvent<TimeSpan*(string*'R)>
         abstract member State: int  * int
-        abstract member TryReplenish: pending : (unit -> seq<DispatchItem<'Format>>) -> project : (DispatchItem<byte[]> -> Async<'R>) -> markStreamBusy : (string -> unit) -> bool * bool
+        abstract member TryReplenish: pending : (unit -> seq<DispatchItem<byte[]>>) -> project : (DispatchItem<byte[]> -> Async<'R>) -> markStreamBusy : (string -> unit) -> bool * bool
 
     type Dispatcher<'R>(maxDop) =
         let inner = new MultiDispatcher<string*'R>(maxDop)
@@ -438,12 +438,25 @@ module Scheduling =
                     dispatched <- dispatched || succeeded // if we added any request, we'll skip sleeping
             hasCapacity, dispatched
         member __.Pump() = inner.Pump()
-        interface IDispatcher<byte[],'R> with
+        interface IDispatcher<'R> with
             [<CLIEvent>]
             override __.Completed = inner.Completed
             override __.State = inner.State
             override __.TryReplenish pending project markStreamBusy =
                 tryFillDispatcher pending project markStreamBusy
+
+    type StreamsDispatcher<'R,'E>
+        (   dispatcher : IDispatcher<Choice<'R,'E>>,
+            project : DispatchItem<byte[]> -> Async<Choice<'R,'E>>,
+            interpretProgress : StreamStates<_> -> string -> Choice<'R,'E> -> int64 option,
+            stats : StreamSchedulerStats<'R,'E>,
+            dumpStreams) =
+        [<CLIEvent>] member __.Completed = dispatcher.Completed
+        member __.TryReplenish pending markStreamBusy = dispatcher.TryReplenish pending project markStreamBusy
+        member __.HandleResult msg = stats.Handle msg
+        member __.InterpretProgress(streams : StreamStates<_>,stream : string,res : Choice<'R,'E>) = interpretProgress streams stream res
+        member __.DumpStats pendingCount = stats.DumpStats(dispatcher.State,pendingCount)
+        member __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) = stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
 
     [<NoComparison; NoEquality>]
     type StreamsBatch<'Format> private (onCompletion, buffer, reqs) =
@@ -476,8 +489,7 @@ module Scheduling =
     /// c) submits work to the supplied Dispatcher (which it triggers pumping of)
     /// d) periodically reports state (with hooks for ingestion engines to report same)
     type StreamSchedulingEngine<'R,'E>
-        (   dispatcher : IDispatcher<byte[],Choice<'R,'E>>, stats : StreamSchedulerStats<'R,'E>,
-            project : DispatchItem<byte[]> -> Async<Choice<_,_>>, interpretProgress, dumpStreams,
+        (   dispatcher : StreamsDispatcher<'R,'E>,
             /// Tune number of batches to ingest at a time. Default 5.
             ?maxBatches,
             /// Tune the max number of check/dispatch cyles. Default 16.
@@ -514,7 +526,7 @@ module Scheduling =
                     match x with
                     | Added _ -> () // Only processed in Stats (and actually never enters this queue)
                     | Result (_duration,(stream,res)) ->
-                        match interpretProgress streams stream res with
+                        match dispatcher.InterpretProgress(streams, stream, res) with
                         | None -> streams.MarkFailed stream
                         | Some index ->
                             progressState.MarkStreamProgress(stream,index)
@@ -524,7 +536,7 @@ module Scheduling =
         // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
         let tryFillDispatcher includeSlipstreamed =
             let potential () : seq<DispatchItem<_>> = streams.Pending(includeSlipstreamed, progressState.InScheduledOrder weight)
-            dispatcher.TryReplenish potential project streams.MarkBusy
+            dispatcher.TryReplenish potential streams.MarkBusy
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingestPendingBatch feedStats (markCompleted, items : seq<KeyValuePair<string,int64>>) = 
             let inline validVsSkip (streamState : StreamState<_>) required =
@@ -553,7 +565,7 @@ module Scheduling =
                 while remaining <> 0 do
                     remaining <- remaining - 1
                     // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                    let processedResults = (fun () -> tryDrainResults stats.Handle) |> accStopwatch <| fun x -> dt <- dt + x
+                    let processedResults = (fun () -> tryDrainResults dispatcher.HandleResult) |> accStopwatch <| fun x -> dt <- dt + x
                     // 2. top up provisioning of writers queue
                     let hasCapacity, dispatched = (fun () -> tryFillDispatcher (dispatcherState = Slipstreaming)) |> accStopwatch <| fun x -> ft <- ft + x
                     idle <- idle && not processedResults && not dispatched
@@ -572,7 +584,7 @@ module Scheduling =
                             match pending.TryDequeue() with
                             | true, batch ->
                                 match batch.TryTakeStreams() with None -> () | Some s -> (fun () -> streams.InternalMerge(s)) |> accStopwatch <| fun t -> mt <- mt + t
-                                (fun () -> ingestPendingBatch stats.Handle (batch.OnCompletion, batch.Reqs)) |> accStopwatch <| fun t -> it <- it + t
+                                (fun () -> ingestPendingBatch dispatcher.HandleResult (batch.OnCompletion, batch.Reqs)) |> accStopwatch <| fun t -> it <- it + t
                                 batchesTaken <- batchesTaken + 1
                                 more <- batchesTaken < maxBatches
                             | false,_ when batchesTaken <> 0  ->
@@ -587,9 +599,9 @@ module Scheduling =
                         remaining <- 0
                     | Busy | Full -> failwith "Not handled here"
                     // This loop can take a long time; attempt logging of stats per iteration
-                    (fun () -> stats.DumpStats(dispatcher.State,pending.Count)) |> accStopwatch <| fun t -> st <- st + t
+                    (fun () -> dispatcher.DumpStats pending.Count) |> accStopwatch <| fun t -> st <- st + t
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                if not (stats.TryDumpState(dispatcherState,dumpStreams streams,(dt,ft,mt,it,st))) && idle then
+                if not (dispatcher.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st))) && idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
         member __.Submit(x : StreamsBatch<_>) =
@@ -597,7 +609,7 @@ module Scheduling =
 
     type StreamSchedulingEngine =
         static member Create<'Stats,'Req,'Outcome>
-            (   dispatcher : IDispatcher<byte[],Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
+            (   dispatcher : IDispatcher<Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
                 prepare : string*StreamSpan<byte[]> -> 'Stats*'Req, handle : 'Req -> Async<int*'Outcome>,
                 dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64*'Stats*'Outcome,'Stats*exn> =
@@ -609,9 +621,8 @@ module Scheduling =
             let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64*'Stats*'Outcome,'Stats*exn> -> Option<int64> = function
                 | Choice1Of2 (index,_stats,_outcome) -> Some index
                 | Choice2Of2 _ -> None
-            StreamSchedulingEngine
-                (   dispatcher, stats, project, interpretProgress, dumpStreams,
-                    ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            let disp = StreamsDispatcher(dispatcher, project, interpretProgress, stats, dumpStreams)
+            StreamSchedulingEngine<_,_>(disp, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
 module Projector =
 
@@ -691,7 +702,7 @@ type StreamsProjector =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let projectionStats = Projector.Stats<'Outcome>(log.ForContext<Projector.Stats<'Outcome>>(), categorize, statsInterval, stateInterval)
         let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
-        let streamScheduler = Scheduling.StreamSchedulingEngine.Create<_,_,'Outcome>(dispatcher, projectionStats, prepare, project, fun s l -> s.Dump(l, Buffering.StreamState.eventsSize, categorize))
+        let streamScheduler = Scheduling.StreamSchedulingEngine.Create<_,string*StreamSpan<byte[]>,'Outcome>(dispatcher, projectionStats, prepare, project, fun s l -> s.Dump(l, Buffering.StreamState.eventsSize, categorize))
         Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
 
     static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize, ?statsInterval, ?stateInterval)
@@ -766,14 +777,13 @@ module Sync =
                     log.Warning(exn,"Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                     None
             let dispatcher = Scheduling.Dispatcher<_>(maxConcurrentStreams)
+            let dumpStreams (s : Scheduling.StreamStates<_>) l =
+                s.Dump(l, Buffering.StreamState.eventsSize, categorize)
+                match dumpExternalStats with Some f -> f l | None -> ()
+            let disp = Scheduling.StreamsDispatcher(dispatcher,attemptWrite, interpretWriteResultProgress,stats,dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<Projector.OkResult<TimeSpan>,Projector.FailResult>
-                    (   dispatcher, stats, attemptWrite, interpretWriteResultProgress,
-                        (fun s l ->
-                            s.Dump(l, Buffering.StreamState.eventsSize, categorize)
-                            match dumpExternalStats with Some f -> f l | None -> ()),
-                        maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128,
-                        idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+                    (   disp, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
             Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 maxSubmissionsPerPartition=maxBatches)
