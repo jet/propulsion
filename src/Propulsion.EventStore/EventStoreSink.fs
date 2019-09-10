@@ -115,12 +115,12 @@ module Internal =
             : Scheduling.StreamSchedulingEngine<_,_> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
-            let attemptWrite (_maybeWritePos,stream,span) = async {
+            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
                 let index = Interlocked.Increment(&robin) % conns.Length
                 let selectedConnection = conns.[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents,maxBytes) span
-                try let! res = Writer.write storeLog selectedConnection stream span'
+                let stats, span' = Buffering.StreamSpan.slice (maxEvents,maxBytes) item.span
+                try let! res = Writer.write storeLog selectedConnection item.stream span'
                     return Choice1Of2 (stats,res)
                 with e -> return Choice2Of2 (stats,e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
