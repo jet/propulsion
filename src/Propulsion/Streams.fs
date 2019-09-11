@@ -440,11 +440,10 @@ module Scheduling =
 
     /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
     type IDispatcher<'R,'E> =
-        [<CLIEvent>] abstract member Result: FSharp.Control.IEvent<TimeSpan*(string*Choice<'R,'E>)>
-        abstract member HandleResult: InternalMessage<Choice<'R,'E>> -> unit
-        abstract member State: int  * int
         abstract member TryReplenish: pending : (unit -> seq<DispatchItem<byte[]>>) -> markStreamBusy : (string -> unit) -> bool * bool
+        [<CLIEvent>] abstract member Result: FSharp.Control.IEvent<TimeSpan*(string*Choice<'R,'E>)>
         abstract member InterpretProgress: StreamStates<byte[]>*string*Choice<'R,'E> -> int64 option
+        abstract member RecordResultStats: InternalMessage<Choice<'R,'E>> -> unit
         abstract member DumpStats: int -> unit
         abstract member TryDumpState: BufferState*StreamStates<byte[]>*(TimeSpan*TimeSpan*TimeSpan*TimeSpan*TimeSpan) -> bool
 
@@ -456,15 +455,57 @@ module Scheduling =
             stats : StreamSchedulerStats<'R,'E>,
             dumpStreams) =
         interface IDispatcher<'R,'E> with
-            [<CLIEvent>] override __.Result = inner.Result
-            override __.HandleResult msg = stats.Handle msg
-            override __.State = inner.State
             override __.TryReplenish pending markStreamBusy = inner.TryReplenish pending project markStreamBusy
-            override __.InterpretProgress(streams : StreamStates<_>,stream : string,res : Choice<'R,'E>) = interpretProgress streams stream res
+            [<CLIEvent>] override __.Result = inner.Result
+            override __.InterpretProgress(streams : StreamStates<_>,stream : string,res : Choice<'R,'E>) =
+                interpretProgress streams stream res
+            override __.RecordResultStats msg = stats.Handle msg
             override __.DumpStats pendingCount = stats.DumpStats(inner.State,pendingCount)
-            override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) = stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
+            override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) =
+                stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
 
-    [<NoComparison; NoEquality>]
+    /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
+    type BatchedDispatcher
+        (   select : DispatchItem<byte[]> seq -> DispatchItem<byte[]>[],
+            handle : DispatchItem<byte[]>[] -> Async<(string*Choice<int64,exn>)[]>,
+            stats : StreamSchedulerStats<_,_>,
+            dumpStreams) =
+        let dop = DopDispatcher 1
+        let result = FSharp.Control.Event<TimeSpan*(string*Choice<_,_>)>()
+        let dispatchSubResults (res : TimeSpan, itemResults: (string*Choice<_,_>)[]) =
+            let tot = res.TotalMilliseconds in let avg = TimeSpan.FromMilliseconds(tot/float itemResults.Length)
+            for res in itemResults do result.Trigger(avg,res)
+        // On each iteration, we offer the ordered work queue to the selector
+        // we propagate the selected streams to the handler
+        let trySelect pending markBusy =
+            let mutable hasCapacity, dispatched = dop.HasCapacity, false
+            if hasCapacity then
+                let potential : seq<DispatchItem<byte[]>> = pending ()
+                let streams : DispatchItem<byte[]>[] = select potential
+                let succeeded = (not << Array.isEmpty) streams
+                if succeeded then
+                    let res = dop.TryAdd(handle streams)
+                    if not res then failwith "Checked we can add, what gives?"
+                    for x in streams do markBusy x.stream
+                    dispatched <- true // if we added any request, we'll skip sleeping
+                hasCapacity <- false
+            hasCapacity, dispatched
+        member __.Pump() = async {
+            use _ = dop.Result.Subscribe dispatchSubResults
+            return! dop.Pump() }
+        interface IDispatcher<int64,exn> with
+            override __.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
+            [<CLIEvent>] override __.Result = result.Publish
+            override __.InterpretProgress(_streams : StreamStates<_>, _stream : string, res : Choice<_,_>) =
+                match res with
+                | Choice1Of2 pos' -> Some pos'
+                | Choice2Of2 _exn -> None
+            override __.RecordResultStats msg = stats.Handle msg
+            override __.DumpStats pendingCount = stats.DumpStats(dop.State,pendingCount)
+            override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) =
+                stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
+
+     [<NoComparison; NoEquality>]
     type StreamsBatch<'Format> private (onCompletion, buffer, reqs) =
         let mutable buffer = Some buffer
         static member Create(onCompletion, items : StreamEvent<'Format> seq) =
@@ -567,7 +608,7 @@ module Scheduling =
                 while remaining <> 0 do
                     remaining <- remaining - 1
                     // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                    let processedResults = (fun () -> tryDrainResults dispatcher.HandleResult) |> accStopwatch <| fun x -> dt <- dt + x
+                    let processedResults = (fun () -> tryDrainResults dispatcher.RecordResultStats) |> accStopwatch <| fun x -> dt <- dt + x
                     // 2. top up provisioning of writers queue
                     // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
                     let isSlipStreaming = dispatcherState = Slipstreaming
@@ -589,7 +630,7 @@ module Scheduling =
                             match pending.TryDequeue() with
                             | true, batch ->
                                 match batch.TryTakeStreams() with None -> () | Some s -> (fun () -> streams.InternalMerge(s)) |> accStopwatch <| fun t -> mt <- mt + t
-                                (fun () -> ingestPendingBatch dispatcher.HandleResult (batch.OnCompletion, batch.Reqs)) |> accStopwatch <| fun t -> it <- it + t
+                                (fun () -> ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)) |> accStopwatch <| fun t -> it <- it + t
                                 batchesTaken <- batchesTaken + 1
                                 more <- batchesTaken < maxBatches
                             | false,_ when batchesTaken <> 0  ->
