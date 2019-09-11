@@ -74,7 +74,7 @@ module Helpers =
 
             consumerCell := Some consumer
 
-            timeout |> Option.iter consumer.StopAfter
+            timeout |> Option.defaultValue (TimeSpan.FromMinutes 15.) |> consumer.StopAfter
 
             do! consumer.AwaitCompletion()
         }
