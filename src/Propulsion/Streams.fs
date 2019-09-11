@@ -467,12 +467,12 @@ module Scheduling =
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type BatchedDispatcher
         (   select : DispatchItem<byte[]> seq -> DispatchItem<byte[]>[],
-            handle : DispatchItem<byte[]>[] -> Async<(string*Choice<int64,exn>)[]>,
+            handle : DispatchItem<byte[]>[] -> Async<(string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]>,
             stats : StreamSchedulerStats<_,_>,
             dumpStreams) =
         let dop = DopDispatcher 1
-        let result = FSharp.Control.Event<TimeSpan*(string*Choice<_,_>)>()
-        let dispatchSubResults (res : TimeSpan, itemResults: (string*Choice<_,_>)[]) =
+        let result = FSharp.Control.Event<TimeSpan*(string*Choice<int64*(int*int)*unit,(int*int)*exn>)>()
+        let dispatchSubResults (res : TimeSpan, itemResults: (string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]) =
             let tot = res.TotalMilliseconds in let avg = TimeSpan.FromMilliseconds(tot/float itemResults.Length)
             for res in itemResults do result.Trigger(avg,res)
         // On each iteration, we offer the ordered work queue to the selector
@@ -493,13 +493,13 @@ module Scheduling =
         member __.Pump() = async {
             use _ = dop.Result.Subscribe dispatchSubResults
             return! dop.Pump() }
-        interface IDispatcher<int64,exn> with
+        interface IDispatcher<int64*(int*int)*unit,(int*int)*exn> with
             override __.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
             [<CLIEvent>] override __.Result = result.Publish
             override __.InterpretProgress(_streams : StreamStates<_>, _stream : string, res : Choice<_,_>) =
                 match res with
-                | Choice1Of2 pos' -> Some pos'
-                | Choice2Of2 _exn -> None
+                | Choice1Of2 (pos',_stats,_outcome) -> Some pos'
+                | Choice2Of2 (_stats,_exn) -> None
             override __.RecordResultStats msg = stats.Handle msg
             override __.DumpStats pendingCount = stats.DumpStats(dop.State,pendingCount)
             override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) =
@@ -654,6 +654,7 @@ module Scheduling =
             pending.Enqueue(x)
 
     type StreamSchedulingEngine =
+
         static member Create<'Stats,'Req,'Outcome>
             (   dispatcher : ItemDispatcher<Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
                 prepare : string*StreamSpan<byte[]> -> 'Stats*'Req, handle : 'Req -> Async<int*'Outcome>,
@@ -669,6 +670,9 @@ module Scheduling =
                 | Choice2Of2 _ -> None
             let disp = MultiDispatcher<_,_>(dispatcher, project, interpretProgress, stats, dumpStreams)
             StreamSchedulingEngine<_,_>(disp, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+
+        static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming): StreamSchedulingEngine<int64*(int*int)*unit,'Stats*exn> =
+           StreamSchedulingEngine<_,_>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
 module Projector =
 
@@ -743,6 +747,7 @@ module Projector =
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 type StreamsProjector =
+
     static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, project, categorize, ?statsInterval, ?stateInterval)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
@@ -762,6 +767,7 @@ type StreamsProjector =
         StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, categorize, ?statsInterval=statsInterval, ?stateInterval=stateInterval)
 
 module Sync =
+
     type StreamsSyncStats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.StreamSchedulerStats<Projector.OkResult<TimeSpan>,Projector.FailResult>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()
