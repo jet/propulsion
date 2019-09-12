@@ -81,7 +81,7 @@ type KafkaIngestionEngine<'M>
             match acc.TryGetValue partitionId with
             | false, _ -> let span = PartitionBuffer<'M>.Create(sz,message,mapMessage) in acc.[partitionId] <- span; span
             | true, span -> span.Enqueue(sz,message,mapMessage); span
-        if span.messages.Count >= maxBatchSize then
+        if span.messages.Count = maxBatchSize then
             acc.Remove partitionId |> ignore
             emit [| mkSubmission partitionId span |]
     let submit () =
