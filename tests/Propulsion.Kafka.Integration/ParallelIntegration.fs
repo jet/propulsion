@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Kafka.Integration
 
+open Confluent.Kafka // required for shimming
 open Jet.ConfluentKafka.FSharp
 open Newtonsoft.Json
 open Propulsion.Kafka
@@ -13,7 +14,6 @@ open Xunit
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
-    open Confluent.Kafka
 
     // Derived from https://github.com/damianh/CapturingLogOutputWithXunit2AndParallelTests
     // NB VS does not surface these atm, but other test runners / test reports do
@@ -305,7 +305,7 @@ type T3(testOutputHelper) =
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, maxBatchSize = maxBatchSize)
 
         // Produce messages in the topic
-        do! runProducers log broker topic 1 numMessages |> Async.Ignore
+        let! _ = runProducers log broker topic 1 numMessages
 
         let globalMessageCount = ref 0
 

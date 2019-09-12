@@ -1,7 +1,6 @@
 ﻿namespace Propulsion.Kafka.Integration.Streams
 
 open Jet.ConfluentKafka.FSharp
-open Newtonsoft.Json
 open Propulsion.Kafka
 open Propulsion.Kafka.Integration.Helpers
 open System
@@ -87,7 +86,13 @@ module Helpers =
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``producer-consumer basic roundtrip`` () = async {
+    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
+        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
+    member __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
+        runConsumers log config numConsumers None consumerCallback
+
+    [<FactIfBroker>]
+    member __.``producer-consumer basic roundtrip`` () = async {
         let numProducers = 10
         let numConsumers = 10
         let messagesPerProducer = 1000
@@ -105,10 +110,10 @@ type T1(testOutputHelper) =
         }
 
         // Section: run the test
-        let producers = runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
+        let producers = __.RunProducers(log, broker, topic, numProducers, messagesPerProducer)
 
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval=(TimeSpan.FromSeconds 5.))
-        let consumers = runConsumers log config numConsumers None consumerCallback
+        let consumers = __.RunConsumers(log, config, numConsumers, consumerCallback)
 
         let! _ = Async.Parallel [ producers ; consumers ]
 
@@ -144,58 +149,66 @@ type T1(testOutputHelper) =
 type T2(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``consumer pipeline should have expected exception semantics`` () = async {
+    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
+        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
+    member __.RunConsumers(log, config, numConsumers, consumerCallback, ?timeout) : Async<unit> =
+        runConsumers log config numConsumers timeout consumerCallback
+
+    [<FactIfBroker>]
+    member __.``consumer pipeline should have expected exception semantics`` () = async {
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        let! _ = runProducers log broker topic 1 10 // populate the topic with a few messages
+        do! __.RunProducers(log, broker, topic, 1, 10) // populate the topic with a few messages
 
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
 
-        let! r = Async.Catch <| runConsumers log config 1 None (fun _ _ -> async { return raise <|IndexOutOfRangeException() })
+        let! r = Async.Catch <| __.RunConsumers(log, config, 1, (fun _ _ -> async { return raise <|IndexOutOfRangeException() }))
         test <@ match r with
                 | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
                 | x -> failwithf "%A" x @>
     }
 
-    let [<FactIfBroker>] ``Given a topic different consumer group ids should be consuming the same message set`` () = async {
+    [<FactIfBroker>]
+    member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
         let numMessages = 10
 
         let topic = newId() // dev kafka topics are created and truncated automatically
 
-        let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
 
         let messageCount = ref 0
         let groupId1 = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
-        do! runConsumers log config 1 None
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
 
         test <@ numMessages = !messageCount @>
 
         let messageCount = ref 0
         let groupId2 = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
-        do! runConsumers log config 1 None
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
 
         test <@ numMessages = !messageCount @>
     }
 
-    let [<FactIfBroker>] ``Spawning a new consumer with same consumer group id should not receive new messages`` () = async {
+    [<FactIfBroker>]
+    member __.``Spawning a new consumer with same consumer group id should not receive new messages`` () = async {
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
 
-        let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be stored
+                        c.StopAfter(TimeSpan.FromSeconds 1.) })) // cancel after 1 second to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
 
@@ -204,9 +217,10 @@ type T2(testOutputHelper) =
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 (Some (TimeSpan.FromSeconds 10.))
+        do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
-                    if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
+                    if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }),
+                timeout = TimeSpan.FromSeconds 10.)
 
         test <@ 0 = !messageCount @>
     }
@@ -215,37 +229,44 @@ type T2(testOutputHelper) =
 type T3(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``Commited offsets should not result in missing messages`` () = async {
+    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
+        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
+    member __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
+        runConsumers log config numConsumers None consumerCallback
+
+    [<FactIfBroker>]
+    member __.``Commited offsets should not result in missing messages`` () = async {
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
 
-        let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
+                        c.StopAfter(TimeSpan.FromSeconds 1.) })) // cancel after 1 second to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
 
-        let! _ = runProducers log broker topic 1 numMessages // produce more messages
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // produce more messages
 
         // expected to read 10 messages from the subsequent consumer,
         // this is to verify there are no off-by-one errors in how offsets are committed
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
+                        c.StopAfter(TimeSpan.FromSeconds 1.) })) // cancel after 1 second to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
     }
 
-    let [<FactIfBroker>] ``Consumers should schedule two batches of the same partition concurrently`` () = async {
+    [<FactIfBroker>]
+    member __.``Consumers should schedule two batches of the same partition concurrently`` () = async {
         // writes 2000 messages down a topic with a shuffled partition key
         // then attempts to consume the topic, checking that batches are
         // monotonic w.r.t. offsets
@@ -256,7 +277,7 @@ type T3(testOutputHelper) =
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, maxBatchSize = maxBatchSize)
 
         // Produce messages in the topic
-        do! runProducers log broker topic 1 numMessages |> Async.Ignore
+        do! __.RunProducers(log, broker, topic, 1, numMessages)
 
         let globalMessageCount = ref 0
 
@@ -271,7 +292,7 @@ type T3(testOutputHelper) =
         let concurrentCalls = ref 0
         let foundNonMonotonic = ref false
 
-        do! runConsumers log config 1 None
+        do! __.RunConsumers(log, config, 1,
                 (fun c m -> async {
                     let partition = m.meta.partition
 
@@ -290,7 +311,7 @@ type T3(testOutputHelper) =
 
                     let _ = Interlocked.Decrement concurrentBatchCell
 
-                    if Interlocked.Increment(globalMessageCount) >= numMessages then c.Stop() })
+                    if Interlocked.Increment(globalMessageCount) >= numMessages then c.Stop() }))
 
         test <@ !foundNonMonotonic @> //  "offset for partition should be monotonic"
         test <@ !concurrentCalls > 1 @> // "partitions should definitely schedule more than one batch concurrently")
