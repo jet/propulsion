@@ -52,8 +52,9 @@ module private Impl =
 ///   checkpointable Batches
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'M>
-    (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, closeConsumer, mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
-        emitInterval, statsInterval) =
+    (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_,_>, closeConsumer,
+        mapMessage : ConsumeResult<_,_> -> 'M, emit : Submission.SubmissionBatch<'M>[] -> unit,
+        maxBatchSize, emitInterval, statsInterval) =
     let acc = Dictionary<int,_>()
     let remainingIngestionWindow = intervalTimer emitInterval
     let mutable intervalMsgs, intervalChars, totalMessages, totalChars = 0L, 0L, 0L, 0L
@@ -65,25 +66,31 @@ type KafkaIngestionEngine<'M>
     let maybeLogStats =
         let due = intervalCheck statsInterval
         fun () -> if due () then dumpStats ()
+    let mkSubmission partitionId span : Submission.SubmissionBatch<'M> =
+        let checkpoint () =
+            counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
+            Bindings.storeOffset log consumer span.highWaterMark
+        { partitionId = partitionId; onCompletion = checkpoint; messages = span.messages.ToArray() }
     let ingest message =
         let sz = approximateMessageBytes message
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
         intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
         let partitionId = Bindings.partitionId message
-        match acc.TryGetValue partitionId with
-        | false, _ -> acc.[partitionId] <- PartitionBuffer<'M>.Create(sz,message,mapMessage)
-        | true, span -> span.Enqueue(sz,message,mapMessage)
+        let span =
+            match acc.TryGetValue partitionId with
+            | false, _ -> let span = PartitionBuffer<'M>.Create(sz,message,mapMessage) in acc.[partitionId] <- span; span
+            | true, span -> span.Enqueue(sz,message,mapMessage); span
+        if span.messages.Count >= maxBatchSize then
+            acc.Remove partitionId |> ignore
+            emit [| mkSubmission partitionId span |]
     let submit () =
         match acc.Count with
         | 0 -> ()
         | partitionsWithMessagesThisInterval ->
             let tmp = ResizeArray<Submission.SubmissionBatch<'M>>(partitionsWithMessagesThisInterval)
             for KeyValue(partitionIndex,span) in acc do
-                let checkpoint () =
-                    counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, above
-                    Bindings.storeOffset log consumer span.highWaterMark
-                tmp.Add { partitionId = partitionIndex; onCompletion = checkpoint; messages = span.messages.ToArray() }
+                tmp.Add(mkSubmission partitionIndex span)
             acc.Clear()
             emit <| tmp.ToArray()
     member __.Pump() = async {
@@ -118,14 +125,15 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start(log : ILogger, config : KafkaConsumerConfig, mapResult, submit, pumpSubmitter, pumpScheduler, pumpDispatcher, statsInterval) =
-        log.Information("Consuming... {broker} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s",
+        let maxDelay, maxItems = config.Buffering.maxBatchDelay, config.Buffering.maxBatchSize
+        log.Information("Consuming... {broker} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s maxBatchSize={maxBatchSize}",
             config.Inner.BootstrapServers, config.Topics, config.Inner.GroupId, (let x = config.Inner.AutoOffsetReset in x.Value), config.Inner.FetchMaxBytes,
-            float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., (let t = config.Buffering.maxBatchDelay in t.TotalSeconds))
+            float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., maxDelay.TotalSeconds, maxItems)
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = new Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
         let consumer, closeConsumer = Bindings.createConsumer log config.Inner // teardown is managed by ingester.Pump()
         consumer.Subscribe config.Topics
-        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, emitInterval = config.Buffering.maxBatchDelay, statsInterval = statsInterval)
+        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, maxItems, maxDelay, statsInterval = statsInterval)
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = new TaskCompletionSource<unit>()
