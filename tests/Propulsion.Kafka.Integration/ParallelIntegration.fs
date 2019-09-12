@@ -1,12 +1,10 @@
-﻿namespace Propulsion.Kafka.Integration.Parallel
+﻿namespace Propulsion.Kafka.Integration
 
 open Jet.ConfluentKafka.FSharp
 open Newtonsoft.Json
 open Propulsion.Kafka
 open Serilog
-open Swensen.Unquote
 open System
-open System.Collections.Concurrent
 open System.ComponentModel
 open System.Threading
 open System.Threading.Tasks
@@ -86,6 +84,27 @@ module Helpers =
         return! Async.Parallel [for i in 1 .. numProducers -> runProducer i]
     }
 
+    type FactIfBroker() =
+        inherit FactAttribute()
+        override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
+        override __.Timeout = 60 * 10 * 1000
+
+namespace Propulsion.Kafka.Integration.Parallel
+
+open Confluent.Kafka // required for shimming
+open Jet.ConfluentKafka.FSharp
+open Newtonsoft.Json
+open Propulsion.Kafka
+open Propulsion.Kafka.Integration.Helpers
+open System
+open Swensen.Unquote
+open System.Collections.Concurrent
+open System.ComponentModel
+open System.Threading
+
+[<AutoOpen>]
+[<EditorBrowsable(EditorBrowsableState.Never)>]
+module Helpers =
     let runConsumers log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
             let deserialize (raw : ConsumeResult<string,string>) = { consumerId = consumerId ; raw = raw; payload = JsonConvert.DeserializeObject<_> raw.Value }
@@ -112,10 +131,7 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-type FactIfBroker() =
-    inherit FactAttribute()
-    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
-    override __.Timeout = 60 * 10 * 1000
+#nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
 type T1(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()

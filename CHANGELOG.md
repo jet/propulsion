@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- Implemented `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
+
 ### Changed
 
 - Use `IIndexedEvent` in lieu of `IIEvent` + `index` in `StreamSpan` and `StreamEvent` [#28](https://github.com/jet/propulsion/pull/28)
