@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Kafka.Integration
 
+open Confluent.Kafka // required for shimming
 open Jet.ConfluentKafka.FSharp
 open Newtonsoft.Json
 open Propulsion.Kafka
@@ -13,7 +14,6 @@ open Xunit
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
-    open Confluent.Kafka
 
     // Derived from https://github.com/damianh/CapturingLogOutputWithXunit2AndParallelTests
     // NB VS does not surface these atm, but other test runners / test reports do
@@ -235,7 +235,7 @@ type T2(testOutputHelper) =
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval = TimeSpan.FromSeconds 1.)
 
         let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
 
@@ -244,12 +244,12 @@ type T2(testOutputHelper) =
         do! runConsumers log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be stored
+                        c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
 
         // Await async committing
-        //do! Async.Sleep 10_000
+        do! Async.Sleep 10_000
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
@@ -264,11 +264,11 @@ type T2(testOutputHelper) =
 type T3(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``Commited offsets should not result in missing messages`` () = async {
+    let [<FactIfBroker>] ``Committed offsets should not result in missing messages`` () = async {
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval = TimeSpan.FromSeconds 1.)
 
         let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
 
@@ -277,7 +277,7 @@ type T3(testOutputHelper) =
         do! runConsumers log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
+                        c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
 
@@ -305,7 +305,7 @@ type T3(testOutputHelper) =
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, maxBatchSize = maxBatchSize)
 
         // Produce messages in the topic
-        do! runProducers log broker topic 1 numMessages |> Async.Ignore
+        let! _ = runProducers log broker topic 1 numMessages
 
         let globalMessageCount = ref 0
 
