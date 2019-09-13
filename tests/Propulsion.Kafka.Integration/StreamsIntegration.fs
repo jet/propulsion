@@ -105,7 +105,7 @@ module Helpers =
             let consumer =
                  Core.StreamsConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
-                        handle, 100, stats,
+                        handle, 256, stats,
                         maxBatches = 50, categorize = id, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
