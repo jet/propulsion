@@ -301,7 +301,7 @@ type StreamsConsumer =
             ?idleDelay = idleDelay)
 
     /// Starts a Kafka Consumer processing pipeline per the `config` that loops continuously
-    /// 1. providing the pendingh items list to `select` to determine streams to process
+    /// 1. providing the pending items list to `select` to determine streams to process
     /// 2. (and, if any `select`ed) passing them to the `handle`r for processing
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start<'M>
