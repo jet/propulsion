@@ -757,6 +757,7 @@ module Sync =
                 exnBytes <- exnBytes + int64 bs
 
     type StreamsSync =
+
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize,
                 ?statsInterval, ?stateInterval,

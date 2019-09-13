@@ -131,6 +131,7 @@ module Internal =
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
 
     type CosmosSchedulingEngine =
+
         static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
             : Scheduling.StreamSchedulingEngine<_,_> =
             let writerResultLog = log.ForContext<Writer.Result>()
@@ -159,6 +160,7 @@ module Internal =
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches = maxBatches)
 
 type CosmosSink =
+
     static member Start
         (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams, categorize,
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)

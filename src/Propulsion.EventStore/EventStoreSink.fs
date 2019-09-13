@@ -111,6 +111,7 @@ module Internal =
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
 
     type EventStoreSchedulingEngine =
+
         static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : EventStoreStats, dumpStreams, ?maxBatches)
             : Scheduling.StreamSchedulingEngine<_,_> =
             let writerResultLog = log.ForContext<Writer.Result>()
