@@ -243,7 +243,6 @@ module Buffering =
 module Scheduling =
 
     open Buffering
-    open Propulsion.Ingestion
 
     type [<NoComparison; NoEquality>]DispatchItem<'Format> = { stream: string; writePos : int64 option; span: StreamSpan<'Format> }
 
@@ -658,7 +657,7 @@ module Scheduling =
     type StreamSchedulingEngine =
 
         static member Create<'Stats,'Req,'Outcome>
-            (   dispatcher : ItemDispatcher<Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
+            (   itemDispatcher : ItemDispatcher<Choice<int64*'Stats*'Outcome,'Stats*exn>>, stats : StreamSchedulerStats<int64*'Stats*'Outcome,'Stats*exn>,
                 prepare : string*StreamSpan<byte[]> -> 'Stats*'Req, handle : 'Req -> Async<int*'Outcome>,
                 dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64*'Stats*'Outcome,'Stats*exn> =
@@ -670,8 +669,8 @@ module Scheduling =
             let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64*'Stats*'Outcome,'Stats*exn> -> Option<int64> = function
                 | Choice1Of2 (index,_stats,_outcome) -> Some index
                 | Choice2Of2 _ -> None
-            let disp = MultiDispatcher<_,_>(dispatcher, project, interpretProgress, stats, dumpStreams)
-            StreamSchedulingEngine<_,_>(disp, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            let dispatcher = MultiDispatcher<_,_>(itemDispatcher, project, interpretProgress, stats, dumpStreams)
+            StreamSchedulingEngine<_,_>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming): StreamSchedulingEngine<int64*(int*int)*unit,'Stats*exn> =
            StreamSchedulingEngine<_,_>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
@@ -800,6 +799,7 @@ module Sync =
                 exnBytes <- exnBytes + int64 bs
 
     type StreamsSync =
+
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams, handle, categorize,
                 ?statsInterval, ?stateInterval,
@@ -831,14 +831,14 @@ module Sync =
                 | Choice2Of2 ((eventCount,bytesCount),exn : exn) ->
                     log.Warning(exn,"Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                     None
-            let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
+            let itemDispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
             let dumpStreams (s : Scheduling.StreamStates<_>) l =
                 s.Dump(l, Buffering.StreamState.eventsSize, categorize)
                 match dumpExternalStats with Some f -> f l | None -> ()
-            let disp = Scheduling.MultiDispatcher<_,_>(dispatcher,attemptWrite,interpretWriteResultProgress,stats,dumpStreams)
+            let dispatcher = Scheduling.MultiDispatcher<_,_>(itemDispatcher,attemptWrite,interpretWriteResultProgress,stats,dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<Projector.OkResult<TimeSpan>,Projector.FailResult>
-                    (   disp, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
             Projector.StreamsProjectorPipeline.Start(
-                log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 maxSubmissionsPerPartition=maxBatches)

@@ -10,19 +10,19 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- Implemented `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
-
-### Changed
-### Removed
-### Fixed
-
-<a name="1.1.2"></a>
-## [1.1.2] - 2019-09-08
+- honored `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
+- `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`
+- `maximizeOffsetWriting` to `StreamsConsumer` in order to give maximum effect to `maxBatchSize` limit implemented in [#31](https://github.com/jet/propulsion/pull/31)
+- test suite for `StreamsConsumer` [#32](https://github.com/jet/propulsion/pull/32)
+- `BatchesConsumer`; support for custom stream based bath scheduling algorithms [#29](https://github.com/jet/propulsion/pull/29)
 
 ### Changed
 
 - Use `IIndexedEvent` in lieu of `IIEvent` + `index` in `StreamSpan` and `StreamEvent` [#28](https://github.com/jet/propulsion/pull/28)
 - Shorten `Rendered*.parse*` to `Rendered*.parse` [#28](https://github.com/jet/propulsion/pull/28)
+
+### Removed
+### Fixed
 
 <a name="1.1.1"></a>
 ## [1.1.1] - 2019-09-07
@@ -190,8 +190,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.1.2...HEAD
-[1.1.2]: https://github.com/jet/propulsion/compare/1.1.1...1.1.2
+[Unreleased]: https://github.com/jet/propulsion/compare/1.1.1...HEAD
 [1.1.1]: https://github.com/jet/propulsion/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/jet/propulsion/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/jet/propulsion/compare/1.0.1-rc9...1.0.1
