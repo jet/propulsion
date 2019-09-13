@@ -68,7 +68,7 @@ module Helpers =
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = MessagesByArrivalOrder()
             let consumer =
-                StreamsConsumer.Start
+                BatchesConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
                         select, handle,
                         stats, categorize = id,
@@ -105,8 +105,8 @@ module Helpers =
             let consumer =
                  Core.StreamsConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
-                        handle, 100, stats, categorize = id,
-                        pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+                        handle, 100, stats,
+                        maxBatches = 50, categorize = id, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -268,7 +268,7 @@ and [<AbstractClass>] T2(testOutputHelper) =
         do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 3.) })) // cancel after 1 second to allow offsets to be stored
+                        c.StopAfter(TimeSpan.FromSeconds 5.) })) // cancel after 5 second to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
 
