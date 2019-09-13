@@ -222,6 +222,8 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
             ?custom,
             /// Postprocesses the ConsumerConfig after the rest of the rules have been applied
             ?customize,
+            // TODO rename to autoCommitInterval to match Jet.ConfluentKafka.FSharp v >= 1.2
+            ?offsetCommitInterval,
 
             (* Client-side batching / limiting of reading ahead to constrain memory consumption *)
 
@@ -246,6 +248,7 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
                 LogConnectionClose = Nullable false) // https://github.com/confluentinc/confluent-kafka-dotnet/issues/124#issuecomment-289727017
         fetchMinBytes |> Option.iter (fun x -> c.FetchMinBytes <- x) // Fetch waits for this amount of data for up to FetchWaitMaxMs (100)
         statisticsInterval |> Option.iter<TimeSpan> (fun x -> c.StatisticsIntervalMs <- Nullable <| int x.TotalMilliseconds)
+        offsetCommitInterval |> Option.iter<TimeSpan> (fun x -> c.AutoCommitIntervalMs  <- Nullable <| int x.TotalMilliseconds)
         custom |> Option.iter<seq<KeyValuePair<string,string>>> (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         customize |> Option.iter<ConsumerConfig -> unit> (fun f -> f c)
         {   inner = c 
