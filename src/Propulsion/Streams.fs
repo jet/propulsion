@@ -428,7 +428,8 @@ module Scheduling =
                 while xs.MoveNext() && hasCapacity do
                     let item = xs.Current
                     let succeeded = inner.TryAdd(async { let! r = project item in return item.stream, r })
-                    if succeeded then markBusy item.stream
+                    if succeeded then
+                        markBusy item.stream
                     hasCapacity <- succeeded
                     dispatched <- dispatched || succeeded // if we added any request, we'll skip sleeping
             hasCapacity, dispatched
@@ -486,9 +487,10 @@ module Scheduling =
                 if succeeded then
                     let res = dop.TryAdd(handle streams)
                     if not res then failwith "Checked we can add, what gives?"
-                    for x in streams do markBusy x.stream
+                    for x in streams do
+                        markBusy x.stream
                     dispatched <- true // if we added any request, we'll skip sleeping
-                hasCapacity <- false
+                    hasCapacity <- false
             hasCapacity, dispatched
         member __.Pump() = async {
             use _ = dop.Result.Subscribe dispatchSubResults

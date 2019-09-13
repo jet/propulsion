@@ -58,10 +58,13 @@ module Helpers =
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
             let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<byte[]>[]) = async {
+                let mutable c = 0
                 for stream in streams do
                   for event in stream.span.events do
+                      c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event)
-                return [| for x in streams -> Choice1Of2 x.span.events.[x.span.events.Length-1].Index |] |> Seq.ofArray }
+                (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
+                return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = MessagesByArrivalOrder()
             let consumer =
@@ -100,7 +103,7 @@ module Helpers =
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = MessagesByArrivalOrder()
             let consumer =
-                 StreamsConsumer.Start
+                 Core.StreamsConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
                         handle, 100, stats, categorize = id,
                         pipelineStatsInterval = TimeSpan.FromSeconds 10.)
@@ -139,7 +142,7 @@ and [<AbstractClass>]T1(testOutputHelper) =
     [<FactIfBroker>]
     member __.``producer-consumer basic roundtrip`` () = async {
         let numProducers = 10
-        let numConsumers = 1 // TODO investigate: Indices get mangled if >1?
+        let numConsumers = 10
         let messagesPerProducer = 1000
 
         let topic = newId() // dev kafka topics are created and truncated automatically
@@ -256,7 +259,7 @@ and [<AbstractClass>] T2(testOutputHelper) =
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval=TimeSpan.FromSeconds 1.)
 
         do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
 
@@ -265,12 +268,9 @@ and [<AbstractClass>] T2(testOutputHelper) =
         do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) })) // cancel after 1 second to allow offsets to be stored
+                        c.StopAfter(TimeSpan.FromSeconds 3.) })) // cancel after 1 second to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
-
-        // Await async committing
-        //do! Async.Sleep 10_000
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
@@ -284,18 +284,18 @@ and [<AbstractClass>] T2(testOutputHelper) =
 
 // separated test type to allow the tests to run in parallel
 type T3Batch(testOutputHelper) =
-    inherit T3(testOutputHelper)
+    inherit T3(testOutputHelper, false)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
 and T3Stream(testOutputHelper) =
-    inherit T3(testOutputHelper)
+    inherit T3(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersStream log config numConsumers timeout consumerCallback
 
-and [<AbstractClass>] T3(testOutputHelper) =
+and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
@@ -340,7 +340,7 @@ and [<AbstractClass>] T3(testOutputHelper) =
         // then attempts to consume the topic, checking that batches are
         // monotonic w.r.t. offsets
         let numMessages = 2000
-        let maxBatchSize = 5
+        let maxBatchSize = 20
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, maxBatchSize = maxBatchSize)
@@ -376,12 +376,14 @@ and [<AbstractClass>] T3(testOutputHelper) =
                         if msg.meta.offset > !offset then foundNonMonotonic := true
                         offset := msg.meta.offset
 
-                    do! Async.Sleep 100
+                    // Sleeping is really not going to help matters in batched mode
+                    if expectConcurrentScheduling then
+                        do! Async.Sleep 100
 
                     let _ = Interlocked.Decrement concurrentBatchCell
 
                     if Interlocked.Increment(globalMessageCount) >= numMessages then c.Stop() }))
 
         test <@ !foundNonMonotonic @> //  "offset for partition should be monotonic"
-        test <@ !concurrentCalls > 1 @> // "partitions should definitely schedule more than one batch concurrently")
+        test <@ if expectConcurrentScheduling then !concurrentCalls > 1 else !concurrentCalls = 0 @> // "partitions should definitely schedule more than one batch concurrently")
         test <@ numMessages = !globalMessageCount @> }

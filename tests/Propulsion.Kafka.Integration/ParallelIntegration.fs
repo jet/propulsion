@@ -235,7 +235,7 @@ type T2(testOutputHelper) =
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval = TimeSpan.FromSeconds 1.)
 
         let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
 
@@ -244,7 +244,7 @@ type T2(testOutputHelper) =
         do! runConsumers log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be stored
+                        c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be stored
 
         test <@ numMessages = !messageCount @>
 
@@ -268,7 +268,7 @@ type T3(testOutputHelper) =
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval = TimeSpan.FromSeconds 1.)
 
         let! _ = runProducers log broker topic 1 numMessages // populate the topic with a few messages
 
@@ -277,7 +277,7 @@ type T3(testOutputHelper) =
         do! runConsumers log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
-                        c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
+                        c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be committed)
 
         test <@ numMessages = !messageCount @>
 
