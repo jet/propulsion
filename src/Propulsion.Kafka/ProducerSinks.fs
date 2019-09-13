@@ -36,7 +36,7 @@ type StreamsProducerSink =
                 | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length}", stream, x, span.events.Length)
                 | _ -> ()
                 let! _ = producer.ProduceAsync(stream,message)
-                return let x = span.events.[span.events.Length-1] in x.Index+1L
+                return span.index + span.events.LongLength
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle, categorize,
