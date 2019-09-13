@@ -91,9 +91,7 @@ module Helpers =
                 | None -> Thread.SpinWait 20; getConsumer()
                 | Some c -> c
 
-            // When offered, take whatever is pending
-            let select = Array.ofSeq
-            // when processingdeclare all items processed each timer we;re invoked
+            // when processing, declare all items processed each time we're invoked
             let handle (stream : string, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
                 for event in span.events do
                     do! handler (getConsumer()) (deserialize consumerId event)
@@ -102,7 +100,7 @@ module Helpers =
             let consumer =
                  StreamsConsumer.Start
                     (   log, config, mapConsumeResult, MessagesByArrivalOrder.ToStreamEvents,
-                        handle, 1, stats, categorize = id,
+                        handle, 100, stats, categorize = id,
                         pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
