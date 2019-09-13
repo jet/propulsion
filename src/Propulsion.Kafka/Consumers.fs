@@ -233,12 +233,15 @@ type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
     abstract member HandleOk : outcome : 'R -> unit
 
 type StreamsConsumer =
+
     /// Starts a Kafka Consumer processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start<'M,'Req,'Res>
         (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, parseStreamEvents,
             prepare, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
-            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
+            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay,
+            /// Inhibits compaction of batches on the way to the scheduler in order to maximize the visibility of progress on the Kafka topic's Consumer Offsets
+            ?maximizeOffsetWriting) =
         let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
         let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
@@ -248,7 +251,7 @@ type StreamsConsumer =
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect parseStreamEvents x.messages) |> fst
-        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?disableCompaction=maximizeOffsetWriting)
         ConsumerPipeline.Start(log, config, Bindings.mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
 
     /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently

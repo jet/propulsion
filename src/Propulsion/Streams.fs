@@ -639,19 +639,21 @@ module Projector =
             Ingestion.Ingester<StreamEvent<_> seq,Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsSubmitter =
-        static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval) =
+
+        static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?disableCompaction) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
                 submitStreamsBatch x
                 x.RemainingStreamsCount
-            let tryCompactQueue (queue : Queue<Scheduling.StreamsBatch<_>>) =
+            let tryCompactQueueImpl (queue : Queue<Scheduling.StreamsBatch<_>>) =
                 let mutable acc, worked = None, false
                 for x in queue do
                     match acc with
                     | None -> acc <- Some x
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
-            Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, tryCompactQueue=tryCompactQueue, ?pumpInterval=pumpInterval)
+            let tryCompactQueue = if defaultArg disableCompaction false then None else Some tryCompactQueueImpl
+            Submission.SubmissionEngine<_,_>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?tryCompactQueue=tryCompactQueue, ?pumpInterval=pumpInterval)
 
     type StreamsProjectorPipeline =
         static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
@@ -682,6 +684,7 @@ type StreamsProjector =
         StreamsProjector.Start<_,'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, categorize, ?statsInterval=statsInterval, ?stateInterval=stateInterval)
 
 module Sync =
+
     type StreamsSyncStats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.StreamSchedulerStats<Projector.OkResult<TimeSpan>,Projector.FailResult>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()

@@ -11,7 +11,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - Implemented `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
-- Add `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`'
+- Add `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`
+- Add `maximizeOffsetWriting` to `StreamsConsumer` in order to give maximum effect to `maxBatchSize` limit implemented in [#31](https://github.com/jet/propulsion/pull/31)
 
 ### Changed
 
