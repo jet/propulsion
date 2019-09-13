@@ -14,8 +14,9 @@ open System.Threading
 module Helpers =
     open System.Collections.Generic
     open Confluent.Kafka
+    open Newtonsoft.Json
 
-    type TestMeta = { key: string; partition: int; offset : int64 }
+    type TestMeta = { key: string; value: string; partition: int; offset : int64 }
 
     /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an index.
     /// The messages we consume don't have such characteristics, so we generate a fake `index` by keeping an int per stream in a dictionary
@@ -28,22 +29,22 @@ module Helpers =
             | false, _ -> let x = 0 in indices.[streamName] <- x; x
 
         // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
-        static member ToStreamEvent (KeyValue (k,v : string), meta : TestMeta) : Propulsion.Streams.StreamEvent<byte[]> seq =
+        static member ToStreamEvents (KeyValue (k,v : string)) : Propulsion.Streams.StreamEvent<byte[]> seq =
             let index = genIndex k |> int64
-            let inline gb (s : string) = System.Text.Encoding.UTF8.GetBytes s
-            let d, m = gb v,gb (FsCodec.NewtonsoftJson.Serdes.Serialize meta)
-            let e = FsCodec.Core.IndexedEventData(index,false,eventType = String.Empty,data=d,metadata=m,timestamp=DateTimeOffset.UtcNow)
+            let gb (x : string) = System.Text.Encoding.UTF8.GetBytes x
+            let e = FsCodec.Core.IndexedEventData(index,false,eventType = String.Empty,data=gb v,metadata=null,timestamp=DateTimeOffset.UtcNow)
             Seq.singleton { stream=k; event=e }
 
+    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
     type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
-    let runConsumers log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
+    let deserialize consumerId (e : FsCodec.IIndexedEvent<byte[]>) : ConsumedTestMessage =
+        let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
+        let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
+        { consumerId = consumerId; meta=d; payload=v }
+    let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
-            let deserialize (e : FsCodec.IIndexedEvent<byte[]>) : ConsumedTestMessage =
-                let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
-                let m = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Meta)
-                { consumerId = consumerId; meta=m; payload=d }
-
             // need to pass the consumer instance to the handler callback
             // do a bit of cyclic dependency fixups
             let consumerCell = ref None
@@ -59,16 +60,49 @@ module Helpers =
             let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<byte[]>[]) = async {
                 for stream in streams do
                   for event in stream.span.events do
-                      do! handler (getConsumer()) (deserialize event)
+                      do! handler (getConsumer()) (deserialize consumerId event)
                 return [| for x in streams -> Choice1Of2 x.span.events.[x.span.events.Length-1].Index |] |> Seq.ofArray }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
-            let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string>*TestMeta =
-                KeyValuePair(x.Key,x.Value), { key = x.Key; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value }
             let consumer =
                 StreamsConsumer.Start
-                    (   log, config, mapConsumeResult, MessagesByArrivalOrder.ToStreamEvent,
+                    (   log, config, mapConsumeResult, MessagesByArrivalOrder.ToStreamEvents,
                         select, handle,
                         stats, categorize = id,
+                        pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+
+            consumerCell := Some consumer
+
+            timeout |> Option.defaultValue (TimeSpan.FromMinutes 15.) |> consumer.StopAfter
+
+            do! consumer.AwaitCompletion()
+        }
+
+        do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
+    }
+
+    let runConsumersStream log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
+        let mkConsumer (consumerId : int) = async {
+            // need to pass the consumer instance to the handler callback
+            // do a bit of cyclic dependency fixups
+            let consumerCell = ref None
+            let rec getConsumer() =
+                // avoid potential race conditions by polling
+                match !consumerCell with
+                | None -> Thread.SpinWait 20; getConsumer()
+                | Some c -> c
+
+            // When offered, take whatever is pending
+            let select = Array.ofSeq
+            // when processingdeclare all items processed each timer we;re invoked
+            let handle (stream : string, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
+                for event in span.events do
+                    do! handler (getConsumer()) (deserialize consumerId event)
+                return span.events.Length,() }
+            let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+            let consumer =
+                 StreamsConsumer.Start
+                    (   log, config, mapConsumeResult, MessagesByArrivalOrder.ToStreamEvents,
+                        handle, 1, stats, categorize = id,
                         pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
@@ -89,7 +123,7 @@ type T1(testOutputHelper) =
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
     member __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
-        runConsumers log config numConsumers None consumerCallback
+        runConsumersStream log config numConsumers None consumerCallback
 
     [<FactIfBroker>]
     member __.``producer-consumer basic roundtrip`` () = async {
@@ -152,7 +186,7 @@ type T2(testOutputHelper) =
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
     member __.RunConsumers(log, config, numConsumers, consumerCallback, ?timeout) : Async<unit> =
-        runConsumers log config numConsumers timeout consumerCallback
+        runConsumersStream log config numConsumers timeout consumerCallback
 
     [<FactIfBroker>]
     member __.``consumer pipeline should have expected exception semantics`` () = async {
@@ -232,7 +266,7 @@ type T3(testOutputHelper) =
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
     member __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
-        runConsumers log config numConsumers None consumerCallback
+        runConsumersStream log config numConsumers None consumerCallback
 
     [<FactIfBroker>]
     member __.``Commited offsets should not result in missing messages`` () = async {
