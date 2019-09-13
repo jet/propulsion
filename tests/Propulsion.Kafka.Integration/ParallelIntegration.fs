@@ -249,7 +249,7 @@ type T2(testOutputHelper) =
         test <@ numMessages = !messageCount @>
 
         // Await async committing
-        //do! Async.Sleep 10_000
+        do! Async.Sleep 10_000
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
@@ -264,7 +264,7 @@ type T2(testOutputHelper) =
 type T3(testOutputHelper) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    let [<FactIfBroker>] ``Commited offsets should not result in missing messages`` () = async {
+    let [<FactIfBroker>] ``Committed offsets should not result in missing messages`` () = async {
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
