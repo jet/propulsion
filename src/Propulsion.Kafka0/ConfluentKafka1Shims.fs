@@ -122,8 +122,8 @@ type ConsumerConfig() =
     member val EnableAutoOffsetStore = Nullable() with get, set
     member val LogConnectionClose = Nullable() with get, set
     member val FetchMinBytes = Nullable() with get, set
-    member val OffsetCommitIntervalMs = Nullable() with get, set
     member val StatisticsIntervalMs = Nullable() with get, set
+    member val AutoCommitIntervalMs = Nullable() with get, set
 
     member __.Render() : KeyValuePair<string,obj>[] =
         [|  match __.ClientId               with null -> () | v ->          yield Config.clientId ==> v
@@ -135,6 +135,6 @@ type ConsumerConfig() =
             match __.EnableAutoCommit       with Null -> () | HasValue v -> yield Config.Consumer.enableAutoCommit ==> v
             match __.EnableAutoOffsetStore  with Null -> () | HasValue v -> yield Config.Consumer.enableAutoOffsetStore ==> v
             match __.FetchMinBytes          with Null -> () | HasValue v -> yield Config.Consumer.fetchMinBytes ==> v
-            match __.OffsetCommitIntervalMs with Null -> () | HasValue v -> yield Config.Consumer.autoCommitInterval ==> v
+            match __.AutoCommitIntervalMs   with Null -> () | HasValue v -> yield Config.Consumer.autoCommitInterval ==> v
             match __.StatisticsIntervalMs   with Null -> () | HasValue v -> yield Config.statisticsInterval ==> v
             yield! vals |]
