@@ -8,7 +8,7 @@
     <PrOption Condition =" '$(BUILD_PR)' != '%24(SYSTEM.PULLREQUEST.PULLREQUESTNUMBER)' ">/p:BUILD_PR=$(BUILD_PR) </PrOption>
     <PackOptions>/p:BUILD_ID=$(BUILD_ID) $(PrOption) -o $(ThisDirAbsolute)bin/nupkg</PackOptions>
 
-    <TestOptions>--logger:trx -- RunConfiguration.TestSessionTimeout=3000000 xunit.parallelizeAssembly=true</TestOptions>
+    <TestOptions>--logger:trx -- RunConfiguration.TestSessionTimeout=3300000 xunit.diagnosticMessages=true</TestOptions>
   </PropertyGroup>
 
   <Target Name="Pack">
@@ -26,7 +26,7 @@
     <!-- Wild guess says this is down to having two rdkafkas in a single process but who knows.-->
     <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
     <!-- Disabling as this suite fails on shutdown -->
-    <!-- <Exec Command="dotnet test tests/Propulsion.Kafka0.Integration $(Cfg) $(TestOptions)" /> -->
+    <Exec Command="dotnet test tests/Propulsion.Kafka0.Integration $(Cfg) $(TestOptions)" />
  </Target>
 
   <Target Name="Build" DependsOnTargets="Pack;VSTest" />

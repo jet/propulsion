@@ -131,16 +131,17 @@ module Internal =
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
 
     type CosmosSchedulingEngine =
-        static member Create(log : ILogger, cosmosContexts : _ [], dispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
+
+        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
             : Scheduling.StreamSchedulingEngine<_,_> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
-            let attemptWrite (_maybeWritePos,stream,fullBuffer) = async {
+            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts.[index]
                 let maxEvents, maxBytes = 16384, 1024 * 1024 - (*fudge*)4096
-                let stats,span = Buffering.StreamSpan.slice (maxEvents,maxBytes) fullBuffer
-                try let! res = Writer.write log selectedConnection stream span
+                let stats,span = Buffering.StreamSpan.slice (maxEvents,maxBytes) item.span
+                try let! res = Writer.write log selectedConnection item.stream span
                     return Choice1Of2 (stats,res)
                 with e -> return Choice2Of2 (stats,e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -155,16 +156,18 @@ module Internal =
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream,res)
                 ss.write
-            Scheduling.StreamSchedulingEngine(dispatcher, stats, attemptWrite, interpretWriteResultProgress, dumpStreams, enableSlipstreaming=true, ?maxBatches = maxBatches)
+            let dispatcher = Scheduling.MultiDispatcher<_,_>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches = maxBatches)
 
 type CosmosSink =
+
     static member Start
         (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams, categorize,
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), categorize, statsInterval, stateInterval)
-        let dispatcher = Propulsion.Streams.Scheduling.Dispatcher<_>(maxConcurrentStreams)
+        let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
         let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(

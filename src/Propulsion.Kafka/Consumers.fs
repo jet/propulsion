@@ -232,44 +232,93 @@ type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
 
     abstract member HandleOk : outcome : 'R -> unit
 
+/// APIs only required for advanced scenarios (specifically the integration tests)
+/// APIs within are not part of the stable API and are subject to unlimited change
+module Core =
+
+    type StreamsConsumer =
+
+        static member Start<'M,'Req,'Res>
+            (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+                prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+                categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
+            let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
+            let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
+            let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
+                logExternalState |> Option.iter (fun f -> f log)
+                streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
+            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_,_,_>(dispatcher, stats, prepare, handle, dumpStreams, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
+            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
+                let onCompletion () = x.onCompletion(); onCompletion()
+                Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect parseStreamEvents x.messages) |> fst
+            let submitter =
+                Streams.Projector.StreamsSubmitter.Create
+                    (   log, mapConsumedMessagesToStreamsBatch,
+                        streamsScheduler.Submit, pipelineStatsInterval,
+                        ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval,
+                        ?disableCompaction=maximizeOffsetWriting)
+            ConsumerPipeline.Start(log, config, mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
+
+        static member Start<'M,'Res>
+            (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+                handle : string * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
+                stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+                categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
+            let prepare (streamName,span) =
+                let stats = Streams.Buffering.StreamSpan.stats span
+                stats,(streamName,span)
+            let handle (streamName,span : Streams.StreamSpan<_>) = async {
+                let! res = handle (streamName,span)
+                return span.events.Length,res }
+            StreamsConsumer.Start<'M,(string*Propulsion.Streams.StreamSpan<_>),'Res>(
+                log, config, mapConsumeResult, parseStreamEvents, prepare, handle, maxDop, stats, categorize,
+                ?pipelineStatsInterval = pipelineStatsInterval,
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?pumpInterval = pumpInterval,
+                ?logExternalState = logExternalState,
+                ?idleDelay = idleDelay,
+                ?maxBatches = maxBatches,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
+
 type StreamsConsumer =
 
-    /// Starts a Kafka Consumer processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
+    /// Starts a Kafka Consumer processing pipeline per the `config` running up to `maxDop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
-    static member Start<'M,'Req,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop, parseStreamEvents,
-            prepare, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
-            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay,
-            /// Inhibits compaction of batches on the way to the scheduler in order to maximize the visibility of progress on the Kafka topic's Consumer Offsets
-            ?maximizeOffsetWriting) =
-        let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
-        let dispatcher = Streams.Scheduling.Dispatcher<_> maxDop
-        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
-            logExternalState |> Option.iter (fun f -> f log)
-            streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
-        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_,'Req,_>(dispatcher, stats, prepare, handle, dumpStreams, ?idleDelay=idleDelay)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<KeyValuePair<string,string>>) : Streams.Scheduling.StreamsBatch<_> =
-            let onCompletion () = x.onCompletion(); onCompletion()
-            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect parseStreamEvents x.messages) |> fst
-        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?disableCompaction=maximizeOffsetWriting)
-        ConsumerPipeline.Start(log, config, Bindings.mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
-
-    /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
-    /// Processor statistics are accumulated serially into the supplied `stats` buffer
     static member Start<'M,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, maxDop,
-            parseStreamEvents, handle : string * Streams.StreamSpan<_> -> Async<'Res>, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
-            categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
-        let prepare (streamName,span) =
-            let stats = Streams.Buffering.StreamSpan.stats span
-            stats,(streamName,span)
-        let handle (streamName,span : Streams.StreamSpan<_>) = async {
-            let! res = handle (streamName,span)
-            return span.events.Length,res }
-        StreamsConsumer.Start<'M,(string*Propulsion.Streams.StreamSpan<_>),'Res>(
-            log, config, maxDop, parseStreamEvents, prepare, handle, stats, categorize,
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, parseStreamEvents,
+            prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+            categorize,
+            /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
+            ?maximizeOffsetWriting,
+            ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
+        Core.StreamsConsumer.Start<'M,(string*Propulsion.Streams.StreamSpan<_>),'Res>(
+            log, config, Bindings.mapConsumeResult, parseStreamEvents, prepare, handle, maxDop, stats, categorize,
             ?pipelineStatsInterval = pipelineStatsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?pumpInterval = pumpInterval,
             ?logExternalState = logExternalState,
-            ?idleDelay = idleDelay)
+            ?idleDelay = idleDelay,
+            ?maximizeOffsetWriting = maximizeOffsetWriting)
+
+    /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
+    /// Processor statistics are accumulated serially into the supplied `stats` buffer
+    /// Processor pumps until `Stop()` is requested.
+    /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+    /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
+    static member Start<'M,'Res>
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, parseStreamEvents,
+            handle : string * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
+            stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
+            categorize,
+            /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
+            ?maximizeOffsetWriting,
+            ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
+        Core.StreamsConsumer.Start<'M,'Res>(
+            log, config, Bindings.mapConsumeResult, parseStreamEvents, handle, maxDop, stats, categorize,
+            ?pipelineStatsInterval = pipelineStatsInterval,
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?pumpInterval = pumpInterval,
+            ?logExternalState = logExternalState,
+            ?idleDelay = idleDelay,
+            ?maxBatches = maxBatches,
+            ?maximizeOffsetWriting = maximizeOffsetWriting)
