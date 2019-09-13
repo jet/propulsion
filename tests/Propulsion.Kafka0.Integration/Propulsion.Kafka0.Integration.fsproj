@@ -3,17 +3,15 @@
   <PropertyGroup>
     <TargetFrameworks>netcoreapp2.1;net461</TargetFrameworks>
     <!-- No idea if Confluent support Mono for 0.x (they definitely don't for 1.x) -->
-    <TargetFrameworks Condition = " '$(OS)' != 'Windows_NT' ">netcoreapp2.1</TargetFrameworks>
+    <TargetFrameworks Condition=" '$(OS)' != 'Windows_NT' ">netcoreapp2.1</TargetFrameworks>
     <WarningLevel>5</WarningLevel>
     <IsPackable>false</IsPackable>
     <DefineConstants>KAFKA0</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Propulsion.Kafka.Integration\ParallelIntegration.fs" Link="ParallelIntegration.fs" />
-    <None Include="..\Propulsion.Kafka.Integration\MonitorTests.fs">
-      <Link>MonitorTests.fs</Link>
-    </None>
+    <Compile Include="..\Propulsion.Kafka.Integration\MonitorTests.fs" Link="MonitorTests.fs" />
+    <Compile Include="..\Propulsion.Kafka.Integration\ConsumersIntegration.fs" Link="ConsumersIntegration.fs" />
     <Compile Include="..\Propulsion.Kafka.Integration\MonitorIntegration.fs" Link="MonitorIntegration.fs" />
   </ItemGroup>
 
