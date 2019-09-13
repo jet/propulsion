@@ -43,6 +43,7 @@ module Helpers =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
         let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
         { consumerId = consumerId; meta=d; payload=v }
+
     let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
             // need to pass the consumer instance to the handler callback

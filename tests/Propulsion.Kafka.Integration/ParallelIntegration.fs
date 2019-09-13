@@ -119,7 +119,7 @@ module Helpers =
                 | Some c -> c
 
             let handle item = handler (getConsumer()) (deserialize item)
-            let consumer = ParallelConsumer.Start(log, config, 1024, id, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+            let consumer = ParallelConsumer.Start(log, config, 128, id, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -144,19 +144,19 @@ type T1(testOutputHelper) =
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
+        let consumedBatches = new ConcurrentDictionary<ConsumedTestMessage,unit>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
-            do consumedBatches.Add msg
+            do consumedBatches.[msg] <- ()
             // signal cancellation if consumed items reaches expected size
-            if consumedBatches |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length = expectedUniqueMessages then
+            if consumedBatches.Count >= expectedUniqueMessages then
                 consumer.Stop()
         }
 
         // Section: run the test
         let producers = runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
 
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval=(TimeSpan.FromSeconds 5.))
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval = TimeSpan.FromSeconds 5.)
         let consumers = runConsumers log config numConsumers None consumerCallback
 
         let! _ = Async.Parallel [ producers ; consumers ]
@@ -168,7 +168,7 @@ type T1(testOutputHelper) =
         test <@ ``consumed batches should be non-empty`` @> // "consumed batches should all be non-empty")
 
         let allMessages =
-            consumedBatches
+            consumedBatches.Keys
             |> Seq.toArray
 
         let ``all message keys should have expected value`` =
