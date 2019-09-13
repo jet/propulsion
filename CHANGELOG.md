@@ -11,6 +11,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - Implemented `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
+- Add `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`'
 
 ### Changed
 
@@ -186,7 +187,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.1.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.1.2...HEAD
+[1.1.2]: https://github.com/jet/propulsion/compare/1.1.1...1.1.2
 [1.1.1]: https://github.com/jet/propulsion/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/jet/propulsion/compare/1.0.1...1.1.0
 [1.0.1]: https://github.com/jet/propulsion/compare/1.0.1-rc9...1.0.1
