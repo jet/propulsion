@@ -221,31 +221,6 @@ and [<AbstractClass>] T2(testOutputHelper) =
 //    }
 
     [<FactIfBroker>]
-    member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
-        let numMessages = 10
-
-        let topic = newId() // dev kafka topics are created and truncated automatically
-
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
-
-        let messageCount = ref 0
-        let groupId1 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
-        do! __.RunConsumers(log, config, 1,
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
-
-        test <@ numMessages = !messageCount @>
-
-        let messageCount = ref 0
-        let groupId2 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
-        do! __.RunConsumers(log, config, 1,
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
-
-        test <@ numMessages = !messageCount @>
-    }
-
-    [<FactIfBroker>]
     member __.``Spawning a new consumer with same consumer group id should not receive new messages`` () = async {
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
@@ -293,6 +268,31 @@ and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
         runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
     abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
     member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
+
+    [<FactIfBroker>]
+    member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
+        let numMessages = 10
+
+        let topic = newId() // dev kafka topics are created and truncated automatically
+
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
+
+        let messageCount = ref 0
+        let groupId1 = newId()
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
+
+        test <@ numMessages = !messageCount @>
+
+        let messageCount = ref 0
+        let groupId2 = newId()
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
+
+        test <@ numMessages = !messageCount @>
+    }
 
     [<FactIfBroker>]
     member __.``Committed offsets should not result in missing messages`` () = async {
