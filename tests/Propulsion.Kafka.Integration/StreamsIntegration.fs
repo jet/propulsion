@@ -280,7 +280,7 @@ type private T3Batch(testOutputHelper) =
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and private T3Stream(testOutputHelper) =
+and T3Stream(testOutputHelper) =
     inherit T3(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
