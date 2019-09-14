@@ -25,8 +25,8 @@
     <!-- NB these two suites need to be run explicitly in serial or they fail on CI (i.e. doing dotnet test on the .sln causes various hangs etc.)-->
     <!-- Wild guess says this is down to having two rdkafkas in a single process but who knows.-->
     <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
-    <!-- Disabling as this suite fails on shutdown -->
-    <!-- <Exec Command="dotnet test tests/Propulsion.Kafka0.Integration $(Cfg) $(TestOptions)" /> -->
+    <!-- Separated as it seems that mixing Kafka and Kafka0 can cause hangs -->
+    <Exec Command="dotnet test tests/Propulsion.Kafka0.Integration $(Cfg) $(TestOptions)" />
  </Target>
 
   <Target Name="Build" DependsOnTargets="Pack;VSTest" />
