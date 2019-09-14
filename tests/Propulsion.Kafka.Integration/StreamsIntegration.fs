@@ -191,7 +191,7 @@ type private T2Batch(testOutputHelper) =
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and private T2Stream(testOutputHelper) =
+and T2Stream(testOutputHelper) =
     inherit T2(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
