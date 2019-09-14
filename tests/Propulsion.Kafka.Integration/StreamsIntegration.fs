@@ -3,6 +3,7 @@
 open Jet.ConfluentKafka.FSharp
 open Propulsion.Kafka
 open Propulsion.Kafka.Integration.Helpers
+open Propulsion.Kafka.Integration.Parallel
 open System
 open Swensen.Unquote
 open System.Collections.Concurrent
@@ -123,6 +124,29 @@ and T3Stream(testOutputHelper) =
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersStream log config numConsumers timeout consumerCallback
 
+and T3Parallel(testOutputHelper) =
+    inherit T3(testOutputHelper, true)
+
+    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+
+    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+        Helpers.runConsumersParallel log config numConsumers timeout consumerCallback
+
+    [<FactIfBroker>]
+    member __.``consumer pipeline should have expected exception semantics`` () = async {
+        let topic = newId() // dev kafka topics are created and truncated automatically
+        let groupId = newId()
+
+        do! __.RunProducers(log, broker, topic, 1, 10) // populate the topic with a few messages
+
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+
+        let! r = Async.Catch <| __.RunConsumers(log, config, 1, (fun _ _ -> async { return raise <|IndexOutOfRangeException() }))
+        test <@ match r with
+                | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
+                | x -> failwithf "%A" x @>
+    }
+
 and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
@@ -184,21 +208,6 @@ and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
             |> Array.ofSeq
         test <@ Array.isEmpty unconsumedCounts @>
     }
-
-//    [<FactIfBroker(Skip="Streamwise processing is subject to retries; need to cover that in tests")>]
-//    member __.``consumer pipeline should have expected exception semantics`` () = async {
-//        let topic = newId() // dev kafka topics are created and truncated automatically
-//        let groupId = newId()
-//
-//        do! __.RunProducers(log, broker, topic, 1, 10) // populate the topic with a few messages
-//
-//        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
-//
-//        let! r = Async.Catch <| __.RunConsumers(log, config, 1, (fun _ _ -> async { return raise <|IndexOutOfRangeException() }))
-//        test <@ match r with
-//                | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
-//                | x -> failwithf "%A" x @>
-//    }
 
     [<FactIfBroker>]
     member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
