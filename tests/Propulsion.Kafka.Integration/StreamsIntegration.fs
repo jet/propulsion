@@ -185,19 +185,19 @@ and [<AbstractClass>]T1(testOutputHelper) =
     }
 
 // separated test type to allow the tests to run in parallel
-type private T2Batch(testOutputHelper) =
-    inherit T2(testOutputHelper)
+type T3Batch(testOutputHelper) =
+    inherit T3(testOutputHelper, false)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and private T2Stream(testOutputHelper) =
-    inherit T2(testOutputHelper)
+and T3Stream(testOutputHelper) =
+    inherit T3(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersStream log config numConsumers timeout consumerCallback
 
-and [<AbstractClass>] T2(testOutputHelper) =
+and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
@@ -219,6 +219,31 @@ and [<AbstractClass>] T2(testOutputHelper) =
 //                | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
 //                | x -> failwithf "%A" x @>
 //    }
+
+    [<FactIfBroker>]
+    member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
+        let numMessages = 10
+
+        let topic = newId() // dev kafka topics are created and truncated automatically
+
+        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
+
+        let messageCount = ref 0
+        let groupId1 = newId()
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
+
+        test <@ numMessages = !messageCount @>
+
+        let messageCount = ref 0
+        let groupId2 = newId()
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
+        do! __.RunConsumers(log, config, 1,
+                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
+
+        test <@ numMessages = !messageCount @>
+    }
 
     [<FactIfBroker>]
     member __.``Spawning a new consumer with same consumer group id should not receive new messages`` () = async {
@@ -246,52 +271,6 @@ and [<AbstractClass>] T2(testOutputHelper) =
                 Some (TimeSpan.FromSeconds 10.))
 
         test <@ 0 = !messageCount @>
-    }
-
-// separated test type to allow the tests to run in parallel
-type T3Batch(testOutputHelper) =
-    inherit T3(testOutputHelper, false)
-
-    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
-        runConsumersBatch log config numConsumers timeout consumerCallback
-
-and T3Stream(testOutputHelper) =
-    inherit T3(testOutputHelper, true)
-
-    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
-        runConsumersStream log config numConsumers timeout consumerCallback
-
-and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
-
-    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
-        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
-    abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
-    member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
-
-    [<FactIfBroker>]
-    member __.``Given a topic different consumer group ids should be consuming the same message set`` () = async {
-        let numMessages = 10
-
-        let topic = newId() // dev kafka topics are created and truncated automatically
-
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
-
-        let messageCount = ref 0
-        let groupId1 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
-        do! __.RunConsumers(log, config, 1,
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
-
-        test <@ numMessages = !messageCount @>
-
-        let messageCount = ref 0
-        let groupId2 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
-        do! __.RunConsumers(log, config, 1,
-                (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
-
-        test <@ numMessages = !messageCount @>
     }
 
     [<FactIfBroker>]
