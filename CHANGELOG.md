@@ -9,6 +9,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- honored `maxBatchSize` in Kafka Consumers [#31](https://github.com/jet/propulsion/pull/31)
+- `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`
+- `maximizeOffsetWriting` to `StreamsConsumer` in order to give maximum effect to `maxBatchSize` limit implemented in [#31](https://github.com/jet/propulsion/pull/31)
+- test suite for `StreamsConsumer` [#32](https://github.com/jet/propulsion/pull/32)
+- `BatchesConsumer`; support for custom stream based batch scheduling algorithms [#29](https://github.com/jet/propulsion/pull/29)
+
 ### Changed
 ### Removed
 ### Fixed
@@ -20,6 +27,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Use `IIndexedEvent` in lieu of `IIEvent` + `index` in `StreamSpan` and `StreamEvent` [#28](https://github.com/jet/propulsion/pull/28)
 - Shorten `Rendered*.parse*` to `Rendered*.parse` [#28](https://github.com/jet/propulsion/pull/28)
+- Updated MinVer to `2.0.0-alpha.2`
 
 <a name="1.1.1"></a>
 ## [1.1.1] - 2019-09-07
