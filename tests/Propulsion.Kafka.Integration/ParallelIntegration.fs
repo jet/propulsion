@@ -144,12 +144,14 @@ type T1(testOutputHelper) =
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        let consumedBatches = new ConcurrentDictionary<TestMessage,unit>()
+        let consumedUnique = new ConcurrentDictionary<TestMessage,unit>()
+        let consumedBatches = new ConcurrentBag<_>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
-            do consumedBatches.[msg.payload] <- ()
+            consumedBatches.Add msg
             // signal cancellation if consumed items reaches expected size
-            if consumedBatches.Count >= expectedUniqueMessages then
+            consumedUnique.[msg.payload] <- ()
+            if consumedUnique.Count >= expectedUniqueMessages then
                 consumer.Stop()
         }
 
@@ -168,7 +170,7 @@ type T1(testOutputHelper) =
         test <@ ``consumed batches should be non-empty`` @> // "consumed batches should all be non-empty")
 
         let allMessages =
-            consumedBatches.Keys
+            consumedBatches
             |> Seq.toArray
 
         let ``all message keys should have expected value`` =
