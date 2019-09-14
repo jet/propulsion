@@ -12,7 +12,7 @@
     <Compile Include="MonitorTests.fs" />
     <Compile Include="ParallelIntegration.fs" />
     <Compile Include="StreamsIntegration.fs" />
-    <None Include="MonitorIntegration.fs" />
+    <Compile Include="MonitorIntegration.fs" />
   </ItemGroup>
 
   <ItemGroup>
