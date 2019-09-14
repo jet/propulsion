@@ -111,24 +111,25 @@ module Helpers =
 
 #nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
-type private T1Batch(testOutputHelper) =
-    inherit T1(testOutputHelper)
+type T3Batch(testOutputHelper) =
+    inherit T3(testOutputHelper, false)
 
-    override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
-        runConsumersBatch log config numConsumers None consumerCallback
+    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+        runConsumersBatch log config numConsumers timeout consumerCallback
 
-and private T1Stream(testOutputHelper) =
-    inherit T1(testOutputHelper)
+and T3Stream(testOutputHelper) =
+    inherit T3(testOutputHelper, true)
 
-    override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
-        runConsumersStream log config numConsumers None consumerCallback
+    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+        runConsumersStream log config numConsumers timeout consumerCallback
 
-and [<AbstractClass>]T1(testOutputHelper) =
+and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
-    abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback -> Async<unit>
+    abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
+    member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
 
     [<FactIfBroker>]
     member __.``producer-consumer basic roundtrip`` () = async {
@@ -183,27 +184,6 @@ and [<AbstractClass>]T1(testOutputHelper) =
             |> Array.ofSeq
         test <@ Array.isEmpty unconsumedCounts @>
     }
-
-// separated test type to allow the tests to run in parallel
-type T3Batch(testOutputHelper) =
-    inherit T3(testOutputHelper, false)
-
-    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
-        runConsumersBatch log config numConsumers timeout consumerCallback
-
-and T3Stream(testOutputHelper) =
-    inherit T3(testOutputHelper, true)
-
-    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
-        runConsumersStream log config numConsumers timeout consumerCallback
-
-and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
-
-    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
-        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
-    abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
-    member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
 
 //    [<FactIfBroker(Skip="Streamwise processing is subject to retries; need to cover that in tests")>]
 //    member __.``consumer pipeline should have expected exception semantics`` () = async {
