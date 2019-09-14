@@ -274,12 +274,14 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
+        let itemsSeen = new ConcurrentDictionary<_,_>()
         let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
-            do consumedBatches.Add msg
+            itemsSeen.[msg.payload] <- ()
+            consumedBatches.Add msg
             // signal cancellation if consumed items reaches expected size
-            if consumedBatches |> Seq.map (fun x -> x.payload.producerId, x.payload.messageId) |> Seq.distinct |> Seq.length = expectedUniqueMessages then
+            if itemsSeen.Count >= expectedUniqueMessages then
                 consumer.Stop()
         }
 
