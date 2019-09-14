@@ -1,11 +1,10 @@
 ﻿module Propulsion.Kafka.Integration.MonitorIntegration
 
-open Jet.ConfluentKafka.FSharp
-open System
-open Xunit
 open Confluent.Kafka
+open Jet.ConfluentKafka.FSharp
 open Propulsion.Kafka
-open Propulsion.Kafka.Integration.Parallel
+open Propulsion.Kafka.Integration
+open System
 open System.Threading
 open Swensen.Unquote
 
@@ -40,11 +39,6 @@ let onlyConsumeFirstBatchHandler =
         // make first handle succeed to ensure consumer has offsets
         let partitionId = Bindings.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }
-
-type FactIfBroker() =
-    inherit FactAttribute()
-    override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
-    override __.Timeout = 60 * 15 * 1000
 
 type TimeoutGuard(?maxMinutes) =
     let sw = System.Diagnostics.Stopwatch.StartNew()
