@@ -117,7 +117,7 @@ type private T1Batch(testOutputHelper) =
     override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
         runConsumersBatch log config numConsumers None consumerCallback
 
-and private T1Stream(testOutputHelper) =
+and T1Stream(testOutputHelper) =
     inherit T1(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
