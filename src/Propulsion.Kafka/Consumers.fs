@@ -322,3 +322,48 @@ type StreamsConsumer =
             ?idleDelay = idleDelay,
             ?maxBatches = maxBatches,
             ?maximizeOffsetWriting = maximizeOffsetWriting)
+
+type BatchesConsumer =
+
+    /// Starts a Kafka Consumer processing pipeline per the `config` that loops continuously
+    /// 1. providing all pending items the scheduler has ingested (controlled via `maxBatches` and incoming batch sizes) to `select` to determine streams to process
+    /// 2. (and, if any `select`ed) passing them to the `handle`r for processing
+    /// Processor pumps until `Stop()` is requested.
+    /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+    /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
+    static member Start<'M>
+        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+            select, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<unit>,FailResult>,
+            categorize,
+            /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
+            /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
+            ?schedulerIngestionBatchCount, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
+        let maxBatches = defaultArg schedulerIngestionBatchCount 24
+        let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
+        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
+            logExternalState |> Option.iter (fun f -> f log)
+            streams.Dump(log, Streams.Buffering.StreamState.eventsSize, categorize)
+        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[]) : Async<(string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]> = async {
+            try let! results = handle items
+                return
+                    [| for x in Seq.zip items results ->
+                        match x with
+                        | item, Choice1Of2 index' ->
+                            let used : Streams.StreamSpan<_> = { item.span with events = item.span.events |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq }
+                            let s = Streams.Buffering.StreamSpan.stats used
+                            item.stream,Choice1Of2 (index',s,())
+                        | item, Choice2Of2 exn ->
+                            let s = Streams.Buffering.StreamSpan.stats item.span
+                            item.stream,Choice2Of2 (s,exn) |]
+            with e ->
+                return
+                    [| for x in items ->
+                        let s = Streams.Buffering.StreamSpan.stats x.span
+                        x.stream,Choice2Of2 (s,e) |] }
+        let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
+        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, ?idleDelay=idleDelay, maxBatches=maxBatches)
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'M>) : Streams.Scheduling.StreamsBatch<_> =
+            let onCompletion () = x.onCompletion(); onCompletion()
+            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect parseStreamEvents x.messages) |> fst
+        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+        ConsumerPipeline.Start(log, config, mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)

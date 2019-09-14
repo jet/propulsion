@@ -14,6 +14,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `offsetCommitInterval` to `Propulsion.Kafka0`'s `KafkaConsumerConfig`
 - `maximizeOffsetWriting` to `StreamsConsumer` in order to give maximum effect to `maxBatchSize` limit implemented in [#31](https://github.com/jet/propulsion/pull/31)
 - test suite for `StreamsConsumer` [#32](https://github.com/jet/propulsion/pull/32)
+- `BatchesConsumer`; support for custom stream based batch scheduling algorithms [#29](https://github.com/jet/propulsion/pull/29)
 
 ### Changed
 

@@ -145,6 +145,47 @@ module Helpers =
         let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
         { consumerId = consumerId; meta=d; payload=v }
 
+    let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
+        let mkConsumer (consumerId : int) = async {
+            // need to pass the consumer instance to the handler callback
+            // do a bit of cyclic dependency fixups
+            let consumerCell = ref None
+            let rec getConsumer() =
+                // avoid potential race conditions by polling
+                match !consumerCell with
+                | None -> Thread.SpinWait 20; getConsumer()
+                | Some c -> c
+
+            // When offered, take whatever is pending
+            let select = Array.ofSeq
+            // when processing, declare all items processed each time we're invoked
+            let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<byte[]>[]) = async {
+                let mutable c = 0
+                for stream in streams do
+                  for event in stream.span.events do
+                      c <- c + 1
+                      do! handler (getConsumer()) (deserialize consumerId event)
+                (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
+                return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
+            let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+            let messageIndexes = MessagesByArrivalOrder()
+            let consumer =
+                BatchesConsumer.Start
+                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
+                        select, handle,
+                        stats, categorize = id,
+                        pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+
+            consumerCell := Some consumer
+
+            timeout |> Option.defaultValue (TimeSpan.FromMinutes 15.) |> consumer.StopAfter
+
+            do! consumer.AwaitCompletion()
+        }
+
+        do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
+    }
+
     let runConsumersStream log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
             // need to pass the consumer instance to the handler callback
@@ -181,7 +222,13 @@ module Helpers =
 
 #nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
-type StreamsConsumer(testOutputHelper) =
+type BatchesConsumer(testOutputHelper) =
+    inherit ConsumerIntegration(testOutputHelper, false)
+
+    override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+        runConsumersBatch log config numConsumers timeout consumerCallback
+
+and StreamsConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =

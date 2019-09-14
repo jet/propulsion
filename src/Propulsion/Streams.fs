@@ -464,6 +464,48 @@ module Scheduling =
             override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) =
                 stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
 
+    /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
+    type BatchedDispatcher
+        (   select : DispatchItem<byte[]> seq -> DispatchItem<byte[]>[],
+            handle : DispatchItem<byte[]>[] -> Async<(string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]>,
+            stats : StreamSchedulerStats<_,_>,
+            dumpStreams) =
+        let dop = DopDispatcher 1
+        let result = FSharp.Control.Event<TimeSpan*(string*Choice<int64*(int*int)*unit,(int*int)*exn>)>()
+        let dispatchSubResults (res : TimeSpan, itemResults: (string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]) =
+            let tot = res.TotalMilliseconds in let avg = TimeSpan.FromMilliseconds(tot/float itemResults.Length)
+            for res in itemResults do result.Trigger(avg,res)
+        // On each iteration, we offer the ordered work queue to the selector
+        // we propagate the selected streams to the handler
+        let trySelect pending markBusy =
+            let mutable hasCapacity, dispatched = dop.HasCapacity, false
+            if hasCapacity then
+                let potential : seq<DispatchItem<byte[]>> = pending ()
+                let streams : DispatchItem<byte[]>[] = select potential
+                let succeeded = (not << Array.isEmpty) streams
+                if succeeded then
+                    let res = dop.TryAdd(handle streams)
+                    if not res then failwith "Checked we can add, what gives?"
+                    for x in streams do
+                        markBusy x.stream
+                    dispatched <- true // if we added any request, we'll skip sleeping
+                    hasCapacity <- false
+            hasCapacity, dispatched
+        member __.Pump() = async {
+            use _ = dop.Result.Subscribe dispatchSubResults
+            return! dop.Pump() }
+        interface IDispatcher<int64*(int*int)*unit,(int*int)*exn> with
+            override __.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
+            [<CLIEvent>] override __.Result = result.Publish
+            override __.InterpretProgress(_streams : StreamStates<_>, _stream : string, res : Choice<_,_>) =
+                match res with
+                | Choice1Of2 (pos',_stats,_outcome) -> Some pos'
+                | Choice2Of2 (_stats,_exn) -> None
+            override __.RecordResultStats msg = stats.Handle msg
+            override __.DumpStats pendingCount = stats.DumpStats(dop.State,pendingCount)
+            override __.TryDumpState(dispatcherState,streams,(dt,ft,mt,it,st)) =
+                stats.TryDumpState(dispatcherState, dumpStreams streams, (dt,ft,mt,it,st))
+
      [<NoComparison; NoEquality>]
     type StreamsBatch<'Format> private (onCompletion, buffer, reqs) =
         let mutable buffer = Some buffer
