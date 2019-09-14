@@ -1,4 +1,4 @@
-﻿module Propulsion.Kafka.Integration.MonitorIntegration
+﻿module Propulsion.Kafka.Integration.Monitor
 
 open Confluent.Kafka
 open Jet.ConfluentKafka.FSharp
