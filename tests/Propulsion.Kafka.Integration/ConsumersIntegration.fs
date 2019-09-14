@@ -268,7 +268,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
     [<FactIfBroker>]
     member __.``producer-consumer basic roundtrip`` () = async {
         let numProducers = 10
-        let numConsumers = 3
+        let numConsumers = 8
         let messagesPerProducer = 1000
 
         let topic = newId() // dev kafka topics are created and truncated automatically
