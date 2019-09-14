@@ -19,6 +19,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Use `IIndexedEvent` in lieu of `IIEvent` + `index` in `StreamSpan` and `StreamEvent` [#28](https://github.com/jet/propulsion/pull/28)
 - Shorten `Rendered*.parse*` to `Rendered*.parse` [#28](https://github.com/jet/propulsion/pull/28)
+- Updated MinVer to `2.0.0-alpha.2`
 
 ### Removed
 ### Fixed
