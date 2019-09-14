@@ -144,10 +144,10 @@ type T1(testOutputHelper) =
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        let consumedBatches = new ConcurrentDictionary<ConsumedTestMessage,unit>()
+        let consumedBatches = new ConcurrentDictionary<TestMessage,unit>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
-            do consumedBatches.[msg] <- ()
+            do consumedBatches.[msg.payload] <- ()
             // signal cancellation if consumed items reaches expected size
             if consumedBatches.Count >= expectedUniqueMessages then
                 consumer.Stop()
