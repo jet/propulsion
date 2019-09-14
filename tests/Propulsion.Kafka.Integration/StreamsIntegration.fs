@@ -12,12 +12,6 @@ open System.Threading
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
-    open System.Collections.Generic
-    open Confluent.Kafka
-    open Newtonsoft.Json
-
-    type TestMeta = { key: string; value: string; partition: int; offset : int64 }
-
     /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an index.
     /// The messages we consume don't have such characteristics, so we generate a fake `index` by keeping an int per stream in a dictionary
     type MessagesByArrivalOrder() =
@@ -35,10 +29,6 @@ module Helpers =
             let e = FsCodec.Core.IndexedEventData(index,false,eventType = String.Empty,data=gb v,metadata=null,timestamp=DateTimeOffset.UtcNow)
             Seq.singleton { stream=k; event=e }
 
-    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
-        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
-    type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
-    type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
     let deserialize consumerId (e : FsCodec.IIndexedEvent<byte[]>) : ConsumedTestMessage =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
         let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)

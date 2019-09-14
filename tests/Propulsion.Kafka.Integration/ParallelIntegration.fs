@@ -6,6 +6,7 @@ open Newtonsoft.Json
 open Propulsion.Kafka
 open Serilog
 open System
+open System.Collections.Generic
 open System.ComponentModel
 open System.Threading
 open System.Threading.Tasks
@@ -57,9 +58,11 @@ module Helpers =
         member c.StopAfter(delay : TimeSpan) =
             Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
 
+    type TestMeta = { key: string; value: string; partition: int; offset : int64 }
+    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
     type TestMessage = { producerId : int ; messageId : int }
-    [<NoComparison; NoEquality>]
-    type ConsumedTestMessage = { consumerId : int ; raw : ConsumeResult<string,string> ; payload : TestMessage }
+    type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
 
     let runProducers log (broker : Uri) (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
@@ -99,15 +102,18 @@ open Propulsion.Kafka.Integration.Helpers
 open System
 open Swensen.Unquote
 open System.Collections.Concurrent
+open System.Collections.Generic
 open System.ComponentModel
 open System.Threading
 
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
-    let runConsumers log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
+    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
+
+    let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
-            let deserialize (raw : ConsumeResult<string,string>) = { consumerId = consumerId ; raw = raw; payload = JsonConvert.DeserializeObject<_> raw.Value }
 
             // need to pass the consumer instance to the handler callback
             // do a bit of cyclic dependency fixups
@@ -118,8 +124,12 @@ module Helpers =
                 | None -> Thread.SpinWait 20; getConsumer()
                 | Some c -> c
 
-            let handle item = handler (getConsumer()) (deserialize item)
-            let consumer = ParallelConsumer.Start(log, config, 128, id, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+            let deserialize consumerId (KeyValue (k,v)) : ConsumedTestMessage =
+                let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(v)
+                let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
+                { consumerId = consumerId; meta=d; payload=v }
+            let handle item = handler (getConsumer()) (deserialize consumerId item)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapConsumeResult, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -159,7 +169,7 @@ type T1(testOutputHelper) =
         let producers = runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
 
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval = TimeSpan.FromSeconds 5.)
-        let consumers = runConsumers log config numConsumers None consumerCallback
+        let consumers = runConsumersParallel log config numConsumers None consumerCallback
 
         let! _ = Async.Parallel [ producers ; consumers ]
 
@@ -172,7 +182,7 @@ type T1(testOutputHelper) =
         test <@ ``consumed batches should be non-empty`` @> // "consumed batches should all be non-empty")
 
         let ``all message keys should have expected value`` =
-            allMessages |> Array.forall (fun msg -> int msg.raw.Key = msg.payload.messageId)
+            allMessages |> Array.forall (fun msg -> int msg.meta.key = msg.payload.messageId)
 
         test <@ ``all message keys should have expected value`` @> // "all message keys should have expected value"
 
@@ -201,7 +211,7 @@ type T2(testOutputHelper) =
 
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
 
-        let! r = Async.Catch <| runConsumers log config 1 None (fun _ _ -> async { return raise <|IndexOutOfRangeException() })
+        let! r = Async.Catch <| runConsumersParallel log config 1 None (fun _ _ -> async { return raise <|IndexOutOfRangeException() })
         test <@ match r with
                 | Choice2Of2 (:? AggregateException as ae) -> ae.InnerExceptions |> Seq.forall (function (:? IndexOutOfRangeException) -> true | _ -> false)
                 | x -> failwithf "%A" x @>
@@ -217,7 +227,7 @@ type T2(testOutputHelper) =
         let messageCount = ref 0
         let groupId1 = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
 
         test <@ numMessages = !messageCount @>
@@ -225,7 +235,7 @@ type T2(testOutputHelper) =
         let messageCount = ref 0
         let groupId2 = newId()
         let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
 
         test <@ numMessages = !messageCount @>
@@ -241,7 +251,7 @@ type T2(testOutputHelper) =
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be stored
@@ -253,7 +263,7 @@ type T2(testOutputHelper) =
 
         // expected to read no messages from the subsequent consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 (Some (TimeSpan.FromSeconds 10.))
+        do! runConsumersParallel log config 1 (Some (TimeSpan.FromSeconds 10.))
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then c.Stop() })
 
@@ -274,7 +284,7 @@ type T3(testOutputHelper) =
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 3.) }) // cancel after 3 seconds to allow offsets to be committed)
@@ -286,7 +296,7 @@ type T3(testOutputHelper) =
         // expected to read 10 messages from the subsequent consumer,
         // this is to verify there are no off-by-one errors in how offsets are committed
         let messageCount = ref 0
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c _m -> async {
                     if Interlocked.Increment(messageCount) >= numMessages then
                         c.StopAfter(TimeSpan.FromSeconds 1.) }) // cancel after 1 second to allow offsets to be committed)
@@ -320,9 +330,9 @@ type T3(testOutputHelper) =
         let concurrentCalls = ref 0
         let foundNonMonotonic = ref false
 
-        do! runConsumers log config 1 None
+        do! runConsumersParallel log config 1 None
                 (fun c m -> async {
-                    let partition = Bindings.partitionValue m.raw.Partition
+                    let partition = m.meta.partition
 
                     // check per-partition handlers are serialized
                     let concurrentBatchCell = getBatchPartitionCount partition
@@ -332,8 +342,8 @@ type T3(testOutputHelper) =
                     // check for message monotonicity
                     let offset = getPartitionOffset partition
                     for msg in [|m|] do
-                        if (let o = msg.raw.Offset in o.Value) > !offset then foundNonMonotonic := true
-                        offset := let o = msg.raw.Offset in o.Value
+                        if msg.meta.offset > !offset then foundNonMonotonic := true
+                        offset := msg.meta.offset
 
                     do! Async.Sleep 100
 
