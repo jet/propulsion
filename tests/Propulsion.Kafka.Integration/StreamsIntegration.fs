@@ -121,7 +121,7 @@ module Helpers =
 
 #nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
-type T1Batch(testOutputHelper) =
+type private T1Batch(testOutputHelper) =
     inherit T1(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
@@ -195,13 +195,13 @@ and [<AbstractClass>]T1(testOutputHelper) =
     }
 
 // separated test type to allow the tests to run in parallel
-type T2Batch(testOutputHelper) =
+type private T2Batch(testOutputHelper) =
     inherit T2(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and T2Stream(testOutputHelper) =
+and private T2Stream(testOutputHelper) =
     inherit T2(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
@@ -284,13 +284,13 @@ and [<AbstractClass>] T2(testOutputHelper) =
     }
 
 // separated test type to allow the tests to run in parallel
-type T3Batch(testOutputHelper) =
+type private T3Batch(testOutputHelper) =
     inherit T3(testOutputHelper, false)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and T3Stream(testOutputHelper) =
+and private T3Stream(testOutputHelper) =
     inherit T3(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
