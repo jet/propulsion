@@ -163,15 +163,13 @@ type T1(testOutputHelper) =
 
         let! _ = Async.Parallel [ producers ; consumers ]
 
+        let allMessages = consumedBatches |> Seq.toArray
+
         // Section: assertion checks
         let ``consumed batches should be non-empty`` =
-            (not << Seq.isEmpty) consumedBatches
+            (not << Array.isEmpty) allMessages
 
         test <@ ``consumed batches should be non-empty`` @> // "consumed batches should all be non-empty")
-
-        let allMessages =
-            consumedBatches
-            |> Seq.toArray
 
         let ``all message keys should have expected value`` =
             allMessages |> Array.forall (fun msg -> int msg.raw.Key = msg.payload.messageId)
