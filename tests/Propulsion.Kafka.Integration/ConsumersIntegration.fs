@@ -92,7 +92,7 @@ module Helpers =
     type FactIfBroker() =
         inherit FactAttribute()
         override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
-        override __.Timeout = 60 * 10 * 1000
+        override __.Timeout = 60 * 15 * 1000
 
     let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
@@ -268,7 +268,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
     [<FactIfBroker>]
     member __.``producer-consumer basic roundtrip`` () = async {
         let numProducers = 10
-        let numConsumers = 1
+        let numConsumers = 10
         let messagesPerProducer = 1000
 
         let topic = newId() // dev kafka topics are created and truncated automatically
