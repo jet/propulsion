@@ -10,8 +10,7 @@
 
   <ItemGroup>
     <Compile Include="MonitorTests.fs" />
-    <Compile Include="ParallelIntegration.fs" />
-    <Compile Include="StreamsIntegration.fs" />
+    <Compile Include="ConsumersIntegration.fs" />
     <Compile Include="MonitorIntegration.fs" />
   </ItemGroup>
 

@@ -1,18 +1,128 @@
-﻿namespace Propulsion.Kafka.Integration.Streams
+﻿namespace Propulsion.Kafka.Integration
 
+open Confluent.Kafka // required for shimming
 open Jet.ConfluentKafka.FSharp
+open Newtonsoft.Json
 open Propulsion.Kafka
-open Propulsion.Kafka.Integration.Helpers
-open Propulsion.Kafka.Integration.Parallel
-open System
+open Serilog
 open Swensen.Unquote
+open System
 open System.Collections.Concurrent
+open System.Collections.Generic
 open System.ComponentModel
 open System.Threading
+open System.Threading.Tasks
+open Xunit
 
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
+
+    // Derived from https://github.com/damianh/CapturingLogOutputWithXunit2AndParallelTests
+    // NB VS does not surface these atm, but other test runners / test reports do
+    type TestOutputAdapter(testOutput : Xunit.Abstractions.ITestOutputHelper) =
+        let formatter = Serilog.Formatting.Display.MessageTemplateTextFormatter("{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] {Message}{NewLine}{Exception}", null);
+        let writeSerilogEvent logEvent =
+            use writer = new System.IO.StringWriter()
+            formatter.Format(logEvent, writer);
+            writer |> string |> testOutput.WriteLine
+            writer |> string |> System.Diagnostics.Debug.Write
+        interface Serilog.Core.ILogEventSink with member __.Emit logEvent = writeSerilogEvent logEvent
+
+    let createLogger sink =
+        LoggerConfiguration()
+            .Destructure.FSharpTypes()
+            .WriteTo.Sink(sink)
+            .WriteTo.Seq("http://localhost:5341")
+            .CreateLogger()
+
+    let getTestBroker() =
+        match Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" with
+        | x when String.IsNullOrEmpty x -> invalidOp "missing environment variable 'TEST_KAFKA_BROKER'"
+        | x -> Uri x
+
+    let newId () = let g = System.Guid.NewGuid() in g.ToString("N")
+
+    type Async with
+        static member ParallelThrottled degreeOfParallelism jobs = async {
+            let s = new SemaphoreSlim(degreeOfParallelism)
+            return!
+                jobs
+                |> Seq.map (fun j -> async {
+                    let! ct = Async.CancellationToken
+                    do! s.WaitAsync ct |> Async.AwaitTask
+                    try return! j
+                    finally s.Release() |> ignore })
+                |> Async.Parallel
+        }
+
+    type ConsumerPipeline with
+        member c.StopAfter(delay : TimeSpan) =
+            Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
+
+    type TestMeta = { key: string; value: string; partition: int; offset : int64 }
+    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
+    type TestMessage = { producerId : int ; messageId : int }
+    type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
+    type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
+
+    let runProducers log (broker : Uri) (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
+        let runProducer (producerId : int) = async {
+            let cfg = KafkaProducerConfig.Create("panther", broker, Acks.Leader)
+            use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight = 10000)
+
+            let! results =
+                [1 .. messagesPerProducer]
+                |> Seq.map (fun msgId ->
+                    let key = string msgId
+                    let value = JsonConvert.SerializeObject { producerId = producerId ; messageId = msgId }
+                    key, value)
+
+                |> Seq.chunkBySize 100
+                |> Seq.map producer.ProduceBatch
+                |> Async.ParallelThrottled 7
+
+            return Array.concat results
+        }
+
+        return! Async.Parallel [for i in 1 .. numProducers -> runProducer i]
+    }
+
+    type FactIfBroker() =
+        inherit FactAttribute()
+        override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
+        override __.Timeout = 60 * 10 * 1000
+
+    let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
+        let mkConsumer (consumerId : int) = async {
+
+            // need to pass the consumer instance to the handler callback
+            // do a bit of cyclic dependency fixups
+            let consumerCell = ref None
+            let rec getConsumer() =
+                // avoid potential race conditions by polling
+                match !consumerCell with
+                | None -> Thread.SpinWait 20; getConsumer()
+                | Some c -> c
+
+            let deserialize consumerId (KeyValue (k,v)) : ConsumedTestMessage =
+                let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(v)
+                let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
+                { consumerId = consumerId; meta=d; payload=v }
+            let handle item = handler (getConsumer()) (deserialize consumerId item)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapConsumeResult, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+
+            consumerCell := Some consumer
+
+            timeout |> Option.iter consumer.StopAfter
+
+            do! consumer.AwaitCompletion()
+        }
+
+        do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
+    }
+
     /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an index.
     /// The messages we consume don't have such characteristics, so we generate a fake `index` by keeping an int per stream in a dictionary
     type MessagesByArrivalOrder() =
@@ -112,25 +222,25 @@ module Helpers =
 
 #nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
-type T3Batch(testOutputHelper) =
-    inherit T3(testOutputHelper, false)
+type BatchesConsumer(testOutputHelper) =
+    inherit ConsumerIntegration(testOutputHelper, false)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
-and T3Stream(testOutputHelper) =
-    inherit T3(testOutputHelper, true)
+and StreamsConsumer(testOutputHelper) =
+    inherit ConsumerIntegration(testOutputHelper, true)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersStream log config numConsumers timeout consumerCallback
 
-and T3Parallel(testOutputHelper) =
-    inherit T3(testOutputHelper, true)
+and ParallelConsumer(testOutputHelper) =
+    inherit ConsumerIntegration(testOutputHelper, true)
 
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
-        Helpers.runConsumersParallel log config numConsumers timeout consumerCallback
+        runConsumersParallel log config numConsumers timeout consumerCallback
 
     [<FactIfBroker>]
     member __.``consumer pipeline should have expected exception semantics`` () = async {
@@ -147,7 +257,7 @@ and T3Parallel(testOutputHelper) =
                 | x -> failwithf "%A" x @>
     }
 
-and [<AbstractClass>] T3(testOutputHelper, expectConcurrentScheduling) =
+and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentScheduling) =
     let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
