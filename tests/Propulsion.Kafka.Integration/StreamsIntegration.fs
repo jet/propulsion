@@ -185,7 +185,7 @@ and [<AbstractClass>]T1(testOutputHelper) =
     }
 
 // separated test type to allow the tests to run in parallel
-type T2Batch(testOutputHelper) =
+type private T2Batch(testOutputHelper) =
     inherit T2(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
