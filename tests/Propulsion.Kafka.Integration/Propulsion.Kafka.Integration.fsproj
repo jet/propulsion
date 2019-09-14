@@ -11,7 +11,7 @@
   <ItemGroup>
     <Compile Include="MonitorTests.fs" />
     <Compile Include="ParallelIntegration.fs" />
-    <None Include="StreamsIntegration.fs" />
+    <Compile Include="StreamsIntegration.fs" />
     <Compile Include="MonitorIntegration.fs" />
   </ItemGroup>
 
