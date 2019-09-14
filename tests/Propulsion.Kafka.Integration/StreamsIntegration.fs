@@ -111,7 +111,7 @@ module Helpers =
 
 #nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
 
-type private T1Batch(testOutputHelper) =
+type T1Batch(testOutputHelper) =
     inherit T1(testOutputHelper)
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback) : Async<unit> =
