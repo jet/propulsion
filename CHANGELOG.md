@@ -16,6 +16,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `.Kafka`: Targeted [`Jet.ConfluentKafka.FSharp` v `1.2.0`](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md#1.2.0)
 - rename `offsetCommitInterval` to `autoCommitInterval` to match similar change in `Jet.ConfluentKafka.FSharp` v `1.2.0`
+- Generalize `Checkpoints.Folds.transmute` to be directly usable [#35](https://github.com/jet/propulsion/pull/35)
 
 ### Removed
 ### Fixed
