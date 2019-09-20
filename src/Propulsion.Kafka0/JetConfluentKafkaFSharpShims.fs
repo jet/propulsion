@@ -79,6 +79,7 @@ type KafkaProducerConfig private (inner, broker : Uri) =
             ?socketKeepAlive,
             /// Partition algorithm. Default: `ConsistentRandom`.
             ?partitioner,
+            ?config : IDictionary<string,string>,
             /// Miscellaneous configuration parameters to be passed to the underlying Confluent.Kafka producer configuration.
             ?custom,
             /// Postprocesses the ProducerConfig after the rest of the rules have been applied
@@ -92,6 +93,7 @@ type KafkaProducerConfig private (inner, broker : Uri) =
                 SocketKeepaliveEnable = Nullable (defaultArg socketKeepAlive true), // default: false
                 LogConnectionClose = Nullable false, // https://github.com/confluentinc/confluent-kafka-dotnet/issues/124#issuecomment-289727017
                 MaxInFlight = Nullable (defaultArg maxInFlight 1_000_000)) // default 1_000_000
+        config |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         linger |> Option.iter<TimeSpan> (fun x -> c.LingerMs <- Nullable (int x.TotalMilliseconds)) // default 0
         partitioner |> Option.iter (fun x -> c.Partitioner <- Nullable x)
         compression |> Option.iter (fun x -> c.CompressionType <- Nullable x)
@@ -218,12 +220,12 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
             ?fetchMinBytes,
             /// Stats reporting interval for the consumer. Default: no reporting.
             ?statisticsInterval : TimeSpan,
+            ?config : IDictionary<string,string>,
             /// Misc configuration parameter to be passed to the underlying CK consumer.
             ?custom,
             /// Postprocesses the ConsumerConfig after the rest of the rules have been applied
             ?customize,
-            // TODO rename to autoCommitInterval to match Jet.ConfluentKafka.FSharp v >= 1.2
-            ?offsetCommitInterval,
+            ?autoCommitInterval,
 
             (* Client-side batching / limiting of reading ahead to constrain memory consumption *)
 
@@ -246,10 +248,11 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
                 EnableAutoCommit = Nullable true, // at AutoCommitIntervalMs interval, write value supplied by StoreOffset call
                 EnableAutoOffsetStore = Nullable false, // explicit calls to StoreOffset are the only things that effect progression in offsets
                 LogConnectionClose = Nullable false) // https://github.com/confluentinc/confluent-kafka-dotnet/issues/124#issuecomment-289727017
+        config |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         fetchMinBytes |> Option.iter (fun x -> c.FetchMinBytes <- x) // Fetch waits for this amount of data for up to FetchWaitMaxMs (100)
         statisticsInterval |> Option.iter<TimeSpan> (fun x -> c.StatisticsIntervalMs <- Nullable <| int x.TotalMilliseconds)
-        offsetCommitInterval |> Option.iter<TimeSpan> (fun x -> c.AutoCommitIntervalMs  <- Nullable <| int x.TotalMilliseconds)
-        custom |> Option.iter<seq<KeyValuePair<string,string>>> (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
+        autoCommitInterval |> Option.iter<TimeSpan> (fun x -> c.AutoCommitIntervalMs  <- Nullable <| int x.TotalMilliseconds)
+        custom |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         customize |> Option.iter<ConsumerConfig -> unit> (fun f -> f c)
         {   inner = c 
             topics = match Seq.toList topics with [] -> invalidArg "topics" "must be non-empty collection" | ts -> ts

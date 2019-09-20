@@ -356,7 +356,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, offsetCommitInterval=TimeSpan.FromSeconds 1.)
+        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, autoCommitInterval=TimeSpan.FromSeconds 1.)
 
         do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
 
