@@ -9,6 +9,7 @@ module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag group
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
+
     type Checkpoint = { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: int64 }
     type Config = { checkpointFreqS: int }
     type Started = { config: Config; origin: Checkpoint }
@@ -25,6 +26,7 @@ module Events =
     // let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
 
 module Folds =
+
     type State = NotStarted | Running of Events.Unfolded
 
     let initial : State = NotStarted
@@ -78,6 +80,7 @@ module Commands =
         | c, s -> failwithf "Command %A invalid when %A" c s
 
 type Service(log, resolveStream, ?maxAttempts) =
+
     let (|AggregateId|) (id : CheckpointSeriesId) = Equinox.AggregateId ("Sync", % id)
     let (|Stream|) (AggregateId id) = Equinox.Stream(log, resolveStream id, defaultArg maxAttempts 3)
     let execute (Stream stream) cmd = stream.Transact(Commands.interpret cmd)

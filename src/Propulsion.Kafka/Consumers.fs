@@ -280,6 +280,22 @@ module Core =
                 ?maxBatches = maxBatches,
                 ?maximizeOffsetWriting = maximizeOffsetWriting)
 
+    /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an `index`.
+    /// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
+    type StreamKeyEventSequencer() =
+        // we synthesize a monotonically increasing index to render the deduplication facility inert
+        let indices = System.Collections.Generic.Dictionary()
+        let genIndex streamName =
+            match indices.TryGetValue streamName with
+            | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
+            | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
+
+        // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
+        member __.ToStreamEvent(KeyValue (k,v : string), ?eventType) : Propulsion.Streams.StreamEvent<byte[]> seq =
+            let eventType = defaultArg eventType String.Empty
+            let e = FsCodec.Core.IndexedEventData(genIndex k,false,eventType,System.Text.Encoding.UTF8.GetBytes v,null,DateTimeOffset.UtcNow)
+            Seq.singleton { stream=k; event=e }
+
 type StreamsConsumer =
 
     /// Starts a Kafka Consumer processing pipeline per the `config` running up to `maxDop` instances of `handle` concurrently to maximize global throughput across partitions.
