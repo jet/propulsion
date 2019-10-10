@@ -85,8 +85,9 @@ open Internal
 [<AutoOpen>]
 module private Impl =
     let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
-    let inline arrayBytes (x: _ []) = if obj.ReferenceEquals(null,x) then 0 else x.Length
-    let inline eventSize (x : IEvent<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + x.EventType.Length + 16
+    let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null,x) then 0 else x.Length
+    let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * 2
+    let inline eventSize (x : IEvent<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
     let inline mb x = float x / 1024. / 1024.
     let inline accStopwatch (f : unit -> 't) at =
         let sw = Stopwatch.StartNew()
@@ -163,7 +164,7 @@ module Buffering =
                     curr <- Some { c with events = Array.append c.events (dropBeforeIndex nextIndex x).events }
             curr |> Option.iter buffer.Add
             if buffer.Count = 0 then null else buffer.ToArray()
-        let inline estimateBytesAsJsonUtf8 (x: IEvent<'Format[]>) = arrayBytes x.Data + arrayBytes x.Meta + (x.EventType.Length * 2) + 96
+        let inline estimateBytesAsJsonUtf8 (x: IEvent<_>) = eventSize x + 80
         let stats (x : StreamSpan<_>) =
             x.events.Length, x.events |> Seq.sumBy estimateBytesAsJsonUtf8
         let slice (maxEvents,maxBytes) streamSpan =

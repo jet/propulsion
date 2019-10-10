@@ -10,7 +10,7 @@ open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
 
-let inline arrayBytes (x:byte[]) = if x = null then 0 else x.Length
+let inline arrayBytes (x:byte[]) = match x with null -> 0 | x -> x.Length
 let inline recPayloadBytes (x: EventStore.ClientAPI.RecordedEvent) = arrayBytes x.Data + arrayBytes x.Metadata
 let inline payloadBytes (x: EventStore.ClientAPI.ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * 2
 let inline mb x = float x / 1024. / 1024.

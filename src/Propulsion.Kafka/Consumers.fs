@@ -48,7 +48,7 @@ module private Impl =
         16 + len message.Key + len message.Value |> int64
     let inline mb x = float x / 1024. / 1024.
 
-/// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accummulated messages as
+/// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accumulated messages as
 ///   checkpointable Batches
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'M>
@@ -75,7 +75,8 @@ type KafkaIngestionEngine<'M>
         let sz = approximateMessageBytes message
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
-        intervalChars <- intervalChars + int64 (message.Key.Length + message.Value.Length)
+        let inline stringLen (s : string) = match s with null -> 0 | x -> x.Length
+        intervalChars <- intervalChars + int64 (stringLen message.Key + stringLen message.Value)
         let partitionId = Bindings.partitionId message
         let span =
             match acc.TryGetValue partitionId with

@@ -34,7 +34,7 @@ module Folds =
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
         | Events.Unfolded runningState -> Running runningState
-    let fold (state: State) = Seq.fold evolve state
+    let fold : State -> Events.Event seq -> State = Seq.fold evolve
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
     let private unfold state =
         match state with

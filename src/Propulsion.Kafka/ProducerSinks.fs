@@ -33,7 +33,7 @@ type StreamsProducerSink =
             let handle (stream, span) = async {
                 let! (message : string) = prepare (stream, span)
                 match message.Length with
-                | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length}", stream, x, span.events.Length)
+                | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.events.Length)
                 | _ -> ()
                 let! _ = producer.ProduceAsync(stream,message)
                 return span.index + span.events.LongLength
