@@ -20,6 +20,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- `NullReferenceException` when handling `null` keys/values in Kafka messages [#37](https://github.com/jet/propulsion/pull/37) [@jgardella](https://github.com/jgardella)
+
 <a name="1.2.0"></a>
 ## [1.2.0] - 2019-09-15
 
