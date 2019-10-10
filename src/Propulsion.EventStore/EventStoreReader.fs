@@ -12,7 +12,7 @@ open System.Threading
 
 let inline arrayBytes (x:byte[]) = match x with null -> 0 | x -> x.Length
 let inline recPayloadBytes (x: EventStore.ClientAPI.RecordedEvent) = arrayBytes x.Data + arrayBytes x.Metadata
-let inline payloadBytes (x: EventStore.ClientAPI.ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * 2
+let inline payloadBytes (x: EventStore.ClientAPI.ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * sizeof<char>
 let inline mb x = float x / 1024. / 1024.
 
 /// Maintains ingestion stats (thread safe via lock free data structures so it can be used across multiple overlapping readers)

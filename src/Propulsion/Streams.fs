@@ -86,7 +86,7 @@ open Internal
 module private Impl =
     let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
     let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null,x) then 0 else x.Length
-    let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * 2
+    let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
     let inline eventSize (x : IEvent<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
     let inline mb x = float x / 1024. / 1024.
     let inline accStopwatch (f : unit -> 't) at =
