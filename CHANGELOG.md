@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="1.2.1"></a>
+## [1.2.1] - 2019-10-11
+
+### Added
 
 - `.Kafka.Core.StreamKeyEventSequencer` - helper to synthesize a stream index in the event of a source not providing it intrinsically.
 
@@ -17,8 +25,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `.Kafka`: Targeted [`Jet.ConfluentKafka.FSharp` v `1.2.0`](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md#1.2.0)
 - rename `offsetCommitInterval` to `autoCommitInterval` to match similar change in `Jet.ConfluentKafka.FSharp` v `1.2.0`
 - Generalize `Checkpoints.Folds.transmute` to be directly usable [#35](https://github.com/jet/propulsion/pull/35)
+- Updated MinVer to `2.0.0-rc.1`
 
-### Removed
 ### Fixed
 
 - `NullReferenceException` when handling `null` keys/values in Kafka messages [#37](https://github.com/jet/propulsion/pull/37) [@jgardella](https://github.com/jgardella)
@@ -206,7 +214,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.2.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.2.1...HEAD
+[1.2.1]: https://github.com/jet/propulsion/compare/1.2.0...1.2.1
 [1.2.0]: https://github.com/jet/propulsion/compare/1.1.1...1.2.0
 [1.1.1]: https://github.com/jet/propulsion/compare/1.1.0...1.1.1
 [1.1.0]: https://github.com/jet/propulsion/compare/1.0.1...1.1.0
