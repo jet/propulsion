@@ -42,15 +42,15 @@ module Folds =
         | Running state -> Events.Unfolded {config = state.config; state=state.state}
 
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
-    let transmute events state =
+    let transmute events state : Events.Event list*Events.Event list =
         let checkpointEventIsRedundant (e: Events.Checkpointed) (s: Events.Unfolded) =
             s.state.nextCheckpointDue = e.pos.nextCheckpointDue
             && s.state.pos <> e.pos.pos
         match events, state with
         | [Events.Checkpointed e], (Running state as s) when checkpointEventIsRedundant e state ->
-            [],unfold s
+            [],[unfold s]
         | xs, state ->
-            xs,unfold state
+            xs,[unfold state]
 
 type Command =
     | Start of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
