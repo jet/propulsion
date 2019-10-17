@@ -1,6 +1,6 @@
 ﻿module Propulsion.EventStore.Reader
 
-open Equinox.Store // AwaitTaskCorrect
+open Equinox.Core // AwaitTaskCorrect
 open EventStore.ClientAPI
 open Propulsion.Internal // Sem
 open Propulsion.Streams

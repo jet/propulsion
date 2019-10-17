@@ -1,6 +1,6 @@
 ﻿namespace Propulsion.Cosmos
 
-open Equinox.Store // Stopwatch.Time
+open Equinox.Core // Stopwatch.Time
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Serilog

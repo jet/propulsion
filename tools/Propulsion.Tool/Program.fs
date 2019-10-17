@@ -2,7 +2,7 @@
 
 open Argu
 open Jet.ConfluentKafka.FSharp
-open Equinox.Store.Infrastructure
+open Equinox.Core // Stopwatch.Time
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Serilog
 open Serilog.Events
