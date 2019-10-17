@@ -73,7 +73,7 @@ type ContainerId = { database: string; container: string }
 [<RequireQualifiedAccess; NoComparison; NoEquality>]
 type Discovery =
     | UriKeyAndPolicy of databaseUri:Uri * key:string * policy: ConnectionPolicy
-    | Custom of DocumentClient
+    | Custom of DocumentClient * databaseUri:Uri * policy: ConnectionPolicy
 
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =
@@ -135,11 +135,14 @@ type ChangeFeedProcessor =
             maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
             let mkC = function
                 | Discovery.UriKeyAndPolicy (u,k,p) -> new DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=p,desiredConsistencyLevel=Nullable())
-                | Discovery.Custom documentClient -> documentClient
+                | Discovery.Custom (documentClient,_u,_p) -> documentClient
+            let mkD cid = function
+                | Discovery.UriKeyAndPolicy (u,_k,p) -> DocumentCollectionInfo(Uri=u,ConnectionPolicy=p,DatabaseName=cid.database,CollectionName=cid.container)
+                | Discovery.Custom (_,uri,p) -> DocumentCollectionInfo(Uri=uri,ConnectionPolicy=p,DatabaseName=cid.database,CollectionName=cid.container)
             ChangeFeedProcessorBuilder()
                 .WithHostName(leaseOwnerId)
-                .WithFeedCollection(DocumentCollectionInfo(DatabaseName=source.database, CollectionName=source.container))
-                .WithLeaseCollection(DocumentCollectionInfo(DatabaseName=aux.database, CollectionName=aux.container))
+                .WithFeedCollection(mkD source discovery)
+                .WithLeaseCollection(mkD aux (defaultArg auxDiscovery discovery))
                 .WithFeedDocumentClient(mkC discovery)
                 .WithLeaseDocumentClient(mkC (defaultArg auxDiscovery discovery))
                 .WithProcessorOptions(feedProcessorOptions)
