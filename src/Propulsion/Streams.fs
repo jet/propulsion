@@ -1,6 +1,5 @@
 ﻿namespace Propulsion.Streams
 
-open FsCodec
 open MathNet.Numerics.Statistics
 open Propulsion
 open Serilog
@@ -12,11 +11,11 @@ open System.Threading
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
-type StreamEvent<'Format> = { stream: string; event: ITimelineEvent<'Format> }
+type StreamEvent<'Format> = { stream: string; event: FsCodec.ITimelineEvent<'Format> }
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: ITimelineEvent<'Format>[] }
+type StreamSpan<'Format> = { index: int64; events: FsCodec.ITimelineEvent<'Format>[] }
 
 module Internal =
 
@@ -87,7 +86,7 @@ module private Impl =
     let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
     let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null,x) then 0 else x.Length
     let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
-    let inline eventSize (x : IEventData<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
+    let inline eventSize (x : FsCodec.IEventData<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
     let inline mb x = float x / 1024. / 1024.
     let inline accStopwatch (f : unit -> 't) at =
         let sw = Stopwatch.StartNew()
@@ -164,7 +163,7 @@ module Buffering =
                     curr <- Some { c with events = Array.append c.events (dropBeforeIndex nextIndex x).events }
             curr |> Option.iter buffer.Add
             if buffer.Count = 0 then null else buffer.ToArray()
-        let inline estimateBytesAsJsonUtf8 (x: IEventData<_>) = eventSize x + 80
+        let inline estimateBytesAsJsonUtf8 (x: FsCodec.IEventData<_>) = eventSize x + 80
         let stats (x : StreamSpan<_>) =
             x.events.Length, x.events |> Seq.sumBy estimateBytesAsJsonUtf8
         let slice (maxEvents,maxBytes) streamSpan =
