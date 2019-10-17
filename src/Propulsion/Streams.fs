@@ -12,11 +12,11 @@ open System.Threading
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
-type StreamEvent<'Format> = { stream: string; event: IIndexedEvent<'Format> }
+type StreamEvent<'Format> = { stream: string; event: ITimelineEvent<'Format> }
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index: int64; events: IIndexedEvent<'Format>[] }
+type StreamSpan<'Format> = { index: int64; events: ITimelineEvent<'Format>[] }
 
 module Internal =
 
@@ -87,7 +87,7 @@ module private Impl =
     let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
     let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null,x) then 0 else x.Length
     let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
-    let inline eventSize (x : IEvent<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
+    let inline eventSize (x : IEventData<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
     let inline mb x = float x / 1024. / 1024.
     let inline accStopwatch (f : unit -> 't) at =
         let sw = Stopwatch.StartNew()
@@ -164,7 +164,7 @@ module Buffering =
                     curr <- Some { c with events = Array.append c.events (dropBeforeIndex nextIndex x).events }
             curr |> Option.iter buffer.Add
             if buffer.Count = 0 then null else buffer.ToArray()
-        let inline estimateBytesAsJsonUtf8 (x: IEvent<_>) = eventSize x + 80
+        let inline estimateBytesAsJsonUtf8 (x: IEventData<_>) = eventSize x + 80
         let stats (x : StreamSpan<_>) =
             x.events.Length, x.events |> Seq.sumBy estimateBytesAsJsonUtf8
         let slice (maxEvents,maxBytes) streamSpan =
@@ -442,7 +442,7 @@ module Scheduling =
     /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
     type IDispatcher<'R,'E> =
         abstract member TryReplenish: pending : (unit -> seq<DispatchItem<byte[]>>) -> markStreamBusy : (string -> unit) -> bool * bool
-        [<CLIEvent>] abstract member Result: FSharp.Control.IEvent<TimeSpan*(string*Choice<'R,'E>)>
+        [<CLIEvent>] abstract member Result: IEvent<TimeSpan*(string*Choice<'R,'E>)>
         abstract member InterpretProgress: StreamStates<byte[]>*string*Choice<'R,'E> -> int64 option
         abstract member RecordResultStats: InternalMessage<Choice<'R,'E>> -> unit
         abstract member DumpStats: int -> unit
@@ -472,7 +472,7 @@ module Scheduling =
             stats : StreamSchedulerStats<_,_>,
             dumpStreams) =
         let dop = DopDispatcher 1
-        let result = FSharp.Control.Event<TimeSpan*(string*Choice<int64*(int*int)*unit,(int*int)*exn>)>()
+        let result = Event<TimeSpan*(string*Choice<int64*(int*int)*unit,(int*int)*exn>)>()
         let dispatchSubResults (res : TimeSpan, itemResults: (string*Choice<int64*(int*int)*unit,(int*int)*exn>)[]) =
             let tot = res.TotalMilliseconds in let avg = TimeSpan.FromMilliseconds(tot/float itemResults.Length)
             for res in itemResults do result.Trigger(avg,res)

@@ -130,17 +130,15 @@ module Helpers =
         let indices = System.Collections.Generic.Dictionary()
         let genIndex streamName =
             match indices.TryGetValue streamName with
-            | true, v -> let x = v + 1 in indices.[streamName] <- x; x
-            | false, _ -> let x = 0 in indices.[streamName] <- x; x
+            | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
+            | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
 
         // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
         member __.ToStreamEvents (KeyValue (k,v : string)) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let index = genIndex k |> int64
-            let gb (x : string) = System.Text.Encoding.UTF8.GetBytes x
-            let e = FsCodec.Core.IndexedEventData(index,false,eventType = String.Empty,data=gb v,metadata=null,timestamp=DateTimeOffset.UtcNow)
-            Seq.singleton { stream=k; event=e }
+            let e = FsCodec.Core.TimelineEvent.Create(genIndex k,String.Empty,System.Text.Encoding.UTF8.GetBytes v)
+            Seq.singleton { stream = k; event = e }
 
-    let deserialize consumerId (e : FsCodec.IIndexedEvent<byte[]>) : ConsumedTestMessage =
+    let deserialize consumerId (e : FsCodec.ITimelineEvent<byte[]>) : ConsumedTestMessage =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
         let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
         { consumerId = consumerId; meta=d; payload=v }

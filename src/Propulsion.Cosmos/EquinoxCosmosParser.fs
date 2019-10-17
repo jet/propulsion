@@ -23,7 +23,7 @@ module EquinoxCosmosParser =
 
     /// Enumerates the events represented within a batch
     let enumEquinoxCosmosEvents (batch : Equinox.Cosmos.Store.Batch) : StreamEvent<byte[]> seq =
-        batch.e |> Seq.mapi (fun offset x -> { stream = batch.p; event = FsCodec.Core.IndexedEventData(batch.i+int64 offset,false,x.c,x.d,x.m,x.t) })
+        batch.e |> Seq.mapi (fun offset x -> { stream = batch.p; event = FsCodec.Core.TimelineEvent.Create(batch.i+int64 offset,x.c,x.d,x.m,timestamp=x.t) })
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumStreamEvents (d : Document) : StreamEvent<byte[]> seq =

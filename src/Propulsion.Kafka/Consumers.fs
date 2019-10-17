@@ -293,8 +293,7 @@ module Core =
 
         // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
         member __.ToStreamEvent(KeyValue (k,v : string), ?eventType) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let eventType = defaultArg eventType String.Empty
-            let e = FsCodec.Core.IndexedEventData(genIndex k,false,eventType,System.Text.Encoding.UTF8.GetBytes v,null,DateTimeOffset.UtcNow)
+            let e = FsCodec.Core.TimelineEvent.Create(genIndex k,defaultArg eventType String.Empty,System.Text.Encoding.UTF8.GetBytes v)
             Seq.singleton { stream=k; event=e }
 
 type StreamsConsumer =

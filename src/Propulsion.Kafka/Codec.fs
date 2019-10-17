@@ -39,11 +39,13 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         [<JsonProperty(Required=Required.Default, NullValueHandling=NullValueHandling.Ignore)>]
         m: byte[] }
 
-    interface FsCodec.IEvent<byte[]> with
+    interface FsCodec.IEventData<byte[]> with
         member __.EventType = __.c
         member __.Data = __.d
         member __.Meta = __.m
         member __.Timestamp = __.t
+        member __.CorrelationId = null
+        member __.CausationId = null
 
 /// Rendition of a continguous span of events for a given stream
 type [<NoEquality; NoComparison>] RenderedSpan =
@@ -68,12 +70,12 @@ module RenderedSpan =
             e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
 
     let enum (span: RenderedSpan) : StreamEvent<_> seq =
-        span.e |> Seq.mapi (fun i e -> { stream = span.s; event = FsCodec.Core.IndexedEventData(span.i+int64 i,false,e.c,e.d,e.m,e.t) })
+        span.e |> Seq.mapi (fun i e -> { stream = span.s; event = FsCodec.Core.TimelineEvent.Create(span.i+int64 i,e.c,e.d,e.m,timestamp=e.t) })
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSpan.Parse |> enum
 
-// Rendition of Summary Events representing the agregated state of a Stream at a known point / version
+// Rendition of Summary Events representing the aggregated state of a Stream at a known point / version
 type [<NoEquality; NoComparison>] RenderedSummary =
     {   /// Stream Name
         s: string
@@ -90,16 +92,16 @@ type [<NoEquality; NoComparison>] RenderedSummary =
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event type
 module RenderedSummary =
 
-    let ofStreamEvents (stream : string) (index : int64) (events : FsCodec.IEvent<byte[]> seq) : RenderedSummary =
+    let ofStreamEvents (stream : string) (index : int64) (events : FsCodec.IEventData<byte[]> seq) : RenderedSummary =
         {   s = stream
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
 
-    let ofStreamEvent (stream : string) (index : int64) (event : FsCodec.IEvent<byte[]>) : RenderedSummary =
+    let ofStreamEvent (stream : string) (index : int64) (event : FsCodec.IEventData<byte[]>) : RenderedSummary =
         ofStreamEvents stream index (Seq.singleton event)
 
     let enum (span: RenderedSummary) : StreamEvent<_> seq =
-        seq { for e in span.u -> { stream = span.s; event = FsCodec.Core.IndexedEventData(span.i,true,e.c,e.d,e.m,e.t) } }
+        seq { for e in span.u -> { stream = span.s; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSummary.Parse |> enum

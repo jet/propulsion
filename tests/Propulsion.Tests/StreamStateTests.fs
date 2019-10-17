@@ -9,7 +9,7 @@ let canonicalTime = System.DateTimeOffset.UtcNow
 
 let mk p c : StreamSpan<string> =
     {   index = p
-        events = [| for x in 0..c-1 -> FsCodec.Core.IndexedEventData(int64 x,false,p + int64 x |> string, null, null,canonicalTime) |] }
+        events = [| for x in 0..c-1 -> FsCodec.Core.TimelineEvent.Create(int64 x,p + int64 x |> string, null, timestamp=canonicalTime) |] }
 let mergeSpans = StreamSpan.merge
 let trimSpans = StreamSpan.dropBeforeIndex
 let is (xs : StreamSpan<string>[]) (res : StreamSpan<string>[]) =
