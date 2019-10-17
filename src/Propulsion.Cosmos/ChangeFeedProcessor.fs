@@ -70,10 +70,15 @@ type ChangeFeedObserverFactory =
 
 type ContainerId = { database: string; container: string }
 
+[<RequireQualifiedAccess; NoComparison; NoEquality>]
+type Discovery =
+    | UriKeyAndPolicy of databaseUri:Uri * key:string * policy: ConnectionPolicy
+    | Custom of DocumentClient
+
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =
     static member Start
-        (   log : ILogger, discovery: Equinox.Cosmos.Discovery, connectionPolicy : ConnectionPolicy, source : ContainerId,
+        (   log : ILogger, discovery: Discovery, source: ContainerId,
             /// The aux, non-partitioned container holding the partition leases.
             // Aux container should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
@@ -82,7 +87,7 @@ type ChangeFeedProcessor =
             createObserver : unit -> IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `discovery`
-            ?auxDiscovery : Equinox.Cosmos.Discovery,
+            ?auxDiscovery : Discovery,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             ?leasePrefix : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
@@ -128,12 +133,15 @@ type ChangeFeedProcessor =
             leasePrefix |> Option.iter (fun lp -> feedProcessorOptions.LeasePrefix <- lp + ":")
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
             maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
-            let mk (Equinox.Cosmos.Discovery.UriAndKey (u,k)) d c =
-                DocumentCollectionInfo(Uri = u, DatabaseName = d, CollectionName = c, MasterKey = k, ConnectionPolicy = connectionPolicy)
+            let mkC = function
+                | Discovery.UriKeyAndPolicy (u,k,p) -> new DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=p,desiredConsistencyLevel=Nullable())
+                | Discovery.Custom documentClient -> documentClient
             ChangeFeedProcessorBuilder()
                 .WithHostName(leaseOwnerId)
-                .WithFeedCollection(mk discovery source.database source.container)
-                .WithLeaseCollection(mk (defaultArg auxDiscovery discovery) aux.database aux.container)
+                .WithFeedCollection(DocumentCollectionInfo(DatabaseName=source.database, CollectionName=source.container))
+                .WithLeaseCollection(DocumentCollectionInfo(DatabaseName=aux.database, CollectionName=aux.container))
+                .WithFeedDocumentClient(mkC discovery)
+                .WithLeaseDocumentClient(mkC (defaultArg auxDiscovery discovery))
                 .WithProcessorOptions(feedProcessorOptions)
         match reportLagAndAwaitNextEstimation with
         | None -> ()
