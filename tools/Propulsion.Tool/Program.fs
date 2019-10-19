@@ -16,41 +16,42 @@ open System.Diagnostics
 
 exception MissingArg of string
 
-let envBackstop msg key =
-    match Environment.GetEnvironmentVariable key with
-    | null -> raise <| MissingArg (sprintf "Please provide a %s, either as an argment or via the %s environment variable" msg key)
-    | x -> x 
+let private getEnvVarForArgumentOrThrow varName argName =
+    match Environment.GetEnvironmentVariable varName with
+    | null -> raise (MissingArg(sprintf "Please provide a %s, either as an argument or via the %s environment variable" argName varName))
+    | x -> x
+let private defaultWithEnvVar varName argName = function None -> getEnvVarForArgumentOrThrow varName argName | Some x -> x
 
 module Cosmos =
     type [<NoEquality; NoComparison>] Arguments =
-        | [<AltCommandLine("-vs")>] VerboseStore
-        | [<AltCommandLine("-m")>] ConnectionMode of Equinox.Cosmos.ConnectionMode
-        | [<AltCommandLine("-o")>] Timeout of float
-        | [<AltCommandLine("-r")>] Retries of int
-        | [<AltCommandLine("-rt")>] RetriesWaitTime of int
-        | [<AltCommandLine("-s")>] Connection of string
-        | [<AltCommandLine("-d")>] Database of string
-        | [<AltCommandLine("-c")>] Container of string
+        | [<AltCommandLine("-vs")>]         VerboseStore
+        | [<AltCommandLine("-m")>]          ConnectionMode of Equinox.Cosmos.ConnectionMode
+        | [<AltCommandLine("-o")>]          Timeout of float
+        | [<AltCommandLine("-r")>]          Retries of int
+        | [<AltCommandLine("-rt")>]         RetriesWaitTime of int
+        | [<AltCommandLine("-s")>]          Connection of string
+        | [<AltCommandLine("-d")>]          Database of string
+        | [<AltCommandLine("-c")>]          Container of string
         interface IArgParserTemplate with
             member a.Usage =
                 match a with
-                | VerboseStore ->       "Include low level Store logging."
-                | Timeout _ ->          "specify operation timeout in seconds (default: 5)."
-                | Retries _ ->          "specify operation retries (default: 1)."
-                | RetriesWaitTime _ ->  "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
-                | Connection _ ->       "specify a connection string for a Cosmos account (defaults: envvar:EQUINOX_COSMOS_CONNECTION, Cosmos Emulator)."
-                | ConnectionMode _ ->   "override the connection mode (default: DirectTcp)."
-                | Database _ ->         "specify a database name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_DATABASE, test)."
-                | Container _ ->        "specify a container name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_CONTAINER, test)."
+                | VerboseStore ->           "Include low level Store logging."
+                | Timeout _ ->              "specify operation timeout in seconds (default: 5)."
+                | Retries _ ->              "specify operation retries (default: 1)."
+                | RetriesWaitTime _ ->      "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
+                | Connection _ ->           "specify a connection string for a Cosmos account (defaults: envvar:EQUINOX_COSMOS_CONNECTION, Cosmos Emulator)."
+                | ConnectionMode _ ->       "override the connection mode (default: DirectTcp)."
+                | Database _ ->             "specify a database name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_DATABASE, test)."
+                | Container _ ->            "specify a container name for Cosmos store (defaults: envvar:EQUINOX_COSMOS_CONTAINER, test)."
     type Info(args : ParseResults<Arguments>) =
-        member __.Mode = args.GetResult(ConnectionMode,Equinox.Cosmos.ConnectionMode.Direct)
-        member __.Connection =  match args.TryGetResult Connection  with Some x -> x | None -> envBackstop "Connection" "EQUINOX_COSMOS_CONNECTION"
-        member __.Database =    match args.TryGetResult Database    with Some x -> x | None -> envBackstop "Database"   "EQUINOX_COSMOS_DATABASE"
-        member __.Container =   match args.TryGetResult Container   with Some x -> x | None -> envBackstop "Container"  "EQUINOX_COSMOS_CONTAINER"
+        member __.Mode =                    args.GetResult(ConnectionMode,Equinox.Cosmos.ConnectionMode.Direct)
+        member __.Connection =              args.TryGetResult Connection  |> defaultWithEnvVar "EQUINOX_COSMOS_CONNECTION" "Connection"
+        member __.Database =                args.TryGetResult Database    |> defaultWithEnvVar "EQUINOX_COSMOS_DATABASE"   "Database"
+        member __.Container =               args.TryGetResult Container   |> defaultWithEnvVar "EQUINOX_COSMOS_CONTAINER"  "Container"
 
-        member __.Timeout = args.GetResult(Timeout,5.) |> TimeSpan.FromSeconds
-        member __.Retries = args.GetResult(Retries,1)
-        member __.MaxRetryWaitTime = args.GetResult(RetriesWaitTime, 5)
+        member __.Timeout =                 args.GetResult(Timeout,5.) |> TimeSpan.FromSeconds
+        member __.Retries =                 args.GetResult(Retries,1)
+        member __.MaxRetryWaitTime =        args.GetResult(RetriesWaitTime, 5)
 
     open Equinox.Cosmos
 
@@ -64,68 +65,68 @@ module Cosmos =
 
 [<NoEquality; NoComparison>]
 type Arguments =
-    | [<AltCommandLine("-v")>] Verbose
-    | [<AltCommandLine("-vc")>] VerboseConsole
-    | [<AltCommandLine("-S")>] LocalSeq
+    | [<AltCommandLine("-v")>]              Verbose
+    | [<AltCommandLine("-vc")>]             VerboseConsole
+    | [<AltCommandLine("-S")>]              LocalSeq
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxArguments>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectArguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Verbose -> "Include low level logging regarding specific test runs."
-            | VerboseConsole -> "Include low level test and store actions logging in on-screen output to console."
-            | LocalSeq -> "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
-            | Init _ -> "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
-            | Project _ -> "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
+            | Verbose ->                    "Include low level logging regarding specific test runs."
+            | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
+            | LocalSeq ->                   "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
+            | Init _ ->                     "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 and [<NoComparison>]InitDbArguments =
-    | [<AltCommandLine("-ru"); Mandatory>] Rus of int
-    | [<AltCommandLine("-P")>] SkipStoredProc
-    | [<CliPrefix(CliPrefix.None)>] Cosmos of ParseResults<Cosmos.Arguments>
+    | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
+    | [<AltCommandLine("-P")>]              SkipStoredProc
+    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Rus _ -> "Specify RU/s level to provision for the Database."
-            | SkipStoredProc -> "Inhibit creation of stored procedure in cited Container."
-            | Cosmos _ -> "Cosmos Connection parameters."
+            | Rus _ ->                      "Specify RU/s level to provision for the Database."
+            | SkipStoredProc ->             "Inhibit creation of stored procedure in cited Container."
+            | Cosmos _ ->                   "Cosmos Connection parameters."
 and [<NoComparison>]InitAuxArguments =
-    | [<AltCommandLine("-ru"); Mandatory>] Rus of int
-    | [<AltCommandLine("-s")>] Suffix of string
-    | [<CliPrefix(CliPrefix.None)>] Cosmos of ParseResults<Cosmos.Arguments>
+    | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
+    | [<AltCommandLine("-s")>]              Suffix of string
+    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Rus _ -> "Specify RU/s level to provision for the Aux Container."
-            | Suffix _ -> "Specify Container Name suffix (default: `-aux`)."
-            | Cosmos _ -> "Cosmos Connection parameters."
+            | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
+            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
+            | Cosmos _ ->                   "Cosmos Connection parameters."
 and [<NoComparison; RequireSubcommand>]ProjectArguments =
-    | [<MainCommand; ExactlyOnce>] LeaseId of string
-    | [<AltCommandLine("-s"); Unique>] Suffix of string
-    | [<AltCommandLine("-z"); Unique>] FromTail
-    | [<AltCommandLine("-md"); Unique>] MaxDocuments of int
-    | [<AltCommandLine("-l"); Unique>] LagFreqM of float
-    | [<CliPrefix(CliPrefix.None); Last>] Stats of ParseResults<StatsTarget>
-    | [<CliPrefix(CliPrefix.None); Last>] Kafka of ParseResults<KafkaTarget>
+    | [<MainCommand; ExactlyOnce>]          LeaseId of string
+    | [<AltCommandLine("-s"); Unique>]      Suffix of string
+    | [<AltCommandLine("-z"); Unique>]      FromTail
+    | [<AltCommandLine("-md"); Unique>]     MaxDocuments of int
+    | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
+    | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsTarget>
+    | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaTarget>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | LeaseId _ -> "Projector instance context name."
-            | Suffix _ -> "Specify Container Name suffix (default: `-aux`)."
-            | FromTail _ -> "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
-            | MaxDocuments _ -> "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
-            | LagFreqM _ -> "Specify frequency to dump lag stats. Default: off"
+            | LeaseId _ ->                  "Projector instance context name."
+            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
+            | FromTail _ ->                 "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
+            | MaxDocuments _ ->             "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
+            | LagFreqM _ ->                 "Specify frequency to dump lag stats. Default: off"
 
-            | Stats _ -> "Do not emit events, only stats."
-            | Kafka _ -> "Project to Kafka."
+            | Stats _ ->                    "Do not emit events, only stats."
+            | Kafka _ ->                    "Project to Kafka."
 and [<NoComparison>] KafkaTarget =
     | [<AltCommandLine("-t"); Unique; MainCommand>] Topic of string
     | [<AltCommandLine("-b"); Unique>] Broker of string
     | [<CliPrefix(CliPrefix.None); Last>] Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Topic _ -> "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
-            | Broker _ -> "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
-            | Cosmos _ -> "Cosmos Connection parameters."
+            | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
+            | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
+            | Cosmos _ ->                   "Cosmos Connection parameters."
 and [<NoComparison>] StatsTarget =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Cosmos _ -> "Cosmos Connection parameters."
+            | Cosmos _ ->                   "Cosmos Connection parameters."
 
 let createStoreLog verbose verboseConsole maybeSeqEndpoint =
     let c = LoggerConfiguration().Destructure.FSharpTypes()
@@ -173,8 +174,8 @@ let main argv =
             let broker, topic, storeArgs =
                 match pargs.GetSubCommand() with
                 | Kafka kargs ->
-                    let broker = match kargs.TryGetResult Broker with Some x -> x | None -> envBackstop "Broker" "PROPULSION_KAFKA_BROKER"
-                    let topic = match kargs.TryGetResult Topic with Some x -> x | None -> envBackstop "Topic" "PROPULSION_KAFKA_TOPIC"
+                    let broker = kargs.TryGetResult Broker |> defaultWithEnvVar "PROPULSION_KAFKA_BROKER" "Broker"
+                    let topic =  kargs.TryGetResult Topic  |> defaultWithEnvVar "PROPULSION_KAFKA_TOPIC"  "Topic"
                     Some broker, Some topic,kargs.GetResult KafkaTarget.Cosmos
                 | Stats sargs -> None, None, sargs.GetResult StatsTarget.Cosmos
                 | x -> failwithf "Invalid subcommand %A" x
