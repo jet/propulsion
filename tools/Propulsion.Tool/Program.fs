@@ -231,9 +231,11 @@ let main argv =
                     return! Async.Sleep(int interval.TotalMilliseconds) }
                 let maybeLogLag = pargs.TryGetResult LagFreqM |> Option.map (TimeSpan.FromMinutes >> logLag)
                 let! _cfp =
-                    let discovery = let (Equinox.Cosmos.Discovery.UriAndKey (k,v)) = discovery in Discovery.UriKeyAndPolicy(k,v,connector.ClientOptions)
+                    let client =
+                        let (Equinox.Cosmos.Discovery.UriAndKey (u,k)) = discovery
+                        new Microsoft.Azure.Documents.Client.DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=connector.ClientOptions)
                     ChangeFeedProcessor.Start
-                      ( log, discovery, source, aux, buildRangeProjector,
+                      ( log, client, source, aux, buildRangeProjector,
                         leasePrefix = leaseId,
                         startFromTail = pargs.Contains FromTail,
                         ?maxDocuments = pargs.TryGetResult MaxDocuments,

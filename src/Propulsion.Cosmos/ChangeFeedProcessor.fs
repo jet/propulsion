@@ -70,15 +70,10 @@ type ChangeFeedObserverFactory =
 
 type ContainerId = { database: string; container: string }
 
-[<RequireQualifiedAccess; NoComparison; NoEquality>]
-type Discovery =
-    | UriKeyAndPolicy of databaseUri:Uri * key:string * policy: ConnectionPolicy
-    | Custom of DocumentClient * databaseUri:Uri * policy: ConnectionPolicy
-
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =
     static member Start
-        (   log : ILogger, discovery: Discovery, source: ContainerId,
+        (   log : ILogger, client: DocumentClient, source: ContainerId,
             /// The aux, non-partitioned container holding the partition leases.
             // Aux container should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
@@ -86,8 +81,8 @@ type ChangeFeedProcessor =
             aux : ContainerId,
             createObserver : unit -> IChangeFeedObserver,
             ?leaseOwnerId : string,
-            /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `discovery`
-            ?auxDiscovery : Discovery,
+            /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `client`
+            ?auxClient : DocumentClient,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             ?leasePrefix : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
@@ -103,7 +98,7 @@ type ChangeFeedProcessor =
             /// Delay before re-polling a partitition after backlog has been drained
             ?feedPollDelay : TimeSpan,
             /// Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited
-            ?maxDocuments : int, 
+            ?maxDocuments : int,
             /// Continuously fed per-partion lag information until parent Async completes
             /// callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation) = async {
@@ -119,7 +114,7 @@ type ChangeFeedProcessor =
             s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
 
         let builder =
-            let feedProcessorOptions = 
+            let feedProcessorOptions =
                 ChangeFeedProcessorOptions(
                     StartFromBeginning = not (defaultArg startFromTail false),
                     LeaseAcquireInterval = leaseAcquireInterval, LeaseExpirationInterval = leaseTtl, LeaseRenewInterval = leaseRenewInterval,
@@ -133,18 +128,14 @@ type ChangeFeedProcessor =
             leasePrefix |> Option.iter (fun lp -> feedProcessorOptions.LeasePrefix <- lp + ":")
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
             maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
-            let mkC = function
-                | Discovery.UriKeyAndPolicy (u,k,p) -> new DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=p,desiredConsistencyLevel=Nullable())
-                | Discovery.Custom (documentClient,_u,_p) -> documentClient
-            let mkD cid = function
-                | Discovery.UriKeyAndPolicy (u,_k,p) -> DocumentCollectionInfo(Uri=u,ConnectionPolicy=p,DatabaseName=cid.database,CollectionName=cid.container)
-                | Discovery.Custom (_,uri,p) -> DocumentCollectionInfo(Uri=uri,ConnectionPolicy=p,DatabaseName=cid.database,CollectionName=cid.container)
+            let mkD cid (dc : DocumentClient) =
+                DocumentCollectionInfo(Uri=dc.ServiceEndpoint,ConnectionPolicy=dc.ConnectionPolicy,DatabaseName=cid.database,CollectionName=cid.container)
             ChangeFeedProcessorBuilder()
                 .WithHostName(leaseOwnerId)
-                .WithFeedCollection(mkD source discovery)
-                .WithLeaseCollection(mkD aux (defaultArg auxDiscovery discovery))
-                .WithFeedDocumentClient(mkC discovery)
-                .WithLeaseDocumentClient(mkC (defaultArg auxDiscovery discovery))
+                .WithFeedCollection(mkD source client)
+                .WithLeaseCollection(mkD aux (defaultArg auxClient client))
+                .WithFeedDocumentClient(client)
+                .WithLeaseDocumentClient(defaultArg auxClient client)
                 .WithProcessorOptions(feedProcessorOptions)
         match reportLagAndAwaitNextEstimation with
         | None -> ()
