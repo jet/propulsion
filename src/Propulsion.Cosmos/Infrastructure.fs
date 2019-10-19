@@ -42,3 +42,15 @@ module private AsyncHelpers =
                     elif t.IsCompleted then k ()
                     else ek(Exception "invalid Task state!"))
                 |> ignore
+
+[<AutoOpen>] // TODO remove shim after Equinox 2.0.0-rc7
+module EquinoxCosmosHelpers =
+    type Equinox.Cosmos.Connector with
+         /// Yields a DocumentClient configured per the specified strategy
+        member __.CreateClient
+            (   /// Name should be sufficient to uniquely identify this connection within a single app instance's logs
+                name, discovery : Equinox.Cosmos.Discovery,
+                /// <c>true</c> to inhibit logging of client name
+                ?skipLog) : Microsoft.Azure.Documents.Client.DocumentClient =
+            let (Equinox.Cosmos.Discovery.UriAndKey (u,k)) = discovery
+            new Microsoft.Azure.Documents.Client.DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=__.ClientOptions)

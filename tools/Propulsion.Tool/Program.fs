@@ -144,6 +144,8 @@ let createDomainLog verbose verboseConsole maybeSeqEndpoint =
     let c = match maybeSeqEndpoint with None -> c | Some endpoint -> c.WriteTo.Seq(endpoint)
     c.CreateLogger()
 
+let [<Literal>] appName = "propulsion-tool"
+
 module CosmosInit =
     open Equinox.Cosmos.Store.Sync.Initialization
     let aux (log: ILogger, verboseConsole, maybeSeq) (iargs: ParseResults<InitAuxArguments>) = async {
@@ -154,7 +156,7 @@ module CosmosInit =
             let auxContainerName = let containerSuffix = iargs.GetResult(InitAuxArguments.Suffix,"-aux") in baseContainerName + containerSuffix
             let rus = iargs.GetResult(InitAuxArguments.Rus)
             log.Information("Provisioning Lease/`aux` Container {containe} for {rus:n0} RU/s", auxContainerName, rus)
-            let! conn = connector.Connect("propulsion-tool", discovery)
+            let! conn = connector.Connect(appName, discovery)
             return! initAux conn.Client (dbName,auxContainerName) rus
         | _ -> failwith "please specify a `cosmos` endpoint" }
 
@@ -195,7 +197,7 @@ let main argv =
                 let producer, disposeProducer =
                     match broker,topic with
                     | Some b,Some t ->
-                        let cfg = KafkaProducerConfig.Create("propulsion-tool", Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
+                        let cfg = KafkaProducerConfig.Create(appName, Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
                         let p = BatchedProducer.CreateWithConfigOverrides(log, cfg, t)
                         Some p, (p :> IDisposable).Dispose
                     | _ -> None, id
@@ -231,11 +233,8 @@ let main argv =
                     return! Async.Sleep(int interval.TotalMilliseconds) }
                 let maybeLogLag = pargs.TryGetResult LagFreqM |> Option.map (TimeSpan.FromMinutes >> logLag)
                 let! _cfp =
-                    let client =
-                        let (Equinox.Cosmos.Discovery.UriAndKey (u,k)) = discovery
-                        new Microsoft.Azure.Documents.Client.DocumentClient(serviceEndpoint=u, authKeyOrResourceToken=k, connectionPolicy=connector.ClientOptions)
                     ChangeFeedProcessor.Start
-                      ( log, client, source, aux, buildRangeProjector,
+                      ( log, connector.CreateClient(appName,discovery), source, aux, buildRangeProjector,
                         leasePrefix = leaseId,
                         startFromTail = pargs.Contains FromTail,
                         ?maxDocuments = pargs.TryGetResult MaxDocuments,
