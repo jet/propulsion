@@ -80,7 +80,7 @@ type Arguments =
 and [<NoComparison>]InitDbArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
     | [<AltCommandLine("-P")>]              SkipStoredProc
-    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
+    | [<CliPrefix(CliPrefix.None)>]           Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Database."
@@ -89,24 +89,24 @@ and [<NoComparison>]InitDbArguments =
 and [<NoComparison>]InitAuxArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
     | [<AltCommandLine("-s")>]              Suffix of string
-    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
+    | [<CliPrefix(CliPrefix.None)>]           Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
-            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
+            | Suffix _ ->                    "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
 and [<NoComparison; RequireSubcommand>]ProjectArguments =
-    | [<MainCommand; ExactlyOnce>]          LeaseId of string
+    | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine("-s"); Unique>]      Suffix of string
     | [<AltCommandLine("-z"); Unique>]      FromTail
     | [<AltCommandLine("-md"); Unique>]     MaxDocuments of int
     | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
-    | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsTarget>
-    | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaTarget>
+    | [<CliPrefix(CliPrefix.None); Last>]     Stats of ParseResults<StatsTarget>
+    | [<CliPrefix(CliPrefix.None); Last>]     Kafka of ParseResults<KafkaTarget>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | LeaseId _ ->                  "Projector instance context name."
-            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
+            | ConsumerGroupName _ ->        "Projector instance context name."
+            | Suffix _ ->                    "Specify Container Name suffix (default: `-aux`)."
             | FromTail _ ->                 "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | MaxDocuments _ ->             "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
             | LagFreqM _ ->                 "Specify frequency to dump lag stats. Default: off"
@@ -115,8 +115,8 @@ and [<NoComparison; RequireSubcommand>]ProjectArguments =
             | Kafka _ ->                    "Project to Kafka."
 and [<NoComparison>] KafkaTarget =
     | [<AltCommandLine("-t"); Unique; MainCommand>] Topic of string
-    | [<AltCommandLine("-b"); Unique>] Broker of string
-    | [<CliPrefix(CliPrefix.None); Last>] Cosmos of ParseResults<Cosmos.Arguments>
+    | [<AltCommandLine("-b"); Unique>]      Broker of string
+    | [<CliPrefix(CliPrefix.None); Last>]     Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
@@ -184,7 +184,7 @@ let main argv =
             pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("Requesting ChangeFeed Maximum Document Count {changeFeedMaxItemCount}", bs))
             pargs.TryGetResult LagFreqM |> Option.iter (fun s -> log.Information("Dumping lag stats at {lagS:n0}m intervals", s))
             let auxContainerName = containerName + pargs.GetResult(ProjectArguments.Suffix,"-aux")
-            let leaseId = pargs.GetResult(LeaseId)
+            let leaseId = pargs.GetResult ConsumerGroupName
             log.Information("Processing using LeaseId {leaseId} in Aux Container {auxContainerName}", leaseId, auxContainerName)
             if pargs.Contains FromTail then log.Warning("(If new projection prefix) Skipping projection of all existing events.")
             let source = { database = dbName; container = containerName }

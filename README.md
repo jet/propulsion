@@ -43,10 +43,10 @@ dotnet tool install Propulsion.Tool -g
 
 propulsion init -ru 400 cosmos # generates a -aux container for the ChangeFeedProcessor to maintain consumer group progress within
 # -v for verbose ChangeFeedProcessor logging
-# `projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
+# `-g projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
 # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
 # cosmos specifies source overrides (using defaults in step 1 in this instance)
-propulsion -v project projector1 stats cosmos
+propulsion -v project -g projector1 stats cosmos
 ```
 
 ### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor, emitting to a Kafka topic
@@ -55,21 +55,21 @@ propulsion -v project projector1 stats cosmos
 $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 
 # `-v` for verbose logging
-# `projector3` represents the consumer group; >=1 are allowed, allowing multiple independent projections to run concurrently
+# `-g projector3` represents the consumer group; >=1 are allowed, allowing multiple independent projections to run concurrently
 # `-l 5` to report ChangeFeed lags every 5 minutes
 # `kafka` specifies one wants to emit to Kafka
 # `temp-topic` is the topic to emit to
 # `cosmos` specifies source overrides (using defaults in step 1 in this instance)
-propulsion -v project projector3 -l 5 kafka temp-topic cosmos
+propulsion -v project -g projector3 -l 5 kafka temp-topic cosmos
 ```
 
 # Projectors
 
 See [this medium post regarding some patterns used at Jet in this space](https://medium.com/@eulerfx/scaling-event-sourcing-at-jet-9c873cac33b8) for a broad overview of the reasons one might consider employing a projection system.
 
-# `Propulsion.Cosmos` Projection facilites
+# `Propulsion.Cosmos` Projection facilities
 
- An integral part of the `Equinox.Cosmos` featureset is the ability to project events based on the [Azure DocumentDb ChangeFeed mechanism](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed). Key elements involved in realizing this are:
+ An integral part of the `Equinox.Cosmos` feature set is the ability to project events based on the [Azure DocumentDb ChangeFeed mechanism](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed). Key elements involved in realizing this are:
 - the [storage model needs to be designed in such a way that the aforementioned processor can do its job efficiently](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#cosmos-storage-model)
 - there needs to be an active ChangeFeed Processor per container that monitors events being written, tracking the position of the most recently propagated events
 

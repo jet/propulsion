@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Add `-g` to `ConsumerGroupName` for consistency with [dotnet-templates#37](https://github.com/jet/dotnet-templates/pull/37)
+
 ### Removed
 ### Fixed
 
