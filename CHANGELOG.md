@@ -16,6 +16,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- EventStore: Handle `minBatchSize` < 128
+
 <a name="1.3.0"></a>
 ## [1.3.0] - 2019-10-17
 

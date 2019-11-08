@@ -195,7 +195,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
 
     /// Invoked by pump to process a tranche of work; can have parallel invocations
     let exec conn req = async {
-        let adjust batchSize = if batchSize > minBatchSize then batchSize - 128 else batchSize
+        let adjust batchSize = if batchSize > minBatchSize then max minBatchSize (batchSize - 128) else batchSize
         //let postSpan = ReadResult.StreamSpan >> post >> Async.Ignore
         match req with
         | EofDetected as x -> failwithf "Unexpected %A" x
