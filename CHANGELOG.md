@@ -17,6 +17,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Fixed
 
 - EventStore: Handle `minBatchSize` < 128
+- EventStore: Inhibit redundant checkpoint writing as originally intended in [`1.0.1`](#1.0.1)
 
 <a name="1.3.0"></a>
 ## [1.3.0] - 2019-10-17
