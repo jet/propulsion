@@ -45,7 +45,6 @@ module Folds =
     let transmute events state : Events.Event list*Events.Event list =
         let checkpointEventIsRedundant (e: Events.Checkpointed) (s: Events.Unfolded) =
             s.state.nextCheckpointDue = e.pos.nextCheckpointDue
-            && s.state.pos <> e.pos.pos
         match events, state with
         | [Events.Checkpointed e], (Running state as s) when checkpointEventIsRedundant e state ->
             [],[unfold s]
@@ -59,8 +58,8 @@ type Command =
 
 module Commands =
     let interpret command (state : Folds.State) =
-        let mkCheckpoint at next pos = { at=at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
-        let mk (at : DateTimeOffset) (interval: TimeSpan) pos : Events.Config * Events.Checkpoint=
+        let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
+        let mk (at : DateTimeOffset) (interval: TimeSpan) pos : Events.Config * Events.Checkpoint =
             let freq = int interval.TotalSeconds
             let next = at.AddSeconds(float freq)
             { checkpointFreqS = freq }, mkCheckpoint at next pos
@@ -72,11 +71,14 @@ module Commands =
             let config, checkpoint = mk at freq pos
             [Events.Overrode { config = config; pos = checkpoint}]
         | Update (at,pos), Folds.Running state ->
-            // Force a write every N seconds regardless of whether the position has actually changed
-            if state.state.pos = pos && at < state.state.nextCheckpointDue then [] else
-            let freq = TimeSpan.FromSeconds <| float state.config.checkpointFreqS
-            let config, checkpoint = mk at freq pos
-            [Events.Checkpointed { config = config; pos = checkpoint}]
+            if at < state.state.nextCheckpointDue then
+                if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
+                else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
+                    [Events.Checkpointed { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
+            else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
+                let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
+                let config, checkpoint = mk at freq pos
+                [Events.Checkpointed { config = config; pos = checkpoint }]
         | c, s -> failwithf "Command %A invalid when %A" c s
 
 type Service(log, resolveStream, ?maxAttempts) =
