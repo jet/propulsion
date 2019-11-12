@@ -10,10 +10,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="1.3.1"></a>
+## [1.3.1] - 2019-11-12
+
+### Changed
 
 - Add `-g` to `ConsumerGroupName` for consistency with [dotnet-templates#37](https://github.com/jet/dotnet-templates/pull/37)
 
-### Removed
 ### Fixed
 
 - EventStore: Handle `minBatchSize` < 128
@@ -228,7 +234,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.3.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.3.1...HEAD
+[1.3.1]: https://github.com/jet/propulsion/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/jet/propulsion/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/jet/propulsion/compare/1.2.0...1.2.1
 [1.2.0]: https://github.com/jet/propulsion/compare/1.1.1...1.2.0
