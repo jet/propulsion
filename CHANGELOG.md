@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- StreamKeyEventSequencer: Handle null keys [#43](https://github.com/jet/propulsion/pull/43) :pray: [@nosman](https://github.com/nosman)
+
 <a name="1.3.1"></a>
 ## [1.3.1] - 2019-11-12
 
