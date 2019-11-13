@@ -13,6 +13,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="1.3.2"></a>
+## [1.3.2] - 2019-11-13
+
+### Fixed
+
 - `StreamKeyEventSequencer`: Handle `null` keys [#43](https://github.com/jet/propulsion/pull/43) :pray: [@nosman](https://github.com/nosman)
 - `EventStore.Checkpoint`: Fix to actually write `Checkpointed` events [#44](https://github.com/jet/propulsion/pull/44)
 
@@ -237,7 +242,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.3.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.3.2...HEAD
+[1.3.2]: https://github.com/jet/propulsion/compare/1.3.1...1.3.2
 [1.3.1]: https://github.com/jet/propulsion/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/jet/propulsion/compare/1.2.1...1.3.0
 [1.2.1]: https://github.com/jet/propulsion/compare/1.2.0...1.2.1
