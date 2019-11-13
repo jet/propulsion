@@ -13,43 +13,45 @@ module Events =
     type Checkpoint = { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: int64 }
     type Config = { checkpointFreqS: int }
     type Started = { config: Config; origin: Checkpoint }
-    type Checkpointed = { config: Config; pos: Checkpoint }
-    type Unfolded = { config: Config; state: Checkpoint }
+    type Pos = { config: Config; pos: Checkpoint }
+    type Snapshotted = { config: Config; state: Checkpoint }
     type Event =
         | Started of Started
-        | Checkpointed of Checkpointed
-        | Overrode of Checkpointed
+        | Checkpointed of Pos
+        | Overrode of Pos
+        // Updated events are not actually written to the store when storing in Cosmos (see `transmute`, below)
+        // While we could remove the `nextCheckpointDue` and `config` values, we won't do that, so people can use AnyKnownEvent
+        //  access modes and/or save just load the most recent event
+        | Updated of Pos
         | [<System.Runtime.Serialization.DataMember(Name="state-v1")>]
-            Unfolded of Unfolded
+            Snapshotted of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
     // Avoid binding to a specific serializer as a) nothing else is binding to it in here b) it should serialize with any serializer so we defer
     // let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
 
 module Folds =
 
-    type State = NotStarted | Running of Events.Unfolded
+    type State = NotStarted | Running of Events.Snapshotted
 
     let initial : State = NotStarted
-    let private evolve _ignoreState = function
+    let private evolve _state = function
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
-        | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
-        | Events.Unfolded runningState -> Running runningState
+        | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
+        | Events.Snapshotted runningState -> Running runningState
     let fold : State -> Events.Event seq -> State = Seq.fold evolve
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
-    let private unfold state =
+    let private snapshot state =
         match state with
         | NotStarted -> failwith "should never produce a NotStarted state"
-        | Running state -> Events.Unfolded {config = state.config; state=state.state}
+        | Running state -> Events.Snapshotted {config = state.config; state=state.state}
 
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
+    /// So, we post-process the events to remove `Updated` events (as opposed to `Checkpointed` ones),
+    /// knowing that the state already has that updated folded into it when we snapshot from it
     let transmute events state : Events.Event list*Events.Event list =
-        let checkpointEventIsRedundant (e: Events.Checkpointed) (s: Events.Unfolded) =
-            s.state.nextCheckpointDue = e.pos.nextCheckpointDue
         match events, state with
-        | [Events.Checkpointed e], (Running state as s) when checkpointEventIsRedundant e state ->
-            [],[unfold s]
-        | xs, state ->
-            xs,[unfold state]
+        | [Events.Updated _], state -> [],[snapshot state]
+        | xs, state ->                 xs,[snapshot state]
 
 type Command =
     | Start of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
@@ -74,7 +76,7 @@ module Commands =
             if at < state.state.nextCheckpointDue then
                 if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
                 else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
-                    [Events.Checkpointed { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
+                    [Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
             else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
                 let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
                 let config, checkpoint = mk at freq pos
