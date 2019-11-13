@@ -287,6 +287,7 @@ module Core =
         // we synthesize a monotonically increasing index to render the deduplication facility inert
         let indices = System.Collections.Generic.Dictionary()
         let genIndex streamName =
+            let streamName = match streamName with null -> "" | x -> x // Kafka keys can be null, Dictionary ones cannot
             match indices.TryGetValue streamName with
             | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
             | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
