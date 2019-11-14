@@ -10,12 +10,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="1.4.0-rc1"></a>
+## [1.4.0-rc1] - 2019-11-14
+
+### Changed
 
 - Targets `Equinox` v `2.0.0-rc8`, `FsCodec` v `1.2.1`
 - `Cosmos`: Retarget to specify stores as `DocumentClient` [#40](https://github.com/jet/propulsion/pull/40) :pray: [@Kelvin4702](https://github.com/kelvin4702)
-
-### Removed
-### Fixed
 
 <a name="1.3.2"></a>
 ## [1.3.2] - 2019-11-13
@@ -246,7 +250,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.3.2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.4.0...HEAD
+[1.4.0]: https://github.com/jet/propulsion/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/jet/propulsion/compare/1.3.1...1.3.2
 [1.3.1]: https://github.com/jet/propulsion/compare/1.3.0...1.3.1
 [1.3.0]: https://github.com/jet/propulsion/compare/1.2.1...1.3.0
