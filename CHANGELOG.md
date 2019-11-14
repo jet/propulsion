@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Targets `Equinox` v `2.0.0-rc8`, `FsCodec` v `1.2.1`
+
 ### Removed
 ### Fixed
 

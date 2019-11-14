@@ -28,7 +28,7 @@ module Cosmos =
         | [<AltCommandLine("-m")>]          ConnectionMode of Equinox.Cosmos.ConnectionMode
         | [<AltCommandLine("-o")>]          Timeout of float
         | [<AltCommandLine("-r")>]          Retries of int
-        | [<AltCommandLine("-rt")>]         RetriesWaitTime of int
+        | [<AltCommandLine("-rt")>]         RetriesWaitTime of float
         | [<AltCommandLine("-s")>]          Connection of string
         | [<AltCommandLine("-d")>]          Database of string
         | [<AltCommandLine("-c")>]          Container of string
@@ -51,7 +51,7 @@ module Cosmos =
 
         member __.Timeout =                 args.GetResult(Timeout,5.) |> TimeSpan.FromSeconds
         member __.Retries =                 args.GetResult(Retries,1)
-        member __.MaxRetryWaitTime =        args.GetResult(RetriesWaitTime, 5)
+        member __.MaxRetryWaitTime =        args.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
 
     open Equinox.Cosmos
 
