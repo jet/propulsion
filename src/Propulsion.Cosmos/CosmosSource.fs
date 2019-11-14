@@ -30,9 +30,9 @@ type CosmosSource =
 
     static member Run
         (   log : ILogger,
-            discovery, connectionPolicy, source,
+            client, source,
             aux, leaseId, startFromTail, createObserver,
-            ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxDiscovery) = async {
+            ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
             let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
             for partitionId, lag as value in remainingWork do
@@ -45,7 +45,7 @@ type CosmosSource =
         let maybeLogLag = lagReportFreq |> Option.map logLag
         let! _feedEventHost =
             ChangeFeedProcessor.Start
-              ( log, discovery, connectionPolicy, source, aux, ?auxDiscovery = auxDiscovery, leasePrefix = leaseId, startFromTail = startFromTail,
+              ( log, client, source, aux, ?auxClient = auxClient, leasePrefix = leaseId, startFromTail = startFromTail,
                 createObserver = createObserver, ?reportLagAndAwaitNextEstimation = maybeLogLag, ?maxDocuments = maxDocuments,
                 leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost

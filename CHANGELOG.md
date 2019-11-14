@@ -12,6 +12,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - Targets `Equinox` v `2.0.0-rc8`, `FsCodec` v `1.2.1`
+- `Cosmos`: Retarget to specify stores as `DocumentClient` [#40](https://github.com/jet/propulsion/pull/40) :pray: [@Kelvin4702](https://github.com/kelvin4702)
 
 ### Removed
 ### Fixed
