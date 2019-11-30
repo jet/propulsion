@@ -10,6 +10,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Update to `Microsoft.SourceLink.GitHub` v `1.0.0`
+- `Tool`: Update to `Argu` v `6.0.0`
+
 ### Removed
 ### Fixed
 
@@ -65,7 +69,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
-- `NullReferenceException` when handling `null` keys/values in Kafka messages [#37](https://github.com/jet/propulsion/pull/37) [@jgardella](https://github.com/jgardella)
+- `NullReferenceException` when handling `null` keys/values in Kafka messages [#37](https://github.com/jet/propulsion/pull/37) :pray: [@jgardella](https://github.com/jgardella)
 
 <a name="1.2.0"></a>
 ## [1.2.0] - 2019-09-15
@@ -105,7 +109,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - `EventStore`: Switched  `Checkpoints` to correctly only log one event per hour using Equinox `RollingUnfolds`/`transmute` mechanism
-- `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) [@jgardella](https://github.com/jgardella) 
+- `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) :pray: [@jgardella](https://github.com/jgardella) 
 - Added overloads, `Codec.RenderedSummary` and `Propulsion.Streams.Sync` to support `dotnet new proSummaryProjector/Consumer` [#23](https://github.com/jet/propulsion/pull/23)
 
 ### Changed
