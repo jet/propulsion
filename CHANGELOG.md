@@ -12,6 +12,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - `.Kafka`: Targeted [`FsKafka` v `1.3.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.3.0)
+- `.EventStore`: Targeted `TypeShape` v `8.0.1`
 - Update to `Microsoft.SourceLink.GitHub` v `1.0.0`
 - `Tool`: Update to `Argu` v `6.0.0`
 - `Tool`: Change switches (without arguments) to upper case
