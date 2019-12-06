@@ -13,6 +13,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Update to `Microsoft.SourceLink.GitHub` v `1.0.0`
 - `Tool`: Update to `Argu` v `6.0.0`
+- `Tool`: Change switches (without arguments) to upper case
 
 ### Removed
 ### Fixed

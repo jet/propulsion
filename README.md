@@ -42,11 +42,11 @@ dotnet tool uninstall Propulsion.Tool -g
 dotnet tool install Propulsion.Tool -g
 
 propulsion init -ru 400 cosmos # generates a -aux container for the ChangeFeedProcessor to maintain consumer group progress within
-# -v for verbose ChangeFeedProcessor logging
+# -V for verbose ChangeFeedProcessor logging
 # `-g projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
 # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
 # cosmos specifies source overrides (using defaults in step 1 in this instance)
-propulsion -v project -g projector1 stats cosmos
+propulsion -V project -g projector1 stats cosmos
 ```
 
 ### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor, emitting to a Kafka topic
@@ -54,13 +54,13 @@ propulsion -v project -g projector1 stats cosmos
 ```powershell
 $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 
-# `-v` for verbose logging
+# `-V` for verbose logging
 # `-g projector3` represents the consumer group; >=1 are allowed, allowing multiple independent projections to run concurrently
 # `-l 5` to report ChangeFeed lags every 5 minutes
 # `kafka` specifies one wants to emit to Kafka
 # `temp-topic` is the topic to emit to
 # `cosmos` specifies source overrides (using defaults in step 1 in this instance)
-propulsion -v project -g projector3 -l 5 kafka temp-topic cosmos
+propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 ```
 
 # Projectors

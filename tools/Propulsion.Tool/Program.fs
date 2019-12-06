@@ -1,4 +1,4 @@
-﻿module Propulsion.Tool.Program
+module Propulsion.Tool.Program
 
 open Argu
 open Jet.ConfluentKafka.FSharp
@@ -24,7 +24,7 @@ let private defaultWithEnvVar varName argName = function None -> getEnvVarForArg
 
 module Cosmos =
     type [<NoEquality; NoComparison>] Arguments =
-        | [<AltCommandLine("-vs")>]         VerboseStore
+        | [<AltCommandLine("-V")>]          VerboseStore
         | [<AltCommandLine("-m")>]          ConnectionMode of Equinox.Cosmos.ConnectionMode
         | [<AltCommandLine("-o")>]          Timeout of float
         | [<AltCommandLine("-r")>]          Retries of int
@@ -65,8 +65,8 @@ module Cosmos =
 
 [<NoEquality; NoComparison>]
 type Arguments =
-    | [<AltCommandLine("-v")>]              Verbose
-    | [<AltCommandLine("-vc")>]             VerboseConsole
+    | [<AltCommandLine("-V")>]              Verbose
+    | [<AltCommandLine("-C")>]              VerboseConsole
     | [<AltCommandLine("-S")>]              LocalSeq
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxArguments>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectArguments>
@@ -95,10 +95,10 @@ and [<NoComparison>]InitAuxArguments =
             | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
             | Suffix _ ->                    "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
-and [<NoComparison; RequireSubcommand>]ProjectArguments =
+and [<NoComparison; RequireSubcommand>] ProjectArguments =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine("-s"); Unique>]      Suffix of string
-    | [<AltCommandLine("-z"); Unique>]      FromTail
+    | [<AltCommandLine("-Z"); Unique>]      FromTail
     | [<AltCommandLine("-md"); Unique>]     MaxDocuments of int
     | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
     | [<CliPrefix(CliPrefix.None); Last>]     Stats of ParseResults<StatsTarget>
