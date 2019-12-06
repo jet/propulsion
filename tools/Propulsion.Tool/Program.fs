@@ -1,8 +1,8 @@
-module Propulsion.Tool.Program
+﻿module Propulsion.Tool.Program
 
 open Argu
-open Jet.ConfluentKafka.FSharp
 open Equinox.Core // Stopwatch.Time
+open FsKafka
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Serilog
 open Serilog.Events

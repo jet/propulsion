@@ -3,7 +3,7 @@
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
-open Jet.ConfluentKafka.FSharp
+open FsKafka
 open Propulsion
 open Propulsion.Internal // intervalCheck
 open Propulsion.Kafka.Internal // AwaitTaskCorrect
@@ -240,7 +240,7 @@ module Core =
     type StreamsConsumer =
 
         static member Start<'M,'Req,'Res>
-            (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+            (   log : ILogger, config : KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
                 prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
                 categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
             let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
@@ -261,7 +261,7 @@ module Core =
             ConsumerPipeline.Start(log, config, mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
 
         static member Start<'M,'Res>
-            (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+            (   log : ILogger, config : KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
                 handle : string * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
                 stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
                 categorize, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
@@ -302,7 +302,7 @@ type StreamsConsumer =
     /// Starts a Kafka Consumer processing pipeline per the `config` running up to `maxDop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start<'M,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, parseStreamEvents,
+        (   log : ILogger, config : KafkaConsumerConfig, parseStreamEvents,
             prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
             categorize,
             /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
@@ -323,7 +323,7 @@ type StreamsConsumer =
     /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
     /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
     static member Start<'M,'Res>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, parseStreamEvents,
+        (   log : ILogger, config : KafkaConsumerConfig, parseStreamEvents,
             handle : string * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
             stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>,FailResult>,
             categorize,
@@ -349,7 +349,7 @@ type BatchesConsumer =
     /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
     /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
     static member Start<'M>
-        (   log : ILogger, config : Jet.ConfluentKafka.FSharp.KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
+        (   log : ILogger, config : KafkaConsumerConfig, mapConsumeResult, parseStreamEvents,
             select, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<unit>,FailResult>,
             categorize,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)

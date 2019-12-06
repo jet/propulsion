@@ -1,7 +1,7 @@
 ﻿module Propulsion.Kafka.Integration.Monitor
 
 open Confluent.Kafka
-open Jet.ConfluentKafka.FSharp
+open FsKafka
 open Propulsion.Kafka
 open Propulsion.Kafka.Integration
 open System

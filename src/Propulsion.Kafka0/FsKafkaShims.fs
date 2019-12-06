@@ -1,5 +1,5 @@
-// Shims for stuff that's present in Jet.ConfluentKafka.FSharp 1.x
-namespace Jet.ConfluentKafka.FSharp
+// Shims for stuff that's present in FsKafka 1.x
+namespace FsKafka
 
 open Confluent.Kafka
 open Newtonsoft.Json
@@ -12,13 +12,13 @@ open System.Threading
 open System.Threading.Tasks
 open System.Collections.Generic
 
-// Cloned from Jet.ConfluentKafka.FSharp master branch
+// Cloned from FsKafka master branch
 module Core =
     [<NoComparison>]
     type ConsumerBufferingConfig = { minInFlightBytes : int64; maxInFlightBytes : int64; maxBatchSize : int; maxBatchDelay : TimeSpan }
 
     module Constants =
-        let messageCounterSourceContext = "Jet.ConfluentKafka.FSharp.Core.InFlightMessageCounter"
+        let messageCounterSourceContext = "FsKafka.Core.InFlightMessageCounter"
 
     type InFlightMessageCounter(log: ILogger, minInFlightBytes : int64, maxInFlightBytes : int64) =
         do  if minInFlightBytes < 1L then invalidArg "minInFlightBytes" "must be positive value"

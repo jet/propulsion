@@ -1,4 +1,4 @@
-﻿namespace Jet.ConfluentKafka.FSharp
+﻿namespace FsKafka
 
 open System
 open System.Collections.Generic
@@ -20,9 +20,9 @@ module Types =
 // Stand-ins for stuff presented in Confluent.Kafka v1
 namespace Propulsion.Kafka0.Confluent.Kafka
 
+open FsKafka
 open System
 open System.Collections.Generic
-open Jet.ConfluentKafka.FSharp
 
 [<RequireQualifiedAccess>]
 module Config =

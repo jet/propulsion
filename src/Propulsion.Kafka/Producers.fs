@@ -1,7 +1,7 @@
 ﻿namespace Propulsion.Kafka
 
-open Confluent.Kafka
-open Jet.ConfluentKafka.FSharp
+open Confluent.Kafka // required for shimming
+open FsKafka
 open Propulsion
 open Serilog
 open System

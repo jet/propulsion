@@ -14,7 +14,7 @@
     <Compile Include="..\Propulsion.Kafka\Codec.fs" Link="Codec.fs" />
     <Compile Include="..\Propulsion.Kafka\Infrastructure.fs" Link="Infrastructure.fs" />
     <Compile Include="ConfluentKafka1Shims.fs" />
-    <Compile Include="JetConfluentKafkaFSharpShims.fs" />
+    <Compile Include="FsKafkaShims.fs" />
     <Compile Include="Bindings.fs" />
     <Compile Include="..\Propulsion.Kafka\Consumers.fs" Link="Consumers.fs" />
     <Compile Include="..\Propulsion.Kafka\Monitor.fs" Link="Monitor.fs" />

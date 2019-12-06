@@ -3,7 +3,7 @@
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
-open Jet.ConfluentKafka.FSharp
+open FsKafka
 open Serilog
 open System
 open System.Diagnostics

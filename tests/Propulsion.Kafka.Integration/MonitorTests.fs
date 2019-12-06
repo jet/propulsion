@@ -1,6 +1,6 @@
 ﻿module Propulsion.Kafka.Integration.MonitorTests
 
-open Jet.ConfluentKafka.FSharp
+open FsKafka
 open Propulsion.Kafka
 open Propulsion.Kafka.MonitorImpl
 open Swensen.Unquote
