@@ -10,16 +10,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `.Kafka`: Targeted [`FsKafka` v `1.3.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.3.0)
-- `.Cosmos`: Targeted `Microsoft.Azure.DocumentDB.ChangeFeedProcessor` v `2.2.8`
-- `.EventStore`: Targeted `TypeShape` v `8.0.1`
-- Update to `Microsoft.SourceLink.GitHub` v `1.0.0`
-- `Tool`: Update to `Argu` v `6.0.0`
-- `Tool`: Change switches (without arguments) to upper case
-
 ### Removed
 ### Fixed
+
+<a name="1.5.0"></a>
+## [1.5.0] - 2019-12-06
+
+### Changed
+
+- `Tool`: Change switches (without arguments) to upper case
+- `Kafka`: Targets [`FsKafka` v `1.3.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.3.0)
+- `Cosmos`: Targets `Microsoft.Azure.DocumentDB.ChangeFeedProcessor` v `2.2.8`
+- `EventStore`: Targets `TypeShape` v `8.0.1`
+- `Tool`: Uses `Argu` v `6.0.0`
+- Update to `Microsoft.SourceLink.GitHub` v `1.0.0`
 
 <a name="1.4.0"></a>
 ## [1.4.0] - 2019-11-14
@@ -258,7 +262,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.4.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/1.5.0...HEAD
+[1.5.0]: https://github.com/jet/propulsion/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/jet/propulsion/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/jet/propulsion/compare/1.3.1...1.3.2
 [1.3.1]: https://github.com/jet/propulsion/compare/1.3.0...1.3.1
