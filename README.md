@@ -1,6 +1,6 @@
 # Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=16) [![release](https://img.shields.io/github/release/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg) [<img src="https://img.shields.io/badge/slack-DDD--CQRS--ES%20%23equinox-yellow.svg?logo=slack">](https://j.mp/ddd-es-cqrs)
 
-This is pre-production code; unfortunately it's also pre-documentation atm (there will be eventually, but it's competing with other issues for time...).
+While the bulk of this code is in production across various Walmart systems, it's unfortunately pre-documentation atm (ideally there'd be a nice [summary of various projection patterns](https://github.com/jet/propulsion/issues/21), but also much [broader information discussing the tradeoffs implied in an event-centric system as a whole](https://github.com/ylorph/The-Inevitable-Event-Centric-Book/issues)
 
 If you're looking for a good discussion forum on these kinds of topics, look no further than the [DDD-CQRS-ES Slack](https://github.com/ddd-cqrs-es/slack-community)'s [#equinox channel](https://ddd-cqrs-es.slack.com/messages/CF5J67H6Z) ([invite link](https://j.mp/ddd-es-cqrs)).
 
@@ -143,6 +143,30 @@ dotnet build build.proj -v n
 ```
 
 ## FAQ
+
+<a name="why-not-cfp-all-the-things"></a>
+### why do you employ Kafka as an additional layer, when downstream processes could simply subscribe directly and individually to the relevant Cosmos db change feed(s)? Is it to accommodate other messages besides those emitted from events and snapshot updates? :pray: [@Roland Andrag](https://github.com/randrag)
+
+Well, Kafka is definitely not a critical component or a panacea.
+
+You're correct that the bulk of things that can be achieved using Kafka can be accomplished via usage of the changefeed. One thing to point out is that in the context of enterprise systems, having a well maintained Kafka cluster does have less incremental cost that it might do if you're building a smaller system from nothing.
+
+Some of the negatives of consuming from the CF direct:
+
+- each CFP reader imposes RU charges (its a set of continuous queries against each and every physical range of which the cosmos store is composed)
+- you can't apply a server-side filter, so you pay for everything you see
+- you're very prone to falling into coupling issues
+- (as you alluded to), if there's some logic or work involved in the production of events you'd emit to Kafka, each consumer would need to duplicate that
+
+While many of these concerns can be alleviated to varying degrees by splitting the storage up into multiple containers in order that each consumer will intrinsically be interested in a large proportion of the data it will observe (potentially using database level RU allocations), the write amplification effects of having multiple consumers will always be more significant when reading directly than when using Kafka,  the design of which is well suited to running lots of concurrent readers.
+
+Splitting event categories into containers solely to optimize these effects can also make the management of the transactional workload more complex; the ideal for any given container is to balance the concerns of:
+
+- ensuring that datasets for which you want to ringfence availability / RU allocations don't share with containers/databases for which running hot (potentially significant levels of rate limiting but overall high throughput in aggregate as a result of using a high percentage of the allocated capacity)
+- avoiding prematurely splitting data prior to it being required by the constraints of CosmosDB (i.e. you want to let splitting primarily be driven by reaching the [10GB] physical partition range)
+- not having logical partition hotspots that lead to a small number of physical partitions having significantly above average RU consumption
+- having relatively consistent document sizes
+- economies of scale - if each container (or database if you provision at that level) needs to individually managed (with a degree of headroom to ensure availability for load spikes etc), you'll tend to require higher aggregate RU assignment for a given overall workload based on a topology that has more containers
 
 ### What's the deal with the history of this repo?
 
