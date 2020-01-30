@@ -73,7 +73,7 @@ type EventStoreSource =
                 startMode, spec.groupName, startPos.CommitPosition, Reader.chunk startPos, float startPos.CommitPosition/float maxPos.CommitPosition,
                 checkpointFreq.TotalMinutes)
             return startPos }
-        let cosmosIngester = sink.StartIngester(log.ForContext("Tranche","Ingester"), 0)
+        let ingester = sink.StartIngester(log.ForContext("Tranche","Ingester"), 0)
         let initialSeriesId, conns, dop =  
             log.Information("Tailing every {intervalS:n1}s TODO with {streamReaders} stream catchup-readers", spec.tailInterval.TotalSeconds, spec.streamReaders)
             match spec.gorge with
@@ -84,7 +84,7 @@ type EventStoreSource =
                 Reader.chunk startPos |> int, conns, (max (conns.Length) (spec.streamReaders+1))
             | None ->
                 0, [|conn|], spec.streamReaders+1
-        let striper = StripedIngester(log.ForContext("Tranche","Stripes"), cosmosIngester, maxReadAhead, initialSeriesId, statsInterval)
+        let striper = StripedIngester(log.ForContext("Tranche","Stripes"), ingester, maxReadAhead, initialSeriesId, statsInterval)
         let! _pumpStripes = Async.StartChild striper.Pump // will die with us, which is only after Reader finishes :point_down:
         let post = function
             | Reader.Res.EndOfChunk seriesId -> striper.Submit <| Message.CloseSeries seriesId
