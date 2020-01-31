@@ -1,4 +1,4 @@
-﻿namespace Propulsion.EventStore
+namespace Propulsion.EventStore
 
 open System
 
@@ -60,13 +60,13 @@ type EventStoreSource =
                 | StartOrCheckpoint -> EventStore.ClientAPI.Position.Start
             let! startMode, startPos, checkpointFreq = async {
                 match initialCheckpointState, requestedStartPos with
-                | Checkpoint.Folds.NotStarted, r ->
+                | Checkpoint.Fold.NotStarted, r ->
                     if spec.forceRestart then invalidOp "Cannot specify --forceRestart when no progress yet committed"
                     do! checkpoints.Start(spec.checkpointInterval, r.CommitPosition)
                     return Starting, r, spec.checkpointInterval
-                | Checkpoint.Folds.Running s, _ when not spec.forceRestart ->
+                | Checkpoint.Fold.Running s, _ when not spec.forceRestart ->
                     return Resuming, mkPos s.state.pos, TimeSpan.FromSeconds(float s.config.checkpointFreqS)
-                | Checkpoint.Folds.Running _, r ->
+                | Checkpoint.Fold.Running _, r ->
                     do! checkpoints.Override(spec.checkpointInterval, r.CommitPosition)
                     return Overridding, r, spec.checkpointInterval }
             log.Information("Sync {mode} {groupName} @ {pos} (chunk {chunk}, {pct:p1}) checkpointing every {checkpointFreq:n1}m",

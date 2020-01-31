@@ -10,6 +10,8 @@ module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag group
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
 
+    let (|ForSeries|) (id : CheckpointSeriesId) = Equinox.AggregateId ("Sync", % id)
+
     type Checkpoint = { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: int64 }
     type Config = { checkpointFreqS: int }
     type Started = { config: Config; origin: Checkpoint }
@@ -29,7 +31,7 @@ module Events =
     // Avoid binding to a specific serializer as a) nothing else is binding to it in here b) it should serialize with any serializer so we defer
     // let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
 
-module Folds =
+module Fold =
 
     type State = NotStarted | Running of Events.Snapshotted
 
@@ -58,61 +60,62 @@ type Command =
     | Override of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
     | Update of at: DateTimeOffset * pos: int64
 
-module Commands =
-    let interpret command (state : Folds.State) =
-        let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
-        let mk (at : DateTimeOffset) (interval: TimeSpan) pos : Events.Config * Events.Checkpoint =
-            let freq = int interval.TotalSeconds
-            let next = at.AddSeconds(float freq)
-            { checkpointFreqS = freq }, mkCheckpoint at next pos
-        match command, state with
-        | Start (at, freq, pos), Folds.NotStarted ->
+let interpret command (state : Fold.State) =
+    let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
+    let mk (at : DateTimeOffset) (interval: TimeSpan) pos : Events.Config * Events.Checkpoint =
+        let freq = int interval.TotalSeconds
+        let next = at.AddSeconds(float freq)
+        { checkpointFreqS = freq }, mkCheckpoint at next pos
+    match command, state with
+    | Start (at, freq, pos), Fold.NotStarted ->
+        let config, checkpoint = mk at freq pos
+        [Events.Started { config = config; origin = checkpoint}]
+    | Override (at, freq, pos), Fold.Running _ ->
+        let config, checkpoint = mk at freq pos
+        [Events.Overrode { config = config; pos = checkpoint}]
+    | Update (at,pos), Fold.Running state ->
+        if at < state.state.nextCheckpointDue then
+            if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
+            else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
+                [Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
+        else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
+            let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
             let config, checkpoint = mk at freq pos
-            [Events.Started { config = config; origin = checkpoint}]
-        | Override (at, freq, pos), Folds.Running _ ->
-            let config, checkpoint = mk at freq pos
-            [Events.Overrode { config = config; pos = checkpoint}]
-        | Update (at,pos), Folds.Running state ->
-            if at < state.state.nextCheckpointDue then
-                if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
-                else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
-                    [Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
-            else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
-                let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
-                let config, checkpoint = mk at freq pos
-                [Events.Checkpointed { config = config; pos = checkpoint }]
-        | c, s -> failwithf "Command %A invalid when %A" c s
+            [Events.Checkpointed { config = config; pos = checkpoint }]
+    | c, s -> failwithf "Command %A invalid when %A" c s
 
-type Service(log, resolveStream, ?maxAttempts) =
+type Service(log, resolve, maxAttempts) =
 
-    let (|AggregateId|) (id : CheckpointSeriesId) = Equinox.AggregateId ("Sync", % id)
-    let (|Stream|) (AggregateId id) = Equinox.Stream(log, resolveStream id, defaultArg maxAttempts 3)
-    let execute (Stream stream) cmd = stream.Transact(Commands.interpret cmd)
+    let resolve (Events.ForSeries streamId) = Equinox.Stream(log, resolve streamId, maxAttempts)
 
     /// Determines the present state of the CheckpointSequence
-    member __.Read(Stream stream) =
+    member __.Read(series) =
+        let stream = resolve series
         stream.Query id
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member __.Start(id, freq: TimeSpan, pos: int64) =
-        execute id <| Command.Start(DateTimeOffset.UtcNow, freq, pos)
+    member __.Start(series, freq: TimeSpan, pos: int64) =
+        let stream = resolve series
+        stream.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)))
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member __.Override(id, freq: TimeSpan, pos: int64) =
-        execute id <| Command.Override(DateTimeOffset.UtcNow, freq, pos)
+    member __.Override(series, freq: TimeSpan, pos: int64) =
+        let stream = resolve series
+        stream.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)))
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-    member __.Commit(id, pos: int64) =
-        execute id <| Command.Update(DateTimeOffset.UtcNow, pos)
+    member __.Commit(series, pos: int64) =
+        let stream = resolve series
+        stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
 
 // General pattern is that an Equinox Service is a singleton and calls pass an inentifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with lef=gible code while we in practice only maintain a single checkpoint series per running app
-type CheckpointSeries(name, log, resolveStream) =
+type CheckpointSeries(name, log, resolve) =
     let seriesId = CheckpointSeriesId.ofGroupName name
-    let inner = Service(log, resolveStream)
+    let inner = Service(log, resolve, maxAttempts = 3)
     member __.Read = inner.Read seriesId
     member __.Start(freq, pos) = inner.Start(seriesId, freq, pos)
     member __.Override(freq, pos) = inner.Override(seriesId, freq, pos)

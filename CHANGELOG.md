@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `EventStore.Checkpoint` - style sync (`Folds`->`Fold`)
+
 ### Removed
 ### Fixed
 

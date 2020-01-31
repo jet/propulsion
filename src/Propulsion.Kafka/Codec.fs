@@ -47,7 +47,7 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         member __.CorrelationId = null
         member __.CausationId = null
 
-/// Rendition of a continguous span of events for a given stream
+/// Rendition of a contiguous span of events for a given stream
 type [<NoEquality; NoComparison>] RenderedSpan =
     {   /// Stream Name
         s: string

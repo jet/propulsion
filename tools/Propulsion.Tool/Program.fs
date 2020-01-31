@@ -77,52 +77,52 @@ type Arguments =
             | LocalSeq ->                   "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
             | Init _ ->                     "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
-and [<NoComparison>]InitDbArguments =
+and [<NoComparison; NoEquality>]InitDbArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
     | [<AltCommandLine("-P")>]              SkipStoredProc
-    | [<CliPrefix(CliPrefix.None)>]           Cosmos of ParseResults<Cosmos.Arguments>
+    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Database."
             | SkipStoredProc ->             "Inhibit creation of stored procedure in cited Container."
             | Cosmos _ ->                   "Cosmos Connection parameters."
-and [<NoComparison>]InitAuxArguments =
+and [<NoComparison; NoEquality>]InitAuxArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
     | [<AltCommandLine("-s")>]              Suffix of string
-    | [<CliPrefix(CliPrefix.None)>]           Cosmos of ParseResults<Cosmos.Arguments>
+    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
             | Suffix _ ->                    "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
-and [<NoComparison; RequireSubcommand>] ProjectArguments =
+and [<NoComparison; NoEquality; RequireSubcommand>] ProjectArguments =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine("-s"); Unique>]      Suffix of string
     | [<AltCommandLine("-Z"); Unique>]      FromTail
     | [<AltCommandLine("-md"); Unique>]     MaxDocuments of int
     | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
-    | [<CliPrefix(CliPrefix.None); Last>]     Stats of ParseResults<StatsTarget>
-    | [<CliPrefix(CliPrefix.None); Last>]     Kafka of ParseResults<KafkaTarget>
+    | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsTarget>
+    | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaTarget>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name."
-            | Suffix _ ->                    "Specify Container Name suffix (default: `-aux`)."
+            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | FromTail _ ->                 "(iff `suffix` represents a fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | MaxDocuments _ ->             "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
             | LagFreqM _ ->                 "Specify frequency to dump lag stats. Default: off"
 
             | Stats _ ->                    "Do not emit events, only stats."
             | Kafka _ ->                    "Project to Kafka."
-and [<NoComparison>] KafkaTarget =
+and [<NoComparison; NoEquality>] KafkaTarget =
     | [<AltCommandLine("-t"); Unique; MainCommand>] Topic of string
     | [<AltCommandLine("-b"); Unique>]      Broker of string
-    | [<CliPrefix(CliPrefix.None); Last>]     Cosmos of ParseResults<Cosmos.Arguments>
+    | [<CliPrefix(CliPrefix.None); Last>]   Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
             | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
             | Cosmos _ ->                   "Cosmos Connection parameters."
-and [<NoComparison>] StatsTarget =
+and [<NoComparison; NoEquality>] StatsTarget =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Cosmos.Arguments>
     interface IArgParserTemplate with
         member a.Usage = a |> function
