@@ -10,13 +10,17 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.0.0-rc1"></a>
+## [2.0.0-rc1] - 2019-01-31
+
+### Changed
 
 - Target `FsCodec`.* v `2.0.0`, `Equinox`.* v `2.0.0-rc9` [#47](https://github.com/jet/propulsion/pull/47)
 - Use `FsCodec.StreamName` to replace string names; remove need for `categorize` functions [#47](https://github.com/jet/propulsion/pull/47)
 - Updated `EventStore.Checkpoint` to adhere to standard naming/layout (`Folds`->`Fold`)
-
-### Removed
-### Fixed
 
 <a name="1.5.0"></a>
 ## [1.5.0] - 2019-12-06
@@ -267,7 +271,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/1.5.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc1...HEAD
+[2.0.0-rc1]: https://github.com/jet/propulsion/compare/1.5.0...2.0.0-rc1
 [1.5.0]: https://github.com/jet/propulsion/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/jet/propulsion/compare/1.3.2...1.4.0
 [1.3.2]: https://github.com/jet/propulsion/compare/1.3.1...1.3.2
