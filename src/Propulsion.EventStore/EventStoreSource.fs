@@ -1,5 +1,6 @@
-namespace Propulsion.EventStore
+﻿namespace Propulsion.EventStore
 
+open Propulsion.Streams
 open System
 
 type StartPos = Absolute of int64 | Chunk of int | Percentage of float | TailOrCheckpoint | StartOrCheckpoint
@@ -38,12 +39,12 @@ module Mapping =
         let inline len0ToNull (x : _[]) = match x with null -> null | x when x.Length = 0 -> null | x -> x
         FsCodec.Core.TimelineEvent.Create(x.EventNumber,x.EventType,len0ToNull x.Data,len0ToNull x.Metadata,timestamp=x.Timestamp) :> _
     let (|PropulsionStreamEvent|) (x: RecordedEvent) : Propulsion.Streams.StreamEvent<_> =
-        { stream = x.EventStreamId; event = (|PropulsionTimelineEvent|) x }
+        { stream = StreamName.internalParseSafe x.EventStreamId; event = (|PropulsionTimelineEvent|) x }
 
 type EventStoreSource =
     static member Run
         (   log : Serilog.ILogger, sink : Propulsion.ProjectorPipeline<_>, checkpoints : Checkpoint.CheckpointSeries,
-            connect, spec, categorize, tryMapEvent,
+            connect, spec, tryMapEvent,
             maxReadAhead, statsInterval) = async {
         let conn = connect ()
         let! maxInParallel = Async.StartChild <| Reader.establishMax conn
@@ -91,5 +92,5 @@ type EventStoreSource =
             | Reader.Res.Batch (seriesId, pos, xs) ->
                 let cp = pos.CommitPosition
                 striper.Submit <| Message.Batch(seriesId, cp, checkpoints.Commit cp, xs)
-        let reader = Reader.EventStoreReader(conns, spec.batchSize, spec.minBatchSize, categorize, tryMapEvent, post, spec.tailInterval, dop)
+        let reader = Reader.EventStoreReader(conns, spec.batchSize, spec.minBatchSize, tryMapEvent, post, spec.tailInterval, dop)
         do! reader.Pump(initialSeriesId, startPos, maxPos) }

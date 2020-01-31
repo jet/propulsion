@@ -11,7 +11,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 ### Changed
 
-- `EventStore.Checkpoint` - style sync (`Folds`->`Fold`)
+- Target `FsCodec`.* v `2.0.0`, `Equinox`.* v `2.0.0-rc9` [#47](https://github.com/jet/propulsion/pull/47)
+- Use `FsCodec.StreamName` to replace string names; remove need for `categorize` functions [#47](https://github.com/jet/propulsion/pull/47)
+- Updated `EventStore.Checkpoint` to adhere to standard naming/layout (`Folds`->`Fold`)
 
 ### Removed
 ### Fixed

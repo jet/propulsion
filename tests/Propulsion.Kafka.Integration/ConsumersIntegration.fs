@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.Kafka.Integration
 
 open Confluent.Kafka // required for shimming
+open FsCodec
 open FsKafka
 open Newtonsoft.Json
 open Propulsion.Kafka
@@ -135,8 +136,8 @@ module Helpers =
 
         // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
         member __.ToStreamEvents (KeyValue (k,v : string)) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let e = FsCodec.Core.TimelineEvent.Create(genIndex k,String.Empty,System.Text.Encoding.UTF8.GetBytes v)
-            Seq.singleton { stream = k; event = e }
+            let e = FsCodec.Core.TimelineEvent.Create(genIndex k, String.Empty, System.Text.Encoding.UTF8.GetBytes v)
+            Seq.singleton { stream = Propulsion.Streams.StreamName.internalParseSafe k; event = e }
 
     let deserialize consumerId (e : FsCodec.ITimelineEvent<byte[]>) : ConsumedTestMessage =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
@@ -171,8 +172,7 @@ module Helpers =
                 BatchesConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
                         select, handle,
-                        stats, categorize = id,
-                        pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+                        stats, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -196,7 +196,7 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle (stream : string, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
+            let handle (streamName : StreamName, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
                 for event in span.events do
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return span.events.Length,() }
@@ -206,7 +206,7 @@ module Helpers =
                  Core.StreamsConsumer.Start
                     (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
                         handle, 256, stats,
-                        maxBatches = 50, categorize = id, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+                        maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 

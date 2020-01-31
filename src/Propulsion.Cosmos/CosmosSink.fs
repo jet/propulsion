@@ -2,6 +2,7 @@
 
 open Equinox.Cosmos.Core
 open Equinox.Cosmos.Store
+open FsCodec
 open Propulsion
 open Propulsion.Streams
 open Propulsion.Streams.Internal // Helpers
@@ -25,7 +26,7 @@ module Internal =
             | Duplicate of updatedPos: int64
             | PartialDuplicate of overage: StreamSpan<byte[]>
             | PrefixMissing of batch: StreamSpan<byte[]> * writePos: int64
-        let logTo (log: ILogger) (res : string * Choice<(int*int)*Result,(int*int)*exn>) =
+        let logTo (log: ILogger) (res : StreamName * Choice<(int*int)*Result,(int*int)*exn>) =
             match res with
             | stream, (Choice1Of2 (_, Ok pos)) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -81,7 +82,7 @@ module Internal =
     type OkResult = (int*int)*Writer.Result
     type FailResult = (int*int) * exn
 
-    type CosmosStats(log : ILogger, categorize, statsInterval, stateInterval) =
+    type CosmosStats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.StreamSchedulerStats<OkResult,FailResult>(log, statsInterval, stateInterval)
         let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
         let badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), ref 0, ref 0, ref 0, ref 0
@@ -106,7 +107,7 @@ module Internal =
 
         override __.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
-            let inline bads x (set:HashSet<_>) = badCats.Ingest(categorize x); adds x set
+            let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
@@ -141,7 +142,7 @@ module Internal =
                 let selectedConnection = cosmosContexts.[index]
                 let maxEvents, maxBytes = 16384, 1024 * 1024 - (*fudge*)4096
                 let stats,span = Buffering.StreamSpan.slice (maxEvents,maxBytes) item.span
-                try let! res = Writer.write log selectedConnection item.stream span
+                try let! res = Writer.write log selectedConnection (StreamName.toString item.stream) span
                     return Choice1Of2 (stats,res)
                 with e -> return Choice2Of2 (stats,e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -162,13 +163,13 @@ module Internal =
 type CosmosSink =
 
     static member Start
-        (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams, categorize,
+        (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams,
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let stats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), categorize, statsInterval, stateInterval)
+        let stats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
+        let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
