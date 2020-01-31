@@ -22,8 +22,14 @@ jobs:
       artifactName: 'nupkgs'
 - job: Linux
   pool:
-    vmImage: 'ubuntu-16.04'
+    vmImage: 'ubuntu-latest'
   steps:
+  - task: UseDotNet@2
+    displayName: 'Install .NET Core sdk'
+    inputs:
+      packageType: sdk
+      version: 3.1.101
+      installationPath: $(Agent.ToolsDirectory)/dotnet
   - script: |
       docker network create kafka-net
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4
@@ -44,7 +50,13 @@ jobs:
     condition: succeededOrFailed()
 - job: MacOS
   pool:
-    vmImage: 'macOS-10.13'
+    vmImage: 'macOS-latest'
   steps:
+  - task: UseDotNet@2
+    displayName: 'Install .NET Core sdk'
+    inputs:
+      packageType: sdk
+      version: 3.1.101
+      installationPath: $(Agent.ToolsDirectory)/dotnet
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
