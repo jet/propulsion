@@ -136,7 +136,7 @@ Please note the [QuickStart](#quickstart) is probably the best way to gain an ov
 
 NB The `Propulsion.Kafka.Integration` tests are reliant on a `TEST_KAFKA_BROKER` environment variable pointing to a Broker that has been configured to auto-create ephemeral Kafka Topics as required by the tests (each test run blindly writes to a guid-named topic and trusts the broker will accept the write without any initialization step)
 
-### build, including tests on net461 and netcoreapp2.1
+### build, including tests on net461 and netcoreapp3.1
 
 ```powershell
 dotnet build build.proj -v n
