@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Kafka
 
+open FsCodec
 open Propulsion
 open Propulsion.Streams
 open Serilog
@@ -16,7 +17,7 @@ type ParallelProducerSink =
 
 type StreamsProducerSink =
    static member Start
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, producer : Producer, categorize,
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, producer : Producer,
             ?statsInterval, ?stateInterval,
             /// Default .5 ms
             ?idleDelay,
@@ -30,15 +31,15 @@ type StreamsProducerSink =
             ?maxCycles)
         : ProjectorPipeline<_> =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
-            let handle (stream, span) = async {
-                let! (message : string) = prepare (stream, span)
+            let handle (stream : StreamName, span) = async {
+                let! (key : string, message : string) = prepare (stream, span)
                 match message.Length with
                 | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.events.Length)
                 | _ -> ()
-                let! _ = producer.ProduceAsync(stream,message)
+                let! _ = producer.ProduceAsync(key,message)
                 return span.index + span.events.LongLength
             }
             Sync.StreamsSync.Start
-                (    log, maxReadAhead, maxConcurrentStreams, handle, categorize,
+                (    log, maxReadAhead, maxConcurrentStreams, handle,
                      maxBytes=maxBytes, ?statsInterval = statsInterval, ?stateInterval = stateInterval, ?idleDelay=idleDelay,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)

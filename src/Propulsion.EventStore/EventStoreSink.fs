@@ -24,7 +24,7 @@ module Internal =
             | Duplicate of updatedPos: int64
             | PartialDuplicate of overage: StreamSpan<byte[]>
             | PrefixMissing of batch: StreamSpan<byte[]> * writePos: int64
-        let logTo (log: ILogger) (res : string * Choice<(int*int)*Result,(int*int)*exn>) =
+        let logTo (log: ILogger) (res : FsCodec.StreamName * Choice<(int*int)*Result,(int*int)*exn>) =
             match res with
             | stream, (Choice1Of2 (_, Ok pos)) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -64,7 +64,7 @@ module Internal =
     type OkResult = (int*int)*Writer.Result
     type FailResult = (int*int) * exn
 
-    type EventStoreStats(log : ILogger, categorize, statsInterval, stateInterval) =
+    type EventStoreStats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.StreamSchedulerStats<OkResult,FailResult>(log, statsInterval, stateInterval)
         let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
         let badCats, failStreams, timedOut = CatStats(), HashSet(), ref 0
@@ -89,7 +89,7 @@ module Internal =
 
         override __.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
-            let inline bads x (set:HashSet<_>) = badCats.Ingest(categorize x); adds x set
+            let inline bads streamName (set:HashSet<_>) = badCats.Ingest(StreamName.categorize streamName); adds streamName set
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
@@ -121,7 +121,7 @@ module Internal =
                 let selectedConnection = connections.[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let stats, span' = Buffering.StreamSpan.slice (maxEvents,maxBytes) item.span
-                try let! res = Writer.write storeLog selectedConnection item.stream span'
+                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString item.stream) span'
                     return Choice1Of2 (stats,res)
                 with e -> return Choice2Of2 (stats,e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -140,13 +140,13 @@ module Internal =
 type EventStoreSink =
 
     static member Start
-        (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams, categorize,
+        (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams,
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let projectionStats = Internal.EventStoreStats(log.ForContext<Internal.EventStoreStats>(), categorize, statsInterval, stateInterval)
+        let projectionStats = Internal.EventStoreStats(log.ForContext<Internal.EventStoreStats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStats (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize, categorize)
+        let dumpStats (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, projectionStats, dumpStats)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,

@@ -14,6 +14,11 @@ let inline arrayBytes (x:byte[]) = match x with null -> 0 | x -> x.Length
 let inline recPayloadBytes (x: EventStore.ClientAPI.RecordedEvent) = arrayBytes x.Data + arrayBytes x.Metadata
 let inline payloadBytes (x: EventStore.ClientAPI.ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * sizeof<char>
 let inline mb x = float x / 1024. / 1024.
+let private dash = [|'-'|]
+// Bespoke algorithm suited to grouping streams as observed in EventStore, where {category}-{aggregateId} is expected, but definitely not guaranteed
+let private categorizeEventStoreStreamId (eventStoreStreamId : string) =
+    eventStoreStreamId.Split(dash,2,StringSplitOptions.RemoveEmptyEntries).[0]
+
 
 /// Maintains ingestion stats (thread safe via lock free data structures so it can be used across multiple overlapping readers)
 type OverallStats(?statsInterval) =
@@ -34,14 +39,14 @@ type OverallStats(?statsInterval) =
             progressStart.Restart()
 
 /// Maintains stats for traversals of $all; Threadsafe [via naive locks] so can be used by multiple stripes reading concurrently
-type SliceStatsBuffer(categorize, ?interval) =
+type SliceStatsBuffer(?interval) =
     let intervalMs = let t = defaultArg interval (TimeSpan.FromMinutes 5.) in t.TotalMilliseconds |> int64
     let recentCats, accStart = Dictionary<string,int*int>(), Stopwatch.StartNew()
     member __.Ingest(slice: AllEventsSlice) =
         lock recentCats <| fun () ->
             let mutable batchBytes = 0
             for x in slice.Events do
-                let cat = categorize x.OriginalStreamId
+                let cat = categorizeEventStoreStreamId x.OriginalStreamId
                 let eventBytes = payloadBytes x
                 match recentCats.TryGetValue cat with
                 | true, (currCount, currSize) -> recentCats.[cat] <- (currCount + 1, currSize+eventBytes)
@@ -113,7 +118,7 @@ let establishMax (conn : IEventStoreConnection) = async {
             max <- Some currentMax
         with e ->
             Log.Warning(e, "Could not establish max position")
-            do! Async.Sleep 5000 
+            do! Async.Sleep 5000
     return Option.get max }
 
 /// Walks a stream within the specified constraints; used to grab data when writing to a stream for which a prefix is missing
@@ -135,7 +140,7 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream,pos,limit : int
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
 type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
-        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) categorize (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
+        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) (postBatch : Position -> StreamEvent<_>[] -> Async<int*int>) =
     let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
@@ -147,7 +152,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
         streams.Clear(); cats.Clear()
         for x in events do
             if streams.Add x.stream then
-                cats.Add (categorize x.stream) |> ignore
+                cats.Add (StreamName.categorize x.stream) |> ignore
         let! (cur,max) = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
             range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
@@ -187,11 +192,11 @@ type Res =
 
 /// Holds work queue, together with stats relating to the amount and/or categories of data being traversed
 /// Processing is driven by external callers running multiple concurrent invocations of `Process`
-type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, tryMapEvent, post : Res -> Async<int*int>, tailInterval, dop, ?statsInterval) =
+type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<int*int>, tailInterval, dop, ?statsInterval) =
     let work = System.Collections.Concurrent.ConcurrentQueue()
     let sleepIntervalMs = 100
     let overallStats = OverallStats(?statsInterval=statsInterval)
-    let slicesStats = SliceStatsBuffer(categorize)
+    let slicesStats = SliceStatsBuffer()
 
     /// Invoked by pump to process a tranche of work; can have parallel invocations
     let exec conn req = async {
@@ -223,7 +228,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
             let postBatch pos items = post (Res.Batch (series, pos, items))
             use _ = Serilog.Context.LogContext.PushProperty("Tranche", series)
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
-            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent categorize postBatch |> Stopwatch.Time
+            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent postBatch |> Stopwatch.Time
             match res with
             | PullResult.Eof ->
                 Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
@@ -248,7 +253,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                 | waitTimeMs when waitTimeMs > 0L -> do! Async.Sleep (int waitTimeMs)
                 | _ -> ()
                 tailSw.Restart() }
-            let slicesStats, stats = SliceStatsBuffer(categorize), OverallStats()
+            let slicesStats, stats = SliceStatsBuffer(), OverallStats()
             let progressSw = Stopwatch.StartNew()
             while true do
                 let currentPos = range.Current
@@ -257,7 +262,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, categorize, 
                         count, currentPos.CommitPosition, chunk currentPos)
                     progressSw.Restart()
                 count <- count + 1
-                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent categorize postBatch
+                let! res = pullAll (slicesStats,stats) (conn,batchSize) (range,true) tryMapEvent postBatch
                 do! awaitInterval
                 match res with
                 | PullResult.EndOfTranche | PullResult.Eof _ -> ()

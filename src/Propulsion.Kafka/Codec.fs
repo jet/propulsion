@@ -3,6 +3,7 @@
 // (and/or series of nugets, with an implementation per concrete serialization stack)
 namespace Propulsion.Codec.NewtonsoftJson
 
+open FsCodec
 open FsCodec.NewtonsoftJson
 open Newtonsoft.Json
 open Propulsion.Streams
@@ -64,13 +65,15 @@ type [<NoEquality; NoComparison>] RenderedSpan =
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
 
-    let ofStreamSpan (stream : string) (span : StreamSpan<_>) : RenderedSpan =
-        {   s = stream
+    let ofStreamSpan (streamName : StreamName) (span : StreamSpan<_>) : RenderedSpan =
+        {   s = StreamName.toString streamName
             i = span.index
             e = span.events |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta }) }
 
     let enum (span: RenderedSpan) : StreamEvent<_> seq =
-        span.e |> Seq.mapi (fun i e -> { stream = span.s; event = FsCodec.Core.TimelineEvent.Create(span.i+int64 i,e.c,e.d,e.m,timestamp=e.t) })
+        let streamName = StreamName.internalParseSafe span.s
+        let inline mkEvent offset (e : RenderedEvent) = FsCodec.Core.TimelineEvent.Create(span.i+int64 offset, e.c, e.d, e.m, timestamp=e.t)
+        span.e |> Seq.mapi (fun i e -> { stream = streamName; event = mkEvent i e })
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSpan.Parse |> enum
@@ -89,19 +92,20 @@ type [<NoEquality; NoComparison>] RenderedSummary =
     static member Parse(summaryJson : string) : RenderedSummary =
         Serdes.Deserialize(summaryJson)
 
-/// Helpers for mapping to/from `Propulsion.Streams` canonical event type
+/// Helpers for mapping to/from `Propulsion.Streams` canonical event contract
 module RenderedSummary =
 
-    let ofStreamEvents (stream : string) (index : int64) (events : FsCodec.IEventData<byte[]> seq) : RenderedSummary =
-        {   s = stream
+    let ofStreamEvents (streamName : StreamName) (index : int64) (events : FsCodec.IEventData<byte[]> seq) : RenderedSummary =
+        {   s = StreamName.toString streamName
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = x.Data; m = x.Meta } |] }
 
-    let ofStreamEvent (stream : string) (index : int64) (event : FsCodec.IEventData<byte[]>) : RenderedSummary =
-        ofStreamEvents stream index (Seq.singleton event)
+    let ofStreamEvent (streamName : StreamName) (index : int64) (event : FsCodec.IEventData<byte[]>) : RenderedSummary =
+        ofStreamEvents streamName index (Seq.singleton event)
 
     let enum (span: RenderedSummary) : StreamEvent<_> seq =
-        seq { for e in span.u -> { stream = span.s; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
+        let streamName = StreamName.internalParseSafe span.s
+        seq { for e in span.u -> {  stream = streamName; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSummary.Parse |> enum

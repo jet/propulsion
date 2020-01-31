@@ -10,7 +10,7 @@ module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag group
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
 
-    let (|ForSeries|) (id : CheckpointSeriesId) = Equinox.AggregateId ("Sync", % id)
+    let (|ForSeries|) (id : CheckpointSeriesId) = FsCodec.StreamName.create "Sync" %id
 
     type Checkpoint = { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: int64 }
     type Config = { checkpointFreqS: int }
