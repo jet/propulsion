@@ -52,7 +52,8 @@ module Config =
     /// Config keys applying to Producers
     module Producer =
         let acks                = mkKey "acks" (function Acks.Zero -> 0 | Acks.Leader -> 1 | Acks.All -> -1)
-        let compression         = mkKey "compression.type" (function CompressionType.None -> "none" | CompressionType.GZip -> "gzip" | CompressionType.Snappy -> "snappy" | CompressionType.Lz4 -> "lz4")
+        // NOTE CK 0.11.4 adds a "compression.type" alias - we use "compression.codec" as 0.11.3 will otherwise throw
+        let compression         = mkKey "compression.codec" (function CompressionType.None -> "none" | CompressionType.GZip -> "gzip" | CompressionType.Snappy -> "snappy" | CompressionType.Lz4 -> "lz4")
         let linger              = mkKey "linger.ms" id<int>
         let messageSendRetries  = mkKey "message.send.max.retries" id<int>
         let partitioner         = mkKey "partitioner" (function Partitioner.Random -> "random" | Partitioner.Consistent -> "consistent" | Partitioner.ConsistentRandom -> "consistent_random")

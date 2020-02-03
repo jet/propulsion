@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Change `"compression.type"` to `"compression.codec"` to correctly support `Confluent.Kafka` v `0.11.3`
+
 <a name="2.0.0-rc1"></a>
 ## [2.0.0-rc1] - 2019-01-31
 
