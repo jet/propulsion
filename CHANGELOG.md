@@ -13,7 +13,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
-- Change `"compression.type"` to `"compression.codec"` to correctly support `Confluent.Kafka` v `0.11.3`
+<a name="2.0.0-rc2"></a>
+## [2.0.0-rc2] - 2019-02-04
+
+### Fixed
+
+- `Kafka0`: Change `"compression.type"` to `"compression.codec"` to correctly support `Confluent.Kafka` v `0.11.3`
 
 <a name="2.0.0-rc1"></a>
 ## [2.0.0-rc1] - 2019-01-31
@@ -273,7 +278,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 (Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc2...HEAD
+[2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
 [2.0.0-rc1]: https://github.com/jet/propulsion/compare/1.5.0...2.0.0-rc1
 [1.5.0]: https://github.com/jet/propulsion/compare/1.4.0...1.5.0
 [1.4.0]: https://github.com/jet/propulsion/compare/1.3.2...1.4.0
