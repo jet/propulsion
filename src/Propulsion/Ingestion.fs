@@ -9,16 +9,20 @@ open System.Threading
 /// Manages writing of progress
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)
 /// - retries until success or a new item is posted
-type ProgressWriter<'Res when 'Res: equality>(?period,?sleep) =
-    let writeInterval,sleepPeriod = defaultArg period (TimeSpan.FromSeconds 5.), defaultArg sleep (TimeSpan.FromMilliseconds 100.)
+type ProgressWriter<'Res when 'Res: equality>(?period, ?sleep) =
+    let writeInterval, sleepPeriod = defaultArg period (TimeSpan.FromSeconds 5.), defaultArg sleep (TimeSpan.FromMilliseconds 100.)
     let due = intervalCheck writeInterval
     let mutable committedEpoch = None
     let mutable validatedPos = None
-    let result = Event<Choice<'Res,exn>>()
+    let result = Event<Choice<'Res, exn>>()
+
     [<CLIEvent>] member __.Result = result.Publish
+
     member __.Post(version,f) =
-        Volatile.Write(&validatedPos,Some (version,f))
+        Volatile.Write(&validatedPos,Some (version, f))
+
     member __.CommittedEpoch = Volatile.Read(&committedEpoch)
+
     member __.Pump = async {
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
@@ -35,7 +39,7 @@ type private InternalMessage =
     /// Confirmed completion of a batch
     | Validated of epoch: int64
     /// Result from updating of Progress to backing store - processed up to nominated `epoch` or threw `exn`
-    | ProgressResult of Choice<int64,exn>
+    | ProgressResult of Choice<int64, exn>
     /// Internal message for stats purposes
     | Added of streams: int * events: int
 
@@ -44,6 +48,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
     let progCommitFails, progCommits = ref 0, ref 0 
     let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
     let statsDue = intervalCheck statsInterval
+
     let dumpStats (activeReads, maxReads) =
         log.Information("Buffering Cycles {cycles} Ingested {batches} ({streams:n0}s {events:n0}e)", !cycles, !batchesPended, !streamsPended, !eventsPended)
         cycles := 0; batchesPended := 0; streamsPended := 0; eventsPended := 0
@@ -62,6 +67,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
         else
             log.Information("Uncommitted {activeReads}/{maxReads} @ {validated} (committed: {committed})",
                     activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch)
+
     member __.Handle : InternalMessage -> unit = function
         | Validated epoch ->
             validatedEpoch <- Some epoch
@@ -70,10 +76,11 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
             committedEpoch <- Some epoch
         | ProgressResult (Choice2Of2 (_exn : exn)) ->
             incr progCommitFails
-        | Added (streams,events) ->
+        | Added (streams, events) ->
             incr batchesPended
             streamsPended := !streamsPended + streams
             eventsPended := !eventsPended + events
+
     member __.TryDump(readState) =
         incr cycles
         let due = statsDue ()
@@ -82,32 +89,37 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
 
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
-type Ingester<'Items,'Batch> private
+type Ingester<'Items, 'Batch> private
     (   stats : Stats, maxRead, sleepInterval : TimeSpan,
-        makeBatch : (unit->unit) -> 'Items -> ('Batch * (int * int)),
+        makeBatch : (unit -> unit) -> 'Items -> ('Batch * (int * int)),
         submit : 'Batch -> unit,
         cts : CancellationTokenSource) =
+
     let maxRead = Sem maxRead
     let incoming = new ConcurrentQueue<_>()
     let messages = new ConcurrentQueue<InternalMessage>()
+
     let tryDequeue (x : ConcurrentQueue<_>) =
         let mutable tmp = Unchecked.defaultof<_>
         if x.TryDequeue &tmp then Some tmp
         else None
+
     let progressWriter = ProgressWriter<_>()
+
     let tryIncoming () =
         match tryDequeue incoming with
         | None -> false
-        | Some (epoch,checkpoint,items,outerMarkCompleted) ->
+        | Some (epoch, checkpoint, items, outerMarkCompleted) ->
             let markCompleted () =
                 maxRead.Release()
                 outerMarkCompleted |> Option.iter (fun f -> f ()) // we guarantee this happens before checkpoint can be called
                 messages.Enqueue (Validated epoch)
-                progressWriter.Post(epoch,checkpoint)
-            let batch,(streamCount, itemCount) = makeBatch markCompleted items
+                progressWriter.Post(epoch, checkpoint)
+            let batch, (streamCount, itemCount) = makeBatch markCompleted items
             submit batch
             messages.Enqueue(Added (streamCount,itemCount))
             true
+
     let tryHandle () =
         match tryDequeue messages with
         | None -> false
@@ -133,12 +145,12 @@ type Ingester<'Items,'Batch> private
         let maxWait, statsInterval = defaultArg sleepInterval (TimeSpan.FromMilliseconds 5.), defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let cts = new CancellationTokenSource()
         let stats = Stats(log, statsInterval)
-        let instance = Ingester<_,_>(stats, maxRead, maxWait, makeBatch, submit, cts)
+        let instance = Ingester<_, _>(stats, maxRead, maxWait, makeBatch, submit, cts)
         Async.Start(instance.Pump(), cts.Token)
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
-    /// Returns (reads in flight,maximum reads in flight)
+    /// Returns (reads in flight, maximum reads in flight)
     /// markCompleted will (if supplied) be triggered when the supplied batch has completed processing
     ///   (but prior to the calling of the checkpoint method, which will take place asynchronously)
     member __.Submit(epoch, checkpoint, items, ?markCompleted) = async {
@@ -148,5 +160,5 @@ type Ingester<'Items,'Batch> private
         do! maxRead.Await(cts.Token)
         return maxRead.State }
 
-    /// As range assignments get revoked, a user is expected to `Stop `the active processing thread for the Ingester before releasing references to it
+    /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
     member __.Stop() = cts.Cancel()
