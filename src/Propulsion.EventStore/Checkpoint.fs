@@ -37,13 +37,12 @@ module Fold =
     type State = NotStarted | Running of Events.Snapshotted
 
     let initial : State = NotStarted
-
     let private evolve _state = function
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
         | Events.Snapshotted runningState -> Running runningState
-
     let fold : State -> Events.Event seq -> State = Seq.fold evolve
+
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
 
     let private snapshot state =
