@@ -57,7 +57,6 @@ module Scheduling =
             // need to record stats first as remaining = 0 is used as completion gate
             Interlocked.Add(&__.elapsedMs, int64 duration.TotalMilliseconds + 1L) |> ignore
             Interlocked.Decrement(&__.remaining) |> ignore
-
         member private __.RecordExn(_duration, exn) =
             __.faults.Push exn
 
