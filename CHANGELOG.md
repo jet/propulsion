@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Extend `StreamsProjector` overloads to enable simplified overriding of Write Position
+
 ### Removed
 ### Fixed
 

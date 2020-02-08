@@ -35,7 +35,7 @@ module private Impl =
             mutable highWaterMark : ConsumeResult<string,string> // hang on to it so we can generate a checkpointing lambda
             messages : ResizeArray<'M> }
         member __.Enqueue(sz, message, mapMessage) =
-            __.highWaterMark <- message 
+            __.highWaterMark <- message
             __.reservation <- __.reservation + sz // size we need to unreserve upon completion
             __.messages.Add(mapMessage message)
         static member Create(sz,message,mapMessage) =
@@ -140,7 +140,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let ct = cts.Token
         let tcs = new TaskCompletionSource<unit>()
         let triggerStop () =
-            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information 
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Consuming... Stopping {name}", consumer.Name)
             cts.Cancel()
         let start name f =
@@ -187,7 +187,7 @@ type ParallelConsumer private () =
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'M> =
             let onCompletion' () = x.onCompletion(); onCompletion()
-            { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; } 
+            { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; }
         let submitBatch (x : Parallel.Scheduling.Batch<_>) : int =
             scheduler.Submit x
             x.messages.Length
@@ -271,7 +271,7 @@ module Core =
                 stats,(streamName,span)
             let handle (streamName,span : Streams.StreamSpan<_>) = async {
                 let! res = handle (streamName,span)
-                return span.events.Length,res }
+                return span.index + span.events.LongLength, res }
             StreamsConsumer.Start<'M,(StreamName*Propulsion.Streams.StreamSpan<_>),'Res>(
                 log, config, mapConsumeResult, parseStreamEvents, prepare, handle, maxDop, stats,
                 ?pipelineStatsInterval = pipelineStatsInterval,
