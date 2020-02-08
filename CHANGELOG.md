@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Extend `StreamsProjector` overloads to enable simplified overriding of Write Position
-
 ### Removed
 ### Fixed
+
+<a name="2.0.0-rc3"></a>
+## [2.0.0-rc3] - 2019-02-08
+
+### Changed
+
+- Extend `StreamsProjector` overloads to enable simplified overriding of Write Position
 
 <a name="2.0.0-rc2"></a>
 ## [2.0.0-rc2] - 2019-02-04
@@ -279,9 +283,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-(Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
-
-[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc3...HEAD
+[2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
 [2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
 [2.0.0-rc1]: https://github.com/jet/propulsion/compare/1.5.0...2.0.0-rc1
 [1.5.0]: https://github.com/jet/propulsion/compare/1.4.0...1.5.0
@@ -304,3 +307,5 @@ The `Unreleased` section name is replaced by the expected version of next releas
 [1.0.1-rc2]: https://github.com/jet/propulsion/compare/1.0.1-rc1...1.0.1-rc2
 [1.0.1-rc1]: https://github.com/jet/propulsion/compare/1.0.0-rc13...1.0.1-rc1
 [1.0.0-rc13]: https://github.com/jet/propulsion/compare/d2caf9a007a137994e91ab709c87eb29fe32489b...1.0.0-rc13
+
+(Stripped down repo for history purposes, see [`master` branch of Jet.ConfluentKafka.FSharp for complete history prior to 1.0.0-rc13](https://github.com/jet/Jet.ConfluentKafka.FSharp/blob/master/CHANGELOG.md))
