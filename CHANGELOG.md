@@ -284,7 +284,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## squashed prior to initial relevant commit
 
 [Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc3...HEAD
-[2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
+[2.0.0-rc3]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
 [2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
 [2.0.0-rc1]: https://github.com/jet/propulsion/compare/1.5.0...2.0.0-rc1
 [1.5.0]: https://github.com/jet/propulsion/compare/1.4.0...1.5.0
