@@ -44,9 +44,10 @@ type [<NoEquality; NoComparison>] RenderedEvent =
         member __.EventType = __.c
         member __.Data = __.d
         member __.Meta = __.m
-        member __.Timestamp = __.t
+        member __.EventId = System.Guid.Empty
         member __.CorrelationId = null
         member __.CausationId = null
+        member __.Timestamp = __.t
 
 /// Rendition of a contiguous span of events for a given stream
 type [<NoEquality; NoComparison>] RenderedSpan =
