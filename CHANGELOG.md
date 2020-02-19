@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Target `FsCodec`.* v `2.0.0`, `Equinox`.* v `2.0.0`
-
 ### Removed
 ### Fixed
+
+<a name="2.0.0"></a>
+## [2.0.0] - 2019-02-19
+
+### Changed
+
+- Target `FsCodec`.* v `2.0.0`, `Equinox`.* v `2.0.0`
 
 <a name="2.0.0-rc3"></a>
 ## [2.0.0-rc3] - 2019-02-08
@@ -286,7 +290,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0-rc3...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0...HEAD
+[2.0.0]: https://github.com/jet/propulsion/compare/2.0.0-rc3...2.0.0
 [2.0.0-rc3]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
 [2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
 [2.0.0-rc1]: https://github.com/jet/propulsion/compare/1.5.0...2.0.0-rc1
