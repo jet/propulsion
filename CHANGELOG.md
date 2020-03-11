@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.1.0"></a>
+## [2.1.0] - 2019-03-11
+
+### Added
 
 - `StreamsProducerSink`: Added overload to facilitate `prepare` make production of an output `option`al and admitting processing of Stats [#50](https://github.com/jet/propulsion/pull/50)
 
@@ -17,9 +25,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `StreamsSync`: Add `* 'outcome` to `handle` function signature [#50](https://github.com/jet/propulsion/pull/50)
 - Update to `3.1.101` SDK
 - Retarget `netcoreapp2.1` apps to `netcoreapp3.1` (not least to make tool traverse proxies on Windows)
-
-### Removed
-### Fixed
 
 <a name="2.0.0"></a>
 ## [2.0.0] - 2019-02-19
@@ -298,7 +303,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.0.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.1.0...HEAD
+[2.1.0]: https://github.com/jet/propulsion/compare/2.0.0...2.1.0
 [2.0.0]: https://github.com/jet/propulsion/compare/2.0.0-rc3...2.0.0
 [2.0.0-rc3]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
 [2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
