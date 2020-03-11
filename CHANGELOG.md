@@ -9,15 +9,19 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- `StreamsSyncStats`: Added missing `HandleOk`
-
 ### Changed
 ### Removed
 ### Fixed
 
+<a name="2.1.1"></a>
+## [2.1.1] - 2019-03-11
+
+### Added
+
+- `StreamsSyncStats`: Added missing `HandleOk`
+
 <a name="2.1.0"></a>
-## [2.1.0] - 2019-03-11
+## 2.1.0 - 2019-03-11
 
 ### Added
 
@@ -306,8 +310,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.1.0...HEAD
-[2.1.0]: https://github.com/jet/propulsion/compare/2.0.0...2.1.0
+[Unreleased]: https://github.com/jet/propulsion/compare/2.1.1...HEAD
+[2.1.1]: https://github.com/jet/propulsion/compare/2.0.0...2.1.1
 [2.0.0]: https://github.com/jet/propulsion/compare/2.0.0-rc3...2.0.0
 [2.0.0-rc3]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
 [2.0.0-rc2]: https://github.com/jet/propulsion/compare/2.0.0-rc1...2.0.0-rc2
