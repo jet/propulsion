@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `StreamsSyncStats`: Added missing `HandleOk`
+
 ### Changed
 ### Removed
 ### Fixed

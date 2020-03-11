@@ -874,22 +874,25 @@ module Sync =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_, (es, bs), (prepareElapsed, _)))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_, (es, bs), (prepareElapsed, outcome)))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
+                __.HandleOk outcome
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), _exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
+        abstract member HandleOk : outcome : 'Outcome -> unit
+        default __.HandleOk( _ : 'Outcome) : unit = ()
 
     type StreamsSync =
 
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
-                stats : Scheduling.StreamSchedulerStats<_,_>,
+                stats : StreamsSyncStats<'Outcome>,
                 ?projectorStatsInterval,
                 /// Default .5 ms
                 ?idleDelay,
