@@ -9,8 +9,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `StreamsProducerSink`: Added overload to facilitate `prepare` make production of an output `option`al and admitting processing of Stats [#50](https://github.com/jet/propulsion/pull/50)
+
 ### Changed
 
+- `StreamsSync`: Add `* 'outcome` to `handle` function signature [#50](https://github.com/jet/propulsion/pull/50)
 - Update to `3.1.101` SDK
 - Retarget `netcoreapp2.1` apps to `netcoreapp3.1` (not least to make tool traverse proxies on Windows)
 

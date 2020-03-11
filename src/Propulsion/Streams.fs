@@ -856,8 +856,8 @@ type StreamsProjector =
 
 module Sync =
 
-    type StreamsSyncStats(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.StreamSchedulerStats<Projector.OkResult<TimeSpan>, Projector.FailResult>(log, statsInterval, stateInterval)
+    type StreamsSyncStats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
+        inherit Scheduling.StreamSchedulerStats<Projector.OkResult<TimeSpan * 'Outcome>, Projector.FailResult>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()
         let prepareStats = Internal.LatencyStats("prepare")
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -874,7 +874,7 @@ module Sync =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_, (es, bs), prepareElapsed))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_, (es, bs), (prepareElapsed, _)))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -887,8 +887,10 @@ module Sync =
     type StreamsSync =
 
         static member Start
-            (   log : ILogger, maxReadAhead, maxConcurrentStreams, handle,
-                ?statsInterval, ?stateInterval,
+            (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+                handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
+                stats : Scheduling.StreamSchedulerStats<_,_>,
+                ?projectorStatsInterval,
                 /// Default .5 ms
                 ?idleDelay,
                 /// Default 1 MiB
@@ -902,16 +904,16 @@ module Sync =
                 /// Hook to wire in external stats
                 ?dumpExternalStats)
             : ProjectorPipeline<_> =
-            let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
+            let projectorStatsInterval = defaultArg projectorStatsInterval (TimeSpan.FromMinutes 5.)
+
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
-            let stats = StreamsSyncStats(log.ForContext<StreamsSyncStats>(), statsInterval, stateInterval)
 
             let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
                 let (eventCount, bytesCount), span = Buffering.StreamSpan.slice (maxEvents, maxBytes) item.span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
-                try let! version' = handle (item.stream, span)
+                try let! (version', outcome) = handle (item.stream, span)
                     let prepareElapsed = sw.Elapsed
-                    return Choice1Of2 (version', (eventCount, bytesCount), prepareElapsed)
+                    return Choice1Of2 (version', (eventCount, bytesCount), (prepareElapsed, outcome))
                 with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
 
             let interpretWriteResultProgress _streams (stream : StreamName) = function
@@ -927,8 +929,8 @@ module Sync =
 
             let dispatcher = Scheduling.MultiDispatcher<_, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
-                Scheduling.StreamSchedulingEngine<Projector.OkResult<TimeSpan>, Projector.FailResult>
+                Scheduling.StreamSchedulingEngine<Projector.OkResult<TimeSpan * 'Outcome>, Projector.FailResult>
                     (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, projectorStatsInterval, maxSubmissionsPerPartition = maxBatches)
