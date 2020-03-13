@@ -11,7 +11,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 ### Changed
 
-- `EventStore`: Updated `CheckpointSeries` to adhere more closely to naming per [standardized naming](https://github.com/jet/dotnet-templates/pull/54)
+- `EventStore`: Updated `CheckpointSeries` to adhere more closely to naming per [standardized naming](https://github.com/jet/dotnet-templates/pull/54) [#51](https://github.com/jet/propulsion/pull/51)
 
 ### Removed
 ### Fixed
