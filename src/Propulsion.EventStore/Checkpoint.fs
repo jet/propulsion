@@ -7,10 +7,11 @@ type CheckpointSeriesId = string<checkpointSeriesId>
 and [<Measure>] checkpointSeriesId
 module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag groupName
 
+let [<Literal>] Category = "Sync"
+let streamName (id : CheckpointSeriesId) = FsCodec.StreamName.create Category %id
+
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
-
-    let (|ForSeries|) (id : CheckpointSeriesId) = FsCodec.StreamName.create "Sync" %id
 
     type Checkpoint = { at : DateTimeOffset; nextCheckpointDue : DateTimeOffset; pos : int64 }
     type Config = { checkpointFreqS : int }
@@ -88,8 +89,7 @@ let interpret command (state : Fold.State) =
             [Events.Checkpointed { config = config; pos = checkpoint }]
     | c, s -> failwithf "Command %A invalid when %A" c s
 
-type Service(log, resolve, maxAttempts) =
-    let resolve (Events.ForSeries streamId) = Equinox.Stream(log, resolve streamId, maxAttempts)
+type Service internal (resolve : CheckpointSeriesId -> Equinox.Stream<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
     member __.Read(series) =
@@ -114,11 +114,19 @@ type Service(log, resolve, maxAttempts) =
         let stream = resolve series
         stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
 
-// General pattern is that an Equinox Service is a singleton and calls pass an inentifier for a stream per call
-// This light wrapper means we can adhere to that general pattern yet still end up with lef=gible code while we in practice only maintain a single checkpoint series per running app
-type CheckpointSeries(name, log, resolve) =
-    let seriesId = CheckpointSeriesId.ofGroupName name
-    let inner = Service(log, resolve, maxAttempts = 3)
+let create log resolve =
+    let resolve id = Equinox.Stream(log, resolve (streamName id), maxAttempts = 3)
+    Service resolve
+
+// General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
+// This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
+type CheckpointSeries(groupName, resolve, ?log) =
+    let seriesId = CheckpointSeriesId.ofGroupName groupName
+    let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
+    let inner = create log resolve
+    [<Obsolete("Please use CheckpointSeries(groupName, resolve); to be removed in V3")>]
+    new(name, log : Serilog.ILogger, resolve) = CheckpointSeries(groupName = name, resolve = resolve, log = log)
+
     member __.Read = inner.Read seriesId
     member __.Start(freq, pos) = inner.Start(seriesId, freq, pos)
     member __.Override(freq, pos) = inner.Override(seriesId, freq, pos)
