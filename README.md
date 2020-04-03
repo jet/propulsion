@@ -22,16 +22,22 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
 
 ## Related repos
 
-- See [the Jet `dotnet new` templates repo](https://github.com/jet/dotnet-templates) for examples using the packages herein:
+- See [the Equinox QuickStart](https://github.com/jet/equinox#quickstart) for examples of using this library to project to Kafka from `Equinox.Cosmos` and/or `Equinox.EventStore`.
 
-    - `proProjector` template for example `CosmosSource` logic consuming from a CosmosDb `ChangeFeedProcessor`.
-    - `proProjector` template (in `-k` mode) for example producer logic using `StreamsProducer`, `StreamsProjector` and `ParallelProducer`.
-    - `proConsumer` template for example consumer logic using `ParallelConsumer` and `StreamsConsumer`.
-    - `proSync` template for examples of binding a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`.
+- See [the `dotnet new` templates repo](https://github.com/jet/dotnet-templates) for examples using the packages herein:
+
+    - [Propulsion-specific templates](https://github.com/jet/dotnet-templates#propulsion-related):
+      - `proProjector` template for `CosmosSource`+`StreamsProjector` logic consuming from a CosmosDb `ChangeFeedProcessor`.
+      - `proProjector` template (in `--kafka` mode) for producer logic using `StreamsProducerSink` or `ParallelProducerSink`.
+      - `proConsumer` template for example consumer logic using `ParallelConsumer` and `StreamsConsumer` etc.
+
+    - [Propulsion+Equinox templates](https://github.com/jet/dotnet-templates#producerreactor-templates-combining-usage-of-equinox-and-propulsion):
+      - `proReactor` template, which includes multiple sources and multiple processing modes
+      - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.Cosmos` store
+      - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic
+      - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
 
 - See [the `FsKafka` repo](https://github.com/jet/FsKafka) for `BatchedProducer` and `BatchedConsumer` implementations (together with the `KafkaConsumerConfig` and `KafkaProducerConfig` used in the Parallel and Streams wrappers in `Propulsion.Kafka`)
-
-- See [the Equinox QuickStart](https://github.com/jet/equinox#quickstart) for examples of using this library to project to Kafka from `Equinox.Cosmos` and/or `Equinox.EventStore`.
 
 ## QuickStart
 
@@ -65,43 +71,46 @@ propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 
 # Projectors
 
-See [this medium post regarding some patterns used at Jet in this space](https://medium.com/@eulerfx/scaling-event-sourcing-at-jet-9c873cac33b8) for a broad overview of the reasons one might consider employing a projection system.
+See [this medium post regarding some patterns used at Jet in this space](https://medium.com/@eulerfx/scaling-event-sourcing-at-jet-9c873cac33b8) for a broad overview of ways to structure large scale projection systems.
 
 # `Propulsion.Cosmos` Projection facilities
 
- An integral part of the `Equinox.Cosmos` feature set is the ability to project events based on the [Azure DocumentDb ChangeFeed mechanism](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed). Key elements involved in realizing this are:
+ An integral part of the `Equinox.Cosmos` value proposition is the ability to project events based on the [Azure CosmosDB ChangeFeed mechanism](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed). Key elements involved in realizing this are:
 - the [storage model needs to be designed in such a way that the aforementioned processor can do its job efficiently](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#cosmos-storage-model)
-- there needs to be an active ChangeFeed Processor per container that monitors events being written, tracking the position of the most recently propagated events
+- there needs to be an active ChangeFeed Processor per Container that monitors events being written while tracking the position of the most recently propagated events
 
-In CosmosDb, every document lives within a [logical partition, which is then hosted by a variable number of processor instances entitled _physical partitions_](https://docs.microsoft.com/en-gb/azure/cosmos-db/partition-data) (`Equinox.Cosmos` documents pertaining to an individual stream bear the same partition key in order to ensure correct ordering guarantees for the purposes of projection). Each front end processor has responsibility for a particular subset range of the partition key space.
+In CosmosDB, every document lives within a [logical partition, which is then hosted by a variable number of processor instances entitled _physical partitions_](https://docs.microsoft.com/en-gb/azure/cosmos-db/partition-data) (`Equinox.Cosmos` documents pertaining to an individual stream bear the same partition key in order to ensure correct ordering guarantees for the purposes of projection). Each front end node of which a CosmosDB Container is comprised has responsibility for a particular subset range of the partition key space.
 
-The ChangeFeed's real world manifestation is as a long running Processor per frontend processor that repeatedly tails a query across the set of documents being managed by a given partition host (subject to topology changes - new processors can come and go, with the assigned ranges shuffling to balance the load per processor). e.g. if you allocate 30K RU/s to a container and/or store >20GB of data, it will have at least 3 processors, each handling 1/3 of the partition key space, and running a change feed from that is a matter of maintaining 3 continuous queries, with a continuation token each being held/leased/controlled by a given Change Feed Processor.
+In concrete terms, the ChangeFeed's is as a long running Processor per frontend node that repeatedly tails (think of it as a `SELECT * FROM <all docs for the node> WHERE lastUpdated > <checkpoint>`) across the set of documents being managed by a given partition host (subject to topology changes; processor instances can spin up and down, with the assigned ranges shuffling to balance the load per processor). e.g. if you allocate 30K RU/s to a container and/or store >20GB of data, it will have at least 3 processors, each handling 1/3 of the partition key space, and running a change feed from that is a matter of maintaining 3 continuous queries, with a continuation token each being held/leased/controlled by a given Change Feed Processor.
 
 ## Effect of ChangeFeed on Request Charges
 
-It should be noted that the ChangeFeed is not special-cased by CosmosDb itself in any meaningful way - something somewhere is going to be calling a DocumentDb API queries, paying Request Charges for the privilege (even a tail request based on a continuation token yielding zero documents incurs a charge). Its important to consider that every event written by `Equinox.Cosmos` into the CosmosDb container will induce an approximately equivalent cost due to the fact that a freshly inserted document will be included in the next batch propagated by the Processor (each update of a document also 'moves' that document from it's present position in the change order past the the notional tail of the ChangeFeed). Thus each insert/update also induces an (unavoidable) request charge based on the fact that the document will be included aggregate set of touched documents being surfaced per batch transferred from the ChangeFeed (charging is per KiB or part thereof). _The effect of this cost is multipled by the number of ChangeFeedProcessor instances one is running._
+It should be noted that the ChangeFeed is not special-cased by CosmosDB itself in any meaningful way; something somewhere is going to be making CosmosDB API queries, paying Request Charges for the privilege (even a tail request based on a continuation token yielding zero documents incurs a charge). It's thus important to consider that every Event written by `Equinox.Cosmos` into the CosmosDB Container will induce an approximately equivalent cost due to the fact that the freshly inserted document will be included in the next batch propagated by the Processor (each update of a document also 'moves' that document from it's present position in the change order past the the notional tail of the ChangeFeed). Thus each insert/update also induces an (unavoidable) request charge based on the fact that the document will be included aggregate set of touched documents being surfaced per batch transferred from the ChangeFeed (charging is per KiB or part thereof). **_The effect of this cost is multiplied by the number of ChangeFeedProcessors (consumer groups) one is running._**
 
 ## Change Feed Processors
 
-The CosmosDb ChangeFeed's real world manifestation is a continuous query per DocumentDb Physical Partition node processor.
+As outlined above, the CosmosDB ChangeFeed's real world manifestation is as a continuous query per CosmosDB Container ("physical partition") _node_.
 
-For .NET, this is wrapped in a set of APIs presented within the standard `Microsoft.Azure.DocumentDb[.Core]` APIset (for example, the [`Sagan` library](https://github.com/jet/sagan) is built based on this, _but there be dragons; implementing a correct one you can trust, with tests, reliability and good performance is no trivial undertaking_).
+For .NET, this is wrapped in a set of APIs presented within the `Microsoft.Azure.DocumentDB[.Core]` packages.
 
-A ChangeFeed _Processor_ consists of (per CosmosDb processor/range)
-- a host process running somewhere that will run the query and then do something with the results before marking off progress
+A ChangeFeed _Processor_ consists of (per CosmosDB processor/range) the following elements:
+- a _host_ process running somewhere that will run the query and then do something with the results before marking off progress
 - a continuous query across the set of documents that fall within the partition key range hosted by a given physical partition host
+- that progress then needs to be maintained durably in some form of checkpoint stores
 
-The implementation in this repo uses [Microsoft's .NET `ChangeFeedProcessor` implementation](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring (_though NOT bug free at the present time_).
+The implementation in this repo uses [Microsoft's .NET `ChangeFeedProcessor` implementation: `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring.
+
+(It should be noted that the `Microsost.Azure.Cosmos` packages (aka the V3 SDK) combine both the Change Feed querying and the ChangeFeedProcessor logic into a single package - both Equinox and Propulsion will ultimately move to use the V4 SDKs, but right now neither the V3 nor V4 are ready -- there are feature gaps (e.g. CheckpointAsync and diagnostics) and bugs (more RU consumption without a benefit) which are currently being addressed on the Microsoft side)
 
 See the [PR that added the initial support for CosmosDb Projections](https://github.com/jet/equinox/pull/87) and [the QuickStart](https://github.com/jet/equinox/blob/master/README.md#quickstart) for instructions.
 
 # Feeding to Kafka
 
-While [Kafka is not for Event Sourcing](https://medium.com/serialized-io/apache-kafka-is-not-for-event-sourcing-81735c3cf5c), if you have the scale to run automate the care and feeding of Kafka infrastructure, it can a great toof for the job of Replicating events and/or Rich Events in a scalable manner.
+While [Kafka is not for Event Sourcing](https://medium.com/serialized-io/apache-kafka-is-not-for-event-sourcing-81735c3cf5c), if you have the scale to run automate the care and feeding of Kafka infrastructure, it can a great tool for the job of Replicating events and/or Rich Events in a scalable manner.
 
-The [Apache Kafka intro docs](https://kafka.apache.org/intro) provide a clear terse overview of the design and attendant benefits this brings to bear.
+The [Apache Kafka intro docs](https://kafka.apache.org/intro) provide a clear terse overview of the design and attendant benefits this brings to bear; it's strongly recommended to get any background info from that source.
 
-As noted in the [Effect of ChangeFeed on Request Charges](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#effect-of-changefeed-on-request-charges) section, it can make sense to replicate a subset of the ChangeFeed to a Kafka topic (both for projections being consumed within a Bounded Context and for cases where you are generating a Pubished Notification Event) purely from the point of view of optimising request charges (and not needing to consider projections when considering how to scale up provisioning for load). Other benefits are mechanical sympathy based - Kafka can be the right tool for the job in scaling out traversal of events for a variety of use cases given one has sufficient traffic to warrant the complexity.
+As noted in the [Effect of ChangeFeed on Request Charges](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#effect-of-changefeed-on-request-charges) section, it can make sense to replicate a subset of the ChangeFeed to a Kafka topic (both for projections being consumed within a Bounded Context and for cases where you are generating a Pubished Notification Event) purely from the point of view of optimizing request charges (and not needing to consider projections when considering how to scale up provisioning for load). Other benefits are mechanical sympathy based - Kafka can be the right tool for the job in scaling out traversal of events for a variety of use cases given one has sufficient traffic to warrant the complexity.
 
 See the [PR that added the initial support for CosmosDb Projections](https://github.com/jet/equinox/pull/87) and [the QuickStart](README.md#quickstart) for instructions.
 
@@ -116,9 +125,9 @@ This is an Open Source project for many reasons, with some central goals:
 
 - quality reference code (the code should be clean and easy to read; where it makes sense, it should remain possible to clone it locally and use it in tweaked form)
 - optimal resilience and performance (getting performance right can add huge value for some systems, i.e., making it prettier but disrupting the performance would be bad)
-- this code underpins non-trivial production systems (having good tests is not optional for reasons far deeper than having impressive coverage stats)
+- this code underpins non-trivial production systems (having good tests is not optional for reasons far deeper than looking at code coverage stats)
 
-We'll do our best to be accomodating to PRs and issues, but please appreciate that [we emphasize decisiveness for the greater good of the project and its users](https://www.hanselman.com/blog/AlwaysBeClosingPullRequests.aspx); _new features [start with -100 points](https://blogs.msdn.microsoft.com/oldnewthing/20090928-00/?p=16573)_.
+We'll do our best to be accommodating to PRs and issues, but please appreciate that [we emphasize decisiveness for the greater good of the project and its users](https://www.hanselman.com/blog/AlwaysBeClosingPullRequests.aspx); _new features [start with -100 points](https://blogs.msdn.microsoft.com/oldnewthing/20090928-00/?p=16573)_.
 
 Within those constraints, contributions of all kinds are welcome:
 
