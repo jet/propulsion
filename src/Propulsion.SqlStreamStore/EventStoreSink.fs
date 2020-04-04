@@ -89,7 +89,7 @@ module Internal =
                 log.Warning("Malformed cats {@badCats} Other {other:n0}r {@oStreams}",
                     badCats.StatsDescending |> Seq.truncate 50, !resultExnOther, oStreams |> Seq.truncate 100)
                 badCats.Clear(); resultExnOther := 0; oStreams.Clear()
-            Equinox.EventStore.Log.InternalMetrics.dump log
+            Log.InternalMetrics.dump log
 
         override __.Handle message =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
