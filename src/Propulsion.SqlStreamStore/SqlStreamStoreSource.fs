@@ -39,7 +39,7 @@ module Mapping =
     let (|PropulsionStreamEvent|) (x : StreamMessage) : Propulsion.Streams.StreamEvent<_> =
         { stream = StreamName.internalParseSafe x.StreamId; event = (|PropulsionTimelineEvent|) x }
 
-type EventStoreSource =
+type SqlStreamStoreSource =
     static member Run
         (   log : Serilog.ILogger, sink : Propulsion.ProjectorPipeline<_>, checkpoints : Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
@@ -95,5 +95,5 @@ type EventStoreSource =
                 let cp = pos
                 striper.Submit <| Message.Batch(seriesId, cp, checkpoints.Commit cp, xs)
 
-        let reader = Reader.EventStoreReader(conns, spec.batchSize, spec.minBatchSize, tryMapEvent, post, spec.tailInterval, dop)
+        let reader = Reader.SqlStreamStoreReader(conns, spec.batchSize, spec.minBatchSize, tryMapEvent, post, spec.tailInterval, dop)
         do! reader.Pump(initialSeriesId, startPos, maxPos) }

@@ -126,7 +126,7 @@ module Internal =
             let dispatcher = Scheduling.MultiDispatcher<_, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches, idleDelay = TimeSpan.FromMilliseconds 2.)
 
-type EventStoreSink =
+type SqlStreamStoreSink =
 
     static member Start
         (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams,

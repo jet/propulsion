@@ -203,7 +203,7 @@ type Res =
 
 /// Holds work queue, together with stats relating to the amount and/or categories of data being traversed
 /// Processing is driven by external callers running multiple concurrent invocations of `Process`
-type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<int * int>, tailInterval, dop, ?statsInterval) =
+type SqlStreamStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<int * int>, tailInterval, dop, ?statsInterval) =
     let work = System.Collections.Concurrent.ConcurrentQueue()
     let sleepIntervalMs = 100
     let overallStats = OverallStats(?statsInterval = statsInterval)
