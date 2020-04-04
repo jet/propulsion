@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
     <Compile Include="EventStoreSink.fs" />
+    <Compile Include="EventStoreReader.fs" />
   </ItemGroup>
 
   <ItemGroup>
