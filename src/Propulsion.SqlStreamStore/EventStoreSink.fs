@@ -21,23 +21,17 @@ module Internal =
 
         type [<NoComparison; NoEquality>] Result =
             | Ok of updatedPos : int64
-            | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : StreamSpan<byte[]>
-            | PrefixMissing of batch : StreamSpan<byte[]> * writePos : int64
+            | ConflictUnknown
 
         let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<(int * int) * Result, (int * int) * exn>) =
             match res with
             | stream, (Choice1Of2 (_, Ok pos)) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, (Choice1Of2 (_, Duplicate updatedPos)) ->
-                log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, (Choice1Of2 (_, PartialDuplicate overage)) ->
-                log.Information("Requeing  {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
-            | stream, (Choice1Of2 (_, PrefixMissing (batch, pos))) ->
-                log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch.index - pos, batch.events.Length, batch.index)
+            | stream, (Choice1Of2 (_, ConflictUnknown)) ->
+                log.Information("ConflictUnknown   {stream}", stream)
             | stream, (Choice2Of2 (_, exn)) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
-
+            
         let write (log : ILogger) (context : Context) stream span = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span.index, span.events.Length)
             let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map (fun x -> x :> _))
@@ -46,15 +40,8 @@ module Internal =
                 | GatewaySyncResult.Written (Token.Unpack pos') ->
                     Ok (pos'.pos.streamVersion + 1L)
                 | GatewaySyncResult.ConflictUnknown ->
-                    Ok (-1L) // TODO: Temporary work around, need to be fix
-//                    match pos.pos.streamVersion + 1L with
-//                    | actual when actual < span.index -> PrefixMissing (span, actual)
-//                    | actual when actual >= span.index + span.events.LongLength -> Duplicate actual
-//#if NET461
-//                    | actual -> PartialDuplicate { index = actual; events = span.events |> Seq.skip (actual - span.index |> int) |> Array.ofSeq }
-//#else
-//                    | actual -> PartialDuplicate { index = actual; events = span.events |> Array.skip (actual - span.index |> int) }
-//#endif
+                    ConflictUnknown
+
             log.Debug("Result: {res}", ress)
             return ress }
 
@@ -103,9 +90,7 @@ module Internal =
                 okBytes <- okBytes + int64 bs
                 match r with
                 | Writer.Result.Ok _ -> incr resultOk
-                | Writer.Result.Duplicate _ -> incr resultDup
-                | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
-                | Writer.Result.PrefixMissing _ -> incr resultPrefix
+                | Writer.Result.ConflictUnknown -> incr resultDup
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
@@ -132,10 +117,8 @@ module Internal =
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null
-                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.InternalUpdate stream pos null
-                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.InternalUpdate stream overage.index [|overage|]
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.InternalUpdate stream pos [|overage|]
-                    | Choice2Of2 (_stats, _exn) -> streams.SetMalformed(stream, false)
+                    | Choice1Of2 (_stats, Writer.ConflictUnknown) ->              streams.SetMalformed(stream, false)
+                    | Choice2Of2 (_stats, _exn) ->                                streams.SetMalformed(stream, false)
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
                 ss.write
