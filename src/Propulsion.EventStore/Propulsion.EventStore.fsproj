@@ -9,6 +9,10 @@
     <GenerateDocumentationFile Condition=" '$(Configuration)' == 'Release' ">true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
+    <DefineConstants>TRACE;EVENTSTORE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="EventStoreSink.fs" />
     <Compile Include="Infrastructure.fs" />

@@ -9,9 +9,13 @@
     <GenerateDocumentationFile Condition=" '$(Configuration)' == 'Release' ">true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
+    <DefineConstants>TRACE;SQLSTREAMSTORE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="EventStoreSink.fs" />
-    <Compile Include="Infrastructure.fs" />
+    <Compile Include="..\Propulsion.EventStore\Infrastructure.fs" Link="Infrastructure.fs" />
     <Compile Include="StripedIngester.fs" />
     <Compile Include="EventStoreReader.fs" />
     <Compile Include="Checkpoint.fs" />

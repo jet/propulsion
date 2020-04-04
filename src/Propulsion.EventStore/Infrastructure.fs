@@ -1,4 +1,8 @@
-﻿namespace Propulsion.EventStore
+﻿#if EVENTSORE
+namespace Propulsion.EventStore
+#elif SQLSTREAMSTORE
+namespace Propulsion.SqlStreamStore
+#endif
 
 open System
 open System.Threading.Tasks
