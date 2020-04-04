@@ -2,6 +2,7 @@
 
 open Equinox.Core // AwaitTaskCorrect
 open EventStore.ClientAPI
+open Propulsion
 open Propulsion.Internal // Sem
 open Propulsion.Streams
 open Serilog // NB Needs to shadow ILogger

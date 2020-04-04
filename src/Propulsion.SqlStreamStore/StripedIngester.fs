@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.SqlStreamStore
 
+open Propulsion
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog

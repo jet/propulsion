@@ -10,12 +10,12 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
-    <DefineConstants>TRACE;EVENTSTORE</DefineConstants>
+    <DefineConstants>TRACE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="EventStoreSink.fs" />
-    <Compile Include="Infrastructure.fs" />
+    <Compile Include="..\Propulsion\Infrastructure.fs" Link="Infrastructure.fs" />
     <Compile Include="StripedIngester.fs" />
     <Compile Include="EventStoreReader.fs" />
     <Compile Include="Checkpoint.fs" />

@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.SqlStreamStore
 
 open System
+open Propulsion
 open Propulsion.Streams
 open SqlStreamStore.Streams
 
