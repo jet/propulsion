@@ -13,7 +13,7 @@ open System.Threading
 
 let inline arrayBytes (x : byte[]) = match x with null -> 0 | x -> x.Length
 let inline recPayloadBytes (x : StreamMessage) =
-    arrayBytes (x.GetJsonData() |> Async.AwaitTaskCorrect |> Async.RunSynchronously |> System.Text.Encoding.UTF8.GetBytes ) + arrayBytes (x.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes)
+    arrayBytes (x.GetJsonData() |> Async.AwaitTaskCorrect |> Async.RunSynchronously |> System.Text.Encoding.UTF8.GetBytes) + arrayBytes (x.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes)
 let inline payloadBytes (x : StreamMessage) = recPayloadBytes x + x.StreamId.Length * sizeof<char>
 let inline mb x = float x / 1024. / 1024.
 let private dash = [|'-'|]
