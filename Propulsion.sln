@@ -45,6 +45,8 @@ Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Tool", "tools\Pr
 EndProject
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.SqlStreamStore", "src\Propulsion.SqlStreamStore\Propulsion.SqlStreamStore.fsproj", "{B453A7BF-1240-48A3-92A6-6D74A8945DD6}"
 EndProject
+Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Kinesis", "src\Propulsion.Kinesis\Propulsion.Kinesis.fsproj", "{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +93,10 @@ Global
 		{B453A7BF-1240-48A3-92A6-6D74A8945DD6}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B453A7BF-1240-48A3-92A6-6D74A8945DD6}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B453A7BF-1240-48A3-92A6-6D74A8945DD6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -106,6 +112,7 @@ Global
 		{74C2044E-4F3F-41FC-AA42-B1A0D71D0AD0} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
 		{0DBF5289-D429-406E-A195-1AB7785F51C1} = {8DF0ED1F-DE93-45A6-B2E3-A077731EA1A3}
 		{B453A7BF-1240-48A3-92A6-6D74A8945DD6} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{73B3A877-DB5A-4AB3-AA88-75C5DE88FCD3} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}
