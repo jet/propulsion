@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.SqlStreamStore
 
 open Equinox.SqlStreamStore
+open Propulsion
 open Propulsion.Streams
 open Propulsion.Streams.Internal // Helpers
 open Serilog

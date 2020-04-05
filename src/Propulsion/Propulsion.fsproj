@@ -10,10 +10,6 @@
     <DefineConstants Condition=" '$(TargetFramework)' == 'net461' ">NET461</DefineConstants>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.0|AnyCPU'">
-    <DefineConstants>TRACE;CORE</DefineConstants>
-  </PropertyGroup>
-
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Submission.fs" />

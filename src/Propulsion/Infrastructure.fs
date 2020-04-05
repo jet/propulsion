@@ -1,14 +1,4 @@
-#if CORE
 namespace Propulsion
-#else
-#if EVENTSTORE
-namespace Propulsion.EventStore
-#else
-#if SQLSTREAMSTORE
-namespace Propulsion.SqlStreamStore
-#endif
-#endif
-#endif
 
 open System
 open System.Threading.Tasks
