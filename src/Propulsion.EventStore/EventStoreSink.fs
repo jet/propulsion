@@ -1,7 +1,6 @@
 ﻿namespace Propulsion.EventStore
 
 open Equinox.EventStore
-open Propulsion
 open Propulsion.Streams
 open Propulsion.Streams.Internal // Helpers
 open Serilog
