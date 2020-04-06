@@ -6,7 +6,7 @@ caption High level organization of a set of Propulsion Ingesters, Reactors and P
 
 actor "Applications" <<External>> as apps
 
-rectangle services <<System>> [
+rectangle services <<External System>> [
     **Consistent Processing**
     __Equinox__
     Executing Commands
@@ -22,7 +22,7 @@ database stores <<Internal>> [
     (snapshots / unfolds)
 ]
 
-database caches <<External>> [
+database caches <<Internal>> [
     **Read Model**
     ____
     Document Stores 
@@ -43,7 +43,7 @@ together {
         Drive Reactions
         Compose Notifications
     ]
-    rectangle publishers <<External System>> [
+    rectangle publishers <<System>> [
         **Publishers**
         __Propulsion / FsKafka__
         Publish Simple Notifications
