@@ -2,7 +2,7 @@
 !includeurl https://raw.githubusercontent.com/skleanthous/C4-PlantumlSkin/master/build/output/c4.puml
 
 title System Context Diagram for Propulsion (+Equinox)
-caption High level organization of a set of Propulsion Ingesters, Reactors and Publishers Projectors and/or Reactors
+caption High level organization of a set of Propulsion Ingesters, Reactors and Publishers as part of an overall Application
 
 actor "Applications" <<External>> as apps
 
