@@ -24,7 +24,7 @@ database stores <<Internal>> [
 
 database caches <<Internal>> [
     **Read Model**
-    ____
+    __(eventually consistent)__
     Document Stores 
     SQL DBs, REDIS, etc
 ]
@@ -71,17 +71,17 @@ apps       <.L.> services   : transact against /\nsynchronously query
 services   <-R-> stores     : Query/Transact\n[in terms of events]
 
 stores       --> publishers : are followed by
-stores       --> reactors   : trigger
+stores       --> reactors   : fresh\nwrites trigger
 
-reactors     --> services   : feed back into
-reactors     --> outputs    : generate complex\nnotifications for
-reactors    -U-> caches     : maintain views in
-
-publishers   --> outputs    : emit complex notifications to
-publishers   --> outputs    : render some events to
-
-ingesters  <--   inputs     : pull external\ndata from
-ingesters    --> services   : reconcile changes into
+ingesters  <--   inputs     : pull external\ndata from\nupstream
+ingesters    --> services   : reconcile upstream\nchanges into
 ingesters   -U-> caches     : push reference data into
+
+reactors     --> services   : manage follow-on reactions via
+reactors    -U-> caches     : maintain views in
+reactors      .> publishers : trigger
+
+publishers   --> outputs    : emit notifications composed by\nreactors to
+publishers   --> outputs    : render some\nevents directly to downstream
 
 @enduml
