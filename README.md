@@ -65,8 +65,10 @@ The relevant pieces of the above break down as follows, when we emphasize the [C
 
 ![Propulsion c4model.com Container Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/diag/diagrams/container.puml&fmt=svg)
 
-**[See Overview section in `DOCUMENTATION`.md for further drill down](https://github.com/jet/propulsion/blob/diag/DOCUMENTATION.md#overview)**
  -->
+
+**[See Overview section in `DOCUMENTATION`.md for further drill down](https://github.com/jet/propulsion/blob/diag/DOCUMENTATION.md#overview)**
+
 ## QuickStart
 
 ### 1. Use `propulsion` tool to run a CosmosDb ChangeFeedProcessor
