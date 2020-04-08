@@ -1,0 +1,103 @@
+@startuml
+!includeurl https://raw.githubusercontent.com/skleanthous/C4-PlantumlSkin/master/build/output/c4.puml
+
+title Container Diagram for Propulsion Ingesters
+caption Container Diagram for Propulsion Pipeline and related systems for an Ingestion scenario
+
+actor "Application" <<External>> as apps
+
+frame Source <<Expanded>> {
+    frame consumer <<External>> [
+        **Propulsion Consumer**
+    ]
+    rectangle inputs <<External System>> [
+        **Input Feeds**
+
+        Topics / ATOM 
+    ]
+}
+
+frame Sink <<Expanded>> {
+    frame ingester <<External>> [
+        **Propulsion Ingester**
+    ]
+    frame scheduler <<External>> [
+        **Propulsion Scheduler**
+        **Single Instance**
+        //single-threaded//
+    ] 
+    frame dispatcher <<External>> [
+        **Propulsion Dispatcher**
+        //(hasa DegreeOfParallelism)//
+    ]
+    database batches <<External>> [
+        **Prepared Batches**
+        StreamName ->
+        Index + Event
+    ]
+    database queue <<External>> [
+        **StreamSpans Queue**
+        StreamName ->
+        Write Position + Spans of Messages 
+    ]
+}
+
+rectangle stats <<Component>> [
+    Stats
+]
+rectangle parser <<Component>> [
+    Parser
+]
+rectangle handler <<Component>> [
+    Handler
+]
+database caches <<External>> [
+    **Read Models**
+    ____ 
+    Document Stores
+    SQL DBs
+]
+rectangle services <<External System>> [
+    **Consistent processing**
+    __Equinox__
+]
+database store <<External>> [
+    **Consistent Event Store**
+]
+
+inputs       -> consumer   : consumes
+consumer     -> ingester   : feeds batches to\n(with backpressure)
+ingester     -> consumer   : periodically marks progress on
+ingester     -> parser     : affords\nfiltering and transformation\nvia
+ingester     -> batches    : holds
+scheduler   <-  ingester   : pulls batches from
+scheduler    -> ingester   : notifies progress to
+scheduler    -> stats      : passes timings+outcomes to
+scheduler    -> dispatcher : delegates to
+scheduler    -> queue      : completely owns and manages
+dispatcher   -> handler    : triggers executions of
+dispatcher  <-  handler    : may yield outcome to
+dispatcher   -> scheduler  : remits timings and outcomes to
+
+handler      -> services   : transacts against
+handler      -> caches     : upserts to
+
+apps        <.  caches     : references\neventually\nconsistent
+apps        <.> services   : transacts\nagainst
+services    <-> store      : Query/\nTransact\n[events]
+
+inputs      -[hidden]D->   ingester
+consumer    -[hidden]D->   ingester
+ingester    -[hidden]D->   batches
+ingester    -[hidden]U->   parser
+scheduler   -[hidden]D->   queue
+scheduler   -[hidden]D->   dispatcher
+scheduler   -[hidden]U->   stats
+dispatcher  -[hidden]R->   queue
+
+handler     -[hidden]U->   caches
+
+apps        -[hidden]D->   caches
+apps        -[hidden]U->   services
+
+@enduml

@@ -23,7 +23,7 @@ database stores <<Internal>> [
 ]
 
 database caches <<Internal>> [
-    **Read Model**
+    **Read Models**
     __(eventually consistent)__
     Document Stores 
     SQL DBs, REDIS, etc
