@@ -59,14 +59,14 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ![Propulsion c4model.com Context Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/diag/diagrams/context.puml&fmt=svg)
 
-## [C4](https://c4model.com) Container diagram
+<!-- ## [C4](https://c4model.com) Container diagram
 
 The relevant pieces of the above break down as follows, when we emphasize the [Containers](https://c4model.com) aspects relevant to Propulsion:
 
 ![Propulsion c4model.com Container Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/diag/diagrams/container.puml&fmt=svg)
 
 **[See Overview section in `DOCUMENTATION`.md for further drill down](https://github.com/jet/propulsion/blob/diag/DOCUMENTATION.md#overview)**
-
+ -->
 ## QuickStart
 
 ### 1. Use `propulsion` tool to run a CosmosDb ChangeFeedProcessor
