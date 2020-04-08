@@ -114,5 +114,6 @@ handler     -[hidden]L->   caches
 
 apps        -[hidden]U->   services
 services    -[hidden]D->   apps
+services    -[hidden]R->   stats
 
 @enduml

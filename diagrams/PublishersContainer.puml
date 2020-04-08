@@ -65,7 +65,7 @@ rectangle outputs <<External System>> [
 store       <-  source     : observes
 source       -> ingester   : feeds batches to\n(with backpressure)
 ingester     -> source     : periodically marks progress on
-ingester     -> parser     : affords\nfiltering and transformation via
+ingester     -> parser     : affords\nfiltering and transformation\nvia
 ingester     -> batches    : holds
 scheduler   <-  ingester   : pulls batches from
 scheduler    -> ingester   : notifies progress to
