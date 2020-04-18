@@ -10,6 +10,7 @@ type IConsumer<'K,'V> = Consumer<'K,'V>
 type ConsumeResult<'K,'V> = Message<'K,'V>
 
 module Bindings =
+    let mapMessage : ConsumeResult<_,_> -> Message<_,_> = id
     let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
     let inline partitionId (x : ConsumeResult<_,_>) = x.Partition
     let inline topicPartition (topic : string) (partition : int) = TopicPartition(topic, partition)
@@ -27,6 +28,3 @@ module Bindings =
                 if message.Error.HasError then log.Warning("Consuming... error {e}", message.Error)
                 else ingest message
         with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
-    let produceAsync produceAsync (key,value) = async {
-        let! (res : Message<'K,'V>) = produceAsync(key, value)
-        if res.Error.HasError then return invalidOp res.Error.Reason }// CK 1.x throws, we do the same here for consistency

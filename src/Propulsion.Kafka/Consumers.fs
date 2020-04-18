@@ -44,7 +44,7 @@ module private Impl =
             x
 
     /// guesstimate approximate message size in bytes
-    let approximateMessageBytes (message : ConsumeResult<string, string>) =
+    let approximateMessageBytes (message : Message<string, string>) =
         let inline len (x:string) = match x with null -> 0 | x -> sizeof<char> * x.Length
         16 + len message.Key + len message.Value |> int64
     let inline mb x = float x / 1024. / 1024.
@@ -72,17 +72,18 @@ type KafkaIngestionEngine<'M>
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
             Bindings.storeOffset log consumer span.highWaterMark
         { partitionId = partitionId; onCompletion = checkpoint; messages = span.messages.ToArray() }
-    let ingest message =
+    let ingest result =
+        let message = Bindings.mapMessage result
         let sz = approximateMessageBytes message
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
         let inline stringLen (s : string) = match s with null -> 0 | x -> x.Length
         intervalChars <- intervalChars + int64 (stringLen message.Key + stringLen message.Value)
-        let partitionId = Bindings.partitionId message
+        let partitionId = Bindings.partitionId result
         let span =
             match acc.TryGetValue partitionId with
-            | false, _ -> let span = PartitionBuffer<'M>.Create(sz,message,mapMessage) in acc.[partitionId] <- span; span
-            | true, span -> span.Enqueue(sz,message,mapMessage); span
+            | false, _ -> let span = PartitionBuffer<'M>.Create(sz,result,mapMessage) in acc.[partitionId] <- span; span
+            | true, span -> span.Enqueue(sz,result,mapMessage); span
         if span.messages.Count = maxBatchSize then
             acc.Remove partitionId |> ignore
             emit [| mkSubmission partitionId span |]
@@ -128,7 +129,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start(log : ILogger, config : KafkaConsumerConfig, mapResult, submit, pumpSubmitter, pumpScheduler, pumpDispatcher, statsInterval) =
         let maxDelay, maxItems = config.Buffering.maxBatchDelay, config.Buffering.maxBatchSize
-        log.Information("Consuming... {broker} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s maxBatchSize={maxBatchSize}",
+        log.Information("Consuming... {bootstrapServers} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s maxBatchSize={maxBatchSize}",
             config.Inner.BootstrapServers, config.Topics, config.Inner.GroupId, (let x = config.Inner.AutoOffsetReset in x.Value), config.Inner.FetchMaxBytes,
             float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., maxDelay.TotalSeconds, maxItems)
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)

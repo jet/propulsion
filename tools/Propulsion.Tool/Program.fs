@@ -197,14 +197,15 @@ let main argv =
                 let producer, disposeProducer =
                     match broker,topic with
                     | Some b,Some t ->
-                        let cfg = KafkaProducerConfig.Create(appName, Uri b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
+                        let _ = Config.validateBrokerUri (Uri b)
+                        let cfg = KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, Confluent.Kafka.CompressionType.Lz4)
                         let p = BatchedProducer.CreateWithConfigOverrides(log, cfg, t)
                         Some p, (p :> IDisposable).Dispose
                     | _ -> None, id
                 let projectBatch (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
                     sw.Stop() // Stop the clock after CFP hands off to us
                     let render (e: StreamEvent<_>) = RenderedSpan.ofStreamSpan e.stream { StreamSpan.index = e.event.Index; events=[| e.event |] }
-                    let pt, events = (fun () -> docs |> Seq.collect EquinoxCosmosParser.enumStreamEvents |> Seq.map render |> Array.ofSeq) |> Stopwatch.Time 
+                    let pt, events = (fun () -> docs |> Seq.collect EquinoxCosmosParser.enumStreamEvents |> Seq.map render |> Array.ofSeq) |> Stopwatch.Time
                     let! et = async {
                         match producer with
                         | None ->
@@ -214,13 +215,13 @@ let main argv =
                             let es = [| for e in events -> e.s, Newtonsoft.Json.JsonConvert.SerializeObject e |]
                             let! et,() = async {
                                 let! _ = producer.ProduceBatch es
-                                return! ctx.Checkpoint() } |> Stopwatch.Time 
+                                return! ctx.Checkpoint() } |> Stopwatch.Time
                             return et }
-                            
+
                     if log.IsEnabled LogEventLevel.Debug then log.Debug("Response Headers {0}", let hs = ctx.FeedResponse.ResponseHeaders in [for h in hs -> h, hs.[h]])
                     let r = ctx.FeedResponse
                     log.Information("{range} Fetch: {token} {requestCharge:n0}RU {count} docs {l:n1}s; Parse: s {streams} e {events} {p:n3}s; Emit: {e:n1}s",
-                        ctx.PartitionKeyRangeId, r.ResponseContinuation.Trim[|'"'|], r.RequestCharge, docs.Count, float sw.ElapsedMilliseconds / 1000., 
+                        ctx.PartitionKeyRangeId, r.ResponseContinuation.Trim[|'"'|], r.RequestCharge, docs.Count, float sw.ElapsedMilliseconds / 1000.,
                         events.Length, (let e = pt.Elapsed in e.TotalSeconds), (let e = et.Elapsed in e.TotalSeconds))
                     sw.Restart() // restart the clock as we handoff back to the CFP
                 }

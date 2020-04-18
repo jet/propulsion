@@ -7,7 +7,8 @@
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile Condition=" '$(Configuration)' == 'Release' ">true</GenerateDocumentationFile>
-    <DefineConstants Condition=" '$(TargetFramework)' == 'net461' ">NET461</DefineConstants>
+    <DefineConstants>KAFKA0</DefineConstants>
+    <DefineConstants Condition=" '$(TargetFramework)' == 'net461' ">$(DefineConstants);NET461</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
