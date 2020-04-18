@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.2.0"></a>
+## [2.2.0] - 2019-04-18
+
+### Added
 
 - `Propulsion.Kafka`/`Kafka0`: Exposed `Produce` API providing ability to customize the `Confluent.Kafka` API used
 - `Propulsion.Kafka`: Added `Produce` API admitting a raw `Message`
@@ -19,9 +27,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Kafka`: Targets [`FsKafka` v `1.4.1`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.1)
 - `Propulsion.Kafka`/`Kafka0`: Replaced `ProduceAsync` API with `Produce` that no longer yields a `DeliveryReport` (this functionality can be replicated via an alternate overload)
 - `EventStore`: Updated `CheckpointSeries` to adhere more closely to naming per [standardized naming](https://github.com/jet/dotnet-templates/pull/54) [#51](https://github.com/jet/propulsion/pull/51)
-
-### Removed
-### Fixed
 
 <a name="2.1.1"></a>
 ## [2.1.1] - 2019-03-11
@@ -320,7 +325,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.1.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.2.0...HEAD
+[2.2.0]: https://github.com/jet/propulsion/compare/2.1.1...2.2.0
 [2.1.1]: https://github.com/jet/propulsion/compare/2.0.0...2.1.1
 [2.0.0]: https://github.com/jet/propulsion/compare/2.0.0-rc3...2.0.0
 [2.0.0-rc3]: https://github.com/jet/propulsion/compare/2.0.0-rc2...2.0.0-rc3
