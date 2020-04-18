@@ -40,7 +40,7 @@ module Helpers =
     let getTestBroker() =
         match Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" with
         | x when String.IsNullOrEmpty x -> invalidOp "missing environment variable 'TEST_KAFKA_BROKER'"
-        | x -> Uri x
+        | x -> x
 
     let newId () = let g = System.Guid.NewGuid() in g.ToString("N")
 
@@ -68,9 +68,9 @@ module Helpers =
     type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
 
-    let runProducers log (broker : Uri) (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
+    let runProducers log bootstrapServers (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
         let runProducer (producerId : int) = async {
-            let cfg = KafkaProducerConfig.Create("panther", broker, Acks.Leader)
+            let cfg = KafkaProducerConfig.Create("panther", bootstrapServers, Acks.Leader)
             use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight = 10000)
 
             let! results =
@@ -235,7 +235,7 @@ and StreamsConsumer(testOutputHelper) =
 and ParallelConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, true)
 
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, bootstrapServers = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
     override __.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersParallel log config numConsumers timeout consumerCallback
@@ -245,9 +245,9 @@ and ParallelConsumer(testOutputHelper) =
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        do! __.RunProducers(log, broker, topic, 1, 10) // populate the topic with a few messages
+        do! __.RunProducers(log, bootstrapServers, topic, 1, 10) // populate the topic with a few messages
 
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId)
 
         let! r = Async.Catch <| __.RunConsumers(log, config, 1, (fun _ _ -> async { return raise <|IndexOutOfRangeException() }))
         test <@ match r with
@@ -256,10 +256,10 @@ and ParallelConsumer(testOutputHelper) =
     }
 
 and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentScheduling) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, bootstrapServers = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
 
-    member __.RunProducers(log, broker, topic, numProducers, messagesPerProducer) : Async<unit> =
-        runProducers log broker topic numProducers messagesPerProducer |> Async.Ignore
+    member __.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer) : Async<unit> =
+        runProducers log bootstrapServers topic numProducers messagesPerProducer |> Async.Ignore
     abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
     member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
 
@@ -289,9 +289,9 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         }
 
         // Section: run the test
-        let producers = __.RunProducers(log, broker, topic, numProducers, messagesPerProducer)
+        let producers = __.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer)
 
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, statisticsInterval=TimeSpan.FromSeconds 5.)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId, statisticsInterval=TimeSpan.FromSeconds 5.)
         let consumers = __.RunConsumers(log, config, numConsumers, consumerCallback)
 
         let! _ = Async.Parallel [ producers ; consumers ]
@@ -330,11 +330,11 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
 
         let topic = newId() // dev kafka topics are created and truncated automatically
 
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
+        do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages) // populate the topic with a few messages
 
         let messageCount = ref 0
         let groupId1 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId1)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId1)
         do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
 
@@ -342,7 +342,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
 
         let messageCount = ref 0
         let groupId2 = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId2)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId2)
         do! __.RunConsumers(log, config, 1,
                 (fun c _m -> async { if Interlocked.Increment(messageCount) >= numMessages then c.Stop() }))
 
@@ -354,9 +354,9 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, autoCommitInterval=TimeSpan.FromSeconds 1.)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId, autoCommitInterval=TimeSpan.FromSeconds 1.)
 
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
+        do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages) // populate the topic with a few messages
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
@@ -382,9 +382,9 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let numMessages = 10
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId)
 
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // populate the topic with a few messages
+        do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages) // populate the topic with a few messages
 
         // expected to read 10 messages from the first consumer
         let messageCount = ref 0
@@ -395,7 +395,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
 
         test <@ numMessages = !messageCount @>
 
-        do! __.RunProducers(log, broker, topic, 1, numMessages) // produce more messages
+        do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages) // produce more messages
 
         // expected to read 10 messages from the subsequent consumer,
         // this is to verify there are no off-by-one errors in how offsets are committed
@@ -417,10 +417,10 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let maxBatchSize = 20
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", broker, [topic], groupId, maxBatchSize = maxBatchSize)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId, maxBatchSize = maxBatchSize)
 
         // Produce messages in the topic
-        do! __.RunProducers(log, broker, topic, 1, numMessages)
+        do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages)
 
         let globalMessageCount = ref 0
 

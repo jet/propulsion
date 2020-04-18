@@ -7,7 +7,8 @@ open System
 open System.Collections.Generic
 
 module Bindings =
-    let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
+    let mapMessage (x : ConsumeResult<string,string>) = x.Message
+    let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Message.Key,x.Message.Value)
     let inline partitionId (x : ConsumeResult<_,_>) = let p = x.Partition in p.Value
     let topicPartition (topic : string) (partition : int) = TopicPartition(topic, Partition partition)
     let partitionValue (partition : Partition) = let p = partition in p.Value
@@ -24,5 +25,3 @@ module Bindings =
             | message -> ingest message
         with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
             | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
-    let produceAsync produceAsync (key,value) = async {
-        do! Async.Ignore <| produceAsync (key, value) }

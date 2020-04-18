@@ -38,10 +38,10 @@ module Core =
                     busyWork ()
                 log.Verbose "Consumer resuming polling"
 
-module private Config =
+module Config =
     let validateBrokerUri (u:Uri) =
         if not u.IsAbsoluteUri then invalidArg "broker" "should be of 'host:port' format"
-        if String.IsNullOrEmpty u.Authority then 
+        if String.IsNullOrEmpty u.Authority then
             // handle a corner case in which Uri instances are erroneously putting the hostname in the `scheme` field.
             if System.Text.RegularExpressions.Regex.IsMatch(string u, "^\S+:[0-9]+$") then string u
             else invalidArg "broker" "should be of 'host:port' format"
@@ -50,9 +50,9 @@ module private Config =
 
 /// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md for documentation on the implications of specfic settings
 [<NoComparison>]
-type KafkaProducerConfig private (inner, broker : Uri) =
+type KafkaProducerConfig private (inner, bootstrapServers) =
     member __.Inner : ProducerConfig = inner
-    member __.Broker = broker
+    member __.BootstrapServers = bootstrapServers
 
     member __.Acks = let v = inner.Acks in v.Value
     member __.MaxInFlight = let v = inner.MaxInFlight in v.Value
@@ -60,7 +60,7 @@ type KafkaProducerConfig private (inner, broker : Uri) =
 
     /// Creates and wraps a Confluent.Kafka ProducerConfig with the specified settings
     static member Create
-        (   clientId : string, broker : Uri, acks,
+        (   clientId : string, bootstrapServers, acks,
             /// Message compression. Defaults to None.
             ?compression,
             /// Maximum in-flight requests. Default: 1_000_000.
@@ -86,7 +86,7 @@ type KafkaProducerConfig private (inner, broker : Uri) =
             ?customize) =
         let c =
             ProducerConfig(
-                ClientId = clientId, BootstrapServers = Config.validateBrokerUri broker,
+                ClientId = clientId, BootstrapServers = bootstrapServers,
                 RetryBackoffMs = Nullable (match retryBackoff with Some (t : TimeSpan) -> int t.TotalMilliseconds | None -> 1000), // CK default 100ms
                 MessageSendMaxRetries = Nullable (defaultArg retries 60), // default 2
                 Acks = Nullable acks,
@@ -100,7 +100,7 @@ type KafkaProducerConfig private (inner, broker : Uri) =
         statisticsInterval |> Option.iter<TimeSpan> (fun x -> c.StatisticsIntervalMs <- Nullable (int x.TotalMilliseconds))
         custom |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         customize |> Option.iter (fun f -> f c)
-        KafkaProducerConfig(c, broker)
+        KafkaProducerConfig(c, bootstrapServers)
 
 [<AutoOpen>]
 module Impl =
@@ -121,13 +121,14 @@ type KafkaProducer private (inner : Producer<string, string>, topic : string, un
     ///     Thus its critical to ensure you don't submit another message for the same key until you've had a success / failure response from the call.<remarks/>
     member __.ProduceAsync(key, value) : Async<Message<_,_>>= async {
         let! res = inner.ProduceAsync(topic, key = key, ``val`` = value) |> Async.AwaitTaskCorrect
+        // Propulsion.Kafka.Producer duplicates this check, but this one should remain for consistency with Confluent.Kafka v1
         if res.Error.HasError then return failwithf "ProduceAsync error %O" res.Error
         return res }
 
     static member Create(log : ILogger, config : KafkaProducerConfig, topic : string): KafkaProducer =
         if String.IsNullOrEmpty topic then nullArg "topic"
-        log.Information("Producing... {broker} / {topic} compression={compression} maxInFlight={maxInFlight} acks={acks}",
-            config.Broker, topic, config.Compression, config.MaxInFlight, config.Acks)
+        log.Information("Producing... {bootstrapServers} / {topic} compression={compression} maxInFlight={maxInFlight} acks={acks}",
+            config.BootstrapServers, topic, config.Compression, config.MaxInFlight, config.Acks)
         let p = new Producer<string, string>(config.Inner.Render(), mkSerializer (), mkSerializer())
         let d1 = p.OnLog.Subscribe(fun m -> log.Information("Producing... {message} level={level} name={name} facility={facility}", m.Message, m.Level, m.Name, m.Facility))
         let d2 = p.OnError.Subscribe(fun e -> log.Error("Producing... {reason} code={code} isBrokerError={isBrokerError}", e.Reason, e.Code, e.IsBrokerError))
@@ -156,6 +157,7 @@ type BatchedProducer private (log: ILogger, inner : IProducer<string, string>, t
 
         let tcs = new TaskCompletionSource<DeliveryReport<_,_>[]>()
         let numMessages = keyValueBatch.Length
+        let numMessages = keyValueBatch.Length
         let results = Array.zeroCreate<DeliveryReport<_,_>> numMessages
         let numCompleted = ref 0
 
@@ -168,7 +170,7 @@ type BatchedProducer private (log: ILogger, inner : IProducer<string, string>, t
             else
                 let i = Interlocked.Increment numCompleted
                 results.[i - 1] <- m
-                if i = numMessages then tcs.TrySetResult results |> ignore 
+                if i = numMessages then tcs.TrySetResult results |> ignore
         let handler' =
             { new IDeliveryHandler<string, string> with
                 member __.MarshalData = false
@@ -198,7 +200,7 @@ type BatchedProducer private (log: ILogger, inner : IProducer<string, string>, t
         config.Inner.MaxInFlight <- Nullable (defaultArg maxInFlight 1)
         let inner = KafkaProducer.Create(log, config, topic)
         new BatchedProducer(log, inner.Inner, topic)
-        
+
 /// See https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md for documentation on the implications of specfic settings
 [<NoComparison>]
 type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list; buffering: Core.ConsumerBufferingConfig } with
@@ -209,7 +211,7 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
     /// Builds a Kafka Consumer Config suitable for KafkaConsumer.Start*
     static member Create
         (   /// Identify this consumer in logs etc
-            clientId, broker : Uri, topics,
+            clientId, bootstrapServers, topics,
             /// Consumer group identifier.
             groupId,
             /// Specifies handling when Consumer Group does not yet have an offset recorded. Confluent.Kafka default: start from Latest. Default: start from Earliest.
@@ -242,7 +244,7 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
         let fetchMaxBytes = defaultArg fetchMaxBytes 100_000
         let c =
             ConsumerConfig(
-                ClientId=clientId, BootstrapServers=Config.validateBrokerUri broker, GroupId=groupId,
+                ClientId = clientId, BootstrapServers = bootstrapServers, GroupId = groupId,
                 AutoOffsetReset = Nullable (defaultArg autoOffsetReset AutoOffsetReset.Earliest), // default: latest
                 FetchMaxBytes = Nullable fetchMaxBytes, // default: 524_288_000
                 EnableAutoCommit = Nullable true, // at AutoCommitIntervalMs interval, write value supplied by StoreOffset call
@@ -254,7 +256,7 @@ type KafkaConsumerConfig = private { inner: ConsumerConfig; topics: string list;
         autoCommitInterval |> Option.iter<TimeSpan> (fun x -> c.AutoCommitIntervalMs  <- Nullable <| int x.TotalMilliseconds)
         custom |> Option.iter (fun xs -> for KeyValue (k,v) in xs do c.Set(k,v))
         customize |> Option.iter<ConsumerConfig -> unit> (fun f -> f c)
-        {   inner = c 
+        {   inner = c
             topics = match Seq.toList topics with [] -> invalidArg "topics" "must be non-empty collection" | ts -> ts
             buffering = {
                 maxBatchDelay = defaultArg maxBatchDelay (TimeSpan.FromMilliseconds 500.); maxBatchSize = defaultArg maxBatchSize 1000
@@ -276,7 +278,7 @@ type KafkaPartitionMetrics =
         [<JsonProperty("hi_offset")>]
         hiOffset: int64
         [<JsonProperty("consumer_lag")>]
-        consumerLag: int64 }        
+        consumerLag: int64 }
 
 type OffsetValue =
     | Unset

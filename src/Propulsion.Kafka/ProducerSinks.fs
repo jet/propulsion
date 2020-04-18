@@ -12,7 +12,7 @@ type ParallelProducerSink =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item = async {
             let key, value = render item
-            do! Bindings.produceAsync producer.ProduceAsync (key, value) }
+            do! producer.Produce (key, value) }
         Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats = producer.DumpStats)
 
 type StreamsProducerSink =
@@ -41,7 +41,7 @@ type StreamsProducerSink =
                     match message.Length with
                     | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.events.Length)
                     | _ -> ()
-                    let! _ = producer.ProduceAsync(key,message) in ()
+                    do! producer.Produce(key, message)
                 | None -> ()
                 return span.index + span.events.LongLength, outcome
             }

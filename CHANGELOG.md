@@ -9,8 +9,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.Kafka`/`Kafka0`: Exposed `Produce` API providing ability to customize the `Confluent.Kafka` API used
+- `Propulsion.Kafka`: Added `Produce` API admitting a raw `Message`
+- `Propulsion.Kafka`: Added `Produce` API admitting optional `headers`
+
 ### Changed
 
+- `Kafka`: Targets [`FsKafka` v `1.4.1`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.1)
+- `Propulsion.Kafka`/`Kafka0`: Replaced `ProduceAsync` API with `Produce` that no longer yields a `DeliveryReport` (this functionality can be replicated via an alternate overload)
 - `EventStore`: Updated `CheckpointSeries` to adhere more closely to naming per [standardized naming](https://github.com/jet/dotnet-templates/pull/54) [#51](https://github.com/jet/propulsion/pull/51)
 
 ### Removed
