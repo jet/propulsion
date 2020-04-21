@@ -62,7 +62,7 @@ module Helpers =
             Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
 
     type TestMeta = { key: string; value: string; partition: int; offset : int64 }
-    let mapParallelConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+    let mapParallelConsumeResultToKeyValuePair (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
         let m = Bindings.mapMessage x
         KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
     type TestMessage = { producerId : int ; messageId : int }
@@ -113,7 +113,7 @@ module Helpers =
                 let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
             let handle item = handler (getConsumer()) (deserialize consumerId item)
-            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResult, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -155,7 +155,7 @@ module Helpers =
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                 BatchesConsumer.Start
-                    (   log, config, mapParallelConsumeResult, messageIndexes.KeyValueToStreamEvent,
+                    (   log, config, mapParallelConsumeResultToKeyValuePair, messageIndexes.KeyValueToStreamEvent,
                         select, handle,
                         stats, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
@@ -169,7 +169,7 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let mapStreamConsumeResult (x: ConsumeResult<_,string>) : byte[] * obj =
+    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : byte[] * obj =
         let m = Bindings.mapMessage x
         System.Text.Encoding.UTF8.GetBytes(m.Value),
         box { key = m.Key; value = m.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value }
@@ -194,7 +194,7 @@ module Helpers =
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                  StreamsConsumer.Start
-                    (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResult),
+                    (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
                         handle, 256, stats,
                         maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 

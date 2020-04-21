@@ -175,18 +175,21 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         new ConsumerPipeline(consumer, task, triggerStop)
 
 type ParallelConsumer private () =
+
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
-    static member Start<'M>
-        (   log : ILogger, config : KafkaConsumerConfig, maxDop, mapResult : (ConsumeResult<string, string> -> 'M), handle : ('M -> Async<Choice<unit, exn>>),
+    static member Start<'Msg>
+        (   log : ILogger, config : KafkaConsumerConfig, maxDop,
+            mapResult : ConsumeResult<string, string> -> 'Msg,
+            handle : 'Msg -> Async<Choice<unit, exn>>,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
-        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'M>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'M> =
+        let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
             { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; }
         let submitBatch (x : Parallel.Scheduling.Batch<_>) : int =
@@ -348,8 +351,8 @@ type StreamNameSequenceGenerator() =
     member __.GenerateIndex(streamName : StreamName) =
         let streamName = FsCodec.StreamName.toString streamName
         match indices.TryGetValue streamName with
-        | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
-        | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
+        | true, v -> let x = v + 1L in indices.[streamName] <- x; x
+        | false, _ -> let x = 0L in indices.[streamName] <- x; x
 
     /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
     member __.ConsumeResultToStreamEvent
@@ -436,8 +439,8 @@ type BatchesConsumer =
     /// Processor pumps until `Stop()` is requested.
     /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
     /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
-    static member Start<'M>
-        (   log : ILogger, config : KafkaConsumerConfig, mapConsumeResult, keyValueToStreamEvents,
+    static member Start<'Info>
+        (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
             select, handle, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<unit>, FailResult>,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
@@ -466,8 +469,8 @@ type BatchesConsumer =
                         x.stream, Choice2Of2 (s, e) |] }
         let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, ?idleDelay=idleDelay, maxBatches=maxBatches)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'M>) : Streams.Scheduling.StreamsBatch<_> =
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'Info>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect keyValueToStreamEvents x.messages) |> fst
+            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
-        ConsumerPipeline.Start(log, config, mapConsumeResult, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
+        ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
