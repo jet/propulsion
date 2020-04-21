@@ -294,10 +294,30 @@ module Core =
             | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
             | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
 
+        /// Provides flexible mapping from a ConsumeResult to a StreamEvent than ToStreamEvent
+        member __.CreateStreamEventMapper
+            (   toStreamName : ConsumeResult<_, _> -> StreamName,
+                toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
+            : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+            fun consumeResult ->
+                let sn = toStreamName consumeResult
+                let index = genIndex (FsCodec.StreamName.toString sn)
+                let e = toTimelineEvent (consumeResult, index)
+                Seq.singleton { stream = sn; event = e }
+
         // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
+        member __.CreateStreamEventMapper(toStreamName : ConsumeResult<_, _> -> StreamName)
+            : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+            let toTimelineEvent (result : ConsumeResult<string, string>, index) =
+                let message = Bindings.mapMessage result
+                FsCodec.Core.TimelineEvent.Create(index, String.Empty, System.Text.Encoding.UTF8.GetBytes(message.Value))
+            __.CreateStreamEventMapper(toStreamName, toTimelineEvent)
+
+        /// Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
         member __.ToStreamEvent(KeyValue (k,v : string), ?eventType) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let e = FsCodec.Core.TimelineEvent.Create(genIndex k,defaultArg eventType String.Empty,System.Text.Encoding.UTF8.GetBytes v)
-            Seq.singleton { stream = Propulsion.Streams.StreamName.internalParseSafe k; event=e }
+            let sn = Propulsion.Streams.StreamName.internalParseSafe k
+            let e = FsCodec.Core.TimelineEvent.Create(genIndex (StreamName.toString sn), defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
+            Seq.singleton { stream = sn; event = e }
 
 type StreamsConsumer =
 

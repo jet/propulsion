@@ -124,21 +124,6 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an index.
-    /// The messages we consume don't have such characteristics, so we generate a fake `index` by keeping an int per stream in a dictionary
-    type MessagesByArrivalOrder() =
-        // we synthesize a monotonically increasing index to render the deduplication facility inert
-        let indices = System.Collections.Generic.Dictionary()
-        let genIndex streamName =
-            match indices.TryGetValue streamName with
-            | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
-            | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
-
-        // Stuff the full content of the message into an Event record - we'll parse it when it comes out the other end in a span
-        member __.ToStreamEvents (KeyValue (k,v : string)) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let e = FsCodec.Core.TimelineEvent.Create(genIndex k, String.Empty, System.Text.Encoding.UTF8.GetBytes v)
-            Seq.singleton { stream = Propulsion.Streams.StreamName.internalParseSafe k; event = e }
-
     let deserialize consumerId (e : FsCodec.ITimelineEvent<byte[]>) : ConsumedTestMessage =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
         let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
@@ -167,10 +152,10 @@ module Helpers =
                 (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
                 return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
-            let messageIndexes = MessagesByArrivalOrder()
+            let messageIndexes = Core.StreamKeyEventSequencer()
             let consumer =
                 BatchesConsumer.Start
-                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
+                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvent,
                         select, handle,
                         stats, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
@@ -201,10 +186,10 @@ module Helpers =
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return span.events.Length,() }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
-            let messageIndexes = MessagesByArrivalOrder()
+            let messageIndexes = Core.StreamKeyEventSequencer()
             let consumer =
                  Core.StreamsConsumer.Start
-                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvents,
+                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvent,
                         handle, 256, stats,
                         maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
