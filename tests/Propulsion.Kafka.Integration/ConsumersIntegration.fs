@@ -62,8 +62,9 @@ module Helpers =
             Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
 
     type TestMeta = { key: string; value: string; partition: int; offset : int64 }
-    let mapConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
-        KeyValuePair(x.Key, JsonConvert.SerializeObject { key = x.Key; value = x.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
+    let mapParallelConsumeResult (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+        let m = Bindings.mapMessage x
+        KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
     type TestMessage = { producerId : int ; messageId : int }
     type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
@@ -110,9 +111,9 @@ module Helpers =
             let deserialize consumerId (KeyValue (k,v)) : ConsumedTestMessage =
                 let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(v)
                 let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
-                { consumerId = consumerId; meta=d; payload=v }
+                { consumerId = consumerId; meta = d; payload = v }
             let handle item = handler (getConsumer()) (deserialize consumerId item)
-            let consumer = ParallelConsumer.Start(log, config, 128, mapConsumeResult, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResult, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -126,8 +127,7 @@ module Helpers =
 
     let deserialize consumerId (e : FsCodec.ITimelineEvent<byte[]>) : ConsumedTestMessage =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
-        let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
-        { consumerId = consumerId; meta=d; payload=v }
+        { consumerId = consumerId; meta = d; payload = unbox e.Context }
 
     let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
@@ -155,7 +155,7 @@ module Helpers =
             let messageIndexes = Core.StreamKeyEventSequencer()
             let consumer =
                 BatchesConsumer.Start
-                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvent,
+                    (   log, config, mapParallelConsumeResult, messageIndexes.KeyValueToStreamEvent,
                         select, handle,
                         stats, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
@@ -168,6 +168,11 @@ module Helpers =
 
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
+
+    let mapStreamConsumeResult (x: ConsumeResult<_,string>) : byte[] * obj =
+        let m = Bindings.mapMessage x
+        System.Text.Encoding.UTF8.GetBytes(m.Value),
+        box { key = m.Key; value = m.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value }
 
     let runConsumersStream log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
@@ -189,7 +194,7 @@ module Helpers =
             let messageIndexes = Core.StreamKeyEventSequencer()
             let consumer =
                  Core.StreamsConsumer.Start
-                    (   log, config, mapConsumeResult, messageIndexes.ToStreamEvent,
+                    (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResult),
                         handle, 256, stats,
                         maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
 
