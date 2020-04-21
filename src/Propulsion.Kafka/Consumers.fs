@@ -283,22 +283,47 @@ module Core =
                 ?maxBatches = maxBatches,
                 ?maximizeOffsetWriting = maximizeOffsetWriting)
 
+        (* KeyValuePair optimized mappings (these were the original implementation); retained as:
+            - the default mapping overloads in Propulsion.Kafka.StreamsConsumer pass the ConsumeResult to parser functions,
+              which can potentially induce avoidable memory consumption before the ingestion handler runs the mapping process
+            - for symmetry with ParallelConsumer signatures, we provide an out of the box API mapping from the relevant Kafka underlying type to a neutral one *)
+
+        /// Starts a Kafka Consumer processing pipeline per the `config` running up to `maxDop` instances of `handle` concurrently to maximize global throughput across partitions.
+        /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
+        static member Start<'Res>
+            (   log : ILogger, config : KafkaConsumerConfig,
+                /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
+                keyValueToStreamEvents,
+                prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>, FailResult>,
+                /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
+                ?maximizeOffsetWriting,
+                ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
+            StreamsConsumer.Start<KeyValuePair<string, string>, string * Propulsion.Streams.StreamSpan<_>, 'Res>(
+                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop, stats,
+                ?pipelineStatsInterval = pipelineStatsInterval,
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?pumpInterval = pumpInterval,
+                ?logExternalState = logExternalState,
+                ?idleDelay = idleDelay,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
+
         /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
         /// Processor statistics are accumulated serially into the supplied `stats` buffer
         /// Processor pumps until `Stop()` is requested.
         /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
         /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
-        /// Often paired with <c>StreamKeyEventSequencer.ConsumeResultToStreamEvent</c>
+        /// <c>keyValueToStreamEvents</c> is often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
         static member Start<'Res>
             (   log : ILogger, config : KafkaConsumerConfig,
-                consumeResultToStreamEvents : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<_> seq,
+                /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
+                keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
                 stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>, FailResult>,
                 /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
                 ?maximizeOffsetWriting,
                 ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
-            StreamsConsumer.Start<ConsumeResult<_, _>, 'Res>(
-                log, config, id, consumeResultToStreamEvents, handle, maxDop, stats,
+            StreamsConsumer.Start<KeyValuePair<string, string>, 'Res>(
+                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop, stats,
                 ?pipelineStatsInterval = pipelineStatsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
                 ?pumpInterval = pumpInterval,
@@ -312,113 +337,96 @@ module Core =
         | null -> FsCodec.StreamName.create defaultCategory ""
         | key -> Propulsion.Streams.StreamName.parseWithDefaultCategory defaultCategory key
 
-    /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an `index`.
-    /// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
-    type StreamKeyEventSequencer() =
+/// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an `index`.
+/// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
+type StreamNameSequenceGenerator() =
 
-        // we synthesize a monotonically increasing index to render the deduplication facility inert
-        let indices = System.Collections.Generic.Dictionary()
+    // we synthesize a monotonically increasing index to render the deduplication facility inert
+    let indices = System.Collections.Generic.Dictionary()
 
-        /// Generates an index for the specified StreamName
-        member __.GenerateIndex(streamName : StreamName) =
-            let streamName = FsCodec.StreamName.toString streamName
-            match indices.TryGetValue streamName with
-            | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
-            | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
+    /// Generates an index for the specified StreamName
+    member __.GenerateIndex(streamName : StreamName) =
+        let streamName = FsCodec.StreamName.toString streamName
+        match indices.TryGetValue streamName with
+        | true, v -> let x = v + 1 in indices.[streamName] <- x; int64 x
+        | false, _ -> let x = 0 in indices.[streamName] <- x; int64 x
 
-        /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
-        member __.ConsumeResultToStreamEvent
-            (   toStreamName : ConsumeResult<_, _> -> StreamName,
-                toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
-            : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-            fun consumeResult ->
-                let sn = toStreamName consumeResult
-                let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
-                Seq.singleton { stream = sn; event = e }
-
-        /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
-        /// The body of the message is passed as the <c>ITimelineEvent.Data</c>
-        member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
-            : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-            let toDataAndContext (result : ConsumeResult<string, string>) =
-                let message = Bindings.mapMessage result
-                System.Text.Encoding.UTF8.GetBytes message.Value, null
-            __.ConsumeResultToStreamEvent(toStreamName, toDataAndContext)
-
-        /// Enables customizing of mapping from ConsumeResult to
-        /// 1) The <c>StreamName</c>
-        /// 2) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload
-        /// 3) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
-        member __.ConsumeResultToStreamEvent
-            (    toStreamName : ConsumeResult<_, _> -> StreamName,
-                 toDataAndContext : ConsumeResult<_, _> -> byte[] * obj)
-            : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-            let toTimelineEvent (result : ConsumeResult<string, string>, index) =
-                let data, context = toDataAndContext result
-                FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
-            __.ConsumeResultToStreamEvent(toStreamName, toTimelineEvent)
-
-        /// Enables customizing of mapping from ConsumeResult to
-        /// 1) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload
-        /// 2) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
-        member __.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> byte[] * obj, ?defaultCategory)
-            : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-            let toStreamName (result : ConsumeResult<string, string>) =
-                let message = Bindings.mapMessage result
-                parseMessageKey (defaultArg defaultCategory "") message.Key
-            let toTimelineEvent (result : ConsumeResult<string, string>, index) =
-                let data, context = toDataAndContext result
-                FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
-            __.ConsumeResultToStreamEvent(toStreamName, toTimelineEvent)
-
-        /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
-        member __.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
-            let sn = parseMessageKey (defaultArg defaultCategory String.Empty) k
-            let e = FsCodec.Core.TimelineEvent.Create(__.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
+    /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
+    member __.ConsumeResultToStreamEvent
+        (   toStreamName : ConsumeResult<_, _> -> StreamName,
+            toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
+        : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        fun consumeResult ->
+            let sn = toStreamName consumeResult
+            let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
             Seq.singleton { stream = sn; event = e }
+
+    /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
+    /// The body of the message is passed as the <c>ITimelineEvent.Data</c>
+    member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
+        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        let toDataAndContext (result : ConsumeResult<string, string>) =
+            let message = Bindings.mapMessage result
+            System.Text.Encoding.UTF8.GetBytes message.Value, null
+        __.ConsumeResultToStreamEvent(toStreamName, toDataAndContext)
+
+    /// Enables customizing of mapping from ConsumeResult to
+    /// 1) The <c>StreamName</c>
+    /// 2) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload
+    /// 3) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
+    member __.ConsumeResultToStreamEvent
+        (    toStreamName : ConsumeResult<_, _> -> StreamName,
+             toDataAndContext : ConsumeResult<_, _> -> byte[] * obj)
+        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        let toTimelineEvent (result : ConsumeResult<string, string>, index) =
+            let data, context = toDataAndContext result
+            FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
+        __.ConsumeResultToStreamEvent(toStreamName, toTimelineEvent)
+
+    /// Enables customizing of mapping from ConsumeResult to
+    /// 1) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload
+    /// 2) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
+    member __.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> byte[] * obj, ?defaultCategory)
+        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        let toStreamName (result : ConsumeResult<string, string>) =
+            let message = Bindings.mapMessage result
+            Core.parseMessageKey (defaultArg defaultCategory "") message.Key
+        let toTimelineEvent (result : ConsumeResult<string, string>, index) =
+            let data, context = toDataAndContext result
+            FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
+        __.ConsumeResultToStreamEvent(toStreamName, toTimelineEvent)
+
+    /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
+    member __.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
+        let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
+        let e = FsCodec.Core.TimelineEvent.Create(__.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
+        Seq.singleton { stream = sn; event = e }
 
 type StreamsConsumer =
 
-    /// Starts a Kafka Consumer processing pipeline per the `config` running up to `maxDop` instances of `handle` concurrently to maximize global throughput across partitions.
-    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
-    static member Start<'Res>
-        (   log : ILogger, config : KafkaConsumerConfig, keyValueToStreamEvents,
-            prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>, FailResult>,
-            /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
-            ?maximizeOffsetWriting,
-            ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
-        Core.StreamsConsumer.Start<KeyValuePair<string, string>, string * Propulsion.Streams.StreamSpan<_>, 'Res>(
-            log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop, stats,
-            ?pipelineStatsInterval = pipelineStatsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?pumpInterval = pumpInterval,
-            ?logExternalState = logExternalState,
-            ?idleDelay = idleDelay,
-            ?maximizeOffsetWriting = maximizeOffsetWriting)
-
-    /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
-    /// Processor statistics are accumulated serially into the supplied `stats` buffer
-    /// Processor pumps until `Stop()` is requested.
-    /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-    /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
-    /// Often paired with <c>StreamKeyEventSequencer.KeyValueToStreamEvent</c>
-    static member Start<'Res>
-        (   log : ILogger, config : KafkaConsumerConfig,
-            keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
-            handle : StreamName * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
-            stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>, FailResult>,
-            /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
-            ?maximizeOffsetWriting,
-            ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
-        Core.StreamsConsumer.Start<KeyValuePair<string, string>, 'Res>(
-            log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop, stats,
-            ?pipelineStatsInterval = pipelineStatsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?pumpInterval = pumpInterval,
-            ?logExternalState = logExternalState,
-            ?idleDelay = idleDelay,
-            ?maxBatches = maxBatches,
-            ?maximizeOffsetWriting = maximizeOffsetWriting)
+        /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
+        /// Processor statistics are accumulated serially into the supplied `stats` buffer
+        /// Processor pumps until `Stop()` is requested.
+        /// Handler `Choice1Of2` result must indicate Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+        /// Handler `Choice2Of2` result marks the processing of a stream failed (which will then be offered again for retry purposes on the next cycle)
+        static member Start<'Res>
+            (   log : ILogger, config : KafkaConsumerConfig,
+                /// often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
+                consumeResultToStreamEvents : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<_> seq,
+                handle : StreamName * Streams.StreamSpan<_> -> Async<'Res>, maxDop,
+                stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Res>, FailResult>,
+                /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
+                ?maximizeOffsetWriting,
+                ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
+            Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Res>(
+                log, config, id, consumeResultToStreamEvents, handle, maxDop, stats,
+                ?pipelineStatsInterval = pipelineStatsInterval,
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?pumpInterval = pumpInterval,
+                ?logExternalState = logExternalState,
+                ?idleDelay = idleDelay,
+                ?maxBatches = maxBatches,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
 
 type BatchesConsumer =
 

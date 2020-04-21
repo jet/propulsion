@@ -152,7 +152,7 @@ module Helpers =
                 (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
                 return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
-            let messageIndexes = Core.StreamKeyEventSequencer()
+            let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                 BatchesConsumer.Start
                     (   log, config, mapParallelConsumeResult, messageIndexes.KeyValueToStreamEvent,
@@ -191,9 +191,9 @@ module Helpers =
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return span.events.Length,() }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
-            let messageIndexes = Core.StreamKeyEventSequencer()
+            let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
-                 Core.StreamsConsumer.Start
+                 StreamsConsumer.Start
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResult),
                         handle, 256, stats,
                         maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
