@@ -9,7 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.Kafka`: `StreamNameSequenceGenerator.ConsumeResultToStreamEvent` provides a set of helpers for mapping from Kafka `ConsumeResult`s to a `StreamEvent` for processing [#56](https://github.com/jet/propulsion/pull/56)
+- `Propulsion.Kafka.StreamsConsumer.Start`: now has a `consumeResultToStreamEvents : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<_> seq` parameter (which can be implemented via `StreamNameSequenceGenerator.ConsumeResultToStreamEvent`) [#56](https://github.com/jet/propulsion/pull/56)
+- Breaking: Moved pubternal `Propulsion.Kafka.Core.StreamKeyEventSequencer` to public `Propulsion.Kafka.StreamNameSequenceGenerator` [#56](https://github.com/jet/propulsion/pull/56)
+
 ### Changed
+
+- Breaking: Moved `Propulsion.Kafka.StreamsConsumer`'s Start methods to `Propulsion.Core.StreamsConsumer` (i.e. need to prefix `StreamsConsumer` to migrate) [#56](https://github.com/jet/propulsion/pull/56)
+- Breaking: `Propulsion.Kafka.Core.StreamKeyEventSequencer.ToStreamEvent` becomes `Propulsion.Kafka.StreamNameSequenceGenerator.KeyValueToStreamEvent` [#56](https://github.com/jet/propulsion/pull/56)
+
 ### Removed
 ### Fixed
 
