@@ -189,11 +189,11 @@ module Helpers =
             let handle (streamName : StreamName, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
                 for event in span.events do
                     do! handler (getConsumer()) (deserialize consumerId event)
-                return span.events.Length,() }
+                return span.events.LongLength, () }
             let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
-                 StreamsConsumer.Start
+                 StreamsConsumer.Start<unit>
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
                         handle, 256, stats,
                         maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
