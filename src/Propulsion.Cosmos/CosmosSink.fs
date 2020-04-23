@@ -131,7 +131,7 @@ module Internal =
     type CosmosSchedulingEngine =
 
         static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
-            : Scheduling.StreamSchedulingEngine<_, _> =
+            : Scheduling.StreamSchedulingEngine<_, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
             let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
@@ -153,8 +153,8 @@ module Internal =
                         streams.SetMalformed(stream,malformed)
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream,res)
-                ss.write
-            let dispatcher = Scheduling.MultiDispatcher<_, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+                ss.write, res
+            let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches = maxBatches)
 
 type CosmosSink =
