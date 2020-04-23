@@ -733,18 +733,17 @@ module Scheduling =
 
     type StreamSchedulingEngine =
 
-        static member Create<'Stats, 'Req, 'Outcome>
+        static member Create<'Stats, 'Req, 'Progress, 'Outcome>
             (   itemDispatcher : ItemDispatcher<Choice<int64 * 'Stats * 'Outcome, 'Stats * exn>>,
                 stats : StreamSchedulerStats<'Stats * 'Outcome, 'Stats * exn>,
-                prepare : StreamName*StreamSpan<byte[]> -> 'Stats * 'Req,
-                handle : 'Req -> Async<int64 * 'Outcome>,
+                prepare : StreamName*StreamSpan<byte[]> -> 'Stats * 'Req, handle : 'Req -> Async<'Progress * 'Outcome>, toIndex : 'Req -> 'Progress -> int64,
                 dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * 'Stats * 'Outcome, 'Stats * 'Outcome, 'Stats * exn> =
 
             let project (item : DispatchItem<byte[]>) : Async<Choice<int64 * 'Stats * 'Outcome, 'Stats * exn>> = async {
                 let stats, req = prepare (item.stream, item.span)
-                try let! index', outcome = handle req
-                    return Choice1Of2 (index', stats, outcome)
+                try let! progress, outcome = handle req
+                    return Choice1Of2 (toIndex req progress, stats, outcome)
                 with e -> return Choice2Of2 (stats, e) }
 
             let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64 * 'Stats * 'Outcome, 'Stats * exn> -> int64 option * Choice<'Stats * 'Outcome, 'Stats * exn> = function
@@ -833,7 +832,7 @@ module Projector =
 
 /// Represents progress handler made during the processing of the current span of events for a stream
 /// This will be reflected, where appropriate, by adjustments to the write position for the stream
-type StreamHandlerResult =
+type SpanResult =
    /// Signifies all events in span have been processed, and write position should move to beyond that of the last event
    | AllProcessed
    /// Indicates only a subset of the presented events have been processed
@@ -841,24 +840,30 @@ type StreamHandlerResult =
    /// Override the write position based on version discovered during processing (e.g., if downstream is ahead of current projection position)
    | OverrideWritePosition of index : int64
 
+module SpanResult =
+    let toIndex (_sn, span : StreamSpan<byte[]>) = function
+        | AllProcessed -> span.index + span.events.LongLength
+        | PartiallyProcessed count -> span.index + int64 count
+        | OverrideWritePosition index -> index
+
 type StreamsProjector =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
     /// and a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
-    static member StartEx<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, handle, stats, statsInterval)
+    static member StartEx<'Progress, 'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, stats, statsInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
-            Scheduling.StreamSchedulingEngine.Create<_ , StreamName * StreamSpan<byte[]>, 'Outcome>
+            Scheduling.StreamSchedulingEngine.Create<_ , StreamName * StreamSpan<byte[]>, 'Progress, 'Outcome>
                 (   dispatcher, stats,
-                    prepare, handle,
+                    prepare, handle, toIndex,
                     fun s l -> s.Dump(l, Buffering.StreamState.eventsSize))
         Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome>
         (    log : ILogger, maxReadAhead, maxConcurrentStreams,
-             handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
+             handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
              ?stats, ?statsInterval, ?stateInterval)
         : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
@@ -866,14 +871,14 @@ type StreamsProjector =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
-        StreamsProjector.StartEx<'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, stats, statsInterval = statsInterval)
+        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval = statsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, handle : StreamName * StreamSpan<_> -> Async<'Outcome>, ?stats, ?statsInterval, ?stateInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
-            return span.index + int64 span.events.Length, res }
+            return SpanResult.AllProcessed, res }
         StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, ?stats = stats, ?statsInterval = statsInterval, ?stateInterval = stateInterval)
 
 module Sync =
