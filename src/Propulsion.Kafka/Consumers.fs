@@ -461,7 +461,7 @@ type BatchesConsumer =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
         let handle (items : Streams.Scheduling.DispatchItem<byte[]>[])
-            : Async<(StreamName * Choice<int64 * EventStats * unit, EventStats * exn>)[]> = async {
+            : Async<(StreamName * Choice<int64 * (EventStats * unit), EventStats * exn>)[]> = async {
             try let! results = handle items
                 return
                     [| for x in Seq.zip items results ->
@@ -469,7 +469,7 @@ type BatchesConsumer =
                         | item, Choice1Of2 index' ->
                             let used : Streams.StreamSpan<_> = { item.span with events = item.span.events |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq }
                             let s = Streams.Buffering.StreamSpan.stats used
-                            item.stream, Choice1Of2 (index', s, ())
+                            item.stream, Choice1Of2 (index', (s, ()))
                         | item, Choice2Of2 exn ->
                             let s = Streams.Buffering.StreamSpan.stats item.span
                             item.stream, Choice2Of2 (s, exn) |]

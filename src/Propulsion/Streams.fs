@@ -524,17 +524,16 @@ module Scheduling =
             override __.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st)) =
                 stats.TryDumpState(dispatcherState, dumpStreams streams, (dt, ft, mt, it, st))
 
-    type EventStats = int * int
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type BatchedDispatcher
         (   select : DispatchItem<byte[]> seq -> DispatchItem<byte[]>[],
-            handle : DispatchItem<byte[]>[] -> Async<(StreamName * Choice<int64 * EventStats * unit, EventStats * exn>)[]>,
+            handle : DispatchItem<byte[]>[] -> Async<(StreamName * Choice<int64 * (EventStats * unit), EventStats * exn>)[]>,
             stats : StreamSchedulerStats<_, _>,
             dumpStreams) =
         let dop = DopDispatcher 1
-        let result = Event<TimeSpan * (StreamName * Choice<int64 * EventStats * unit, EventStats * exn>)>()
+        let result = Event<TimeSpan * (StreamName * Choice<int64 * (EventStats * unit), EventStats * exn>)>()
 
-        let dispatchSubResults (res : TimeSpan, itemResults : (StreamName * Choice<int64 * EventStats * unit, EventStats * exn>)[]) =
+        let dispatchSubResults (res : TimeSpan, itemResults : (StreamName * Choice<int64 * (EventStats * unit), EventStats * exn>)[]) =
             let tot = res.TotalMilliseconds
             let avg = TimeSpan.FromMilliseconds(tot / float itemResults.Length)
             for res in itemResults do result.Trigger(avg, res)
@@ -560,12 +559,12 @@ module Scheduling =
             use _ = dop.Result.Subscribe dispatchSubResults
             return! dop.Pump() }
 
-        interface IDispatcher<int64 * EventStats * unit, EventStats * unit, EventStats * exn> with
+        interface IDispatcher<int64 * (EventStats * unit), EventStats * unit, EventStats * exn> with
             override __.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
             [<CLIEvent>] override __.Result = result.Publish
             override __.InterpretProgress(_streams : StreamStates<_>, _stream : StreamName, res : Choice<_, _>) =
                 match res with
-                | Choice1Of2 (pos', stats, outcome) -> Some pos', Choice1Of2 (stats, outcome)
+                | Choice1Of2 (pos', (stats, outcome)) -> Some pos', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
             override __.RecordResultStats msg = stats.Handle msg
             override __.DumpStats pendingCount = stats.DumpStats(dop.State, pendingCount)
@@ -652,7 +651,7 @@ module Scheduling =
                                 progressState.MarkStreamProgress(stream, index)
                                 streams.MarkCompleted(stream, index)
                                 Result (duration, (stream, Choice1Of2 r))
-                            | pos', Choice2Of2 exn ->
+                            | _, Choice2Of2 exn ->
                                 streams.MarkFailed(stream)
                                 Result (duration, (stream, Choice2Of2 exn))
                     feedStats res'
@@ -756,13 +755,13 @@ module Scheduling =
             StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
-            : StreamSchedulingEngine<int64 * 'Stats * unit, 'Stats * unit, 'Stats * exn> =
+            : StreamSchedulingEngine<int64 * ('Stats * unit), 'Stats * unit, 'Stats * exn> =
             StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
 module Projector =
 
     type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
-        inherit Scheduling.StreamSchedulerStats<Scheduling.EventStats * 'Outcome, Scheduling.EventStats * exn>(log, statsInterval, statesInterval)
+        inherit Scheduling.StreamSchedulerStats<EventStats * 'Outcome, EventStats * exn>(log, statsInterval, statesInterval)
         let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -880,7 +879,7 @@ type StreamsProjector =
 module Sync =
 
     type StreamsSyncStats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.StreamSchedulerStats<Scheduling.EventStats * (TimeSpan * 'Outcome), Scheduling.EventStats * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.StreamSchedulerStats<EventStats * (TimeSpan * 'Outcome), EventStats * exn>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()
         let prepareStats = Internal.LatencyStats("prepare")
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -956,7 +955,7 @@ module Sync =
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
-                Scheduling.StreamSchedulingEngine<int64 * EventStats * (TimeSpan * 'Outcome), EventStats * (TimeSpan * 'Outcome), Scheduling.EventStats * exn>
+                Scheduling.StreamSchedulingEngine<int64 * EventStats * (TimeSpan * 'Outcome), EventStats * (TimeSpan * 'Outcome), EventStats * exn>
                     (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
 
             Projector.StreamsProjectorPipeline.Start(
