@@ -830,14 +830,15 @@ module Projector =
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
-/// Represents progress handler made during the processing of the current span of events for a stream
-/// This will be reflected, where appropriate, by adjustments to the write position for the stream
+/// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
+/// This will be reflected in adjustments to the Write Position for the stream.
+/// Incoming <c>StreamEvents</c> with <c>Index</c>es prior to the active Write Position are proactively dropped from incoming buffers.
 type SpanResult =
-   /// Signifies all events in span have been processed, and write position should move to beyond that of the last event
+   /// Indicates all events supplied in the <c>StreamSpan</c> have been processed; Write Position should move one beyond that of the last event.
    | AllProcessed
-   /// Indicates only a subset of the presented events have been processed
+   /// Indicates only a subset of the presented events have been processed; Write Position should move one beyond the <c>Index</c> of Item <c>count</c> of the <c>StreamSpan</c>.
    | PartiallyProcessed of count : int
-   /// Override the write position based on version discovered during processing (e.g., if downstream is ahead of current projection position)
+   /// Apply an externally derived Write Position determined by the handler during processing (e.g., if downstream is running ahead of current inputs)
    | OverrideWritePosition of index : int64
 
 module SpanResult =
