@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- Revised `handle` function signatures in `Propulsion.Kafka.StreamsConsumer` and `Propulsion.Streams.StreamsProjector` to include a `Propulsion.Streams.SpanResult` representing Write Position updates [#65](https://github.com/jet/propulsion/pull/65)
+
 ### Changed
 ### Removed
 ### Fixed
