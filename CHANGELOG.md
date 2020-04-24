@@ -9,16 +9,21 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
 
-- Revised `handle` function signatures in `Propulsion.Kafka.StreamsConsumer` and `Propulsion.Streams.StreamsProjector` to include a `Propulsion.Streams.SpanResult` representing Write Position updates [#65](https://github.com/jet/propulsion/pull/65)
+<a name="2.4.0"></a>
+## [2.4.0] - 2019-04-24
+
+### Added
+
+- BREAKING: Revised `handle` function signatures in `Propulsion.Kafka.StreamsConsumer` and `Propulsion.Streams.StreamsProjector` to include a `Propulsion.Streams.SpanResult` representing Write Position updates [#65](https://github.com/jet/propulsion/pull/65)
 
 ### Changed
 
 - Removed egregious `int64` from stats handler signatures in `Propulsion.Streams.Scheduling.StreamSchedulerStats` and `Projector.Stats` [#65](https://github.com/jet/propulsion/pull/65)
 - Renamed `Streams.Sync.StreamsSyncStats` and `Streams.Scheduling.StreamSchedulerStats` to `Stats` for consistency [#65](https://github.com/jet/propulsion/pull/65)
-
-### Removed
-### Fixed
 
 <a name="2.3.0"></a>
 ## [2.3.0] - 2019-04-22
@@ -346,7 +351,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.3.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.4.0...HEAD
+[2.4.0]: https://github.com/jet/propulsion/compare/2.3.0...2.4.0
 [2.3.0]: https://github.com/jet/propulsion/compare/2.2.0...2.3.0
 [2.2.0]: https://github.com/jet/propulsion/compare/2.1.1...2.2.0
 [2.1.1]: https://github.com/jet/propulsion/compare/2.0.0...2.1.1
