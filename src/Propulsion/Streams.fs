@@ -448,7 +448,7 @@ module Scheduling =
 
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
     type private DopDispatcher<'R>(maxDop) =
-        // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag'sthread-affinity
+        // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
         let work = new BlockingCollection<_>(ConcurrentQueue<_>())
         let result = Event<TimeSpan * 'R>()
         let dop = Sem maxDop
@@ -606,7 +606,7 @@ module Scheduling =
         (   dispatcher : IDispatcher<'P, 'R, 'E>,
             /// Tune number of batches to ingest at a time. Default 5.
             ?maxBatches,
-            /// Tune the max number of check/dispatch cyles. Default 16.
+            /// Tune the max number of check/dispatch cycles. Default 16.
             ?maxCycles,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
             ?idleDelay,
@@ -841,6 +841,7 @@ type SpanResult =
    | OverrideWritePosition of index : int64
 
 module SpanResult =
+
     let toIndex (_sn, span : StreamSpan<byte[]>) = function
         | AllProcessed -> span.index + span.events.LongLength
         | PartiallyProcessed count -> span.index + int64 count
