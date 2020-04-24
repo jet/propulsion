@@ -151,7 +151,7 @@ module Helpers =
                       do! handler (getConsumer()) (deserialize consumerId event)
                 (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
                 return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
-            let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+            let stats = Propulsion.Streams.Scheduling.Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                 BatchesConsumer.Start
@@ -189,8 +189,8 @@ module Helpers =
             let handle (streamName : StreamName, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
                 for event in span.events do
                     do! handler (getConsumer()) (deserialize consumerId event)
-                return span.index + span.events.LongLength, () }
-            let stats = Propulsion.Streams.Scheduling.StreamSchedulerStats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+                return Propulsion.Streams.SpanResult.AllProcessed, () }
+            let stats = Propulsion.Streams.Scheduling.Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                  StreamsConsumer.Start<unit>
@@ -267,8 +267,8 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
 
-        let itemsSeen = new ConcurrentDictionary<_,_>()
-        let consumedBatches = new ConcurrentBag<ConsumedTestMessage>()
+        let itemsSeen = ConcurrentDictionary<_,_>()
+        let consumedBatches = ConcurrentBag<ConsumedTestMessage>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
             itemsSeen.[msg.payload] <- ()
@@ -415,11 +415,11 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let globalMessageCount = ref 0
 
         let getPartitionOffset =
-            let state = new ConcurrentDictionary<int, int64 ref>()
+            let state = ConcurrentDictionary<int, int64 ref>()
             fun partition -> state.GetOrAdd(partition, fun _ -> ref -1L)
 
         let getBatchPartitionCount =
-            let state = new ConcurrentDictionary<int, int ref>()
+            let state = ConcurrentDictionary<int, int ref>()
             fun partition -> state.GetOrAdd(partition, fun _ -> ref 0)
 
         let concurrentCalls = ref 0
