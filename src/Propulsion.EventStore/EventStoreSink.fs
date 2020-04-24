@@ -25,7 +25,7 @@ module Internal =
             | PartialDuplicate of overage : StreamSpan<byte[]>
             | PrefixMissing of batch : StreamSpan<byte[]> * writePos : int64
 
-        let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<EventStats * Result, EventStats * exn>) =
+        let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<EventMetrics * Result, EventMetrics * exn>) =
             match res with
             | stream, (Choice1Of2 (_, Ok pos)) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -65,7 +65,7 @@ module Internal =
             | _ -> ResultKind.Other
 
     type EventStoreStats(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.StreamSchedulerStats<EventStats * Writer.Result, EventStats * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.Stats<EventMetrics * Writer.Result, EventMetrics * exn>(log, statsInterval, stateInterval)
         let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
         let badCats, failStreams, timedOut = CatStats(), HashSet(), ref 0
         let toStreams, oStreams = HashSet(), HashSet()

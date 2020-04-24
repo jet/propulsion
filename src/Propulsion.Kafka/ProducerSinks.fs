@@ -21,7 +21,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName * StreamSpan<_> -> Async<(string*string) option * 'Outcome>,
             producer : Producer,
-            stats : Streams.Sync.StreamsSyncStats<'Outcome>, projectorStatsInterval,
+            stats : Streams.Sync.Stats<'Outcome>, projectorStatsInterval,
             /// Default .5 ms
             ?idleDelay,
             /// Default 1 MiB
@@ -67,7 +67,7 @@ type StreamsProducerSink =
             ?maxCycles)
         : ProjectorPipeline<_> =
             let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-            let stats = Streams.Sync.StreamsSyncStats<unit>(log.ForContext<Sync.StreamsSyncStats<unit>>(), statsInterval, stateInterval)
+            let stats = Streams.Sync.Stats<unit>(log.ForContext<Sync.Stats<unit>>(), statsInterval, stateInterval)
             let prepare (stream,span) = async {
                 let! k,v = prepare (stream,span)
                 return Some (k,v), ()
