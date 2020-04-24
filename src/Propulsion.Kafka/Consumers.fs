@@ -45,7 +45,7 @@ module private Impl =
 
     /// guesstimate approximate message size in bytes
     let approximateMessageBytes (message : Message<string, string>) =
-        let inline len (x:string) = match x with null -> 0 | x -> sizeof<char> * x.Length
+        let inline len (x : string) = match x with null -> 0 | x -> sizeof<char> * x.Length
         16 + len message.Key + len message.Value |> int64
     let inline mb x = float x / 1024. / 1024.
 
@@ -206,12 +206,11 @@ type ParallelConsumer private () =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
-type OkResult<'R> = int64*(int*int)*'R
-type FailResult = (int*int) * exn
+type EventStats = Streams.EventStats
 
 [<AbstractClass>]
-type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
-    inherit Streams.Scheduling.StreamSchedulerStats<OkResult<'R>, FailResult>(log, statsInterval, stateInterval)
+type StreamsConsumerStats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
+    inherit Streams.Scheduling.StreamSchedulerStats<EventStats * 'Outcome, EventStats * exn>(log, statsInterval, stateInterval)
     let okStreams, failStreams = HashSet(), HashSet()
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -226,7 +225,7 @@ type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
         base.Handle message
         match message with
         | Propulsion.Streams.Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (_, (es, bs), res))) ->
+        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
             adds stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -236,7 +235,7 @@ type StreamsConsumerStats<'R>(log : ILogger, statsInterval, stateInterval) =
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
 
-    abstract member HandleOk : outcome : 'R -> unit
+    abstract member HandleOk : outcome : 'Outcome -> unit
 
 /// APIs only required for advanced scenarios (specifically the integration tests)
 /// APIs within are not part of the stable API and are subject to unlimited change
@@ -246,7 +245,7 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
-                prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Outcome>, FailResult>,
+                prepare, handle, maxDop, stats : Streams.Scheduling.StreamSchedulerStats<int64 * EventStats * 'Outcome, EventStats * exn>,
                 ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
             let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
             let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
@@ -268,7 +267,7 @@ module Core =
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<int64 * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Outcome>, FailResult>,
+                stats : Streams.Scheduling.StreamSchedulerStats<int64 * EventStats * 'Outcome, EventStats * exn>,
                 ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
             let prepare (streamName, span) =
                 let stats = Streams.Buffering.StreamSpan.stats span
@@ -294,7 +293,7 @@ module Core =
                 /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
                 prepare, handle : StreamName * Streams.StreamSpan<_> -> Async<int64 * 'Outcome>,
-                maxDop, stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Outcome>, FailResult>,
+                maxDop, stats : Streams.Scheduling.StreamSchedulerStats<int64 * EventStats * 'Outcome, EventStats * exn>,
                 ?maximizeOffsetWriting, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop, stats,
@@ -311,7 +310,7 @@ module Core =
                 /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<int64 * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Outcome>, FailResult>,
+                stats : Streams.Scheduling.StreamSchedulerStats<int64 * EventStats * 'Outcome, EventStats * exn>,
                 ?maximizeOffsetWriting, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop, stats,
@@ -417,7 +416,7 @@ type StreamsConsumer =
             /// The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
             maxDop,
             /// The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
-            stats : Streams.Scheduling.StreamSchedulerStats<OkResult<'Outcome>, FailResult>,
+            stats : Streams.Scheduling.StreamSchedulerStats<int64 *EventStats * 'Outcome, EventStats * exn>,
             /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
             ?maximizeOffsetWriting,
             ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
@@ -452,7 +451,7 @@ type BatchesConsumer =
             ///   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle : Streams.Scheduling.DispatchItem<_>[] -> Async<seq<Choice<int64, exn>>>,
             /// The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats : Streams.Scheduling.StreamSchedulerStats<OkResult<unit>, FailResult>,
+            stats : Streams.Scheduling.StreamSchedulerStats<int64 * EventStats * unit, EventStats * exn>,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
             ?schedulerIngestionBatchCount, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
@@ -461,7 +460,8 @@ type BatchesConsumer =
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
-        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[]) : Async<(StreamName * Choice<int64 * (int * int) * unit, (int * int) * exn>)[]> = async {
+        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[])
+            : Async<(StreamName * Choice<int64 * EventStats * unit, EventStats * exn>)[]> = async {
             try let! results = handle items
                 return
                     [| for x in Seq.zip items results ->

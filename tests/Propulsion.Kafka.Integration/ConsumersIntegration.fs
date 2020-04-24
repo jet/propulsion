@@ -1,4 +1,4 @@
-﻿namespace Propulsion.Kafka.Integration
+namespace Propulsion.Kafka.Integration
 
 open Confluent.Kafka // required for shimming
 open FsCodec
@@ -59,10 +59,10 @@ module Helpers =
 
     type ConsumerPipeline with
         member c.StopAfter(delay : TimeSpan) =
-            Task.Delay(delay).ContinueWith(fun (_:Task) -> c.Stop()) |> ignore
+            Task.Delay(delay).ContinueWith(fun (_ : Task) -> c.Stop()) |> ignore
 
-    type TestMeta = { key: string; value: string; partition: int; offset : int64 }
-    let mapParallelConsumeResultToKeyValuePair (x: ConsumeResult<_,_>) : KeyValuePair<string,string> =
+    type TestMeta = { key : string; value : string; partition : int; offset : int64 }
+    let mapParallelConsumeResultToKeyValuePair (x : ConsumeResult<_, _>) : KeyValuePair<string, string> =
         let m = Bindings.mapMessage x
         KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Bindings.partitionId x; offset = let o = x.Offset in o.Value })
     type TestMessage = { producerId : int ; messageId : int }

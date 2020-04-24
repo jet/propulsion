@@ -20,7 +20,7 @@ module Core =
     module Constants =
         let messageCounterSourceContext = "FsKafka.Core.InFlightMessageCounter"
 
-    type InFlightMessageCounter(log: ILogger, minInFlightBytes : int64, maxInFlightBytes : int64) =
+    type InFlightMessageCounter(log : ILogger, minInFlightBytes : int64, maxInFlightBytes : int64) =
         do  if minInFlightBytes < 1L then invalidArg "minInFlightBytes" "must be positive value"
             if maxInFlightBytes < 1L then invalidArg "maxInFlightBytes" "must be positive value"
             if minInFlightBytes > maxInFlightBytes then invalidArg "maxInFlightBytes" "must be greater than minInFlightBytes"
@@ -39,7 +39,7 @@ module Core =
                 log.Verbose "Consumer resuming polling"
 
 module Config =
-    let validateBrokerUri (u:Uri) =
+    let validateBrokerUri (u : Uri) =
         if not u.IsAbsoluteUri then invalidArg "broker" "should be of 'host:port' format"
         if String.IsNullOrEmpty u.Authority then
             // handle a corner case in which Uri instances are erroneously putting the hostname in the `scheme` field.

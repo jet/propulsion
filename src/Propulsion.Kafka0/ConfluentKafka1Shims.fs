@@ -28,10 +28,10 @@ open System.Collections.Generic
 module Config =
 
     [<NoComparison; NoEquality>]
-    type ConfigKey<'T> = Key of id:string * render:('T -> obj) with
+    type ConfigKey<'T> = Key of id : string * render : ('T -> obj) with
         member k.Id = let (Key(id,_)) = k in id
 
-        static member (==>) (Key(id, render) : ConfigKey<'T>, value : 'T) = 
+        static member (==>) (Key(id, render) : ConfigKey<'T>, value : 'T) =
             match render value with
             | null -> nullArg id
             | :? string as str when String.IsNullOrWhiteSpace str -> nullArg id

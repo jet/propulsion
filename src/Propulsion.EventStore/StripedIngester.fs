@@ -37,7 +37,7 @@ module StripedIngesterImpl =
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
-    let tryTake key (dict: Dictionary<_, _>) =
+    let tryTake key (dict : Dictionary<_, _>) =
         match dict.TryGetValue key with
         | true, value ->
             dict.Remove key |> ignore
@@ -61,7 +61,7 @@ type StripedIngester
 
     let reserveAsInFlightBatch () = maxInFlightBatches.Await(cts.Token)
     let releaseInFlightBatchAllocation () = maxInFlightBatches.Release()
-    
+
     let handle = function
         | Batch (seriesId, epoch, checkpoint, items) ->
             let isForActiveStripe = activeSeries = seriesId

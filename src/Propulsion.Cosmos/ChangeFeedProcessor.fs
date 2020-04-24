@@ -20,7 +20,7 @@ module IChangeFeedObserverContextExtensions =
 type ChangeFeedObserver =
     static member Create
       ( /// Base logger context; will be decorated with a `partitionKeyRangeId` property when passed to `assign`, `init` and `processBatch`
-        log: ILogger,
+        log : ILogger,
         /// Callback responsible for
         /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
         /// - ceding control as soon as commencement of the next batch retrieval is desired
@@ -28,13 +28,13 @@ type ChangeFeedObserver =
         /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
         ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Async<unit>,
         /// Called when this Observer is being created (triggered before `assign`)
-        ?init: ILogger -> int -> unit,
+        ?init : ILogger -> int -> unit,
         /// Called when a lease is won and the observer is being spun up (0 or more `processBatch` calls will follow). Overriding inhibits default logging.
-        ?assign: ILogger -> int -> Async<unit>,
+        ?assign : ILogger -> int -> Async<unit>,
         /// Called when a lease is revoked [and the observer is about to be `Dispose`d], overriding inhibits default logging.
-        ?revoke: ILogger -> Async<unit>,
+        ?revoke : ILogger -> Async<unit>,
         /// Called when this Observer is being destroyed due to the revocation of a lease (triggered after `revoke`)
-        ?dispose: unit -> unit) =
+        ?dispose : unit -> unit) =
         let mutable log = log
         let _open (ctx : IChangeFeedObserverContext) = async {
             log <- log.ForContext("partitionKeyRangeId",ctx.PartitionKeyRangeId)
@@ -68,12 +68,12 @@ type ChangeFeedObserverFactory =
     static member FromFunction (f : unit -> #IChangeFeedObserver) =
         { new IChangeFeedObserverFactory with member __.CreateObserver () = f () :> _ }
 
-type ContainerId = { database: string; container: string }
+type ContainerId = { database : string; container : string }
 
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =
     static member Start
-        (   log : ILogger, client: DocumentClient, source: ContainerId,
+        (   log : ILogger, client : DocumentClient, source : ContainerId,
             /// The aux, non-partitioned container holding the partition leases.
             // Aux container should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during

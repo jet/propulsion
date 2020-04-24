@@ -15,7 +15,7 @@ type Pipeline (task : Task<unit>, triggerStop) =
     member __.Status = task.Status
 
     /// After AwaitCompletion, can be used to infer whether exit was clean
-    member __.RanToCompletion = task.Status = TaskStatus.RanToCompletion 
+    member __.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
     /// Request cancellation of processing
     member __.Stop() = triggerStop ()
@@ -31,7 +31,7 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
     static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
         let cts = new CancellationTokenSource()
         let ct = cts.Token
-        let tcs = new TaskCompletionSource<unit>()
+        let tcs = TaskCompletionSource<unit>()
 
         let start name f =
             let wrap (name : string) computation = async {

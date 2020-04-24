@@ -21,7 +21,7 @@ module MonitorImpl =
         let last xs = Seq.last xs
 #endif
     module private Map =
-        let mergeChoice (f:'a -> Choice<'b * 'c, 'b, 'c> -> 'd) (map1:Map<'a, 'b>) (map2:Map<'a, 'c>) : Map<'a, 'd> =
+        let mergeChoice (f : 'a -> Choice<'b * 'c, 'b, 'c> -> 'd) (map1 : Map<'a, 'b>) (map2 : Map<'a, 'c>) : Map<'a, 'd> =
           Set.union (map1 |> Seq.map (fun k -> k.Key) |> set) (map2 |> Seq.map (fun k -> k.Key) |> set)
           |> Seq.map (fun k ->
             match Map.tryFind k map1, Map.tryFind k map2 with
@@ -72,10 +72,10 @@ module MonitorImpl =
 
     /// Operations for providing consumer progress information.
     module private ConsumerInfo =
-                
+
         /// Returns consumer progress information.
         /// Note that this does not join the group as a consumer instance
-        let progress (timeout : TimeSpan) (consumer:IConsumer<'k,'v>) (topic:string) (ps:int[]) = async {
+        let progress (timeout : TimeSpan) (consumer : IConsumer<'k,'v>) (topic : string) (ps : int[]) = async {
             let topicPartitions = ps |> Seq.map (Bindings.topicPartition topic)
 
             let sw = System.Diagnostics.Stopwatch.StartNew()
@@ -84,7 +84,7 @@ module MonitorImpl =
                 |> Seq.sortBy(fun e -> Bindings.partitionValue e.Partition)
                 |> Seq.map(fun e -> Bindings.partitionValue e.Partition, e)
                 |> Map.ofSeq
-            
+
             let timeout = let elapsed = sw.Elapsed in if elapsed > timeout then TimeSpan.Zero else timeout - elapsed
             let! watermarkOffsets =
                 topicPartitions
@@ -123,7 +123,7 @@ module MonitorImpl =
                     if partitions.Length > 0 then
                         partitions |> Seq.map (fun p -> p.lead) |> Seq.min
                     else let v = Bindings.offsetUnset in v.Value } }
-    
+
     type PartitionInfo =
         {   partition : int
             consumerOffset : OffsetValue
@@ -243,7 +243,7 @@ module MonitorImpl =
             |> Seq.map (fun (p, info) -> p, checkRulesForPartition (Array.ofSeq info))
 
     let private queryConsumerProgress intervalMs  (consumer : IConsumer<'k,'v>) (topic : string) = async {
-        let partitionIds = [| for t in consumer.Assignment do if t.Topic = topic then yield Bindings.partitionValue t.Partition |] 
+        let partitionIds = [| for t in consumer.Assignment do if t.Topic = topic then yield Bindings.partitionValue t.Partition |]
         let! r = ConsumerInfo.progress intervalMs consumer topic partitionIds
         return createPartitionInfoList r }
 
@@ -307,7 +307,7 @@ module MonitorImpl =
                     | Choice2Of3 (), errs ->
                         let lag = function (partitionId, ErrorPartitionStalled lag) -> Some (partitionId,lag) | x -> failwithf "mismapped %A" x
                         log.Error("Monitoring... {topic}/{group} Stalled with backlogs on {@stalled} [(partition,lag)]", topic, group, errs |> Seq.choose lag)
-                    | Choice3Of3 (), warns -> 
+                    | Choice3Of3 (), warns ->
                         log.Warning("Monitoring... {topic}/{group} Growing lags on {@partitionIds}", topic, group, warns |> Seq.map fst)
 
         let logLatest (logger : ILogger) (topic : string) (consumerGroup : string) (Window partitionInfos) =
@@ -349,7 +349,7 @@ type KafkaMonitor<'k,'v>
 
     // One of these runs per topic
     member private __.Pump(consumer, topic, group) =
-        let onQuery res = 
+        let onQuery res =
             MonitorImpl.Logging.logLatest log topic group res
         let onStatus topic group xs =
             MonitorImpl.Logging.logResults log topic group xs

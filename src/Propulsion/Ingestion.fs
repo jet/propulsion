@@ -9,7 +9,7 @@ open System.Threading
 /// Manages writing of progress
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)
 /// - retries until success or a new item is posted
-type ProgressWriter<'Res when 'Res: equality>(?period, ?sleep) =
+type ProgressWriter<'Res when 'Res : equality>(?period, ?sleep) =
     let writeInterval, sleepPeriod = defaultArg period (TimeSpan.FromSeconds 5.), defaultArg sleep (TimeSpan.FromMilliseconds 100.)
     let due = intervalCheck writeInterval
     let mutable committedEpoch = None
@@ -34,18 +34,18 @@ type ProgressWriter<'Res when 'Res: equality>(?period, ?sleep) =
                 with e -> result.Trigger (Choice2Of2 e)
             | _ -> do! Async.Sleep sleepPeriod }
 
-[<NoComparison; NoEquality>]        
+[<NoComparison; NoEquality>]
 type private InternalMessage =
     /// Confirmed completion of a batch
-    | Validated of epoch: int64
+    | Validated of epoch : int64
     /// Result from updating of Progress to backing store - processed up to nominated `epoch` or threw `exn`
     | ProgressResult of Choice<int64, exn>
     /// Internal message for stats purposes
-    | Added of streams: int * events: int
+    | Added of streams : int * events : int
 
 type private Stats(log : ILogger, statsInterval : TimeSpan) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
-    let progCommitFails, progCommits = ref 0, ref 0 
+    let progCommitFails, progCommits = ref 0, ref 0
     let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
     let statsDue = intervalCheck statsInterval
 
@@ -96,8 +96,8 @@ type Ingester<'Items, 'Batch> private
         cts : CancellationTokenSource) =
 
     let maxRead = Sem maxRead
-    let incoming = new ConcurrentQueue<_>()
-    let messages = new ConcurrentQueue<InternalMessage>()
+    let incoming = ConcurrentQueue<_>()
+    let messages = ConcurrentQueue<InternalMessage>()
 
     let tryDequeue (x : ConcurrentQueue<_>) =
         let mutable tmp = Unchecked.defaultof<_>
@@ -137,7 +137,7 @@ type Ingester<'Items, 'Batch> private
             // - in general maxRead will be double maxSubmit so this will only be relevant in catchup situations
             let worked = tryHandle () || tryIncoming () || stats.TryDump(maxRead.State)
             if not worked then do! Async.Sleep sleepInterval }
-        
+
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)

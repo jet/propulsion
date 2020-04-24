@@ -22,11 +22,11 @@ module Internal =
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | RateLimited | TooLarge | Malformed | Other
 
         type [<NoComparison;NoEquality>] Result =
-            | Ok of updatedPos: int64
-            | Duplicate of updatedPos: int64
-            | PartialDuplicate of overage: StreamSpan<byte[]>
-            | PrefixMissing of batch: StreamSpan<byte[]> * writePos: int64
-        let logTo (log: ILogger) (res : StreamName * Choice<(int*int)*Result,(int*int)*exn>) =
+            | Ok of updatedPos : int64
+            | Duplicate of updatedPos : int64
+            | PartialDuplicate of overage : StreamSpan<byte[]>
+            | PrefixMissing of batch : StreamSpan<byte[]> * writePos : int64
+        let logTo (log : ILogger) (res : StreamName * Choice<EventStats * Result, EventStats * exn>) =
             match res with
             | stream, (Choice1Of2 (_, Ok pos)) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -57,7 +57,7 @@ module Internal =
 #endif
             log.Debug("Result: {res}",ress)
             return ress }
-        let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e: exn) =
+        let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e : exn) =
             let isMalformed () =
                 let m = string e
                 m.Contains "SyntaxError: JSON.parse Error: Unexpected input at position"
@@ -79,11 +79,8 @@ module Internal =
             | ResultKind.RateLimited | ResultKind.TimedOut | ResultKind.Other -> false
             | ResultKind.TooLarge | ResultKind.Malformed -> true
 
-    type OkResult = (int*int)*Writer.Result
-    type FailResult = (int*int) * exn
-
     type CosmosStats(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.StreamSchedulerStats<OkResult,FailResult>(log, statsInterval, stateInterval)
+        inherit Scheduling.StreamSchedulerStats<EventStats * Writer.Result, EventStats * exn>(log, statsInterval, stateInterval)
         let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
         let badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), ref 0, ref 0, ref 0, ref 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
@@ -134,7 +131,7 @@ module Internal =
     type CosmosSchedulingEngine =
 
         static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
-            : Scheduling.StreamSchedulingEngine<_,_> =
+            : Scheduling.StreamSchedulingEngine<_, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
             let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
@@ -157,7 +154,7 @@ module Internal =
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream,res)
                 ss.write
-            let dispatcher = Scheduling.MultiDispatcher<_,_>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.MultiDispatcher<_, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches = maxBatches)
 
 type CosmosSink =
