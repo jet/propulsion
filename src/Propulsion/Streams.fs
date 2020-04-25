@@ -23,7 +23,7 @@ module Internal =
     type CatStats() =
         let cats = Dictionary<string, int64>()
 
-        member __.Ingest(cat,?weight) =
+        member __.Ingest(cat, ?weight) =
             let weight = defaultArg weight 1L
             match cats.TryGetValue cat with
             | true, catCount -> cats.[cat] <- catCount + weight
@@ -87,7 +87,7 @@ open Internal
 [<AutoOpen>]
 module private Impl =
 
-    let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
+    let (|NNA|) xs = if obj.ReferenceEquals(null, xs) then Array.empty else xs
     let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null, x) then 0 else x.Length
     let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
     let inline eventSize (x : FsCodec.IEventData<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
@@ -130,7 +130,7 @@ module Progress =
                 let batch = pending.Dequeue()
                 batch.markCompleted()
 
-        member __.AppendBatch(markCompleted, reqs : Dictionary<StreamName,int64>) =
+        member __.AppendBatch(markCompleted, reqs : Dictionary<StreamName, int64>) =
             pending.Enqueue { markCompleted = markCompleted; streamToRequiredIndex = reqs }
             trim ()
 
@@ -759,6 +759,7 @@ module Scheduling =
 
 module Projector =
 
+    [<AbstractClass>]
     type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
         inherit Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>(log, statsInterval, statesInterval)
         let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
@@ -781,20 +782,21 @@ module Projector =
             base.Handle message
             match message with
             | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.Result (_duration, (stream, Choice1Of2 ((es, bs), r))) ->
+            | Scheduling.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 incr resultOk
-                __.HandleOk r
+                __.HandleOk res
             | Scheduling.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 bads stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 incr resultExnOther
                 log.Warning(exn, "Failed processing {b:n0} bytes {e:n0}e in stream {stream}", bs, es, stream)
+                __.HandleExn exn
         abstract member HandleOk : outcome : 'Outcome -> unit
-        default __.HandleOk( _ : 'Outcome) : unit = ()
+        abstract member HandleExn : exn : exn -> unit
 
     type StreamsIngester =
         static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
@@ -802,8 +804,8 @@ module Projector =
                 let items = Array.ofSeq items
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
-                batch,(streams.Count,items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq,Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+                batch, (streams.Count, items.Length)
+            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsSubmitter =
         static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?disableCompaction) =
@@ -852,7 +854,10 @@ type StreamsProjector =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
     /// and a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
-    static member StartEx<'Progress, 'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, stats, statsInterval)
+    static member StartEx<'Progress, 'Outcome>
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+            prepare, handle, toIndex,
+            stats, statsInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -864,29 +869,31 @@ type StreamsProjector =
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome>
-        (    log : ILogger, maxReadAhead, maxConcurrentStreams,
-             handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
-             ?stats, ?statsInterval, ?stateInterval)
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+            handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
+            stats, statsInterval)
         : ProjectorPipeline<_> =
-        let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let stats = match stats with Some x -> x | None -> Projector.Stats<'Outcome>(log.ForContext<Projector.Stats<'Outcome>>(), statsInterval, stateInterval)
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
-        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval = statsInterval)
+        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
-    static member Start<'Outcome>(log : ILogger, maxReadAhead, maxConcurrentStreams, handle : StreamName * StreamSpan<_> -> Async<'Outcome>, ?stats, ?statsInterval, ?stateInterval)
+    static member Start<'Outcome>
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+            handle : StreamName * StreamSpan<_> -> Async<'Outcome>,
+            stats, statsInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
-        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, ?stats = stats, ?statsInterval = statsInterval, ?stateInterval = stateInterval)
+        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval)
 
 module Sync =
 
+    [<AbstractClass>]
     type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.Stats<EventMetrics * (TimeSpan * 'Outcome), EventMetrics * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.Stats<(EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()
         let prepareStats = Internal.LatencyStats("prepare")
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -903,18 +910,19 @@ module Sync =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es, bs), (prepareElapsed, outcome)))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 (((es, bs), prepareElapsed), outcome))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
                 __.HandleOk outcome
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), _exn))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
+                __.HandleExn exn
         abstract member HandleOk : outcome : 'Outcome -> unit
-        default __.HandleOk( _ : 'Outcome) : unit = ()
+        abstract member HandleExn : exn : exn -> unit
 
     type StreamsSync =
 
@@ -922,7 +930,8 @@ module Sync =
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
                 stats : Stats<'Outcome>,
-                ?projectorStatsInterval,
+                /// Default 5m
+                ?statsInterval,
                 /// Default .5 ms
                 ?idleDelay,
                 /// Default 1 MiB
@@ -936,7 +945,7 @@ module Sync =
                 /// Hook to wire in external stats
                 ?dumpExternalStats)
             : ProjectorPipeline<_> =
-            let projectorStatsInterval = defaultArg projectorStatsInterval (TimeSpan.FromMinutes 5.)
+            let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
@@ -945,12 +954,12 @@ module Sync =
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 try let! (version', outcome) = handle (item.stream, span)
                     let prepareElapsed = sw.Elapsed
-                    return Choice1Of2 (version', (eventCount, bytesCount), (prepareElapsed, outcome))
+                    return Choice1Of2 (version', ((eventCount, bytesCount), prepareElapsed), outcome)
                 with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
 
             let interpretWriteResultProgress _streams (stream : StreamName) = function
-                | Choice1Of2 (i', stats, r) ->
-                    Some i', Choice1Of2 (stats, r)
+                | Choice1Of2 (i', stats, outcome) ->
+                    Some i', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (((eventCount, bytesCount) as stats), exn : exn) ->
                     log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                     None, Choice2Of2 (stats, exn)
@@ -962,8 +971,8 @@ module Sync =
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
-                Scheduling.StreamSchedulingEngine<int64 * EventMetrics * (TimeSpan * 'Outcome), EventMetrics * (TimeSpan * 'Outcome), EventMetrics * exn>
+                Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
                     (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, projectorStatsInterval, maxSubmissionsPerPartition = maxBatches)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
