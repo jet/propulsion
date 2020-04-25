@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Added abstract `HandleExn` method to `type Stats`; removed defaulting of `stats` arguments in almost all cases [#60](https://github.com/jet/propulsion/pull/60)
+
 ### Removed
 ### Fixed
 
@@ -18,12 +21,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- BREAKING: Revised `handle` function signatures in `Propulsion.Kafka.StreamsConsumer` and `Propulsion.Streams.StreamsProjector` to include a `Propulsion.Streams.SpanResult` representing Write Position updates [#65](https://github.com/jet/propulsion/pull/65)
+- BREAKING: Revised `handle` function signatures in `Propulsion.Kafka.StreamsConsumer` and `Propulsion.Streams.StreamsProjector` to include a `Propulsion.Streams.SpanResult` representing Write Position updates [#59](https://github.com/jet/propulsion/pull/59)
 
 ### Changed
 
-- Removed egregious `int64` from stats handler signatures in `Propulsion.Streams.Scheduling.StreamSchedulerStats` and `Projector.Stats` [#65](https://github.com/jet/propulsion/pull/65)
-- Renamed `Streams.Sync.StreamsSyncStats` and `Streams.Scheduling.StreamSchedulerStats` to `Stats` for consistency [#65](https://github.com/jet/propulsion/pull/65)
+- Removed egregious `int64` from stats handler signatures in `Propulsion.Streams.Scheduling.StreamSchedulerStats` and `Projector.Stats` [#59](https://github.com/jet/propulsion/pull/59)
+- Renamed `Streams.Sync.StreamsSyncStats` and `Streams.Scheduling.StreamSchedulerStats` to `Stats` for consistency [#59](https://github.com/jet/propulsion/pull/59)
 
 <a name="2.3.0"></a>
 ## [2.3.0] - 2019-04-22
