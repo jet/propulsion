@@ -23,7 +23,7 @@ module Internal =
     type CatStats() =
         let cats = Dictionary<string, int64>()
 
-        member __.Ingest(cat,?weight) =
+        member __.Ingest(cat, ?weight) =
             let weight = defaultArg weight 1L
             match cats.TryGetValue cat with
             | true, catCount -> cats.[cat] <- catCount + weight
@@ -87,7 +87,7 @@ open Internal
 [<AutoOpen>]
 module private Impl =
 
-    let (|NNA|) xs = if obj.ReferenceEquals(null,xs) then Array.empty else xs
+    let (|NNA|) xs = if obj.ReferenceEquals(null, xs) then Array.empty else xs
     let inline arrayBytes (x : _ []) = if obj.ReferenceEquals(null, x) then 0 else x.Length
     let inline stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
     let inline eventSize (x : FsCodec.IEventData<byte[]>) = arrayBytes x.Data + arrayBytes x.Meta + stringBytes x.EventType + 16
@@ -130,7 +130,7 @@ module Progress =
                 let batch = pending.Dequeue()
                 batch.markCompleted()
 
-        member __.AppendBatch(markCompleted, reqs : Dictionary<StreamName,int64>) =
+        member __.AppendBatch(markCompleted, reqs : Dictionary<StreamName, int64>) =
             pending.Enqueue { markCompleted = markCompleted; streamToRequiredIndex = reqs }
             trim ()
 
@@ -804,8 +804,8 @@ module Projector =
                 let items = Array.ofSeq items
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
-                batch,(streams.Count,items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq,Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+                batch, (streams.Count, items.Length)
+            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsSubmitter =
         static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?disableCompaction) =
@@ -958,8 +958,8 @@ module Sync =
                 with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
 
             let interpretWriteResultProgress _streams (stream : StreamName) = function
-                | Choice1Of2 (i', stats, r) ->
-                    Some i', Choice1Of2 (stats, r)
+                | Choice1Of2 (i', stats, outcome) ->
+                    Some i', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (((eventCount, bytesCount) as stats), exn : exn) ->
                     log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                     None, Choice2Of2 (stats, exn)

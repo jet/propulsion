@@ -13,7 +13,7 @@ type ParallelProducerSink =
         let handle item = async {
             let key, value = render item
             do! producer.Produce (key, value) }
-        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats = producer.DumpStats)
+        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval = statsInterval, logExternalStats = producer.DumpStats)
 
 type StreamsProducerSink =
 
@@ -49,8 +49,8 @@ type StreamsProducerSink =
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle, stats, ?statsInterval = statsInterval,
-                     maxBytes=maxBytes, ?idleDelay=idleDelay,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
+                     maxBytes = maxBytes, ?idleDelay = idleDelay,
+                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -70,12 +70,12 @@ type StreamsProducerSink =
             /// Max inner cycles per loop. Default 128.
             ?maxCycles)
         : ProjectorPipeline<_> =
-            let prepare (stream,span) = async {
-                let! k,v = prepare (stream,span)
-                return Some (k,v), ()
+            let prepare (stream, span) = async {
+                let! k, v = prepare (stream, span)
+                return Some (k, v), ()
             }
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams,
                      prepare, producer, stats, ?statsInterval = statsInterval,
-                     ?idleDelay=idleDelay, ?maxBytes = maxBytes,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)
+                     ?idleDelay = idleDelay, ?maxBytes = maxBytes,
+                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles)

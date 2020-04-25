@@ -187,7 +187,7 @@ type ParallelConsumer private () =
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
-        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats = logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()

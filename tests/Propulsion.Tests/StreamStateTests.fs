@@ -9,19 +9,19 @@ let canonicalTime = System.DateTimeOffset.UtcNow
 
 let mk p c : StreamSpan<string> =
     {   index = p
-        events = [| for x in 0..c-1 -> FsCodec.Core.TimelineEvent.Create(int64 x,p + int64 x |> string, null, timestamp=canonicalTime) |] }
+        events = [| for x in 0..c-1 -> FsCodec.Core.TimelineEvent.Create(int64 x, p + int64 x |> string, null, timestamp = canonicalTime) |] }
 let mergeSpans = StreamSpan.merge
 let trimSpans = StreamSpan.dropBeforeIndex
 let is (xs : StreamSpan<string>[]) (res : StreamSpan<string>[]) =
-    (xs,res) ||> Seq.forall2 (fun x y -> x.index = y.index && (x.events,y.events) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType))
+    (xs, res) ||> Seq.forall2 (fun x y -> x.index = y.index && (x.events, y.events) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType))
 
 let [<Fact>] ``nothing`` () =
     let r = mergeSpans 0L [ mk 0L 0; mk 0L 0 ]
-    test <@ obj.ReferenceEquals(null,r) @>
+    test <@ obj.ReferenceEquals(null, r) @>
 
 let [<Fact>] ``synced`` () =
     let r = mergeSpans 1L [ mk 0L 1; mk 0L 0 ]
-    test <@ obj.ReferenceEquals(null,r) @>
+    test <@ obj.ReferenceEquals(null, r) @>
 
 let [<Fact>] ``no overlap`` () =
     let r = mergeSpans 0L [ mk 0L 1; mk 2L 2 ]

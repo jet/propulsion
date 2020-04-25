@@ -34,16 +34,16 @@ module Internal =
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
             | stream, (Choice1Of2 (_, PartialDuplicate overage)) ->
                 log.Information("Requeing  {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
-            | stream, (Choice1Of2 (_, PrefixMissing (batch,pos))) ->
+            | stream, (Choice1Of2 (_, PrefixMissing (batch, pos))) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch.index-pos, batch.events.Length, batch.index)
             | stream, (Choice2Of2 (_, exn)) ->
-                log.Warning(exn,"Writing   {stream} failed, retrying", stream)
+                log.Warning(exn, "Writing   {stream} failed, retrying", stream)
 
         let write (log : ILogger) (ctx : Context) stream span = async {
             let stream = ctx.CreateStream stream
-            log.Debug("Writing {s}@{i}x{n}",stream,span.index,span.events.Length)
+            log.Debug("Writing {s}@{i}x{n}", stream, span.index, span.events.Length)
             let! res = ctx.Sync(stream, { index = span.index; etag = None }, span.events |> Array.map (fun x -> x :> _))
-            let ress =
+            let res' =
                 match res with
                 | AppendResult.Ok pos -> Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
@@ -55,8 +55,8 @@ module Internal =
 #else
                     | actual -> PartialDuplicate { index = actual; events = span.events |> Array.skip (actual-span.index |> int) }
 #endif
-            log.Debug("Result: {res}",ress)
-            return ress }
+            log.Debug("Result: {res}", res')
+            return res' }
         let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e : exn) =
             let isMalformed () =
                 let m = string e
@@ -108,7 +108,7 @@ module Internal =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es,bs),res))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -118,7 +118,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
                 __.HandleOk res
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es,bs),exn))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -144,24 +144,24 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts.[index]
                 let maxEvents, maxBytes = 16384, 1024 * 1024 - (*fudge*)4096
-                let stats,span = Buffering.StreamSpan.slice (maxEvents,maxBytes) item.span
+                let stats, span = Buffering.StreamSpan.slice (maxEvents, maxBytes) item.span
                 try let! res = Writer.write log selectedConnection (StreamName.toString item.stream) span
-                    return Choice1Of2 (stats,res)
-                with e -> return Choice2Of2 (stats,e) }
+                    return Choice1Of2 (stats, res)
+                with e -> return Choice2Of2 (stats, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null
                     | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.InternalUpdate stream pos null
                     | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.InternalUpdate stream overage.index [|overage|]
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage,pos)) ->  streams.InternalUpdate stream pos [|overage|]
+                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) ->  streams.InternalUpdate stream pos [|overage|]
                     | Choice2Of2 (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
-                        streams.SetMalformed(stream,malformed)
+                        streams.SetMalformed(stream, malformed)
                 let _stream, ss = applyResultToStreamState res
-                Writer.logTo writerResultLog (stream,res)
+                Writer.logTo writerResultLog (stream, res)
                 ss.write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches = maxBatches)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches)
 
 type CosmosSink =
 
