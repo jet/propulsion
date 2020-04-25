@@ -204,7 +204,7 @@ type ParallelConsumer private () =
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
+            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval = pumpInterval, ?statsInterval = statsInterval, ?logExternalStats=logExternalStats)
 
 type EventMetrics = Streams.EventMetrics
 
@@ -230,12 +230,14 @@ type StreamsConsumerStats<'Outcome>(log : ILogger, statsInterval, stateInterval)
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             __.HandleOk res
-        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), _exn))) ->
+        | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
             adds stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
+            __.HandleExn exn
 
     abstract member HandleOk : outcome : 'Outcome -> unit
+    abstract member HandleExn : exn : exn -> unit
 
 /// APIs only required for advanced scenarios (specifically the integration tests)
 /// APIs within are not part of the stable API and are subject to unlimited change

@@ -79,7 +79,7 @@ module Internal =
             | ResultKind.RateLimited | ResultKind.TimedOut | ResultKind.Other -> false
             | ResultKind.TooLarge | ResultKind.Malformed -> true
 
-    type CosmosStats(log : ILogger, statsInterval, stateInterval) =
+    type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<EventMetrics * Writer.Result, EventMetrics * exn>(log, statsInterval, stateInterval)
         let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
         let badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), ref 0, ref 0, ref 0, ref 0
@@ -108,15 +108,16 @@ module Internal =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es,bs),r))) ->
+            | Scheduling.InternalMessage.Result (_duration, (stream, Choice1Of2 ((es,bs),res))) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
-                match r with
+                match res with
                 | Writer.Result.Ok _ -> incr resultOk
                 | Writer.Result.Duplicate _ -> incr resultDup
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
+                __.HandleOk res
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es,bs),exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
@@ -127,10 +128,15 @@ module Internal =
                 | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
                 | ResultKind.Malformed -> bads stream mfStreams; incr malformed
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
+                __.HandleExn exn
+        abstract member HandleOk : outcome : 'Outcome -> unit
+        default __.HandleOk(_ : 'Outcome) : unit = ()
+        abstract member HandleExn : exn : exn -> unit
+        default __.HandleExn(_ : exn) : unit = ()
 
     type CosmosSchedulingEngine =
 
-        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : CosmosStats, dumpStreams, ?maxBatches)
+        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -164,7 +170,7 @@ type CosmosSink =
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let stats = Internal.CosmosStats(log.ForContext<Internal.CosmosStats>(), statsInterval, stateInterval)
+        let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
