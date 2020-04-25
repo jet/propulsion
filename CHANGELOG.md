@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Added abstract `HandleExn` method to `type Stats`; removed defaulting of `stats` arguments in almost all cases [#60](https://github.com/jet/propulsion/pull/60)
-
 ### Removed
 ### Fixed
+
+<a name="2.4.1"></a>
+## [2.4.1] - 2019-04-25
+
+### Changed
+
+- Added abstract `HandleExn` method to `type Stats`; removed defaulting of `stats` arguments in almost all cases [#60](https://github.com/jet/propulsion/pull/60)
 
 <a name="2.4.0"></a>
 ## [2.4.0] - 2019-04-24
@@ -354,7 +358,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.4.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.4.1...HEAD
+[2.4.1]: https://github.com/jet/propulsion/compare/2.4.0...2.4.1
 [2.4.0]: https://github.com/jet/propulsion/compare/2.3.0...2.4.0
 [2.3.0]: https://github.com/jet/propulsion/compare/2.2.0...2.3.0
 [2.2.0]: https://github.com/jet/propulsion/compare/2.1.1...2.2.0
