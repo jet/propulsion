@@ -752,11 +752,11 @@ module Scheduling =
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
 
             let dispatcher = MultiDispatcher<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn>(itemDispatcher, project, interpretProgress, stats, dumpStreams)
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn> =
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
 module Projector =
 

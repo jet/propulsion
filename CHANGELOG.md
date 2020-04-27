@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Mark `Scheduler.Stats` abstract, reorder/name `statsInterval` arguments [#61](https://github.com/jet/propulsion/pull/61)
+
 ### Removed
 ### Fixed
 

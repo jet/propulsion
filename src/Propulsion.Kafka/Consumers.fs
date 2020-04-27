@@ -278,11 +278,11 @@ module Core =
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-                ?pumpInterval = pumpInterval,
-                ?logExternalState = logExternalState,
-                ?idleDelay = idleDelay,
-                ?maxBatches = maxBatches,
-                ?maximizeOffsetWriting = maximizeOffsetWriting)
+                ?pumpInterval=pumpInterval,
+                ?logExternalState=logExternalState,
+                ?idleDelay=idleDelay,
+                ?maxBatches=maxBatches,
+                ?maximizeOffsetWriting=maximizeOffsetWriting)
 
         (* KeyValuePair optimized mappings (these were the original implementation); retained as:
             - the default mapping overloads in Propulsion.Kafka.StreamsConsumer pass the ConsumeResult to parser functions,
@@ -426,12 +426,12 @@ type StreamsConsumer =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
             log, config, id, consumeResultToStreamEvents, handle, maxDop,
             stats, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?pumpInterval = pumpInterval,
-            ?logExternalState = logExternalState,
-            ?idleDelay = idleDelay,
-            ?maxBatches = maxBatches,
-            ?maximizeOffsetWriting = maximizeOffsetWriting)
+            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
+            ?pumpInterval=pumpInterval,
+            ?logExternalState=logExternalState,
+            ?idleDelay=idleDelay,
+            ?maxBatches=maxBatches,
+            ?maximizeOffsetWriting=maximizeOffsetWriting)
 
 type BatchesConsumer =
 
