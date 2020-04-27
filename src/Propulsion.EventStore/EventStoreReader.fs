@@ -203,7 +203,7 @@ type Res =
 type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<int * int>, tailInterval, dop, ?statsInterval) =
     let work = System.Collections.Concurrent.ConcurrentQueue()
     let sleepIntervalMs = 100
-    let overallStats = OverallStats(?statsInterval = statsInterval)
+    let overallStats = OverallStats(?statsInterval=statsInterval)
     let slicesStats = SliceStatsBuffer()
 
     /// Invoked by pump to process a tranche of work; can have parallel invocations

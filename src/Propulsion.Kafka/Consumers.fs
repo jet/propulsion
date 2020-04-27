@@ -277,7 +277,7 @@ module Core =
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
-                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
                 ?pumpInterval=pumpInterval,
                 ?logExternalState=logExternalState,
                 ?idleDelay=idleDelay,
