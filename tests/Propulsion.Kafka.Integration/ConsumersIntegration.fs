@@ -72,7 +72,7 @@ module Helpers =
     let runProducers log bootstrapServers (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
         let runProducer (producerId : int) = async {
             let cfg = KafkaProducerConfig.Create("panther", bootstrapServers, Acks.Leader)
-            use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight = 10000)
+            use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight=10000)
 
             let! results =
                 [1 .. messagesPerProducer]
@@ -113,7 +113,7 @@ module Helpers =
                 let v = FsCodec.NewtonsoftJson.Serdes.Deserialize(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
             let handle item = handler (getConsumer()) (deserialize consumerId item)
-            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle >> Async.Catch, statsInterval = TimeSpan.FromSeconds 10.)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle >> Async.Catch, statsInterval=TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -196,7 +196,7 @@ module Helpers =
                  StreamsConsumer.Start<unit>
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
                         handle, 256, stats,
-                        maxBatches = 50, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+                        maxBatches=50, pipelineStatsInterval=TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -407,7 +407,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let maxBatchSize = 20
         let topic = newId() // dev kafka topics are created and truncated automatically
         let groupId = newId()
-        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId, maxBatchSize = maxBatchSize)
+        let config = KafkaConsumerConfig.Create("panther", bootstrapServers, [topic], groupId, maxBatchSize=maxBatchSize)
 
         // Produce messages in the topic
         do! __.RunProducers(log, bootstrapServers, topic, 1, numMessages)

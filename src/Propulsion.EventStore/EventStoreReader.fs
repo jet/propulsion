@@ -26,7 +26,7 @@ type OverallStats(?statsInterval) =
     let overallStart, progressStart = Stopwatch.StartNew(), Stopwatch.StartNew()
     let mutable totalEvents, totalBytes = 0L, 0L
 
-    member __.Ingest(batchEvents, batchBytes) = 
+    member __.Ingest(batchEvents, batchBytes) =
         Interlocked.Add(&totalEvents, batchEvents) |> ignore
         Interlocked.Add(&totalBytes, batchBytes) |> ignore
 
@@ -113,7 +113,7 @@ let posFromPercentage (pct, max : Position) =
 
 /// Read the current tail position; used to be able to compute and log progress of ingestion
 let fetchMax (conn : IEventStoreConnection) = async {
-    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos = false) |> Async.AwaitTaskCorrect
+    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false) |> Async.AwaitTaskCorrect
     let max = lastItemBatch.FromPosition
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, mb max.CommitPosition/1024.)
     return max }
@@ -134,7 +134,7 @@ let establishMax (conn : IEventStoreConnection) = async {
 let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * StreamSpan<_> -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
-        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos = true) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.AwaitTaskCorrect
         let events = currentSlice.Events |> Array.map (fun x -> mapEvent x.Event)
         do! postBatch (stream, { index = currentSlice.FromEventNumber; events = events })
         match limit with
@@ -152,7 +152,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
     let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
-        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos = false) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.AwaitTaskCorrect
         sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
         let postSw = Stopwatch.StartNew()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
@@ -298,7 +298,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent,
                 Log.Information("Waiting {jitter}ms to jitter reader stripes, {currentCount} further reader stripes awaiting start", jitterMs, capacity)
                 do! Async.Sleep jitterMs
                 let! _ = Async.StartChild <| async {
-                    try let conn = selectConn () 
+                    try let conn = selectConn ()
                         do! exec conn req
                     finally dop.Release() } in () }
 
@@ -333,7 +333,7 @@ type EventStoreReader(conns : _ [], defaultBatchSize, minBatchSize, tryMapEvent,
             | (true, task), _ ->
                 do! forkRunRelease task
             // Start a chunk if no work and eof detection has yet to call a halt
-            | (false, _), Some nextChunk -> 
+            | (false, _), Some nextChunk ->
                 seriesId <- seriesId + 1
                 let nextPos = posFromChunkAfter nextChunk
                 remainder <- Some nextPos

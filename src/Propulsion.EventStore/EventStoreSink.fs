@@ -143,7 +143,7 @@ module Internal =
                 ss.write, res
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches, idleDelay = TimeSpan.FromMilliseconds 2.)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, idleDelay=TimeSpan.FromMilliseconds 2.)
 
 type EventStoreSink =
 
@@ -158,4 +158,4 @@ type EventStoreSink =
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStats)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?maxSubmissionsPerPartition = maxSubmissionsPerPartition)
+            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)

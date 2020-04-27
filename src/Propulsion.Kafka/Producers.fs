@@ -14,8 +14,8 @@ type Producer
     let cfg =
         KafkaProducerConfig.Create(
             clientId, broker, Acks.Leader,
-            compression = CompressionType.Lz4, linger = TimeSpan.Zero, maxInFlight = 1_000_000,
-            ?customize = customize)
+            compression=CompressionType.Lz4, linger=TimeSpan.Zero, maxInFlight=1_000_000,
+            ?customize=customize)
     // NB having multiple producers has yet to be proved necessary at this point
     // - the theory is that because each producer gets a dedicated rdkafka context, compression thread and set of sockets, better throughput can be attained
     // - we should consider removing the degreeOfParallism argument and this associated logic unless we actually get to the point of leaning on this

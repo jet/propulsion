@@ -808,7 +808,9 @@ module Projector =
             Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
 
     type StreamsSubmitter =
-        static member Create(log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?disableCompaction) =
+        static member Create
+            (   log : Serilog.ILogger, mapBatch, submitStreamsBatch, statsInterval,
+                ?maxSubmissionsPerPartition, ?pumpInterval, ?disableCompaction) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
                 submitStreamsBatch x
@@ -824,7 +826,9 @@ module Projector =
             Submission.SubmissionEngine<_, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?tryCompactQueue=tryCompactQueue, ?pumpInterval=pumpInterval)
 
     type StreamsProjectorPipeline =
-        static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
+        static member Start
+            (   log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval,
+                ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
             let mapBatch onCompletion (x : Submission.SubmissionBatch<StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
@@ -972,7 +976,7 @@ module Sync =
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
-                    (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches)

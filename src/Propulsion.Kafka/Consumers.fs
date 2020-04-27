@@ -136,7 +136,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let limiter = Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
         let consumer, closeConsumer = Bindings.createConsumer log config.Inner // teardown is managed by ingester.Pump()
         consumer.Subscribe config.Topics
-        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, maxItems, maxDelay, statsInterval = statsInterval)
+        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = TaskCompletionSource<unit>()
@@ -187,7 +187,7 @@ type ParallelConsumer private () =
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
-        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats = logExternalStats)
+        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
@@ -204,7 +204,7 @@ type ParallelConsumer private () =
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval = pumpInterval, ?statsInterval = statsInterval, ?logExternalStats=logExternalStats)
+            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
 type EventMetrics = Streams.EventMetrics
 
@@ -300,11 +300,11 @@ module Core =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop, stats,
                 ?pipelineStatsInterval = pipelineStatsInterval,
-                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-                ?pumpInterval = pumpInterval,
-                ?logExternalState = logExternalState,
-                ?idleDelay = idleDelay,
-                ?maximizeOffsetWriting = maximizeOffsetWriting)
+                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
+                ?pumpInterval=pumpInterval,
+                ?logExternalState=logExternalState,
+                ?idleDelay=idleDelay,
+                ?maximizeOffsetWriting=maximizeOffsetWriting)
 
         /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
         static member Start<'Outcome>
@@ -317,12 +317,12 @@ module Core =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop, stats,
                 ?pipelineStatsInterval = pipelineStatsInterval,
-                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-                ?pumpInterval = pumpInterval,
-                ?logExternalState = logExternalState,
-                ?idleDelay = idleDelay,
-                ?maxBatches = maxBatches,
-                ?maximizeOffsetWriting = maximizeOffsetWriting)
+                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
+                ?pumpInterval=pumpInterval,
+                ?logExternalState=logExternalState,
+                ?idleDelay=idleDelay,
+                ?maxBatches=maxBatches,
+                ?maximizeOffsetWriting=maximizeOffsetWriting)
 
     // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsProjector
     let parseMessageKey defaultCategory = function
@@ -485,5 +485,8 @@ type BatchesConsumer =
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'Info>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
-        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+        let submitter =
+            Streams.Projector.StreamsSubmitter.Create
+                (   log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval,
+                    ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)

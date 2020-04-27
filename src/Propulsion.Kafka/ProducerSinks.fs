@@ -13,7 +13,7 @@ type ParallelProducerSink =
         let handle item = async {
             let key, value = render item
             do! producer.Produce (key, value) }
-        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval = statsInterval, logExternalStats = producer.DumpStats)
+        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats=producer.DumpStats)
 
 type StreamsProducerSink =
 
@@ -48,9 +48,9 @@ type StreamsProducerSink =
                 return span.index + span.events.LongLength, outcome
             }
             Sync.StreamsSync.Start
-                (    log, maxReadAhead, maxConcurrentStreams, handle, stats, ?statsInterval = statsInterval,
-                     maxBytes = maxBytes, ?idleDelay = idleDelay,
-                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
+                (    log, maxReadAhead, maxConcurrentStreams, handle, stats, ?statsInterval=statsInterval,
+                     maxBytes=maxBytes, ?idleDelay=idleDelay,
+                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -76,6 +76,6 @@ type StreamsProducerSink =
             }
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams,
-                     prepare, producer, stats, ?statsInterval = statsInterval,
-                     ?idleDelay = idleDelay, ?maxBytes = maxBytes,
-                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles)
+                     prepare, producer, stats, ?statsInterval=statsInterval,
+                     ?idleDelay=idleDelay, ?maxBytes=maxBytes,
+                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)

@@ -116,9 +116,9 @@ type ChangeFeedProcessor =
         let builder =
             let feedProcessorOptions =
                 ChangeFeedProcessorOptions(
-                    StartFromBeginning = not (defaultArg startFromTail false),
-                    LeaseAcquireInterval = leaseAcquireInterval, LeaseExpirationInterval = leaseTtl, LeaseRenewInterval = leaseRenewInterval,
-                    FeedPollDelay = feedPollDelay)
+                    StartFromBeginning=not (defaultArg startFromTail false),
+                    LeaseAcquireInterval=leaseAcquireInterval, LeaseExpirationInterval=leaseTtl, LeaseRenewInterval=leaseRenewInterval,
+                    FeedPollDelay=feedPollDelay)
             // As of CFP 2.2.5, the default behavior does not afford any useful characteristics when the processing is erroring:-
             // a) progress gets written regardless of whether the handler completes with an Exception or not
             // b) no retries happen while the processing is online

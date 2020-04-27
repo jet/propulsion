@@ -125,7 +125,7 @@ type CheckpointSeries(groupName, resolve, ?log) =
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
     let inner = create log resolve
     [<Obsolete("Please use CheckpointSeries(groupName, resolve); to be removed in V3")>]
-    new(name, log : Serilog.ILogger, resolve) = CheckpointSeries(groupName = name, resolve = resolve, log = log)
+    new(name, log : Serilog.ILogger, resolve) = CheckpointSeries(groupName=name, resolve=resolve, log=log)
 
     member __.Read = inner.Read seriesId
     member __.Start(freq, pos) = inner.Start(seriesId, freq, pos)

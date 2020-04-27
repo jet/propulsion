@@ -22,7 +22,7 @@ module Scheduling =
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let work = new BlockingCollection<_>(ConcurrentQueue<_>()) 
+        let work = new BlockingCollection<_>(ConcurrentQueue<_>())
         let dop = Sem maxDop
 
         /// Attempt to dispatch the supplied task - returns false if processing is presently running at full capacity
@@ -81,7 +81,7 @@ module Scheduling =
         | _ -> Busy
 
     /// Continuously coordinates the propagation of incoming requests and mapping that to completed batches
-    /// - replenishing the Dispatcher 
+    /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
     type PartitionedSchedulingEngine<'M>(log : ILogger, handle, tryDispatch : (Async<unit>) -> bool, statsInterval, ?logExternalStats) =
@@ -166,7 +166,7 @@ module Scheduling =
                         worked <- true
                         waiting.Dequeue() |> ignore
                     else // Stop when it's full up
-                        more <- false 
+                        more <- false
             worked
 
         /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controler can use to shut down the processing
@@ -189,7 +189,7 @@ type ParallelIngester<'Item> =
             let items = Array.ofSeq items
             let batch : Submission.SubmissionBatch<'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
             batch,(items.Length,items.Length)
-        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
 
 type ParallelProjector =
     static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition, ?logExternalStats)
@@ -197,7 +197,7 @@ type ParallelProjector =
 
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Scheduling.Dispatcher maxDop
-        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats = logExternalStats)
+        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
 
         let mapBatch onCompletion (x : Submission.SubmissionBatch<'Item>) : Scheduling.Batch<'Item> =

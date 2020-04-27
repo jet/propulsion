@@ -132,7 +132,7 @@ let createStoreLog verbose verboseConsole maybeSeqEndpoint =
     let c = LoggerConfiguration().Destructure.FSharpTypes()
     let c = if verbose then c.MinimumLevel.Debug() else c
     let c = c.WriteTo.Sink(Equinox.Cosmos.Store.Log.InternalMetrics.Stats.LogSink())
-    let c = c.WriteTo.Console((if verbose && verboseConsole then LogEventLevel.Debug else LogEventLevel.Warning), theme = Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
+    let c = c.WriteTo.Console((if verbose && verboseConsole then LogEventLevel.Debug else LogEventLevel.Warning), theme=Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
     let c = match maybeSeqEndpoint with None -> c | Some endpoint -> c.WriteTo.Seq(endpoint)
     c.CreateLogger() :> ILogger
 
@@ -140,7 +140,7 @@ let createDomainLog verbose verboseConsole maybeSeqEndpoint =
     let c = LoggerConfiguration().Destructure.FSharpTypes().Enrich.FromLogContext()
     let c = if verbose then c.MinimumLevel.Debug() else c
     let c = c.WriteTo.Sink(Equinox.Cosmos.Store.Log.InternalMetrics.Stats.LogSink())
-    let c = c.WriteTo.Console((if verboseConsole then LogEventLevel.Debug else LogEventLevel.Information), theme = Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
+    let c = c.WriteTo.Console((if verboseConsole then LogEventLevel.Debug else LogEventLevel.Information), theme=Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code)
     let c = match maybeSeqEndpoint with None -> c | Some endpoint -> c.WriteTo.Seq(endpoint)
     c.CreateLogger()
 
@@ -163,7 +163,7 @@ module CosmosInit =
 [<EntryPoint>]
 let main argv =
     let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
-    let parser = ArgumentParser.Create<Arguments>(programName = programName)
+    let parser = ArgumentParser.Create<Arguments>(programName=programName)
     try
         let args = parser.ParseCommandLine argv
         let verboseConsole = args.Contains VerboseConsole

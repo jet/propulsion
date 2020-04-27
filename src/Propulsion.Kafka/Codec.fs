@@ -106,7 +106,7 @@ module RenderedSummary =
 
     let enum (span: RenderedSummary) : StreamEvent<_> seq =
         let streamName = StreamName.internalParseSafe span.s
-        seq { for e in span.u -> {  stream = streamName; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
+        seq { for e in span.u -> { stream = streamName; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSummary.Parse |> enum

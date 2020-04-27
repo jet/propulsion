@@ -10,7 +10,7 @@ open Swensen.Unquote
 
 let mkProducer log broker topic =
     // Needs to be random to fill all partitions as we're not producing overly random messages
-    let config = KafkaProducerConfig.Create("tiger", broker, Acks.Leader, partitioner = Partitioner.Random)
+    let config = KafkaProducerConfig.Create("tiger", broker, Acks.Leader, partitioner=Partitioner.Random)
     KafkaProducer.Create(log, config, topic)
 // test config creates topics with 4 partitions
 let testPartitionCount = 4
@@ -24,7 +24,7 @@ let startConsumerFromConfig log config handler =
 let startConsumer log broker topic groupId handler =
     let config = createConsumerConfig broker topic groupId
     startConsumerFromConfig log config handler
-let mkMonitor log = KafkaMonitor(log, TimeSpan.FromSeconds 3., windowSize = 5)
+let mkMonitor log = KafkaMonitor(log, TimeSpan.FromSeconds 3., windowSize=5)
 
 let producerOnePerSecondLoop (producer : KafkaProducer) =
     let rec loop () = async {

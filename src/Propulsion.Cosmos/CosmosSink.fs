@@ -161,7 +161,7 @@ module Internal =
                 Writer.logTo writerResultLog (stream, res)
                 ss.write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches)
 
 type CosmosSink =
 
@@ -176,4 +176,4 @@ type CosmosSink =
         let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?maxSubmissionsPerPartition = maxSubmissionsPerPartition)
+            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
