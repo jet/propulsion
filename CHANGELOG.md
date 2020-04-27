@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Revised `handle` function signatures in `Propulsion.Sync.StreamsSync` and `Propulsion.Streams.StreamsProjector` to use `Propulsion.Streams.SpanResult` representing Write Position updates [#62](https://github.com/jet/propulsion/pull/62)
-
 ### Removed
 ### Fixed
+
+<a name="2.4.3"></a>
+## [2.4.3] - 2019-04-27
+
+### Changed
+
+- Revised `handle` function signatures in `Propulsion.Sync.StreamsSync` and `Propulsion.Streams.StreamsProjector` to use `Propulsion.Streams.SpanResult` representing Write Position updates [#62](https://github.com/jet/propulsion/pull/62)
 
 <a name="2.4.2"></a>
 ## [2.4.2] - 2019-04-27
@@ -368,7 +372,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.4.2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.4.3...HEAD
+[2.4.3]: https://github.com/jet/propulsion/compare/2.4.2...2.4.3
 [2.4.2]: https://github.com/jet/propulsion/compare/2.4.1...2.4.2
 [2.4.1]: https://github.com/jet/propulsion/compare/2.4.0...2.4.1
 [2.4.0]: https://github.com/jet/propulsion/compare/2.3.0...2.4.0
