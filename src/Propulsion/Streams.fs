@@ -392,6 +392,7 @@ module Scheduling =
     type BufferState = Idle | Busy | Full | Slipstreaming
 
     /// Gathers stats pertaining to the core projection/ingestion activity
+    [<AbstractClass>]
     type Stats<'R, 'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
         let cycles, fullCycles, states, oks, exns = ref 0, ref 0, CatStats(), LatencyStats("ok"), LatencyStats("exceptions")
         let batchesPended, streamsPended, eventsSkipped, eventsPended = ref 0, ref 0, ref 0, ref 0
@@ -751,11 +752,11 @@ module Scheduling =
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
 
             let dispatcher = MultiDispatcher<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn>(itemDispatcher, project, interpretProgress, stats, dumpStreams)
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn> =
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
 module Projector =
 
@@ -805,7 +806,7 @@ module Projector =
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
                 batch, (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval = statsInterval, ?sleepInterval = sleepInterval)
+            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<StreamEvent<_>>>.Start(log, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
 
     type StreamsSubmitter =
         static member Create
@@ -833,7 +834,7 @@ module Projector =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
             let submitter = StreamsSubmitter.Create(log, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
-            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval = ingesterStatsInterval)
+            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval=ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 /// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
@@ -933,9 +934,7 @@ module Sync =
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
-                stats : Stats<'Outcome>,
-                /// Default 5m
-                ?statsInterval,
+                stats : Stats<'Outcome>, statsInterval,
                 /// Default .5 ms
                 ?idleDelay,
                 /// Default 1 MiB
@@ -949,7 +948,6 @@ module Sync =
                 /// Hook to wire in external stats
                 ?dumpExternalStats)
             : ProjectorPipeline<_> =
-            let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 

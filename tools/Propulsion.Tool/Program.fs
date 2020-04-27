@@ -237,9 +237,9 @@ let main argv =
                     ChangeFeedProcessor.Start
                       ( log, connector.CreateClient(appName,discovery), source, aux, buildRangeProjector,
                         leasePrefix = leaseId,
-                        startFromTail = pargs.Contains FromTail,
-                        ?maxDocuments = pargs.TryGetResult MaxDocuments,
-                        ?reportLagAndAwaitNextEstimation = maybeLogLag)
+                        startFromTail=pargs.Contains FromTail,
+                        ?maxDocuments=pargs.TryGetResult MaxDocuments,
+                        ?reportLagAndAwaitNextEstimation=maybeLogLag)
                 return! Async.AwaitKeyboardInterrupt() }
             Async.RunSynchronously run
         | _ -> failwith "Please specify a valid subcommand :- init or project"
