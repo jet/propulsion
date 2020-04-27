@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Revised `handle` function signatures in `Propulsion.Sync.StreamsSync` and `Propulsion.Streams.StreamsProjector` to use `Propulsion.Streams.SpanResult` representing Write Position updates [#62](https://github.com/jet/propulsion/pull/62)
+
 ### Removed
 ### Fixed
 
