@@ -247,9 +247,9 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
-                prepare, handle, maxDop, stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>,
-                ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
-            let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
+                prepare, handle, maxDop,
+                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
             let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
             let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
                 logExternalState |> Option.iter (fun f -> f log)
@@ -261,22 +261,22 @@ module Core =
             let submitter =
                 Streams.Projector.StreamsSubmitter.Create
                     (   log, mapConsumedMessagesToStreamsBatch,
-                        streamsScheduler.Submit, pipelineStatsInterval,
+                        streamsScheduler.Submit, statsInterval,
                         ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval,
                         ?disableCompaction=maximizeOffsetWriting)
-            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
+            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>,
-                ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
+                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches, ?maximizeOffsetWriting) =
             let prepare (streamName, span) =
                 let stats = Streams.Buffering.StreamSpan.stats span
                 stats, (streamName, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
-                log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop, stats,
-                ?pipelineStatsInterval = pipelineStatsInterval,
+                log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
+                stats, statsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
                 ?pumpInterval = pumpInterval,
                 ?logExternalState = logExternalState,
@@ -295,11 +295,12 @@ module Core =
                 /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
                 prepare, handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
-                maxDop, stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>,
-                ?maximizeOffsetWriting, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
+                maxDop,
+                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop, stats,
-                ?pipelineStatsInterval = pipelineStatsInterval,
+                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop,
+                stats, statsInterval=statsInterval,
                 ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
                 ?pumpInterval=pumpInterval,
                 ?logExternalState=logExternalState,
@@ -312,11 +313,11 @@ module Core =
                 /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>,
-                ?maximizeOffsetWriting, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
+                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop, stats,
-                ?pipelineStatsInterval = pipelineStatsInterval,
+                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop,
+                stats, statsInterval,
                 ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
                 ?pumpInterval=pumpInterval,
                 ?logExternalState=logExternalState,
@@ -418,13 +419,13 @@ type StreamsConsumer =
             /// The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
             maxDop,
             /// The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
-            stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>,
+            stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
             /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
             ?maximizeOffsetWriting,
-            ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
+            ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
-            log, config, id, consumeResultToStreamEvents, handle, maxDop, stats,
-            ?pipelineStatsInterval = pipelineStatsInterval,
+            log, config, id, consumeResultToStreamEvents, handle, maxDop,
+            stats, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?pumpInterval = pumpInterval,
             ?logExternalState = logExternalState,
@@ -453,12 +454,11 @@ type BatchesConsumer =
             ///   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle : Streams.Scheduling.DispatchItem<_>[] -> Async<seq<Choice<int64, exn>>>,
             /// The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>,
+            stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>, statsInterval,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
-            ?schedulerIngestionBatchCount, ?pipelineStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
+            ?schedulerIngestionBatchCount, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
-        let pipelineStatsInterval = defaultArg pipelineStatsInterval (TimeSpan.FromMinutes 10.)
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
@@ -487,6 +487,6 @@ type BatchesConsumer =
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter =
             Streams.Projector.StreamsSubmitter.Create
-                (   log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, pipelineStatsInterval,
+                (   log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval,
                     ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
-        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), pipelineStatsInterval)
+        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)

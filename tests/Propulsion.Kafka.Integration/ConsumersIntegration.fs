@@ -129,6 +129,12 @@ module Helpers =
         let d = FsCodec.NewtonsoftJson.Serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
         { consumerId = consumerId; meta = d; payload = unbox e.Context }
 
+    type Stats(log, statsInterval, stateInterval) =
+        inherit Propulsion.Kafka.StreamsConsumerStats<unit>(log, statsInterval, stateInterval)
+
+        override __.HandleOk res = ()
+        override __.HandleExn exn = log.Information(exn, "Unhandled")
+
     let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
             // need to pass the consumer instance to the handler callback
@@ -151,13 +157,13 @@ module Helpers =
                       do! handler (getConsumer()) (deserialize consumerId event)
                 (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
                 return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
-            let stats = Propulsion.Streams.Scheduling.Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+            let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                 BatchesConsumer.Start
                     (   log, config, mapParallelConsumeResultToKeyValuePair, messageIndexes.KeyValueToStreamEvent,
                         select, handle,
-                        stats, pipelineStatsInterval = TimeSpan.FromSeconds 10.)
+                        stats, TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -190,13 +196,13 @@ module Helpers =
                 for event in span.events do
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return Propulsion.Streams.SpanResult.AllProcessed, () }
-            let stats = Propulsion.Streams.Scheduling.Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
+            let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
                  StreamsConsumer.Start<unit>
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
-                        handle, 256, stats,
-                        maxBatches=50, pipelineStatsInterval=TimeSpan.FromSeconds 10.)
+                        handle, 256, stats, TimeSpan.FromSeconds 10.,
+                        maxBatches = 50)
 
             consumerCell := Some consumer
 

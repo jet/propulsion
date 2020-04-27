@@ -21,9 +21,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName * StreamSpan<_> -> Async<(string*string) option * 'Outcome>,
             producer : Producer,
-            stats : Streams.Sync.Stats<'Outcome>,
-            /// Default 5m
-            ?statsInterval,
+            stats : Streams.Sync.Stats<'Outcome>, statsInterval,
             /// Default .5 ms
             ?idleDelay,
             /// Default 1 MiB
@@ -48,7 +46,8 @@ type StreamsProducerSink =
                 return span.index + span.events.LongLength, outcome
             }
             Sync.StreamsSync.Start
-                (    log, maxReadAhead, maxConcurrentStreams, handle, stats, ?statsInterval=statsInterval,
+                (    log, maxReadAhead, maxConcurrentStreams, handle,
+                     stats, statsInterval=statsInterval,
                      maxBytes=maxBytes, ?idleDelay=idleDelay,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
 
@@ -56,9 +55,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName * StreamSpan<_> -> Async<string*string>,
             producer : Producer,
-            stats : Streams.Sync.Stats<unit>,
-            /// Default 5m
-            ?statsInterval,
+            stats : Streams.Sync.Stats<unit>, statsInterval,
             /// Default .5 ms
             ?idleDelay,
             /// Default 1 MiB
@@ -75,7 +72,7 @@ type StreamsProducerSink =
                 return Some (k, v), ()
             }
             StreamsProducerSink.Start
-                (    log, maxReadAhead, maxConcurrentStreams,
-                     prepare, producer, stats, ?statsInterval=statsInterval,
+                (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
+                     stats, statsInterval,
                      ?idleDelay=idleDelay, ?maxBytes=maxBytes,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)

@@ -392,6 +392,7 @@ module Scheduling =
     type BufferState = Idle | Busy | Full | Slipstreaming
 
     /// Gathers stats pertaining to the core projection/ingestion activity
+    [<AbstractClass>]
     type Stats<'R, 'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
         let cycles, fullCycles, states, oks, exns = ref 0, ref 0, CatStats(), LatencyStats("ok"), LatencyStats("exceptions")
         let batchesPended, streamsPended, eventsSkipped, eventsPended = ref 0, ref 0, ref 0, ref 0
@@ -933,9 +934,7 @@ module Sync =
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
-                stats : Stats<'Outcome>,
-                /// Default 5m
-                ?statsInterval,
+                stats : Stats<'Outcome>, statsInterval,
                 /// Default .5 ms
                 ?idleDelay,
                 /// Default 1 MiB
@@ -949,7 +948,6 @@ module Sync =
                 /// Hook to wire in external stats
                 ?dumpExternalStats)
             : ProjectorPipeline<_> =
-            let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
