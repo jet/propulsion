@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Mark `Scheduler.Stats` abstract, reorder/name `statsInterval` arguments [#61](https://github.com/jet/propulsion/pull/61)
-
 ### Removed
 ### Fixed
+
+<a name="2.4.2"></a>
+## [2.4.2] - 2019-04-27
+
+### Changed
+
+- Mark `Scheduler.Stats` abstract, reorder/name `statsInterval` arguments [#61](https://github.com/jet/propulsion/pull/61)
 
 <a name="2.4.1"></a>
 ## [2.4.1] - 2019-04-25
@@ -361,7 +365,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.4.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.4.2...HEAD
+[2.4.2]: https://github.com/jet/propulsion/compare/2.4.1...2.4.2
 [2.4.1]: https://github.com/jet/propulsion/compare/2.4.0...2.4.1
 [2.4.0]: https://github.com/jet/propulsion/compare/2.3.0...2.4.0
 [2.3.0]: https://github.com/jet/propulsion/compare/2.2.0...2.3.0
