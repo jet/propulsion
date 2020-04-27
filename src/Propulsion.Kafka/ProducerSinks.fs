@@ -43,7 +43,7 @@ type StreamsProducerSink =
                     | _ -> ()
                     do! producer.Produce(key, message)
                 | None -> ()
-                return span.index + span.events.LongLength, outcome
+                return SpanResult.AllProcessed, outcome
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,

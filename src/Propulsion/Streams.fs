@@ -933,7 +933,7 @@ module Sync =
 
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-                handle : StreamName * StreamSpan<_> -> Async<int64 * 'Outcome>,
+                handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
                 stats : Stats<'Outcome>, statsInterval,
                 /// Default .5 ms
                 ?idleDelay,
@@ -954,9 +954,10 @@ module Sync =
             let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
                 let (eventCount, bytesCount), span = Buffering.StreamSpan.slice (maxEvents, maxBytes) item.span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
-                try let! (version', outcome) = handle (item.stream, span)
+                try let req = (item.stream, span)
+                    let! (res, outcome) = handle req
                     let prepareElapsed = sw.Elapsed
-                    return Choice1Of2 (version', ((eventCount, bytesCount), prepareElapsed), outcome)
+                    return Choice1Of2 (SpanResult.toIndex req res, ((eventCount, bytesCount), prepareElapsed), outcome)
                 with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
 
             let interpretWriteResultProgress _streams (stream : StreamName) = function
