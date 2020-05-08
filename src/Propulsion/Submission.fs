@@ -10,10 +10,10 @@ open System.Threading
 module Internal =
 
     /// Gathers stats relating to how many items of a given partition have been observed
-    type PartitionStats() =
-        let partitions = Dictionary<int, int64>()
+    type PartitionStats<'S when 'S : equality>() =
+        let partitions = Dictionary<'S, int64>()
 
-        member __.Record(partitionId, ?weight) = 
+        member __.Record(partitionId, ?weight) =
             let weight = defaultArg weight 1L
             match partitions.TryGetValue partitionId with
             | true, catCount -> partitions.[partitionId] <- catCount + weight
@@ -45,23 +45,23 @@ module Submission =
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
-    type SubmissionBatch<'M> = { partitionId : int; onCompletion : unit -> unit; messages : 'M [] }
+    type SubmissionBatch<'S, 'M> = { source : 'S; onCompletion : unit -> unit; messages : 'M [] }
 
     /// Holds the queue for a given partition, together with a semaphore we use to ensure the number of in-flight batches per partition is constrained
     [<NoComparison>]
     type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
         member __.Append(batch) = __.queue.Enqueue batch
-        static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits * 2) } 
+        static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits * 2) }
 
     /// Holds the stream of incoming batches, grouping by partition
     /// Manages the submission of batches into the Scheduler in a fair manner
-    type SubmissionEngine<'M,'B>
-        (   log : ILogger, maxSubmitsPerPartition, mapBatch : (unit -> unit) -> SubmissionBatch<'M> -> 'B, submitBatch : 'B -> int, statsInterval, ?pumpInterval : TimeSpan,
+    type SubmissionEngine<'S, 'M, 'B when 'S : equality>
+        (   log : ILogger, maxSubmitsPerPartition, mapBatch : (unit -> unit) -> SubmissionBatch<'S, 'M> -> 'B, submitBatch : 'B -> int, statsInterval, ?pumpInterval : TimeSpan,
             ?tryCompactQueue) =
 
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
-        let incoming = new BlockingCollection<SubmissionBatch<'M>[]>(ConcurrentQueue())
-        let buffer = Dictionary<int,PartitionQueue<'B>>()
+        let incoming = new BlockingCollection<SubmissionBatch<'S, 'M>[]>(ConcurrentQueue())
+        let buffer = Dictionary<'S, PartitionQueue<'B>>()
         let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
         let submittedBatches,submittedMessages = PartitionStats(), PartitionStats()
 
@@ -96,8 +96,8 @@ module Submission =
 
         /// Take one timeslice worth of ingestion and add to relevant partition queues
         /// When ingested, we allow one propagation submission per partition
-        let ingest (partitionBatches : SubmissionBatch<'M>[]) =
-            for { partitionId = pid } as batch in partitionBatches do
+        let ingest (partitionBatches : SubmissionBatch<'S, 'M>[]) =
+            for { source = pid } as batch in partitionBatches do
                 let pq =
                     match buffer.TryGetValue pid with
                     | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer.[pid] <- t; t
@@ -137,10 +137,10 @@ module Submission =
                 maybeLogStats () }
 
         /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
-        member __.Ingest(items : SubmissionBatch<'M>[]) =
+        member __.Ingest(items : SubmissionBatch<'S, 'M>[]) =
             Interlocked.Increment(&ingested) |> ignore
             incoming.Add items
 
         /// Supplies an incoming Batch for holding and forwarding to scheduler at the right time
-        member __.Ingest(batch : SubmissionBatch<'M>) =
+        member __.Ingest(batch : SubmissionBatch<'S, 'M>) =
             __.Ingest [| batch |]
