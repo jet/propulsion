@@ -79,7 +79,7 @@ type KafkaIngestionEngine<'Info>
         intervalMsgs <- intervalMsgs + 1L
         let inline stringLen (s : string) = match s with null -> 0 | x -> x.Length
         intervalChars <- intervalChars + int64 (stringLen message.Key + stringLen message.Value)
-        let tp = Bindings.tp result
+        let tp = result.TopicPartition
         let span =
             match acc.TryGetValue tp with
             | false, _ -> let span = PartitionBuffer<'Info>.Create(sz, result, mapMessage) in acc.[tp] <- span; span

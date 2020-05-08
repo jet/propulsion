@@ -14,7 +14,6 @@ module Bindings =
     let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
     let inline partitionId (x : ConsumeResult<_,_>) = x.Partition
     let inline topicPartition (topic : string) (partition : int) = TopicPartition(topic, partition)
-    let inline tp (x : ConsumeResult<_,_>) = x.TopicPartition
     let partitionValue = id
     let offsetUnset = Offset.Invalid
     let createConsumer log config : IConsumer<string,string> * (unit -> unit) =
