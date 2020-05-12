@@ -27,4 +27,4 @@ module Bindings =
             if consumer.Consume(&message, intervalRemainder) then
                 if message.Error.HasError then log.Warning("Consuming... error {e}", message.Error)
                 else ingest message
-        with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled")
+        with| :? System.OperationCanceledException -> log.Warning("Consuming... cancelled {name}", consumer.Name)

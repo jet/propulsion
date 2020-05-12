@@ -1,8 +1,5 @@
 ﻿namespace FsKafka
 
-open System
-open System.Collections.Generic
-
 [<AutoOpen>]
 module Types =
     [<RequireQualifiedAccess; Struct>]
