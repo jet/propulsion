@@ -16,6 +16,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 
 - `Propulsion.Kafka0` Some `Propulsion.Kafka0`-namespaced shimming elements are now found in the `FsKafka` namespace in `FsKafka0` [#64](https://github.com/jet/propulsion/pull/64)
+- `Propulsion.Kafka`: `KafkaMonitor` is now found in the `FsKafka` namespace in `FsKafka`/FsKafka0` (NOTE: integration tests continue to live in this repo) [#64](https://github.com/jet/propulsion/pull/64)
 
 ### Fixed
 
