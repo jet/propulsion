@@ -54,9 +54,9 @@ module private Impl =
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'Info>
     (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_, _>, closeConsumer,
-        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.SubmissionBatch<'Info>[] -> unit,
+        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.SubmissionBatch<TopicPartition, 'Info>[] -> unit,
         maxBatchSize, emitInterval, statsInterval) =
-    let acc = Dictionary<int, _>()
+    let acc = Dictionary<TopicPartition, _>()
     let remainingIngestionWindow = intervalTimer emitInterval
     let mutable intervalMsgs, intervalChars, totalMessages, totalChars = 0L, 0L, 0L, 0L
     let dumpStats () =
@@ -67,11 +67,11 @@ type KafkaIngestionEngine<'Info>
     let maybeLogStats =
         let due = intervalCheck statsInterval
         fun () -> if due () then dumpStats ()
-    let mkSubmission partitionId span : Submission.SubmissionBatch<'M> =
+    let mkSubmission topicPartition span : Submission.SubmissionBatch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
             Bindings.storeOffset log consumer span.highWaterMark
-        { partitionId = partitionId; onCompletion = checkpoint; messages = span.messages.ToArray() }
+        { source = topicPartition; onCompletion = checkpoint; messages = span.messages.ToArray() }
     let ingest result =
         let message = Bindings.mapMessage result
         let sz = approximateMessageBytes message
@@ -79,21 +79,21 @@ type KafkaIngestionEngine<'Info>
         intervalMsgs <- intervalMsgs + 1L
         let inline stringLen (s : string) = match s with null -> 0 | x -> x.Length
         intervalChars <- intervalChars + int64 (stringLen message.Key + stringLen message.Value)
-        let partitionId = Bindings.partitionId result
+        let tp = result.TopicPartition
         let span =
-            match acc.TryGetValue partitionId with
-            | false, _ -> let span = PartitionBuffer<'Info>.Create(sz, result, mapMessage) in acc.[partitionId] <- span; span
+            match acc.TryGetValue tp with
+            | false, _ -> let span = PartitionBuffer<'Info>.Create(sz, result, mapMessage) in acc.[tp] <- span; span
             | true, span -> span.Enqueue(sz, result, mapMessage); span
         if span.messages.Count = maxBatchSize then
-            acc.Remove partitionId |> ignore
-            emit [| mkSubmission partitionId span |]
+            acc.Remove tp |> ignore
+            emit [| mkSubmission tp span |]
     let submit () =
         match acc.Count with
         | 0 -> ()
-        | partitionsWithMessagesThisInterval ->
-            let tmp = ResizeArray<Submission.SubmissionBatch<'Info>>(partitionsWithMessagesThisInterval)
-            for KeyValue(partitionIndex, span) in acc do
-                tmp.Add(mkSubmission partitionIndex span)
+        | topicPartitionsWithMessagesThisInterval ->
+            let tmp = ResizeArray<Submission.SubmissionBatch<_, 'Info>>(topicPartitionsWithMessagesThisInterval)
+            for KeyValue(tp, span) in acc do
+                tmp.Add(mkSubmission tp span)
             acc.Clear()
             emit <| tmp.ToArray()
     member __.Pump() = async {
@@ -187,12 +187,12 @@ type ParallelConsumer private () =
         let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
-        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<_, 'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_>) : Parallel.Scheduling.Batch<'Msg> =
+        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
-            { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; }
-        let submitBatch (x : Parallel.Scheduling.Batch<_>) : int =
+            { source = x.source; messages = x.messages; onCompletion = onCompletion'; }
+        let submitBatch (x : Parallel.Scheduling.Batch<_, _>) : int =
             scheduler.Submit x
             x.messages.Length
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, pumpInterval)
@@ -255,7 +255,7 @@ module Core =
                 logExternalState |> Option.iter (fun f -> f log)
                 streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
             let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
-            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'Info>) : Streams.Scheduling.StreamsBatch<_> =
+            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
             let submitter =
@@ -482,7 +482,7 @@ type BatchesConsumer =
                         x.stream, Choice2Of2 (s, e) |] }
         let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, ?idleDelay=idleDelay, maxBatches=maxBatches)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<'Info>) : Streams.Scheduling.StreamsBatch<_> =
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter =

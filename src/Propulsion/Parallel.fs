@@ -41,17 +41,17 @@ module Scheduling =
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
-    type Batch<'M> = { partitionId : int; messages: 'M []; onCompletion: unit -> unit }
+    type Batch<'S, 'M> = { source : 'S; messages: 'M []; onCompletion: unit -> unit }
 
     /// Thread-safe/lock-free batch-level processing state
     /// - referenced [indirectly, see `mkDispatcher`] among all task invocations for a given batch
     /// - scheduler loop continuously inspects oldest active instance per partition in order to infer attainment of terminal (completed or faulted) state
     [<NoComparison; NoEquality>]
-    type WipBatch<'M> =
+    type WipBatch<'S, 'M> =
         {   mutable elapsedMs : int64 // accumulated processing time for stats
             mutable remaining : int // number of outstanding completions; 0 => batch is eligible for completion
             mutable faults : ConcurrentStack<exn> // exceptions, order is not relevant and use is infrequent hence ConcurrentStack
-            batch: Batch<'M> }
+            batch: Batch<'S, 'M> }
 
         member private __.RecordOk(duration : TimeSpan) =
             // need to record stats first as remaining = 0 is used as completion gate
@@ -61,7 +61,7 @@ module Scheduling =
             __.faults.Push exn
 
         /// Prepares an initial set of shared state for a batch of tasks, together with the Async<unit> computations that will feed their results into it
-        static member Create(batch : Batch<'M>, handle) : WipBatch<'M> * seq<Async<unit>> =
+        static member Create(batch : Batch<'S, 'M>, handle) : WipBatch<'S, 'M> * seq<Async<unit>> =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> async {
@@ -84,13 +84,13 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'M>(log : ILogger, handle, tryDispatch : (Async<unit>) -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : (Async<unit>) -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
-        let incoming = ConcurrentQueue<Batch<'M>>()
+        let incoming = ConcurrentQueue<Batch<'S, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
         let waiting = Queue<Async<unit>>(1024)
         // Index of batches that have yet to attain terminal state (can be >1 per partition)
-        let active = Dictionary<int(*partitionId*),Queue<WipBatch<'M>>>()
+        let active = Dictionary<'S(*partitionId*),Queue<WipBatch<'S, 'M>>>()
         (* accumulators for periodically emitted statistics info *)
         let mutable cycles, processingDuration = 0, TimeSpan.Zero
         let startedBatches, completedBatches, startedItems, completedItems = PartitionStats(), PartitionStats(), PartitionStats(), PartitionStats()
@@ -130,7 +130,7 @@ module Scheduling =
                         abend (AggregateException(exns))
                     | Some (Completed batchProcessingDuration) -> // call completion function asap
                         let partitionId, markCompleted, itemCount =
-                            let { batch = { partitionId = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
+                            let { batch = { source = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
                             p, f, msgs.LongLength
                         completedBatches.Record partitionId
                         completedItems.Record(partitionId, itemCount)
@@ -144,7 +144,7 @@ module Scheduling =
         let tryPrepareNext () =
             match incoming.TryDequeue() with
             | false, _ -> false
-            | true, ({ partitionId = pid; messages = msgs} as batch) ->
+            | true, ({ source = pid; messages = msgs} as batch) ->
                 startedBatches.Record(pid)
                 startedItems.Record(pid, msgs.LongLength)
                 let wipBatch, runners = WipBatch.Create(batch, handle)
@@ -180,16 +180,16 @@ module Scheduling =
                     Thread.Sleep 1 } // not Async.Sleep, we like this context and/or cache state if nobody else needs it
 
         /// Feeds a batch of work into the queue; the caller is expected to ensure sumbissions are timely to avoid starvation, but throttled to ensure fair ordering
-        member __.Submit(batches : Batch<'M>) =
+        member __.Submit(batches : Batch<'S, 'M>) =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
     static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
         let makeBatch onCompletion (items : 'Item seq) =
             let items = Array.ofSeq items
-            let batch : Submission.SubmissionBatch<'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
+            let batch : Submission.SubmissionBatch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
             batch,(items.Length,items.Length)
-        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
+        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
 
 type ParallelProjector =
     static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition, ?logExternalStats)
@@ -197,17 +197,17 @@ type ParallelProjector =
 
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Scheduling.Dispatcher maxDop
-        let scheduler = Scheduling.PartitionedSchedulingEngine<'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
 
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<'Item>) : Scheduling.Batch<'Item> =
+        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
+            { source = x.source; onCompletion = onCompletion; messages = x.messages}
 
-        let submitBatch (x : Scheduling.Batch<'Item>) : int =
+        let submitBatch (x : Scheduling.Batch<_, 'Item>) : int =
             scheduler.Submit x
             0
 
-        let submitter = Submission.SubmissionEngine<_, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
+        let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest)
         ProjectorPipeline.Start(log, dispatcher.Pump(), scheduler.Pump, submitter.Pump(), startIngester)

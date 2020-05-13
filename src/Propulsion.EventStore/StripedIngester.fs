@@ -48,7 +48,7 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<seq<StreamEvent<byte[]>>, Propulsion.Submission.SubmissionBatch<StreamEvent<byte[]>>>,
+    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<seq<StreamEvent<byte[]>>, Propulsion.Submission.SubmissionBatch<_, StreamEvent<byte[]>>>,
         maxInFlightBatches, initialSeriesIndex, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
