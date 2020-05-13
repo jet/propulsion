@@ -10,7 +10,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Propulsion.Kafka.Integration\MonitorTests.fs" Link="MonitorTests.fs" />
     <Compile Include="..\Propulsion.Kafka.Integration\ConsumersIntegration.fs" Link="ConsumersIntegration.fs" />
     <Compile Include="..\Propulsion.Kafka.Integration\MonitorIntegration.fs" Link="MonitorIntegration.fs" />
   </ItemGroup>

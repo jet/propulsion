@@ -70,10 +70,10 @@ type KafkaIngestionEngine<'Info>
     let mkSubmission topicPartition span : Submission.SubmissionBatch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
-            Bindings.storeOffset log consumer span.highWaterMark
+            Binding.storeOffset log consumer span.highWaterMark
         { source = topicPartition; onCompletion = checkpoint; messages = span.messages.ToArray() }
     let ingest result =
-        let message = Bindings.mapMessage result
+        let message = Binding.message result
         let sz = approximateMessageBytes message
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
@@ -111,7 +111,7 @@ type KafkaIngestionEngine<'Info>
                     submit()
                     maybeLogStats()
                 | false, Some intervalRemainder ->
-                    Bindings.tryConsume log consumer intervalRemainder ingest
+                    Binding.tryConsume log consumer intervalRemainder ingest
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
             dumpStats () // Unconditional logging when completing
@@ -134,7 +134,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., maxDelay.TotalSeconds, maxItems)
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
-        let consumer, closeConsumer = Bindings.createConsumer log config.Inner // teardown is managed by ingester.Pump()
+        let consumer, closeConsumer = Binding.createConsumer log config.Inner // teardown is managed by ingester.Pump()
         consumer.Subscribe config.Topics
         let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
         let cts = new CancellationTokenSource()
@@ -203,7 +203,7 @@ type ParallelConsumer private () =
     static member Start
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
-        ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Bindings.mapConsumeResult, handle >> Async.Catch,
+        ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
 type EventMetrics = Streams.EventMetrics
@@ -299,7 +299,7 @@ module Core =
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
                 ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay)=
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop,
+                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval=statsInterval,
                 ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
                 ?pumpInterval=pumpInterval,
@@ -316,7 +316,7 @@ module Core =
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
                 ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Bindings.mapConsumeResult, keyValueToStreamEvents, handle, maxDop,
+                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, handle, maxDop,
                 stats, statsInterval,
                 ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
                 ?pumpInterval=pumpInterval,
@@ -359,7 +359,7 @@ type StreamNameSequenceGenerator() =
     member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toDataAndContext (result : ConsumeResult<string, string>) =
-            let message = Bindings.mapMessage result
+            let message = Binding.message result
             System.Text.Encoding.UTF8.GetBytes message.Value, null
         __.ConsumeResultToStreamEvent(toStreamName, toDataAndContext)
 
@@ -382,7 +382,7 @@ type StreamNameSequenceGenerator() =
     member __.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> byte[] * obj, ?defaultCategory)
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toStreamName (result : ConsumeResult<string, string>) =
-            let message = Bindings.mapMessage result
+            let message = Binding.message result
             Core.parseMessageKey (defaultArg defaultCategory "") message.Key
         let toTimelineEvent (result : ConsumeResult<string, string>, index) =
             let data, context = toDataAndContext result

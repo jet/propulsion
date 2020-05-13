@@ -15,7 +15,7 @@ let mkProducer log broker topic =
 // test config creates topics with 4 partitions
 let testPartitionCount = 4
 let createConsumerConfig broker topic groupId =
-    KafkaConsumerConfig.Create("tiger", broker, [topic], groupId, maxBatchSize = 1)
+    KafkaConsumerConfig.Create("tiger", broker, [topic], groupId, AutoOffsetReset.Earliest, maxBatchSize = 1)
 let startConsumerFromConfig log config handler =
     let handler' r = async {
         do! handler r
@@ -37,7 +37,7 @@ let onlyConsumeFirstBatchHandler =
     let observedPartitions = System.Collections.Concurrent.ConcurrentDictionary()
     fun (item : ConsumeResult<string,string>) -> async {
         // make first handle succeed to ensure consumer has offsets
-        let partitionId = Bindings.partitionValue item.Partition
+        let partitionId = Binding.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }
 
 type TimeoutGuard(?maxMinutes) =

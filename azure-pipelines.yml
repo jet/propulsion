@@ -1,15 +1,14 @@
 name: $(Rev:r)
 
 # Summary:
-#	Linux: Tests with netcoreapp3.1 using docker Kafka instance
-#		net461 on Mono is not working, no investigation why as yet, but local run validates it
+#	Linux: Tests using docker Kafka instance (note test suite does not run net461 as CK on mono is not supported)
 #	Windows: Builds and emits nupkg as artifacts
 #	MacOS: Builds only
 
 jobs:
 - job: Windows
   pool:
-    vmImage: 'vs2017-win2016'
+    vmImage: 'windows-latest'
   steps:
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
@@ -24,12 +23,6 @@ jobs:
   pool:
     vmImage: 'ubuntu-latest'
   steps:
-  - task: UseDotNet@2
-    displayName: 'Install .NET Core sdk'
-    inputs:
-      packageType: sdk
-      version: 3.1.101
-      installationPath: $(Agent.ToolsDirectory)/dotnet
   - script: |
       docker network create kafka-net
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4
@@ -52,11 +45,5 @@ jobs:
   pool:
     vmImage: 'macOS-latest'
   steps:
-  - task: UseDotNet@2
-    displayName: 'Install .NET Core sdk'
-    inputs:
-      packageType: sdk
-      version: 3.1.101
-      installationPath: $(Agent.ToolsDirectory)/dotnet
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
