@@ -10,6 +10,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.5.0"></a>
+## [2.5.0] - 2019-05-13
+
+### Changed
 
 - `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.4.2`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.2) [#64](https://github.com/jet/propulsion/pull/64)
 
@@ -381,7 +388,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.4.3...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.5.0...HEAD
+[2.5.0]: https://github.com/jet/propulsion/compare/2.4.3...2.5.0
 [2.4.3]: https://github.com/jet/propulsion/compare/2.4.2...2.4.3
 [2.4.2]: https://github.com/jet/propulsion/compare/2.4.1...2.4.2
 [2.4.1]: https://github.com/jet/propulsion/compare/2.4.0...2.4.1
