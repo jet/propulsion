@@ -14,6 +14,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Fixed
 
 <a name="2.5.0"></a>
+## [2.5.1] - 2019-05-14
+
+### Fixed
+
+- `EventStoreSource`: Fixed `obj` -> `int` type discrepancy re [#63](https://github.com/jet/propulsion/pull/63)
+
+<a name="2.5.0"></a>
 ## [2.5.0] - 2019-05-13
 
 ### Changed
@@ -388,7 +395,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.5.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.5.1...HEAD
+[2.5.1]: https://github.com/jet/propulsion/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/jet/propulsion/compare/2.4.3...2.5.0
 [2.4.3]: https://github.com/jet/propulsion/compare/2.4.2...2.4.3
 [2.4.2]: https://github.com/jet/propulsion/compare/2.4.1...2.4.2
