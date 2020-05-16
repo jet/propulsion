@@ -6,9 +6,6 @@ open Serilog
 open System
 open System.Collections.Generic
 
-type IConsumer<'K,'V> = Consumer<'K,'V>
-type ConsumeResult<'K,'V> = Message<'K,'V>
-
 module Binding =
     let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
     let inline makeTopicPartition (topic : string) (partition : int) = TopicPartition(topic, partition)

@@ -13,19 +13,26 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
-<a name="2.5.0"></a>
-## [2.5.1] - 2019-05-14
+<a name="2.5.2"></a>
+## [2.5.2] - 2020-05-16
+
+### Fixed
+
+- `Kafka`: Targets `FsKafka`/`FsKafka0` v `1.5.0-beta.2` to resolve `TypeLoadException`
+
+<a name="2.5.1"></a>
+## [2.5.1] - 2020-05-14
 
 ### Fixed
 
 - `EventStoreSource`: Fixed `obj` -> `int` type discrepancy re [#63](https://github.com/jet/propulsion/pull/63)
 
 <a name="2.5.0"></a>
-## [2.5.0] - 2019-05-13
+## [2.5.0] - 2020-05-13
 
 ### Changed
 
-- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.4.2`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.2) [#64](https://github.com/jet/propulsion/pull/64)
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.5.0-beta.2`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.2) [#64](https://github.com/jet/propulsion/pull/64)
 
 ### Removed
 
@@ -37,28 +44,28 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Kafka`: Change buffer grouping to include `Topic` alongside `PartitionId` - existing implementation did not guarantee marking progress where consuming from more than one Topic concurrently [#63](https://github.com/jet/propulsion/pull/63)
 
 <a name="2.4.3"></a>
-## [2.4.3] - 2019-04-27
+## [2.4.3] - 2020-04-27
 
 ### Changed
 
 - Revised `handle` function signatures in `Propulsion.Sync.StreamsSync` and `Propulsion.Streams.StreamsProjector` to use `Propulsion.Streams.SpanResult` representing Write Position updates [#62](https://github.com/jet/propulsion/pull/62)
 
 <a name="2.4.2"></a>
-## [2.4.2] - 2019-04-27
+## [2.4.2] - 2020-04-27
 
 ### Changed
 
 - Mark `Scheduler.Stats` abstract, reorder/name `statsInterval` arguments [#61](https://github.com/jet/propulsion/pull/61)
 
 <a name="2.4.1"></a>
-## [2.4.1] - 2019-04-25
+## [2.4.1] - 2020-04-25
 
 ### Changed
 
 - Added abstract `HandleExn` method to `type Stats`; removed defaulting of `stats` arguments in almost all cases [#60](https://github.com/jet/propulsion/pull/60)
 
 <a name="2.4.0"></a>
-## [2.4.0] - 2019-04-24
+## [2.4.0] - 2020-04-24
 
 ### Added
 
@@ -70,7 +77,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - Renamed `Streams.Sync.StreamsSyncStats` and `Streams.Scheduling.StreamSchedulerStats` to `Stats` for consistency [#59](https://github.com/jet/propulsion/pull/59)
 
 <a name="2.3.0"></a>
-## [2.3.0] - 2019-04-22
+## [2.3.0] - 2020-04-22
 
 ### Added
 
@@ -84,7 +91,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - BREAKING: `Propulsion.Kafka.Core.StreamKeyEventSequencer.ToStreamEvent` becomes `Propulsion.Kafka.StreamNameSequenceGenerator.KeyValueToStreamEvent` [#56](https://github.com/jet/propulsion/pull/56)
 
 <a name="2.2.0"></a>
-## [2.2.0] - 2019-04-18
+## [2.2.0] - 2020-04-18
 
 ### Added
 
@@ -99,14 +106,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `EventStore`: Updated `CheckpointSeries` to adhere more closely to naming per [standardized naming](https://github.com/jet/dotnet-templates/pull/54) [#51](https://github.com/jet/propulsion/pull/51)
 
 <a name="2.1.1"></a>
-## [2.1.1] - 2019-03-11
+## [2.1.1] - 2020-03-11
 
 ### Added
 
 - `StreamsSyncStats`: Added missing `HandleOk`
 
 <a name="2.1.0"></a>
-## 2.1.0 - 2019-03-11
+## 2.1.0 - 2020-03-11
 
 ### Added
 
@@ -119,28 +126,28 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - Retarget `netcoreapp2.1` apps to `netcoreapp3.1` (not least to make tool traverse proxies on Windows)
 
 <a name="2.0.0"></a>
-## [2.0.0] - 2019-02-19
+## [2.0.0] - 2020-02-19
 
 ### Changed
 
 - Target `FsCodec`.* v `2.0.0`, `Equinox`.* v `2.0.0`
 
 <a name="2.0.0-rc3"></a>
-## [2.0.0-rc3] - 2019-02-08
+## [2.0.0-rc3] - 2020-02-08
 
 ### Changed
 
 - Extend `StreamsProjector` overloads to enable simplified overriding of Write Position
 
 <a name="2.0.0-rc2"></a>
-## [2.0.0-rc2] - 2019-02-04
+## [2.0.0-rc2] - 2020-02-04
 
 ### Fixed
 
 - `Kafka0`: Change `"compression.type"` to `"compression.codec"` to correctly support `Confluent.Kafka` v `0.11.3`
 
 <a name="2.0.0-rc1"></a>
-## [2.0.0-rc1] - 2019-01-31
+## [2.0.0-rc1] - 2020-01-31
 
 ### Changed
 
@@ -395,7 +402,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.5.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.5.2...HEAD
+[2.5.2]: https://github.com/jet/propulsion/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/jet/propulsion/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/jet/propulsion/compare/2.4.3...2.5.0
 [2.4.3]: https://github.com/jet/propulsion/compare/2.4.2...2.4.3
