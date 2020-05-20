@@ -373,23 +373,6 @@ type StreamNameSequenceGenerator() =
             let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
             Seq.singleton { stream = sn; event = e }
 
-    /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
-    /// The body of the message is passed as the <c>ITimelineEvent.Data</c><br/>
-    /// Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
-        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-        __.ConsumeResultToStreamEvent(toStreamName, Core.toDataAndContext)
-
-    /// Default Mapping: <br/>
-    /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
-    /// - Replaces missing categories within keys with the (optional) <c>defaultCategory</c> (or <c>""</c>)<br/>
-    /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member __.ConsumeResultToStreamEvent(
-        /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
-        ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-        let defaultCategory = defaultArg defaultCategory ""
-        __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
-
     /// Enables customizing of mapping from ConsumeResult to<br/>
     /// 1) The <c>StreamName</c><br/>
     /// 2) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload<br/>
@@ -407,6 +390,23 @@ type StreamNameSequenceGenerator() =
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let defaultCategory = defaultArg defaultCategory ""
         __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory, Core.toTimelineEvent toDataAndContext)
+
+    /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
+    /// The body of the message is passed as the <c>ITimelineEvent.Data</c><br/>
+    /// Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
+    member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
+        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        __.ConsumeResultToStreamEvent(toStreamName, Core.toDataAndContext)
+
+    /// Default Mapping: <br/>
+    /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
+    /// - Replaces missing categories within keys with the (optional) <c>defaultCategory</c> (or <c>""</c>)<br/>
+    /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
+    member __.ConsumeResultToStreamEvent(
+        /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
+        ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        let defaultCategory = defaultArg defaultCategory ""
+        __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
     /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
     member __.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
