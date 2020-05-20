@@ -331,6 +331,8 @@ module Core =
         | null -> FsCodec.StreamName.create defaultCategory ""
         | key -> Propulsion.Streams.StreamName.parseWithDefaultCategory defaultCategory key
 
+type ConsumeResultContext = { topic : string; partition : int; offset : int64 }
+
 /// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an `index`.
 /// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
 type StreamNameSequenceGenerator() =
@@ -362,9 +364,24 @@ type StreamNameSequenceGenerator() =
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toDataAndContext (result : ConsumeResult<string, string>) =
             let m = Binding.message result
+            if m = null then invalidOp "Cannot dereference null message"
             (   System.Text.Encoding.UTF8.GetBytes m.Value,
-                null)
+                box { topic = result.Topic; partition = Binding.partitionValue result.Partition; offset = Binding.offsetValue result.Offset })
         __.ConsumeResultToStreamEvent(toStreamName, toDataAndContext)
+
+    /// Default Mapping:
+    /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
+    /// - Replaces missing categories within keys with the (optional) <c>defaultCategory</c> (or <c>""</c>)<br/>
+    /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
+    member __.ConsumeResultToStreamEvent(
+        /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
+        ?defaultCategory)
+        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        let toStreamName (result : ConsumeResult<string, string>) =
+            let m = Binding.message result
+            if m = null then invalidOp "Cannot dereference null message"
+            Core.parseMessageKey (defaultArg defaultCategory "") m.Key
+        __.ConsumeResultToStreamEvent(toStreamName)
 
     /// Enables customizing of mapping from ConsumeResult to
     /// 1) The <c>StreamName</c>
@@ -386,6 +403,7 @@ type StreamNameSequenceGenerator() =
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toStreamName (result : ConsumeResult<string, string>) =
             let m = Binding.message result
+            if m = null then invalidOp "Cannot dereference null message"
             Core.parseMessageKey (defaultArg defaultCategory "") m.Key
         let toTimelineEvent (result : ConsumeResult<string, string>, index) =
             let data, context = toDataAndContext result

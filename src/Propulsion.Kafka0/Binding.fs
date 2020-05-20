@@ -10,6 +10,7 @@ module Binding =
 
     let mapConsumeResult (result : ConsumeResult<string,string>) =
         let m = Binding.message result
+        if m = null then invalidOp "Cannot dereference null message"
         KeyValuePair(m.Key, m.Value)
     let inline makeTopicPartition (topic : string) (partition : int) = TopicPartition(topic, partition)
     let createConsumer log config : IConsumer<string,string> * (unit -> unit) =

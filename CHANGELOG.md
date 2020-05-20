@@ -9,9 +9,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Kafka`: Add `Propulsion.Kafka.ConsumeResultContext` and default `StreamNameSequenceGenerator.ConsumeResultToStreamEvent` [#70](https://github.com/jet/propulsion/pull/70)
+
 ### Changed
 
-- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.4.3`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.3) [#68](https://github.com/jet/propulsion/pull/68)
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.4.3`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.3) [#69](https://github.com/jet/propulsion/pull/69)
 
 ### Removed
 ### Fixed
