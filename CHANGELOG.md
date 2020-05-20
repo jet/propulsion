@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.5.3"></a>
+## [2.5.3] - 2020-05-20
+
+### Added
 
 - `Kafka`: Add `Propulsion.Kafka.ConsumeResultContext` and default `StreamNameSequenceGenerator.ConsumeResultToStreamEvent` [#70](https://github.com/jet/propulsion/pull/70)
 
 ### Changed
 
 - `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.4.3`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.3) [#69](https://github.com/jet/propulsion/pull/69)
-
-### Removed
-### Fixed
 
 <a name="2.5.2"></a>
 ## [2.5.2] - 2020-05-16
@@ -408,7 +413,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.5.2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.6.0...HEAD
+[2.6.0]: https://github.com/jet/propulsion/compare/2.5.2...2.6.0
 [2.5.2]: https://github.com/jet/propulsion/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/jet/propulsion/compare/2.5.0...2.5.1
 [2.5.0]: https://github.com/jet/propulsion/compare/2.4.3...2.5.0
