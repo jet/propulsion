@@ -13,8 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
-<a name="2.5.3"></a>
-## [2.5.3] - 2020-05-20
+<a name="2.6.0"></a>
+## [2.6.0] - 2020-05-20
 
 ### Added
 
