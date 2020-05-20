@@ -44,9 +44,9 @@ module private Impl =
             x
 
     /// guesstimate approximate message size in bytes
-    let approximateMessageBytes (message : Message<string, string>) =
+    let approximateMessageBytes (m : Message<string, string>) =
         let inline len (x : string) = match x with null -> 0 | x -> sizeof<char> * x.Length
-        16 + len message.Key + len message.Value |> int64
+        16 + len m.Key + len m.Value |> int64
     let inline mb x = float x / 1024. / 1024.
 
 /// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accumulated messages as
@@ -73,12 +73,13 @@ type KafkaIngestionEngine<'Info>
             Binding.storeOffset log consumer span.highWaterMark
         { source = topicPartition; onCompletion = checkpoint; messages = span.messages.ToArray() }
     let ingest result =
-        let message = Binding.message result
-        let sz = approximateMessageBytes message
+        let m = FsKafka.Binding.message result
+        if m = null then invalidOp "Cannot dereference null message"
+        let sz = approximateMessageBytes m
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
         intervalMsgs <- intervalMsgs + 1L
         let inline stringLen (s : string) = match s with null -> 0 | x -> x.Length
-        intervalChars <- intervalChars + int64 (stringLen message.Key + stringLen message.Value)
+        intervalChars <- intervalChars + int64 (stringLen m.Key + stringLen m.Value)
         let tp = result.TopicPartition
         let span =
             match acc.TryGetValue tp with
@@ -354,13 +355,15 @@ type StreamNameSequenceGenerator() =
             let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
             Seq.singleton { stream = sn; event = e }
 
-    /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
-    /// The body of the message is passed as the <c>ITimelineEvent.Data</c>
+     /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
+    /// The body of the message is passed as the <c>ITimelineEvent.Data</c><br/>
+    /// Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
     member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toDataAndContext (result : ConsumeResult<string, string>) =
-            let message = Binding.message result
-            System.Text.Encoding.UTF8.GetBytes message.Value, null
+            let m = Binding.message result
+            (   System.Text.Encoding.UTF8.GetBytes m.Value,
+                null)
         __.ConsumeResultToStreamEvent(toStreamName, toDataAndContext)
 
     /// Enables customizing of mapping from ConsumeResult to
@@ -382,8 +385,8 @@ type StreamNameSequenceGenerator() =
     member __.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> byte[] * obj, ?defaultCategory)
         : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let toStreamName (result : ConsumeResult<string, string>) =
-            let message = Binding.message result
-            Core.parseMessageKey (defaultArg defaultCategory "") message.Key
+            let m = Binding.message result
+            Core.parseMessageKey (defaultArg defaultCategory "") m.Key
         let toTimelineEvent (result : ConsumeResult<string, string>, index) =
             let data, context = toDataAndContext result
             FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)

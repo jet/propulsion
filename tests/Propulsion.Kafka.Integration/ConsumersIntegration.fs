@@ -64,7 +64,7 @@ module Helpers =
     type TestMeta = { key : string; value : string; partition : int; offset : int64 }
     let mapParallelConsumeResultToKeyValuePair (x : ConsumeResult<_, _>) : KeyValuePair<string, string> =
         let m = Binding.message x
-        KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value })
+        KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = Binding.offsetValue x.Offset })
     type TestMessage = { producerId : int ; messageId : int }
     type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>

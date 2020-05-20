@@ -7,7 +7,10 @@ open System
 open System.Collections.Generic
 
 module Binding =
-    let mapConsumeResult (x : ConsumeResult<string,string>) = KeyValuePair(x.Key,x.Value)
+
+    let mapConsumeResult (result : ConsumeResult<string,string>) =
+        let m = Binding.message result
+        KeyValuePair(m.Key, m.Value)
     let inline makeTopicPartition (topic : string) (partition : int) = TopicPartition(topic, partition)
     let createConsumer log config : IConsumer<string,string> * (unit -> unit) =
         ConsumerBuilder.WithLogging(log, config)
