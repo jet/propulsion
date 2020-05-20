@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.4.3`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.3) [#68](https://github.com/jet/propulsion/pull/68)
+
 ### Removed
 ### Fixed
 
@@ -18,26 +21,26 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
-- `Kafka`: Targets `FsKafka`/`FsKafka0` v `1.5.0-beta.2` to resolve `TypeLoadException`
+- `Kafka`: Targets `FsKafka`/`FsKafka0` v `1.5.0-beta.2` to resolve `TypeLoadException` when using `1.5.0-beta.1`
 
 <a name="2.5.1"></a>
-## [2.5.1] - 2020-05-14
+## [2.5.1] - 2020-05-14 (Unlisted/broken : :point_up:)
 
 ### Fixed
 
 - `EventStoreSource`: Fixed `obj` -> `int` type discrepancy re [#63](https://github.com/jet/propulsion/pull/63)
 
 <a name="2.5.0"></a>
-## [2.5.0] - 2020-05-13
+## [2.5.0] - 2020-05-13 (Unlisted/broken :point_up:)
 
 ### Changed
 
-- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.5.0-beta.2`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.2) [#64](https://github.com/jet/propulsion/pull/64)
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.4.2`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.2) [#67](https://github.com/jet/propulsion/pull/67)
 
 ### Removed
 
-- `Propulsion.Kafka0` Some `Propulsion.Kafka0`-namespaced shimming elements are now found in the `FsKafka` namespace in `FsKafka0` [#64](https://github.com/jet/propulsion/pull/64)
-- `Propulsion.Kafka`: `KafkaMonitor` is now found in the `FsKafka` namespace in `FsKafka`/FsKafka0` (NOTE: integration tests continue to live in this repo) [#64](https://github.com/jet/propulsion/pull/64)
+- `Propulsion.Kafka0` Some `Propulsion.Kafka0`-namespaced shimming elements are now found in the `FsKafka` namespace in `FsKafka0` [#67](https://github.com/jet/propulsion/pull/67)
+- `Propulsion.Kafka`: `KafkaMonitor` is now found in the `FsKafka` namespace in `FsKafka`/FsKafka0` (NOTE: integration tests continue to live in this repo) [#67](https://github.com/jet/propulsion/pull/67)
 
 ### Fixed
 
