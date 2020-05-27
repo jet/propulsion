@@ -88,13 +88,15 @@ module LockedIngester =
         | Take
         | Batch of InternalBatch
 
-    type StreamEventType = Propulsion.Streams.StreamEvent<byte[]>
+    type SubmitBatchHandler =
+        // ingester submit method: epoch * checkpoint * items -> write result
+        int64 * Async<unit> * seq<Propulsion.Streams.StreamEvent<byte[]>> -> Async<int*int>
 
     type LockedIngester
         (
             logger: ILogger,
             ledger: ILedger,
-            underlying: Propulsion.Ingestion.Ingester<seq<StreamEventType>, Propulsion.Submission.SubmissionBatch<_, StreamEventType>>,
+            submit: SubmitBatchHandler,
             consumerGroup : string,
             streamId : string,
             ?boundedCapacity: int,
@@ -192,13 +194,13 @@ module LockedIngester =
                                     logger.Debug(
                                         "Batch at position {firstPosition} through {lastPosition} is ahead of committed position {committedPosition}, processing.",
                                         batch.firstPosition, batch.lastPosition, position)
-                                    do! underlying.Submit(batch.firstPosition, commit handle batch, batch.messages) |> Async.Ignore
+                                    do! submit (batch.firstPosition, commit handle batch, batch.messages) |> Async.Ignore
                                     submitted <- true
                                 | Overlapped (batch, firstPosition) ->
                                     logger.Debug(
                                         "Batch at position {firstPosition} through {lastPosition} is overlapping committed position {committedPosition}, processing from committed position.",
                                         firstPosition, batch.lastPosition, position)
-                                    do! underlying.Submit(batch.firstPosition, commit handle batch, batch.messages) |> Async.Ignore
+                                    do! submit (batch.firstPosition, commit handle batch, batch.messages) |> Async.Ignore
                                     submitted <- true
                                 | Behind ->
                                     logger.Debug(

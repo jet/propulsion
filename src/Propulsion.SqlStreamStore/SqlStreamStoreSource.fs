@@ -32,10 +32,11 @@ type SqlStreamStore =
                     .ForContext("instanceId", string instanceId)
                     .ForContext("consumerGroup", consumerGroup)
 
-            let ingester = sink.StartIngester(logger, 0)
+            let ingester : Propulsion.Ingestion.Ingester<_,_> =
+                sink.StartIngester(logger, 0)
 
             use locked =
-                new LockedIngester(logger, ledger, ingester, consumerGroup, streamId,
+                new LockedIngester(logger, ledger, ingester.Submit, consumerGroup, streamId,
                                    boundedCapacity = boundedCapacity,
                                    ?onCaughtUp = onCaughtUp,
                                    ?statsInterval = statsInterval)
