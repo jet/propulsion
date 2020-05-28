@@ -103,12 +103,18 @@ module SqlLedger =
         /// Attempt acquiring a lock with a given timeout.
         let acquireDistributedLock (timeout: TimeSpan) (lock: SqlDistributedLock) =
             async {
-                let! ct = Async.CancellationToken
-                let! handle =
-                    lock.TryAcquireAsync(timeout = timeout, cancellationToken = ct)
-                    |> Async.AwaitTaskCorrect
+                try
+                    let! ct = Async.CancellationToken
+                    let! handle =
+                        lock.TryAcquireAsync(timeout = timeout, cancellationToken = ct)
+                        |> Async.AwaitTaskCorrect
 
-                return handle
+                    return handle
+                with
+                | _ ->
+                    // Exceptions thrown while trying to acquire the lock are
+                    // converted into failures to acquire the handle
+                    return null
             }
 
 type SqlLedger(connString : string, ?retryPolicy: AsyncPolicy, ?lockAcquisitionTimeout: TimeSpan) =

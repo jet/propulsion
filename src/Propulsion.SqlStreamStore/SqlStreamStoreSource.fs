@@ -6,7 +6,7 @@ open SqlStreamStore
 open StreamReader
 open LockedIngester
 
-type SqlStreamStore =
+type SqlStreamStoreSource =
 
     static member Run
             (logger : Serilog.ILogger,
