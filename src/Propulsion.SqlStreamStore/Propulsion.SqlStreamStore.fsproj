@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFrameworks>netstandard2.0;net461</TargetFrameworks>
+        <WarningLevel>5</WarningLevel>
+        <IsTestProject>false</IsTestProject>
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+        <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Infrastructure.fs" />
+        <Compile Include="RetryPolicy.fs" />
+        <Compile Include="Ledger.fs" />
+        <Compile Include="StreamReader.fs" />
+        <Compile Include="LockedIngester.fs" />
+        <Compile Include="SqlStreamStoreSource.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+        <PackageReference Include="MinVer" Version="2.0.0" PrivateAssets="All" />
+
+        <PackageReference Include="SqlStreamStore" Version="1.2.0-beta.8" />
+
+        <PackageReference Include="System.Data.SqlClient" Version="4.8.0" />
+        <PackageReference Include="Dapper" Version="2.0.30" />
+        <PackageReference Include="Polly" Version="7.1.0" />
+        <PackageReference Include="DistributedLock" Version="1.5.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    </ItemGroup>
+
+</Project>
