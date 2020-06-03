@@ -1,16 +1,18 @@
 namespace Propulsion.SqlStreamStore
 
-module StreamReader =
+open System
+open System.Text
 
-    open System
-    open System.Text
+open SqlStreamStore
+open SqlStreamStore.Streams
 
-    open SqlStreamStore
-    open SqlStreamStore.Streams
+open Serilog
 
-    open Serilog
+open System.Diagnostics
+open Propulsion.Streams
 
-    open Propulsion.Streams
+[<AutoOpen>]
+module private Internal =
 
     [<NoComparison;NoEquality>]
     type InternalBatch =
@@ -61,14 +63,18 @@ module StreamReader =
 
         let mutable pagesRead = 0
         let mutable pagesEmpty = 0
-
         let mutable recentPagesRead = 0
         let mutable recentPagesEmpty = 0
 
+        let mutable currentBatches = 0
+        let mutable maxBatches = 0
+
+        let mutable lastCommittedPosition = 0L
+
         let report () =
             logger.Information(
-                "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Batch {firstPosition}-{lastPosition} Caught up {caughtUp}",
-                pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, batchFirstPosition, batchLastPosition, batchCaughtUp)
+                "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | cur {cur} / max {max}",
+                pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, batchLastPosition, lastCommittedPosition, batchCaughtUp, currentBatches, maxBatches)
 
         member this.UpdateBatch (batch: InternalBatch) =
             batchFirstPosition <- batch.firstPosition
@@ -82,6 +88,13 @@ module StreamReader =
             pagesEmpty <- pagesEmpty + 1
             recentPagesEmpty <- recentPagesEmpty + 1
 
+        member this.UpdateCommitedPosition(pos) =
+            lastCommittedPosition <- pos
+
+        member this.UpdateCurMax(cur, max) =
+            currentBatches <- cur
+            maxBatches <- max
+
         member this.Start =
             async {
                 let! ct = Async.CancellationToken
@@ -94,95 +107,120 @@ module StreamReader =
 
     [<RequireQualifiedAccess>]
     [<NoComparison>]
-    type private Work =
+    type Work =
         | TakeInitial
         | Page of ReadAllPage
         | TakeNext of ReadAllPage
 
-    type StreamReader
-        (
-            logger : ILogger,
-            store: IStreamStore,
-            submitBatch: InternalBatch -> Async<unit>,
-            ?maxBatchSize: int,
-            ?sleepInterval: TimeSpan,
-            ?statsInterval: TimeSpan
-        ) =
+    type SubmitBatchHandler =
+        // ingester submit method: epoch * checkpoint * items -> write result
+        int64 * Async<unit> * seq<Propulsion.Streams.StreamEvent<byte[]>> -> Async<int*int>
 
-        let logger = logger.ForContext("component", "StreamReader")
+type StreamReader
+    (
+        logger : ILogger,
+        store: IStreamStore,
+        ledger: ICheckpointer,
+        submitBatch: SubmitBatchHandler,
+        streamId,
+        consumerGroup,
+        ?maxBatchSize: int,
+        ?sleepInterval: TimeSpan,
+        ?statsInterval: TimeSpan,
+        ?stopAfterInterval: TimeSpan
+    ) =
 
-        let maxBatchSize = defaultArg maxBatchSize 100
-        let sleepInterval = defaultArg sleepInterval (TimeSpan.FromSeconds(5.))
+    let maxBatchSize = defaultArg maxBatchSize 100
+    let sleepInterval = defaultArg sleepInterval (TimeSpan.FromSeconds(5.))
+    let stopAfterInterval = defaultArg stopAfterInterval TimeSpan.MaxValue
 
-        let stats = Stats(logger, ?statsInterval = statsInterval)
+    let stats = Stats(logger, ?statsInterval = statsInterval)
 
-        let processPage (page: ReadAllPage) =
-            async {
-                if page.Messages.Length > 0 then
+    let commit batch =
+        async {
+            try
+                do! ledger.CommitPosition { Stream = streamId; ConsumerGroup = consumerGroup; Position = Nullable(batch.lastPosition) }
+                stats.UpdateCommitedPosition(batch.lastPosition)
+                logger.Debug("Committed position {position}", batch.lastPosition)
+            with
+            | exc ->
+                logger.Error(exc, "Exception while commiting position {position}", batch.lastPosition)
+                return! Async.Raise exc
+        }
 
-                    let events =
-                        page.Messages
-                        |> Seq.map StreamMessage.intoStreamEvent
-                        |> Seq.sortBy (fun x -> x.event.Index)
-                        |> Array.ofSeq
+    let processPage (page: ReadAllPage) =
+        async {
+            if page.Messages.Length > 0 then
 
-                    let batch =
-                        {
-                            firstPosition = events.[0].event.Index
-                            lastPosition = events.[events.Length - 1].event.Index
-                            messages = events
-                            isEnd = page.IsEnd
+                let events =
+                    page.Messages
+                    |> Seq.map StreamMessage.intoStreamEvent
+                    |> Seq.sortBy (fun x -> x.event.Index)
+                    |> Array.ofSeq
+
+                let batch =
+                    {
+                        firstPosition = events.[0].event.Index
+                        lastPosition = events.[events.Length - 1].event.Index
+                        messages = events
+                        isEnd = page.IsEnd
+                    }
+
+                logger.Debug("Submitting a batch of {batchSize} events, position {firstPosition} through {lastPosition}",
+                    batch.Length, batch.firstPosition, batch.lastPosition)
+
+                stats.UpdateBatch(batch)
+
+                let! cur, max = submitBatch (batch.lastPosition, commit batch, batch.messages)
+
+                stats.UpdateCurMax(cur, max)
+            else
+                logger.Debug("Empty page retrieved, nothing to submit")
+                stats.UpdateEmptyPage()
+        }
+
+    member this.Start (commitedPosition: Nullable<int64>) =
+        async {
+            // Start reporting stats
+            do! Async.StartChild stats.Start |> Async.Ignore
+
+            let mutable workItem = Work.TakeInitial
+
+            let sw = Stopwatch.StartNew()
+
+            let! ct = Async.CancellationToken
+            while not ct.IsCancellationRequested && not (sw.Elapsed > stopAfterInterval) do
+                try
+                    let! page =
+                        async {
+                            let! ct = Async.CancellationToken
+                            match workItem with
+                            | Work.Page page -> return page
+                            | Work.TakeInitial ->
+                                let initialPosition =
+                                    if commitedPosition.HasValue then commitedPosition.Value + 1L else 0L
+
+                                logger.Information("Starting reading stream from position {initialPosition}, maxBatchSize {maxBatchSize}", initialPosition, maxBatchSize)
+
+                                return! store.ReadAllForwards(initialPosition, maxBatchSize, true, ct) |> Async.AwaitTaskCorrect
+                            | Work.TakeNext page ->
+                                return! page.ReadNext(ct) |> Async.AwaitTaskCorrect
                         }
 
-                    logger.Debug("Submitting a batch of {batchSize} events, position {firstPosition} through {lastPosition}",
-                        batch.Length, batch.firstPosition, batch.lastPosition)
+                    workItem <- Work.Page page
 
-                    stats.UpdateBatch(batch)
+                    // Process the page and submit the batch of messages to ingester.
+                    do! processPage page
 
-                    do! submitBatch batch
-                else
-                    logger.Debug("Empty page retrieved, nothing to submit")
-                    stats.UpdateEmptyPage()
-            }
+                    // If processPage was successful, ask for new page on the next iteration
+                    workItem <- Work.TakeNext page
 
-        member this.Start (commitedPosition: Nullable<int64>) =
-            async {
-                // Start reporting stats
-                do! Async.StartChild stats.Start |> Async.Ignore
+                    if page.IsEnd then
+                        do! Async.Sleep sleepInterval
+                with
+                | exc ->
+                    logger.Error(exc, "Exception while running StreamReader loop")
+                    return! Async.Raise exc
 
-                let mutable workItem = Work.TakeInitial
-
-                let! ct = Async.CancellationToken
-                while not ct.IsCancellationRequested do
-                    try
-                        let! page =
-                            async {
-                                let! ct = Async.CancellationToken
-                                match workItem with
-                                | Work.Page page -> return page
-                                | Work.TakeInitial ->
-                                    let initialPosition =
-                                        if commitedPosition.HasValue then commitedPosition.Value + 1L else 0L
-
-                                    logger.Information("Starting reading stream from position {initialPosition}, maxBatchSize {maxBatchSize}", initialPosition, maxBatchSize)
-
-                                    return! store.ReadAllForwards(initialPosition, maxBatchSize, true, ct) |> Async.AwaitTaskCorrect
-                                | Work.TakeNext page ->
-                                    return! page.ReadNext(ct) |> Async.AwaitTaskCorrect
-                            }
-
-                        workItem <- Work.Page page
-
-                        // Process the page and submit the batch of messages to ingester.
-                        do! processPage page
-
-                        // If processPage was successful, ask for new page on the next iteration
-                        workItem <- Work.TakeNext page
-
-                        if page.IsEnd then
-                            do! Async.Sleep sleepInterval
-                    with
-                    | exc ->
-                        logger.Error(exc, "Exception while running StreamReader loop")
-                        return! Async.Raise exc
-            }
+            logger.Information ("Stopping StreamReader after {elapsed}", sw.Elapsed)
+        }
