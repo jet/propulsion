@@ -14,7 +14,6 @@
         <Compile Include="Checkpoint.fs" />
         <Compile Include="StreamReader.fs" />
         <Compile Include="SqlStreamStoreSource.fs" />
-        <Compile Include="Locked.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -28,7 +27,6 @@
 
         <PackageReference Include="System.Data.SqlClient" Version="4.8.0" />
         <PackageReference Include="Dapper" Version="2.0.30" />
-        <PackageReference Include="DistributedLock" Version="1.5.0" />
     </ItemGroup>
 
     <ItemGroup>

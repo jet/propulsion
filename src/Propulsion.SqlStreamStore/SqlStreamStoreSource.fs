@@ -5,7 +5,7 @@ open SqlStreamStore
 
 type SqlStreamStoreSource =
 
-    static member internal RunInternal
+    static member Run
             (logger : Serilog.ILogger,
              store: IStreamStore,
              checkpointer: ICheckpointer,
@@ -13,8 +13,7 @@ type SqlStreamStoreSource =
              consumerGroup: string,
              ?statsInterval: TimeSpan,
              ?readerMaxBatchSize: int,
-             ?readerSleepInterval: TimeSpan,
-             ?readerStopAfterInterval: TimeSpan) : Async<unit> =
+             ?readerSleepInterval: TimeSpan) : Async<unit> =
 
         async {
             let streamId = "$all"
@@ -37,35 +36,15 @@ type SqlStreamStoreSource =
                              consumerGroup,
                              ?maxBatchSize = readerMaxBatchSize,
                              ?sleepInterval = readerSleepInterval,
-                             ?statsInterval = statsInterval,
-                             ?stopAfterInterval = readerStopAfterInterval)
+                             ?statsInterval = statsInterval)
 
             try
                 let! position =
                     checkpointer.GetPosition { Stream = streamId; ConsumerGroup = consumerGroup }
 
                 do! reader.Start(position)
-            finally
-                ingester.Stop()
+            with
+            | exc ->
+                logger.Error(exc, "Exception while running reader loop")
+                return! Async.Raise exc
         }
-
-    /// Run SqlStreamStore.
-    static member Run
-        (logger : Serilog.ILogger,
-         store: IStreamStore,
-         checkpointer: ICheckpointer,
-         sink : Propulsion.ProjectorPipeline<_>,
-         consumerGroup: string,
-         ?statsInterval: TimeSpan,
-         ?readerMaxBatchSize: int,
-         ?readerSleepInterval: TimeSpan) : Async<unit> =
-
-         SqlStreamStoreSource.RunInternal(
-            logger,
-            store,
-            checkpointer,
-            sink,
-            consumerGroup,
-            ?statsInterval = statsInterval,
-            ?readerMaxBatchSize = readerMaxBatchSize,
-            ?readerSleepInterval = readerSleepInterval)

@@ -7,8 +7,6 @@ open SqlStreamStore
 open SqlStreamStore.Streams
 
 open Serilog
-
-open System.Diagnostics
 open Propulsion.Streams
 
 [<AutoOpen>]
@@ -126,13 +124,11 @@ type StreamReader
         consumerGroup,
         ?maxBatchSize: int,
         ?sleepInterval: TimeSpan,
-        ?statsInterval: TimeSpan,
-        ?stopAfterInterval: TimeSpan
+        ?statsInterval: TimeSpan
     ) =
 
     let maxBatchSize = defaultArg maxBatchSize 100
     let sleepInterval = defaultArg sleepInterval (TimeSpan.FromSeconds(5.))
-    let stopAfterInterval = defaultArg stopAfterInterval TimeSpan.MaxValue
 
     let stats = Stats(logger, ?statsInterval = statsInterval)
 
@@ -186,41 +182,32 @@ type StreamReader
 
             let mutable workItem = Work.TakeInitial
 
-            let sw = Stopwatch.StartNew()
-
             let! ct = Async.CancellationToken
-            while not ct.IsCancellationRequested && not (sw.Elapsed > stopAfterInterval) do
-                try
-                    let! page =
-                        async {
-                            let! ct = Async.CancellationToken
-                            match workItem with
-                            | Work.Page page -> return page
-                            | Work.TakeInitial ->
-                                let initialPosition =
-                                    if commitedPosition.HasValue then commitedPosition.Value + 1L else 0L
+            while not ct.IsCancellationRequested do
+                let! page =
+                    async {
+                        let! ct = Async.CancellationToken
+                        match workItem with
+                        | Work.Page page -> return page
+                        | Work.TakeInitial ->
+                            let initialPosition =
+                                if commitedPosition.HasValue then commitedPosition.Value + 1L else 0L
 
-                                logger.Information("Starting reading stream from position {initialPosition}, maxBatchSize {maxBatchSize}", initialPosition, maxBatchSize)
+                            logger.Information("Starting reading stream from position {initialPosition}, maxBatchSize {maxBatchSize}", initialPosition, maxBatchSize)
 
-                                return! store.ReadAllForwards(initialPosition, maxBatchSize, true, ct) |> Async.AwaitTaskCorrect
-                            | Work.TakeNext page ->
-                                return! page.ReadNext(ct) |> Async.AwaitTaskCorrect
-                        }
+                            return! store.ReadAllForwards(initialPosition, maxBatchSize, true, ct) |> Async.AwaitTaskCorrect
+                        | Work.TakeNext page ->
+                            return! page.ReadNext(ct) |> Async.AwaitTaskCorrect
+                    }
 
-                    workItem <- Work.Page page
+                workItem <- Work.Page page
 
-                    // Process the page and submit the batch of messages to ingester.
-                    do! processPage page
+                // Process the page and submit the batch of messages to ingester.
+                do! processPage page
 
-                    // If processPage was successful, ask for new page on the next iteration
-                    workItem <- Work.TakeNext page
+                // If processPage was successful, ask for new page on the next iteration
+                workItem <- Work.TakeNext page
 
-                    if page.IsEnd then
-                        do! Async.Sleep sleepInterval
-                with
-                | exc ->
-                    logger.Error(exc, "Exception while running StreamReader loop")
-                    return! Async.Raise exc
-
-            logger.Information ("Stopping StreamReader after {elapsed}", sw.Elapsed)
+                if page.IsEnd then
+                    do! Async.Sleep sleepInterval
         }
