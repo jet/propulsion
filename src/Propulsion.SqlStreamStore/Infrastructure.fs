@@ -32,22 +32,3 @@ module private AsyncHelpers =
                     elif t.IsCompleted then k ()
                     else ek(Exception "invalid Task state!"))
                 |> ignore
-
-//#if NET461
-module private Option =
-
-    let toNullable option =
-        match option with
-        | None -> System.Nullable()
-        | Some v -> System.Nullable(v)
-
-module private Seq =
-
-    let tryHead (source : seq<_>) =
-        if source = null then
-            None
-        else
-            use e = source.GetEnumerator()
-            if (e.MoveNext()) then Some e.Current
-            else None
-//#endif

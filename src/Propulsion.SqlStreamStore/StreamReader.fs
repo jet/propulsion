@@ -41,7 +41,7 @@ module private Internal =
 
             let event =
                 FsCodec.Core.TimelineEvent.Create (
-                    msg.Position,
+                    int64 msg.StreamVersion,
                     msg.Type,
                     len0ToNull data,
                     len0ToNull metadata,
@@ -51,9 +51,7 @@ module private Internal =
 
             { stream = StreamName.internalParseSafe msg.StreamId; event = event }
 
-    type Stats(logger: ILogger, ?statsInterval: TimeSpan) =
-
-        let statsInterval = defaultArg statsInterval (TimeSpan.FromSeconds(30.))
+    type Stats(logger: ILogger, statsInterval: TimeSpan) =
 
         let mutable batchFirstPosition = 0L
         let mutable batchLastPosition = 0L
@@ -116,26 +114,23 @@ module private Internal =
 
 type StreamReader
     (
-        logger : ILogger,
+        logger: ILogger,
         store: IStreamStore,
-        ledger: ICheckpointer,
+        checkpointer: ICheckpointer,
         submitBatch: SubmitBatchHandler,
         streamId,
         consumerGroup,
-        ?maxBatchSize: int,
-        ?sleepInterval: TimeSpan,
-        ?statsInterval: TimeSpan
+        maxBatchSize: int,
+        tailSleepInterval: TimeSpan,
+        statsInterval: TimeSpan
     ) =
 
-    let maxBatchSize = defaultArg maxBatchSize 100
-    let sleepInterval = defaultArg sleepInterval (TimeSpan.FromSeconds(5.))
-
-    let stats = Stats(logger, ?statsInterval = statsInterval)
+    let stats = Stats(logger, statsInterval)
 
     let commit batch =
         async {
             try
-                do! ledger.CommitPosition { Stream = streamId; ConsumerGroup = consumerGroup; Position = Nullable(batch.lastPosition) }
+                do! checkpointer.CommitPosition(streamId, consumerGroup, batch.lastPosition)
                 stats.UpdateCommitedPosition(batch.lastPosition)
                 logger.Debug("Committed position {position}", batch.lastPosition)
             with
@@ -151,13 +146,12 @@ type StreamReader
                 let events =
                     page.Messages
                     |> Seq.map StreamMessage.intoStreamEvent
-                    |> Seq.sortBy (fun x -> x.event.Index)
                     |> Array.ofSeq
 
                 let batch =
                     {
-                        firstPosition = events.[0].event.Index
-                        lastPosition = events.[events.Length - 1].event.Index
+                        firstPosition = page.Messages.[0].Position
+                        lastPosition = page.Messages.[page.Messages.Length - 1].Position
                         messages = events
                         isEnd = page.IsEnd
                     }
@@ -209,5 +203,5 @@ type StreamReader
                 workItem <- Work.TakeNext page
 
                 if page.IsEnd then
-                    do! Async.Sleep sleepInterval
+                    do! Async.Sleep tailSleepInterval
         }
