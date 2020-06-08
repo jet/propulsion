@@ -17,7 +17,7 @@ module private Internal =
         {
             firstPosition  : int64
             lastPosition   : int64
-            messages       : StreamEvent<byte []> array
+            messages       : StreamEvent<byte []> []
             isEnd          : bool
         }
         member this.Length = this.messages.Length
@@ -127,15 +127,15 @@ type StreamReader
 
     let stats = Stats(logger, statsInterval)
 
-    let commit batch =
+    let commit position =
         async {
             try
-                do! checkpointer.CommitPosition(streamId, consumerGroup, batch.lastPosition)
-                stats.UpdateCommitedPosition(batch.lastPosition)
-                logger.Debug("Committed position {position}", batch.lastPosition)
+                do! checkpointer.CommitPosition(streamId, consumerGroup, position)
+                stats.UpdateCommitedPosition(position)
+                logger.Debug("Committed position {position}", position)
             with
             | exc ->
-                logger.Error(exc, "Exception while commiting position {position}", batch.lastPosition)
+                logger.Warning(exc, "Exception while commiting position {position}", position)
                 return! Async.Raise exc
         }
 
@@ -161,7 +161,7 @@ type StreamReader
 
                 stats.UpdateBatch(batch)
 
-                let! cur, max = submitBatch (batch.lastPosition, commit batch, batch.messages)
+                let! cur, max = submitBatch (batch.lastPosition, commit batch.lastPosition, batch.messages)
 
                 stats.UpdateCurMax(cur, max)
             else
