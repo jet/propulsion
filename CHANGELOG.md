@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.SqlStreamStore`: Reader and checkpoint implementation for SqlStreamStore [#72](https://github.com/jet/propulsion/pull/72) :pray: [@scrwtp](https://github.com/scrwtp)
+
 ### Changed
 ### Removed
 ### Fixed
