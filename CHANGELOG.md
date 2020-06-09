@@ -9,12 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- `Propulsion.SqlStreamStore`: Reader and checkpoint implementation for SqlStreamStore [#72](https://github.com/jet/propulsion/pull/72) :pray: [@scrwtp](https://github.com/scrwtp)
-
 ### Changed
 ### Removed
 ### Fixed
+
+<a name="2.7.0"></a>
+## [2.7.0] - 2020-06-09
+
+### Added
+
+- `Propulsion.SqlStreamStore`: Reader and checkpoint implementation for SqlStreamStore [#72](https://github.com/jet/propulsion/pull/72) :pray: [@scrwtp](https://github.com/scrwtp)
 
 <a name="2.6.0"></a>
 ## [2.6.0] - 2020-05-20
@@ -416,7 +420,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.6.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.7.0...HEAD
+[2.7.0]: https://github.com/jet/propulsion/compare/2.6.0...2.7.0
 [2.6.0]: https://github.com/jet/propulsion/compare/2.5.2...2.6.0
 [2.5.2]: https://github.com/jet/propulsion/compare/2.5.1...2.5.2
 [2.5.1]: https://github.com/jet/propulsion/compare/2.5.0...2.5.1

@@ -402,9 +402,9 @@ type StreamNameSequenceGenerator() =
     /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
     /// - Replaces missing categories within keys with the (optional) <c>defaultCategory</c> (or <c>""</c>)<br/>
     /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member __.ConsumeResultToStreamEvent(
-        /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
-        ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+    member __.ConsumeResultToStreamEvent
+        (   /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
+            ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let defaultCategory = defaultArg defaultCategory ""
         __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
