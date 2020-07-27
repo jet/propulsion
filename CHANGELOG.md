@@ -13,6 +13,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="2.7.1"></a>
+## [2.7.0] - 2020-07-27
+
+### Fixed
+
 - Fix Projector hang when using >1 Streams Scheduler [#74](https://github.com/jet/propulsion/pull/74) :pray: [@fnipo](https://github.com/fnipo)
 
 <a name="2.7.0"></a>
@@ -422,7 +427,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.7.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.7.1...HEAD
+[2.7.1]: https://github.com/jet/propulsion/compare/2.7.0...2.7.1
 [2.7.0]: https://github.com/jet/propulsion/compare/2.6.0...2.7.0
 [2.6.0]: https://github.com/jet/propulsion/compare/2.5.2...2.6.0
 [2.5.2]: https://github.com/jet/propulsion/compare/2.5.1...2.5.2
