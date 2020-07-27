@@ -207,7 +207,7 @@ let main argv =
                 let producer, disposeProducer =
                     match broker,topic with
                     | Some b,Some t ->
-                        let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 1.)
+                        let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 100.)
                         let cfg = KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
                         let p = BatchedProducer.Create(log, cfg, t)
                         Some p, (p :> IDisposable).Dispose
