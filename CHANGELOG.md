@@ -10,14 +10,18 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.5.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.5.0) [#75](https://github.com/jet/propulsion/pull/75)
-
 ### Removed
 ### Fixed
 
+<a name="2.8.0"></a>
+## [2.8.0] - 2020-07-27
+
+### Changed
+
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.5.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.5.0) [#75](https://github.com/jet/propulsion/pull/75)
+
 <a name="2.7.1"></a>
-## [2.7.0] - 2020-07-27
+## [2.7.1] - 2020-07-27
 
 ### Fixed
 
@@ -430,7 +434,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.7.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.8.0...HEAD
+[2.8.0]: https://github.com/jet/propulsion/compare/2.7.1...2.8.1
 [2.7.1]: https://github.com/jet/propulsion/compare/2.7.0...2.7.1
 [2.7.0]: https://github.com/jet/propulsion/compare/2.6.0...2.7.0
 [2.6.0]: https://github.com/jet/propulsion/compare/2.5.2...2.6.0
