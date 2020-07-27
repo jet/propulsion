@@ -629,7 +629,7 @@ module Scheduling =
             int64 acc
 
         // ingest information to be gleaned from processing the results into `streams`
-        static let workLocalBuffer = Array.zeroCreate 1024
+        let workLocalBuffer = Array.zeroCreate 1024
         let tryDrainResults feedStats =
             let mutable worked, more = false, true
             while more do

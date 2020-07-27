@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Fix Projector hang when using >1 Streams Scheduler [#74](https://github.com/jet/propulsion/pull/74) :pray: [@fnipo](https://github.com/fnipo)
+
 <a name="2.7.0"></a>
 ## [2.7.0] - 2020-06-09
 
