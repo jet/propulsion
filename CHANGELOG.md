@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` (and `Confluent.Kafka`) v `1.5.0`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.5.0) [#75](https://github.com/jet/propulsion/pull/75)
+
 ### Removed
 ### Fixed
 

@@ -107,7 +107,7 @@ type KafkaIngestionEngine<'Info>
                         submit()
                         maybeLogStats()
                         Thread.Sleep 1
-                    counter.AwaitThreshold busyWork
+                    counter.AwaitThreshold(ct, busyWork)
                 | false, None ->
                     submit()
                     maybeLogStats()
