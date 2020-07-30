@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.4.5`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.5)
-
 ### Removed
 ### Fixed
+
+<a name="2.7.2"></a>
+## [2.7.2] - 2020-07-30
+
+### Changed
+
+- `Kafka`: Targets [`FsKafka`/`FsKafka0` v `1.4.5`](https://github.com/jet/FsKafka/blob/master/CHANGELOG.md#1.4.5)
 
 <a name="2.7.1"></a>
 ## [2.7.0] - 2020-07-27
