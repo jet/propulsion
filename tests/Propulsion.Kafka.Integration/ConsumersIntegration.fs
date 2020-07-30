@@ -71,8 +71,8 @@ module Helpers =
 
     let runProducers log bootstrapServers (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
         let runProducer (producerId : int) = async {
-            let cfg = KafkaProducerConfig.Create("panther", bootstrapServers, Acks.Leader)
-            use producer = BatchedProducer.CreateWithConfigOverrides(log, cfg, topic, maxInFlight=10000)
+            let cfg = KafkaProducerConfig.Create("panther", bootstrapServers, Acks.Leader, FsKafka.Batching.Custom (TimeSpan.FromMilliseconds 100., 10000))
+            use producer = BatchedProducer.Create(log, cfg, topic)
 
             let! results =
                 [1 .. messagesPerProducer]
