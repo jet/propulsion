@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.8.1"></a>
+## [2.8.1] - 2020-08-04
+
+### Added
 
 - `Kafka.Producer`: Expose `acks`, `linger`, `compression` options [#78](https://github.com/jet/propulsion/pull/78)
 
@@ -16,7 +24,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `Kafka`: Adjust default linger to 5ms [#78](https://github.com/jet/propulsion/pull/78)
 
-### Removed
 ### Fixed
 
 - Apply [Corrected FsKafka Poll loop](https://github.com/jet/FsKafka/pull/70) when over `maxInFlightBytes` threshold as per `FsKafka` v `1.5.0` [#77](https://github.com/jet/propulsion/pull/77)
@@ -442,8 +449,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.8.0...HEAD
-[2.8.0]: https://github.com/jet/propulsion/compare/2.7.1...2.8.1
+[Unreleased]: https://github.com/jet/propulsion/compare/2.8.1...HEAD
+[2.8.1]: https://github.com/jet/propulsion/compare/2.8.0...2.8.1
+[2.8.0]: https://github.com/jet/propulsion/compare/2.7.1...2.8.0
 [2.7.1]: https://github.com/jet/propulsion/compare/2.7.0...2.7.1
 [2.7.0]: https://github.com/jet/propulsion/compare/2.6.0...2.7.0
 [2.6.0]: https://github.com/jet/propulsion/compare/2.5.2...2.6.0
