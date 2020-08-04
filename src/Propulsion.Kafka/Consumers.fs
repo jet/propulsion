@@ -49,6 +49,24 @@ module private Impl =
         16 + len m.Key + len m.Value |> int64
     let inline mb x = float x / 1024. / 1024.
 
+#if !KAFKA0 // TODO push overload down into FsKafka
+#nowarn "0040"
+
+[<AutoOpen>]
+module internal Shims =
+
+    type FsKafka.Core.InFlightMessageCounter with
+        member __.AwaitThreshold(ct : CancellationToken, busyWork, consumer : IConsumer<_,_>) =
+            // Avoid having our assignments revoked due to MAXPOLL (exceeding max.poll.interval.ms between calls to .Consume)
+            let showConsumerWeAreStillAlive () =
+                let tps = consumer.Assignment
+                consumer.Pause(tps)
+                busyWork()
+                let _ = consumer.Consume(1)
+                consumer.Resume(tps)
+            __.AwaitThreshold(ct, showConsumerWeAreStillAlive)
+#endif
+
 /// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accumulated messages as
 ///   checkpointable Batches
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
@@ -103,11 +121,18 @@ type KafkaIngestionEngine<'Info>
         try while not ct.IsCancellationRequested do
                 match counter.IsOverLimitNow(), remainingIngestionWindow () with
                 | true, _ ->
+#if KAFKA0
                     let busyWork () =
                         submit()
                         maybeLogStats()
                         Thread.Sleep 1
                     counter.AwaitThreshold(ct, busyWork)
+#else
+                    let busyWork () =
+                        submit()
+                        maybeLogStats()
+                    counter.AwaitThreshold(ct, busyWork, consumer)
+#endif
                 | false, None ->
                     submit()
                     maybeLogStats()
