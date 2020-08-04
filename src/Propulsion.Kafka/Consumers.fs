@@ -56,12 +56,12 @@ module private Impl =
 module internal Shims =
 
     type FsKafka.Core.InFlightMessageCounter with
-        member __.AwaitThreshold(ct : CancellationToken, busyWork, consumer : IConsumer<_,_>) =
+        member __.AwaitThreshold(ct : CancellationToken, consumer : IConsumer<_,_>, ?busyWork) =
             // Avoid having our assignments revoked due to MAXPOLL (exceeding max.poll.interval.ms between calls to .Consume)
             let showConsumerWeAreStillAlive () =
                 let tps = consumer.Assignment
                 consumer.Pause(tps)
-                busyWork()
+                match busyWork with Some f -> f () | None -> ()
                 let _ = consumer.Consume(1)
                 consumer.Resume(tps)
             __.AwaitThreshold(ct, showConsumerWeAreStillAlive)
@@ -131,7 +131,7 @@ type KafkaIngestionEngine<'Info>
                     let busyWork () =
                         submit()
                         maybeLogStats()
-                    counter.AwaitThreshold(ct, busyWork, consumer)
+                    counter.AwaitThreshold(ct, consumer, busyWork)
 #endif
                 | false, None ->
                     submit()
