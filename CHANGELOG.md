@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`: Adjust default linger to 5ms [#78](https://github.com/jet/propulsion/pull/78)
+
 ### Removed
 ### Fixed
 
