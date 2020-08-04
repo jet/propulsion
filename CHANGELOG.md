@@ -19,6 +19,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Apply [Corrected FsKafka Poll loop](https://github.com/jet/FsKafka/pull/70) when over `maxInFlightBytes` threshold as per `FsKafka` v `1.5.0` [#77](https://github.com/jet/propulsion/pull/77)
+
 <a name="2.8.0"></a>
 ## [2.8.0] - 2020-07-27
 
