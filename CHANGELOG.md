@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Cosmos`: Add `CosmosPruner` [#80](https://github.com/jet/propulsion/pull/80)
+
 ### Changed
 ### Removed
 ### Fixed
