@@ -43,7 +43,13 @@ module Pruner =
                 totalDeferred <- totalDeferred + deferred
 
         /// Used to render exceptions that don't fall into the rate-limiting or timed-out categories
-        override __.HandleExn(_log, _exn) = ()
+        override __.HandleExn(log, exn) =
+            match classify exn with
+            | ExceptionKind.RateLimited | ExceptionKind.TimedOut ->
+                () // Outcomes are already included in the statistics - no logging is warranted
+            | ExceptionKind.Other ->
+                log.Warning(exn, "Unhandled")
+
         /// Gather stats pertaining to and/or filter exceptions pertaining to timeouts or rate-limiting
         override __.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
