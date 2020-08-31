@@ -1,3 +1,4 @@
+// Implements a Sink that removes every submitted event (and all preceding events)     from the relevant stream
 namespace Propulsion.Cosmos
 
 open Propulsion.Streams
@@ -111,8 +112,11 @@ module Pruner =
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
 
+/// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosPruner =
 
+    /// DANGER: this API deletes events - use with care
+    /// Starts a <c>StreamsProjectorPipeline</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
         (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
             ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition,
