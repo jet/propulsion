@@ -44,19 +44,6 @@ module Helpers =
 
     let newId () = let g = System.Guid.NewGuid() in g.ToString("N")
 
-    type Async with
-        static member ParallelThrottled degreeOfParallelism jobs = async {
-            let s = new SemaphoreSlim(degreeOfParallelism)
-            return!
-                jobs
-                |> Seq.map (fun j -> async {
-                    let! ct = Async.CancellationToken
-                    do! s.WaitAsync ct |> Async.AwaitTask
-                    try return! j
-                    finally s.Release() |> ignore })
-                |> Async.Parallel
-        }
-
     type ConsumerPipeline with
         member c.StopAfter(delay : TimeSpan) =
             Task.Delay(delay).ContinueWith(fun (_ : Task) -> c.Stop()) |> ignore
@@ -83,7 +70,7 @@ module Helpers =
 
                 |> Seq.chunkBySize 100
                 |> Seq.map producer.ProduceBatch
-                |> Async.ParallelThrottled 7
+                |> fun c -> Async.Parallel(c, 7)
 
             return Array.concat results
         }
