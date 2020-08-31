@@ -767,14 +767,14 @@ module Projector =
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
         override __.DumpStats() =
-            log.Information("Projected {mb:n0}MB {completed:n0}m {streams:n0}s {events:n0}e ({ok:n0} ok)",
+            log.Information("Projected {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok)",
                 mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
             okStreams.Clear(); resultOk := 0; okEvents <- 0; okBytes <- 0L
             if !resultExnOther <> 0 then
                 log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
                     mb exnBytes, !resultExnOther, failStreams.Count, exnEvents)
                 resultExnOther := 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-                log.Warning("Malformed cats {@badCats}", badCats.StatsDescending)
+                log.Warning("Affected cats {@badCats}", badCats.StatsDescending)
                 badCats.Clear()
 
         override __.Handle message =
@@ -794,10 +794,9 @@ module Projector =
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 incr resultExnOther
-                log.Warning(exn, "Failed processing {b:n0} bytes {e:n0}e in stream {stream}", bs, es, stream)
-                __.HandleExn exn
+                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : outcome : 'Outcome -> unit
-        abstract member HandleExn : exn : exn -> unit
+        abstract member HandleExn : log : ILogger * exn : exn -> unit
 
     type StreamsIngester =
         static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
@@ -866,7 +865,7 @@ type StreamsProjector =
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
-            Scheduling.StreamSchedulingEngine.Create<_ , StreamName * StreamSpan<byte[]>, 'Progress, 'Outcome>
+            Scheduling.StreamSchedulingEngine.Create<_, StreamName * StreamSpan<byte[]>, 'Progress, 'Outcome>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
                     fun s l -> s.Dump(l, Buffering.StreamState.eventsSize))
@@ -925,9 +924,9 @@ module Sync =
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                __.HandleExn exn
+                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : outcome : 'Outcome -> unit
-        abstract member HandleExn : exn : exn -> unit
+        abstract member HandleExn : log : ILogger * exn : exn -> unit
 
     type StreamsSync =
 

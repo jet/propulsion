@@ -95,11 +95,11 @@ type ChangeFeedProcessor =
             ?leaseRenewInterval : TimeSpan,
             /// Duration to take lease when acquired/renewed. Default 10s
             ?leaseTtl : TimeSpan,
-            /// Delay before re-polling a partitition after backlog has been drained
+            /// Delay before re-polling a partition after backlog has been drained
             ?feedPollDelay : TimeSpan,
             /// Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited
             ?maxDocuments : int,
-            /// Continuously fed per-partion lag information until parent Async completes
+            /// Continuously fed per-partition lag information until parent Async completes
             /// callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation) = async {
 
@@ -110,7 +110,7 @@ type ChangeFeedProcessor =
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
-        log.Information("Processing Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
+        log.Information("Changefeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
             s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
 
         let builder =
@@ -153,7 +153,7 @@ type ChangeFeedProcessor =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.
         // Including the processId should eliminate the possibility that a broken process manager causes k>1 scenario to happen.
-        // The only downside is that upon redeploy, lease experation / TTL would have to be observed before a consumer can pick it up.
+        // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         let processName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
         let processId = System.Diagnostics.Process.GetCurrentProcess().Id
         let hostName = System.Environment.MachineName
