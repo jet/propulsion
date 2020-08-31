@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Corrected Cosmos + Stream Sink error logging [#79](https://github.com/jet/propulsion/pull/79)
+
 <a name="2.8.1"></a>
 ## [2.8.1] - 2020-08-04
 

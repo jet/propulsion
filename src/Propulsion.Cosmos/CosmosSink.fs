@@ -62,7 +62,7 @@ module Internal =
                 let m = string e
                 m.Contains "SyntaxError: JSON.parse Error: Unexpected input at position"
                  || m.Contains "SyntaxError: JSON.parse Error: Invalid character at position"
-            match e.GetType().Name with
+            match e.GetType().FullName with
             | "Microsoft.Azure.Documents.RequestTimeoutException" -> TimedOutMessage
             | "Microsoft.Azure.Documents.RequestRateTooLargeException" -> RateLimitedMessage
             | "Microsoft.Azure.Documents.RequestEntityTooLargeException" -> TooLargeMessage
@@ -97,7 +97,7 @@ module Internal =
                     mb exnBytes, fails, failStreams.Count, exnEvents, !rateLimited, rlStreams.Count, !timedOut, toStreams.Count)
                 rateLimited := 0; timedOut := 0; resultExnOther := 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
             if badCats.Any then
-                log.Warning("Malformed cats {@badCats} Too large {tooLarge:n0}r {@tlStreams} Malformed {malformed:n0}r {@mfStreams} Other {other:n0}r {@oStreams}",
+                log.Warning("Affected cats {@badCats} Too large {tooLarge:n0}r {@tlStreams} Malformed {malformed:n0}r {@mfStreams} Other {other:n0}r {@oStreams}",
                     badCats.StatsDescending |> Seq.truncate 50, !tooLarge, tlStreams |> Seq.truncate 100, !malformed, mfStreams |> Seq.truncate 100, !resultExnOther, oStreams |> Seq.truncate 100)
                 badCats.Clear(); tooLarge := 0; malformed := 0;  resultExnOther := 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
@@ -128,13 +128,13 @@ module Internal =
                 | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
                 | ResultKind.Malformed -> bads stream mfStreams; incr malformed
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
-                __.HandleExn exn
-        abstract member HandleOk : outcome : 'Outcome -> unit
-        default __.HandleOk(_ : 'Outcome) : unit = ()
-        abstract member HandleExn : exn : exn -> unit
-        default __.HandleExn(_ : exn) : unit = ()
+                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+        abstract member HandleOk : Result -> unit
+        default __.HandleOk(_) : unit = ()
+        abstract member HandleExn : log : ILogger * exn : exn -> unit
+        default __.HandleExn(_, _) : unit = ()
 
-    type CosmosSchedulingEngine =
+    type StreamSchedulingEngine =
 
         static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
@@ -153,7 +153,7 @@ module Internal =
                     | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null
                     | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.InternalUpdate stream pos null
                     | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.InternalUpdate stream overage.index [|overage|]
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) ->  streams.InternalUpdate stream pos [|overage|]
+                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.InternalUpdate stream pos [|overage|]
                     | Choice2Of2 (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed)
@@ -173,7 +173,7 @@ type CosmosSink =
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
-        let streamScheduler = Internal.CosmosSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
+        let streamScheduler = Internal.StreamSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)

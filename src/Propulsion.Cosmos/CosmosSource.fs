@@ -39,7 +39,7 @@ type CosmosSource =
                 total := !total + lag
                 incr count
                 if lag = 0L then synced.Add partitionId else lagged.Add value
-            log.Information("Backlog {backlog:n0} / {count} Lagging {lagging} Synced {in-sync}",
+            log.Information("Changefeed Backlog {backlog:n0} / {count} Lagging {@lagging} Synced {@inSync}",
                 !total, !count, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
