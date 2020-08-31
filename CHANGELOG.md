@@ -9,11 +9,17 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.9.0-rc1"></a>
+## [2.9.0-rc1] - 2020-08-31
+
+### Added
 
 - `Cosmos`: Add `CosmosPruner` [#80](https://github.com/jet/propulsion/pull/80)
 
-### Changed
-### Removed
 ### Fixed
 
 - Corrected Cosmos + Stream Sink error logging [#79](https://github.com/jet/propulsion/pull/79)
@@ -454,7 +460,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.8.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0-rc1...HEAD
+[2.9.0-rc1]: https://github.com/jet/propulsion/compare/2.8.1...2.9.0-rc1
 [2.8.1]: https://github.com/jet/propulsion/compare/2.8.0...2.8.1
 [2.8.0]: https://github.com/jet/propulsion/compare/2.7.1...2.8.0
 [2.7.1]: https://github.com/jet/propulsion/compare/2.7.0...2.7.1
