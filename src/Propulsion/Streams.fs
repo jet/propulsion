@@ -941,7 +941,7 @@ module Sync =
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
                 stats : Stats<'Outcome>, statsInterval,
-                /// Default .5 ms
+                /// Default 2 ms
                 ?idleDelay,
                 /// Default 1 MiB
                 ?maxBytes,
@@ -981,7 +981,7 @@ module Sync =
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
-                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay)
 
             Projector.StreamsProjectorPipeline.Start(
                 log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches, ?pumpInterval=pumpInterval)
