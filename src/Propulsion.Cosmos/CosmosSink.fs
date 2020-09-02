@@ -136,7 +136,7 @@ module Internal =
 
     type StreamSchedulingEngine =
 
-        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches)
+        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -161,19 +161,26 @@ module Internal =
                 Writer.logTo writerResultLog (stream, res)
                 ss.write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 type CosmosSink =
 
+    /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
         (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams,
-            ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition)
+            /// Default 5m
+            ?statsInterval,
+            /// Default 5m
+            ?stateInterval,
+            ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            ?idleDelay)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
-        let streamScheduler = Internal.StreamSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams)
+        let streamScheduler = Internal.StreamSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
+            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)

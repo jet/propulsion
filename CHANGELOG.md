@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Consistently exposed optional `idleDelay` and `pumpInterval` arguments for all Projectors and Ingesters [#81](https://github.com/jet/propulsion/pull/81)
+
 ### Removed
 ### Fixed
 
