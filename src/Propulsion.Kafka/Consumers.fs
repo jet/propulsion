@@ -472,7 +472,7 @@ type StreamsConsumer =
             /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
             ?maximizeOffsetWriting,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             ?maxBatches) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
@@ -513,7 +513,7 @@ type BatchesConsumer =
             /// Default 5ms
             ?pumpInterval,
             ?logExternalState,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =

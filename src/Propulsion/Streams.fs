@@ -861,9 +861,9 @@ type StreamsProjector =
     static member StartEx<'Progress, 'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
-            stats, statsInterval,
+            stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
-            ?idleDelay, ?pumpInterval)
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -885,20 +885,20 @@ type StreamsProjector =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
-        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, ?idleDelay=idleDelay, ?pumpInterval=pumpInterval)
+        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<'Outcome>,
-            stats, statsInterval,
+            stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
-            ?idleDelay, ?pumpInterval)
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
-        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, ?idleDelay=idleDelay, ?pumpInterval=pumpInterval)
+        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
 
 module Sync =
 
