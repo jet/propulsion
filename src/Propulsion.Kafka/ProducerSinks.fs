@@ -22,7 +22,7 @@ type StreamsProducerSink =
             prepare : StreamName * StreamSpan<_> -> Async<(string*string) option * 'Outcome>,
             producer : Producer,
             stats : Streams.Sync.Stats<'Outcome>, statsInterval,
-            /// Default 2 ms
+            /// Default 1 ms
             ?idleDelay,
             /// Default 1 MiB
             ?maxBytes,
@@ -56,7 +56,7 @@ type StreamsProducerSink =
             prepare : StreamName * StreamSpan<_> -> Async<string*string>,
             producer : Producer,
             stats : Streams.Sync.Stats<unit>, statsInterval,
-            /// Default 2 ms
+            /// Default 1 ms
             ?idleDelay,
             /// Default 1 MiB
             ?maxBytes,
