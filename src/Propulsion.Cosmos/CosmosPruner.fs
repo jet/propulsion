@@ -110,7 +110,7 @@ module Pruner =
                 | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosPruner =
@@ -119,7 +119,10 @@ type CosmosPruner =
     /// Starts a <c>StreamsProjectorPipeline</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
         (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
-            ?statsInterval, ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition,
+            /// Default 5m
+            ?statsInterval,
+            /// Default 5m
+            ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
             /// Delay when no items available. Default 10ms.
             ?idleDelay)
         : Propulsion.ProjectorPipeline<_> =
@@ -132,4 +135,4 @@ type CosmosPruner =
         let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneBefore, dispatcher, stats, dumpStreams, idleDelay=idleDelay)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
+            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)

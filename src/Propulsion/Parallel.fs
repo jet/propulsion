@@ -192,7 +192,12 @@ type ParallelIngester<'Item> =
         Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
 
 type ParallelProjector =
-    static member Start(log : ILogger, maxReadAhead, maxDop, handle, ?statsInterval, ?maxSubmissionsPerPartition, ?logExternalStats)
+    static member Start
+            (    log : ILogger, maxReadAhead, maxDop, handle,
+                 /// Default 5m
+                 ?statsInterval,
+                 /// Default 5
+                 ?maxSubmissionsPerPartition, ?logExternalStats, ?pumpInterval)
             : ProjectorPipeline<_> =
 
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
@@ -208,6 +213,6 @@ type ParallelProjector =
             scheduler.Submit x
             0
 
-        let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
+        let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?pumpInterval=pumpInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest)
         ProjectorPipeline.Start(log, dispatcher.Pump(), scheduler.Pump, submitter.Pump(), startIngester)

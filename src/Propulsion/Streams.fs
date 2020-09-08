@@ -828,11 +828,11 @@ module Projector =
     type StreamsProjectorPipeline =
         static member Start
             (   log : Serilog.ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval,
-                ?ingesterStatsInterval, ?maxSubmissionsPerPartition) =
+                ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval) =
             let mapBatch onCompletion (x : Submission.SubmissionBatch<_, StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
-            let submitter = StreamsSubmitter.Create(log, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
+            let submitter = StreamsSubmitter.Create(log, mapBatch, submitStreamsBatch, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval=ingesterStatsInterval)
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
@@ -861,37 +861,44 @@ type StreamsProjector =
     static member StartEx<'Progress, 'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
-            stats, statsInterval)
+            stats, statsInterval, ?pumpInterval,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
             Scheduling.StreamSchedulingEngine.Create<_, StreamName * StreamSpan<byte[]>, 'Progress, 'Outcome>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
-                    fun s l -> s.Dump(l, Buffering.StreamState.eventsSize))
-        Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval)
+                    (fun s l -> s.Dump(l, Buffering.StreamState.eventsSize)),
+                    ?idleDelay=idleDelay)
+        Projector.StreamsProjectorPipeline.Start(log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, ?pumpInterval=pumpInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
-            stats, statsInterval)
+            stats, statsInterval,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            ?idleDelay, ?pumpInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
-        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval)
+        StreamsProjector.StartEx<SpanResult, 'Outcome>(log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<'Outcome>,
-            stats, statsInterval)
+            stats, statsInterval, ?pumpInterval,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
-        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval)
+        StreamsProjector.Start<'Outcome>(log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
 
 module Sync =
 
@@ -941,7 +948,7 @@ module Sync =
                 /// Default 16384
                 ?maxEvents,
                 /// Max scheduling readahead. Default 128.
-                ?maxBatches,
+                ?maxBatches, ?pumpInterval,
                 /// Max inner cycles per loop. Default 128.
                 ?maxCycles,
                 /// Hook to wire in external stats
@@ -977,4 +984,4 @@ module Sync =
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches, ?pumpInterval=pumpInterval)

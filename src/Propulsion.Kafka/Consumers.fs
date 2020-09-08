@@ -208,9 +208,11 @@ type ParallelConsumer private () =
         (   log : ILogger, config : KafkaConsumerConfig, maxDop,
             mapResult : ConsumeResult<string, string> -> 'Msg,
             handle : 'Msg -> Async<Choice<unit, exn>>,
-            ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
+            /// Default 5
+            ?maxSubmissionsPerPartition, ?pumpInterval,
+            /// Default 5m
+            ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
-        let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
         let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<_, 'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
@@ -221,14 +223,17 @@ type ParallelConsumer private () =
         let submitBatch (x : Parallel.Scheduling.Batch<_, _>) : int =
             scheduler.Submit x
             x.messages.Length
-        let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, pumpInterval)
+        let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?pumpInterval=pumpInterval)
         ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump(), scheduler.Pump, dispatcher.Pump(), statsInterval)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
-            ?maxSubmissionsPerPartition, ?pumpInterval, ?statsInterval, ?logExternalStats) =
+            /// Default 5
+            ?maxSubmissionsPerPartition, ?pumpInterval,
+            /// Default 5m
+            ?statsInterval, ?logExternalStats) =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
@@ -466,7 +471,10 @@ type StreamsConsumer =
             stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
             /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
             ?maximizeOffsetWriting,
-            ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay, ?maxBatches) =
+            ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            ?idleDelay,
+            ?maxBatches) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
             log, config, id, consumeResultToStreamEvents, handle, maxDop,
             stats, statsInterval,
@@ -501,7 +509,12 @@ type BatchesConsumer =
             stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>, statsInterval,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
-            ?schedulerIngestionBatchCount, ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState, ?idleDelay) =
+            ?schedulerIngestionBatchCount, ?maxSubmissionsPerPartition,
+            /// Default 5ms
+            ?pumpInterval,
+            ?logExternalState,
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            ?idleDelay) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalState |> Option.iter (fun f -> f log)
