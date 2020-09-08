@@ -16,6 +16,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- `Kafka.StreamsProducerSink`: Changed bad default `idleDelay` from 0ms to 1ms [#82](https://github.com/jet/propulsion/pull/82)
+
 <a name="2.9.0-rc1"></a>
 ## [2.9.0-rc1] - 2020-08-31
 

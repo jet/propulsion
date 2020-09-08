@@ -609,11 +609,11 @@ module Scheduling =
             ?maxBatches,
             /// Tune the max number of check/dispatch cycles. Default 16.
             ?maxCycles,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
-        let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 2.)
+        let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 1.)
         let sleepIntervalMs = int idleDelay.TotalMilliseconds
         let maxCycles, maxBatches, slipstreamingEnabled = defaultArg maxCycles 16, defaultArg maxBatches 5, defaultArg enableSlipstreaming false
         let work = ConcurrentStack<InternalMessage<Choice<'P, 'E>>>() // dont need them ordered so Queue is unwarranted; usage is cross-thread so Bag is not better
@@ -862,7 +862,7 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
             stats, statsInterval, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
@@ -879,7 +879,7 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
             stats, statsInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay, ?pumpInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
@@ -892,7 +892,7 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<'Outcome>,
             stats, statsInterval, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 2ms.
+            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
@@ -941,7 +941,7 @@ module Sync =
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
                 stats : Stats<'Outcome>, statsInterval,
-                /// Default .5 ms
+                /// Default 1 ms
                 ?idleDelay,
                 /// Default 1 MiB
                 ?maxBytes,
@@ -981,7 +981,7 @@ module Sync =
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
-                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, idleDelay=defaultArg idleDelay (TimeSpan.FromMilliseconds 0.5))
+                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay)
 
             Projector.StreamsProjectorPipeline.Start(
                 log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches, ?pumpInterval=pumpInterval)
