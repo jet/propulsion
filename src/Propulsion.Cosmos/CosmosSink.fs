@@ -33,7 +33,7 @@ module Internal =
             | stream, (Choice1Of2 (_, Duplicate updatedPos)) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
             | stream, (Choice1Of2 (_, PartialDuplicate overage)) ->
-                log.Information("Requeing  {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
+                log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
             | stream, (Choice1Of2 (_, PrefixMissing (batch, pos))) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch.index-pos, batch.events.Length, batch.index)
             | stream, (Choice2Of2 (_, exn)) ->

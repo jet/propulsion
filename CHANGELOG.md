@@ -10,10 +10,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.9.0-rc2"></a>
+## [2.9.0-rc2] - 2020-09-08
+
+### Changed
 
 - Consistently exposed optional `idleDelay` and `pumpInterval` arguments for all Projectors and Ingesters [#81](https://github.com/jet/propulsion/pull/81)
 
-### Removed
 ### Fixed
 
 - `Kafka.StreamsProducerSink`: Changed bad default `idleDelay` from 0ms to 1ms [#82](https://github.com/jet/propulsion/pull/82)
@@ -465,7 +471,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0-rc1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0-rc2...HEAD
+[2.9.0-rc2]: https://github.com/jet/propulsion/compare/2.9.0-rc1...2.9.0-rc2
 [2.9.0-rc1]: https://github.com/jet/propulsion/compare/2.8.1...2.9.0-rc1
 [2.8.1]: https://github.com/jet/propulsion/compare/2.8.0...2.8.1
 [2.8.0]: https://github.com/jet/propulsion/compare/2.7.1...2.8.0
