@@ -10,7 +10,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- Exposed optional `maxEvents` and `maxBytes` arguments for `CosmosSink` [#83](https://github.com/jet/propulsion/pull/83)
+- Exposed optional `maxEvents` and `maxBytes` arguments for `CosmosSink` [#84](https://github.com/jet/propulsion/pull/84)
 
 ### Changed
 ### Removed
