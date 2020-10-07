@@ -379,14 +379,15 @@ module Core =
         let context = { topic = result.Topic; partition = Binding.partitionValue result.Partition; offset = Binding.offsetValue result.Offset }
         (data, box context)
 
-/// StreamsConsumer buffers and deduplicates messages from a contiguous stream with each message bearing an `index`.
+/// StreamsProjector buffers and deduplicates messages from a contiguous stream with each event bearing a monotonically incrementing `index`.
 /// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
+/// Does not need to be thread-safe as the <c>Propulsion.Submission.SubmissionEngine</c> does not unpack input messages/documents in parallel.
 type StreamNameSequenceGenerator() =
 
-    // we synthesize a monotonically increasing index to render the deduplication facility inert
+    // Last-used index per streamName
     let indices = System.Collections.Generic.Dictionary()
 
-    /// Generates an index for the specified StreamName
+    /// Generates an index for the specified StreamName. Sequence starts at 0, incrementing per call.
     member __.GenerateIndex(streamName : StreamName) =
         let streamName = FsCodec.StreamName.toString streamName
         match indices.TryGetValue streamName with
