@@ -78,9 +78,9 @@ module Pruner =
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneBefore (stream, span: Propulsion.Streams.StreamSpan<_>) = async {
+    let handle pruneUntil (stream, span: Propulsion.Streams.StreamSpan<_>) = async {
         // The newest event eligible for deletion defines the cutoff point
-        let beforeIndex = span.events.[span.events.Length - 1].Index + 1L
+        let beforeIndex = span.events.[span.events.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
         // 1. All requested events already deleted, no writes took place
         //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideWritePosition)
@@ -89,7 +89,7 @@ module Pruner =
         // 3. Some deletions deferred
         //    (requested trim point was in the middle of a batch; touching it would put the batch out of order)
         //    in this case, we mark the event as handled and await a successor event triggering another attempt
-        let! deleted, deferred, trimmedPos = pruneBefore (FsCodec.StreamName.toString stream) beforeIndex
+        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream) beforeIndex
         // Categorize the outcome so the stats handler can summarize the work being carried out
         let res = if deleted = 0 && deferred = 0 then Nop span.events.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
@@ -99,11 +99,11 @@ module Pruner =
 
     type StreamSchedulingEngine =
 
-        static member Create(pruneBefore, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay)
+        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
                 let stats = Buffering.StreamSpan.stats item.span
-                try let! index', res = handle pruneBefore (item.stream, item.span)
+                try let! index', res = handle pruneUntil (item.stream, item.span)
                     return Choice1Of2 (index', stats, res)
                 with e -> return Choice2Of2 (stats, e) }
             let interpretProgress _streams _stream : Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn> -> int64 option * Choice<'Metrics * 'Outcome, 'Metrics * exn> = function
@@ -115,7 +115,7 @@ module Pruner =
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosPruner =
 
-    /// DANGER: this API deletes events - use with care
+    /// DANGER: this API DELETES events - use with care
     /// Starts a <c>StreamsProjectorPipeline</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
         (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
@@ -131,8 +131,8 @@ type CosmosPruner =
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
-        let pruneBefore stream index = Equinox.Cosmos.Core.Events.prune context stream index
-        let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneBefore, dispatcher, stats, dumpStreams, idleDelay=idleDelay)
+        let pruneUntil stream index = Equinox.Cosmos.Core.Events.pruneUntil context stream index
+        let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
