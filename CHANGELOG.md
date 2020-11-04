@@ -13,6 +13,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - Exposed optional `maxEvents` and `maxBytes` arguments for `CosmosSink` [#84](https://github.com/jet/propulsion/pull/84)
 
 ### Changed
+
+- `Cosmos`: Tweak logging in `CosmosSink` [#85](https://github.com/jet/propulsion/pull/85)
+
 ### Removed
 ### Fixed
 
