@@ -45,12 +45,13 @@ type ChangeFeedObserver =
             match assign with
             | Some f -> return! f log rangeId
             | None -> log.Information("Range {partitionKeyRangeId} Assigned", ctx.PartitionKeyRangeId) }
-        let _process (ctx, docs) =async {
+        let _process (ctx, docs) = async {
             try do! ingest log ctx docs
             with e ->
                 log.Error(e, "Range {partitionKeyRangeId} Handler Threw", ctx.PartitionKeyRangeId)
                 do! Async.Raise e }
         let _close (ctx : IChangeFeedObserverContext, reason) = async {
+            log.Warning "Closing" // Added to enable diagnosing underlying CFP issues; will be removed eventually
             match revoke with
             | Some f -> return! f log
             | None -> log.Information("Range {partitionKeyRangeId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
@@ -60,6 +61,7 @@ type ChangeFeedObserver =
             member __.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
           interface IDisposable with
             member __.Dispose() =
+                log.Warning "Disposing" // Added to enable diagnosing correct Disposal; will be removed eventually
                 match dispose with
                 | Some f -> f ()
                 | None -> () }
