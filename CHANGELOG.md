@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.9.0"></a>
+## [2.9.0] - 2020-11-04
+
+### Added
 
 - Exposed optional `maxEvents` and `maxBytes` arguments for `CosmosSink` [#84](https://github.com/jet/propulsion/pull/84)
 
 ### Changed
 
 - `Cosmos`: Tweak logging in `CosmosSink` [#85](https://github.com/jet/propulsion/pull/85)
-
-### Removed
-### Fixed
 
 <a name="2.9.0-rc2"></a>
 ## [2.9.0-rc2] - 2020-09-08
@@ -477,7 +482,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0-rc2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0...HEAD
+[2.9.0]: https://github.com/jet/propulsion/compare/2.9.0-rc2...2.9.0
 [2.9.0-rc2]: https://github.com/jet/propulsion/compare/2.9.0-rc1...2.9.0-rc2
 [2.9.0-rc1]: https://github.com/jet/propulsion/compare/2.8.1...2.9.0-rc1
 [2.8.1]: https://github.com/jet/propulsion/compare/2.8.0...2.8.1
