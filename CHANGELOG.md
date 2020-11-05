@@ -51,6 +51,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
+- `Propulsion.CosmosStore`
 - `Propulsion.Cosmos`: `prometheus-net` integration [#91](https://github.com/jet/propulsion/pull/91)
 
 ### Changed

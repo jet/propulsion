@@ -45,6 +45,10 @@ Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "Propulsion.Tool", "tools\Pr
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.SqlStreamStore", "src\Propulsion.SqlStreamStore\Propulsion.SqlStreamStore.fsproj", "{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Equinox.CosmosStore", "..\equinox\src\Equinox.CosmosStore\Equinox.CosmosStore.fsproj", "{EC3874DA-98D2-40ED-9B60-43BC31B33E5F}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.CosmosStore", "src\Propulsion.CosmosStore\Propulsion.CosmosStore.fsproj", "{356294D8-DF59-4903-9A9C-03F0F459B2A3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +95,14 @@ Global
 		{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EC3874DA-98D2-40ED-9B60-43BC31B33E5F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC3874DA-98D2-40ED-9B60-43BC31B33E5F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC3874DA-98D2-40ED-9B60-43BC31B33E5F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC3874DA-98D2-40ED-9B60-43BC31B33E5F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{356294D8-DF59-4903-9A9C-03F0F459B2A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{356294D8-DF59-4903-9A9C-03F0F459B2A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{356294D8-DF59-4903-9A9C-03F0F459B2A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{356294D8-DF59-4903-9A9C-03F0F459B2A3}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -106,6 +118,8 @@ Global
 		{74C2044E-4F3F-41FC-AA42-B1A0D71D0AD0} = {302B09C4-7F38-4CF7-93B9-1B7A6035386E}
 		{0DBF5289-D429-406E-A195-1AB7785F51C1} = {8DF0ED1F-DE93-45A6-B2E3-A077731EA1A3}
 		{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{EC3874DA-98D2-40ED-9B60-43BC31B33E5F} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{356294D8-DF59-4903-9A9C-03F0F459B2A3} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}

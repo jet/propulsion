@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <WarningLevel>5</WarningLevel>
+    <IsTestProject>false</IsTestProject>
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="CosmosStoreSink.fs" />
+    <Compile Include="CosmosStorePruner.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
+
+    <PackageReference Include="FSharp.Core" Version="4.3.4" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.9.0" />
+
+<!--    <PackageReference Include="Equinox.CosmosStore" Version="3.0.0" />-->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    <ProjectReference Include="..\..\..\equinox\src\Equinox.CosmosStore\Equinox.CosmosStore.fsproj" />
+  </ItemGroup>
+
+</Project>
