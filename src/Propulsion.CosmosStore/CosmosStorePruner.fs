@@ -79,7 +79,7 @@ module Pruner =
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
     let handle pruneUntil (stream, span: Propulsion.Streams.StreamSpan<_>) = async {
         // The newest event eligible for deletion defines the cutoff point
-        let beforeIndex = span.events.[span.events.Length - 1].Index
+        let untilIndex = span.events.[span.events.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
         // 1. All requested events already deleted, no writes took place
         //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideWritePosition)
@@ -88,11 +88,11 @@ module Pruner =
         // 3. Some deletions deferred
         //    (requested trim point was in the middle of a batch; touching it would put the batch out of order)
         //    in this case, we mark the event as handled and await a successor event triggering another attempt
-        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream) beforeIndex
+        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream) untilIndex
         // Categorize the outcome so the stats handler can summarize the work being carried out
         let res = if deleted = 0 && deferred = 0 then Nop span.events.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
-        let writePos = max trimmedPos beforeIndex
+        let writePos = max trimmedPos (untilIndex + 1L)
         return writePos, res
     }
 
