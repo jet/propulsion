@@ -13,7 +13,12 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
-- `Cosmos.CosmosPruner`: Fixed off-by-one error that renders pruning inert [#86](https://github.com/jet/propulsion/pull/86)
+<a name="2.9.1"></a>
+## [2.9.1] - 2020-11-09
+
+### Fixed
+
+- `Cosmos.CosmosPruner`: Fixed off-by-one error that renders pruning inert [#88](https://github.com/jet/propulsion/pull/88)
 
 <a name="2.9.0"></a>
 ## [2.9.0] - 2020-11-04
@@ -484,7 +489,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.9.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.9.1...HEAD
+[2.9.1]: https://github.com/jet/propulsion/compare/2.9.0...2.9.1
 [2.9.0]: https://github.com/jet/propulsion/compare/2.9.0-rc2...2.9.0
 [2.9.0-rc2]: https://github.com/jet/propulsion/compare/2.9.0-rc1...2.9.0-rc2
 [2.9.0-rc1]: https://github.com/jet/propulsion/compare/2.8.1...2.9.0-rc1
