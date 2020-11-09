@@ -13,6 +13,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- `Cosmos.CosmosPruner`: Fixed off-by-one error that renders pruning inert [#86](https://github.com/jet/propulsion/pull/86)
+
 <a name="2.9.0"></a>
 ## [2.9.0] - 2020-11-04
 
