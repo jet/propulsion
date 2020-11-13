@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Kafka`: Replace defaulting of `Producer`'s `acks` defaulting to `Leader` with mandatory argument [#89](https://github.com/jet/propulsion/pull/89)
+
 ### Removed
 ### Fixed
 

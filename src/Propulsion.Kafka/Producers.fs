@@ -8,24 +8,21 @@ open System
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer
-    (   log : ILogger, clientId, broker, topic, ?customize,
-        /// Default: Leader
-        ?acks,
+    (   log : ILogger, clientId, bootstrapServers, acks, topic, ?customize,
         /// Linger period (larger values improve compression value and throughput, lower values improve best case latency). Default 5ms (librdkafka < 1.5 default: 0.5ms, librdkafka >= 1.5 default: 5ms)
         ?linger,
         /// Default: LZ4
         ?compression,
         // Deprecated; there's a good chance this will be removed
         ?degreeOfParallelism) =
-    let acks = defaultArg acks Acks.Leader
     let batching =
         let linger = defaultArg linger (TimeSpan.FromMilliseconds 5.)
         FsKafka.Batching.Linger linger
     let compression = defaultArg compression CompressionType.Lz4
-    let cfg = KafkaProducerConfig.Create(clientId, broker, acks, batching, compression, ?customize=customize)
+    let cfg = KafkaProducerConfig.Create(clientId, bootstrapServers, acks, batching, compression, ?customize=customize)
     // NB having multiple producers has yet to be proved necessary at this point
     // - the theory is that because each producer gets a dedicated rdkafka context, compression thread and set of sockets, better throughput can be attained
-    // - we should consider removing the degreeOfParallism argument and this associated logic unless we actually get to the point of leaning on this
+    // - we should consider removing the degreeOfParallelism argument and this associated logic unless we actually get to the point of leaning on this
     let producers = Array.init (defaultArg degreeOfParallelism 1) (fun _i -> KafkaProducer.Create(log, cfg, topic))
     let produceStats = Streams.Internal.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
     let mutable robin = 0
