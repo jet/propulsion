@@ -196,13 +196,13 @@ let main argv =
             pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("Requesting ChangeFeed Maximum Document Count {changeFeedMaxItemCount}", bs))
             pargs.TryGetResult LagFreqM |> Option.iter (fun s -> log.Information("Dumping lag stats at {lagS:n0}m intervals", s))
             let auxContainerName = containerName + pargs.GetResult(ProjectArguments.Suffix,"-aux")
-            let leaseId = pargs.GetResult ConsumerGroupName
-            log.Information("Processing using LeaseId {leaseId} in Aux Container {auxContainerName}", leaseId, auxContainerName)
+            let group = pargs.GetResult ConsumerGroupName
+            log.Information("Processing using Group Name {group} in Aux Container {auxContainerName}", group, auxContainerName)
             if pargs.Contains FromTail then log.Warning("(If new projection prefix) Skipping projection of all existing events.")
             let source = { database = dbName; container = containerName }
             let aux = { database = dbName; container = auxContainerName }
 
-            let buildRangeProjector () =
+            let buildRangeProjector _context () =
                 let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
                 let producer, disposeProducer =
                     match broker,topic with
@@ -245,11 +245,10 @@ let main argv =
                 let maybeLogLag = pargs.TryGetResult LagFreqM |> Option.map (TimeSpan.FromMinutes >> logLag)
                 let! _cfp =
                     ChangeFeedProcessor.Start
-                      ( log, connector.CreateClient(appName,discovery), source, aux, buildRangeProjector,
-                        leasePrefix = leaseId,
-                        startFromTail=pargs.Contains FromTail,
-                        ?maxDocuments=pargs.TryGetResult MaxDocuments,
-                        ?reportLagAndAwaitNextEstimation=maybeLogLag)
+                      ( log, connector.CreateClient(appName, discovery), source, aux, group, buildRangeProjector,
+                        startFromTail = pargs.Contains FromTail,
+                        ?maxDocuments = pargs.TryGetResult MaxDocuments,
+                        ?reportLagAndAwaitNextEstimation = maybeLogLag)
                 return! Async.AwaitKeyboardInterrupt() }
             Async.RunSynchronously run
         | _ -> failwith "Please specify a valid subcommand :- init or project"

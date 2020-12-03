@@ -16,6 +16,10 @@ module IChangeFeedObserverContextExtensions =
         member __.Checkpoint() = async {
             return! __.CheckpointAsync() |> Async.AwaitTaskCorrect }
 
+type ContainerId = { database : string; container : string }
+
+type ChangeFeedObserverContext = { source : ContainerId; leasePrefix : string }
+
 /// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
 type ChangeFeedObserver =
     static member Create
@@ -70,8 +74,6 @@ type ChangeFeedObserverFactory =
     static member FromFunction (f : unit -> #IChangeFeedObserver) =
         { new IChangeFeedObserverFactory with member __.CreateObserver () = f () :> _ }
 
-type ContainerId = { database : string; container : string }
-
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =
     static member Start
@@ -81,12 +83,12 @@ type ChangeFeedProcessor =
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
             aux : ContainerId,
-            createObserver : unit -> IChangeFeedObserver,
+            /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
+            leasePrefix : string,
+            createObserver : ChangeFeedObserverContext -> unit -> IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `client`
             ?auxClient : DocumentClient,
-            /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
-            ?leasePrefix : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
             /// Specify `true` to request starting of projection from the present write position.
             /// Default: false (projecting all events from start beforehand)
@@ -112,7 +114,7 @@ type ChangeFeedProcessor =
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
-        log.Information("Changefeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
+        log.Information("ChangeFeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
             s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
 
         let builder =
@@ -120,14 +122,14 @@ type ChangeFeedProcessor =
                 ChangeFeedProcessorOptions(
                     StartFromBeginning=not (defaultArg startFromTail false),
                     LeaseAcquireInterval=leaseAcquireInterval, LeaseExpirationInterval=leaseTtl, LeaseRenewInterval=leaseRenewInterval,
-                    FeedPollDelay=feedPollDelay)
+                    FeedPollDelay=feedPollDelay,
+                    LeasePrefix=leasePrefix + ":")
             // As of CFP 2.2.5, the default behavior does not afford any useful characteristics when the processing is erroring:-
             // a) progress gets written regardless of whether the handler completes with an Exception or not
             // b) no retries happen while the processing is online
             // ... as a result the checkpointing logic is turned off.
             // NB for lag reporting to work correctly, it is of course still important that the writing take place, and that it be written via the CFP lib
             feedProcessorOptions.CheckpointFrequency.ExplicitCheckpoint <- true
-            leasePrefix |> Option.iter (fun lp -> feedProcessorOptions.LeasePrefix <- lp + ":")
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
             maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
             let mkD cid (dc : DocumentClient) =
@@ -148,7 +150,8 @@ type ChangeFeedProcessor =
                 do! lagMonitorCallback <| List.ofSeq (seq { for r in remainingWork -> int (r.PartitionKeyRangeId.Trim[|'"'|]),r.RemainingWork } |> Seq.sortBy fst)
                 return! emitLagMetrics () }
             let! _ = Async.StartChild(emitLagMetrics ()) in ()
-        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction createObserver).BuildAsync() |> Async.AwaitTaskCorrect
+        let context : ChangeFeedObserverContext = { source = source; leasePrefix = leasePrefix }
+        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
         do! processor.StartAsync() |> Async.AwaitTaskCorrect
         return processor }
     static member private mkLeaseOwnerIdForProcess() =
