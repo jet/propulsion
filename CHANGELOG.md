@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0-rc1"></a>
+## [2.10.0-rc1] - 2020-12-03
+
+### Added
 
 - `Propulsion.Cosmos`: `prometheus-net` integration [#91](https://github.com/jet/propulsion/pull/91)
 
 ### Changed
 
 - `Kafka`: Replace defaulting of `Producer`'s `acks` defaulting to `Leader` with mandatory argument [#89](https://github.com/jet/propulsion/pull/89)
-
-### Removed
-### Fixed
 
 <a name="2.9.1"></a>
 ## [2.9.1] - 2020-11-09
@@ -495,7 +500,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.9.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc1...HEAD
+[2.10.0-rc1]: https://github.com/jet/propulsion/compare/2.9.1...2.10.0-rc1
 [2.9.1]: https://github.com/jet/propulsion/compare/2.9.0...2.9.1
 [2.9.0]: https://github.com/jet/propulsion/compare/2.9.0-rc2...2.9.0
 [2.9.0-rc2]: https://github.com/jet/propulsion/compare/2.9.0-rc1...2.9.0-rc2
