@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Add `<RollForward>Major</RollForward>` for `Propulsion.Tool` [#92](https://github.com/jet/propulsion/pull/92)
+
 ### Removed
 ### Fixed
 

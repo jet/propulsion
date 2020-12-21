@@ -11,6 +11,9 @@
 
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>propulsion</ToolCommandName>
+    <!-- Allow to run on SDK >= 5-->
+    <RollForward>Major</RollForward>
+
   </PropertyGroup>
 
   <ItemGroup>
