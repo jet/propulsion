@@ -6,7 +6,7 @@
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
     <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor eventstore kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
-    <Copyright>Copyright © 2018-20</Copyright>
+    <Copyright>Copyright © 2018-21</Copyright>
 
     <ThisDirAbsolute>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</ThisDirAbsolute>
 
