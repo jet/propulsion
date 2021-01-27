@@ -28,9 +28,6 @@
 
     <PackageReference Include="Equinox.Cosmos" Version="2.3.0" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.2.8" />
-    
-<!--    NB TEMP; needs to be shipped out-->
-    <PackageReference Include="prometheus-net.AspNetCore" Version="3.6.0" />
   </ItemGroup>
 
   <ItemGroup>
