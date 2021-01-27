@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0-rc2"></a>
+## [2.10.0-rc2] - 2021-01-27
+
+### Added
 
 - `Propulsion.Prometheus`: Add Buffer, Cpu and Handler latency metrics to `Propulsion.Streams` Scheduler [#93](https://github.com/jet/propulsion/pull/93) 
 
@@ -16,7 +24,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Add `<RollForward>Major</RollForward>` for `Propulsion.Tool` [#92](https://github.com/jet/propulsion/pull/92)
 
-### Removed
 ### Fixed
 
 - Replaced numeric field names with strings in latency percentiles message [#93](https://github.com/jet/propulsion/pull/93)
@@ -508,7 +515,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc2...HEAD
+[2.10.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.10.0-rc2
 [2.10.0-rc1]: https://github.com/jet/propulsion/compare/2.9.1...2.10.0-rc1
 [2.9.1]: https://github.com/jet/propulsion/compare/2.9.0...2.9.1
 [2.9.0]: https://github.com/jet/propulsion/compare/2.9.0-rc2...2.9.0
