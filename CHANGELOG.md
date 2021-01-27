@@ -9,9 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.Prometheus`: Add Buffer, Cpu and Handler metrics to `Propulsion.Streams` Scheduler 
+
 ### Changed
 ### Removed
 ### Fixed
+
+- Replaced numeric field names with strings in latency percentiles message
 
 <a name="2.10.0-rc1"></a>
 ## [2.10.0-rc1] - 2020-12-03

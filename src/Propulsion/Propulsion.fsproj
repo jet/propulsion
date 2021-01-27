@@ -17,6 +17,7 @@
     <Compile Include="Projector.fs" />
     <Compile Include="Parallel.fs" />
     <Compile Include="Streams.fs" />
+    <Compile Include="PropulsionPrometheus.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,6 +29,8 @@
 
     <PackageReference Include="FsCodec" Version="2.0.0" />
     <PackageReference Include="MathNet.Numerics" Version="4.7.0" />
+    <!--    NB TEMP; needs to be shipped out-->
+    <PackageReference Include="prometheus-net" Version="3.6.0" />
     <PackageReference Include="Serilog" Version="2.7.1" />
   </ItemGroup>
 

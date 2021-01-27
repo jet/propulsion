@@ -9,6 +9,50 @@ open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
 
+module Log =
+
+    type BufferMetric = { cats : int; streams : int; events : int; bytes : int64 }
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type Metric =
+        /// Summary of data held in an Ingester buffer, not yet submitted to the Scheduler
+        | BufferReport of BufferMetric
+        /// Buffer Report, classified based on the current State from the perspective of the scheduling algorithms
+        | SchedulerStateReport of
+            /// All ingested data has been processed
+            synced : int *
+            /// Work is currently been carried for streams in this state
+            busy : BufferMetric *
+            /// Buffered data is ready to be processed, but not yet scheduled
+            ready : BufferMetric *
+            /// Some buffered data is available, but data from start of stream has not yet been loaded (only relevant for striped readers)
+            buffering : BufferMetric *
+            /// Buffered data is held, but Sink has reported it as unprocessable (i.e., categorized as poison messages)
+            malformed : BufferMetric
+        /// Time spent on the various aspects of the scheduler loop; used to analyze performance issue
+        | SchedulerCpu of
+            merge : TimeSpan * // mt: Time spent merging input events and streams prior to ingestion
+            ingest : TimeSpan * // it: Time spent ingesting streams from the ingester into the Scheduler's buffers
+            dispatch : TimeSpan * // ft: Time spent preparing requests (filling) for the Dispatcher
+            results : TimeSpan * // dt: Time spent handling results (draining) from the Dispatcher's response queue
+            stats : TimeSpan // st: Time spent emitting statistics per period (default period is 1m)
+        /// Scheduler attempt latency reports
+        | AttemptLatencies of kind : string * latenciesS : float[]
+
+    /// Attach a property to the captured event record to hold the metric information
+    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
+    let [<Literal>] PropertyTag = "propulsionEvent"
+    let internal metric (value : Metric) (log : ILogger) =
+        let enrich (e : Serilog.Events.LogEvent) =
+            e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
+        log.ForContext({ new Serilog.Core.ILogEventEnricher with member __.Enrich(evt,_) = enrich evt })
+    let internal (|SerilogScalar|_|) : Serilog.Events.LogEventPropertyValue -> obj option = function
+        | (:? Serilog.Events.ScalarValue as x) -> Some x.Value
+        | _ -> None
+    let (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric option =
+        match logEvent.Properties.TryGetValue PropertyTag with
+        | true, SerilogScalar (:? Metric as e) -> Some e
+        | _ -> None
+
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]
 type StreamEvent<'Format> = { stream : FsCodec.StreamName; event : FsCodec.ITimelineEvent<'Format> }
@@ -29,7 +73,8 @@ module Internal =
             | true, catCount -> cats.[cat] <- catCount + weight
             | false, _ -> cats.[cat] <- weight
 
-        member __.Any = cats.Count <> 0
+        member __.Count = cats.Count
+        member __.Any = (not << Seq.isEmpty) cats
         member __.Clear() = cats.Clear()
         member __.StatsDescending = cats |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
 
@@ -43,24 +88,25 @@ module Internal =
             stddev : TimeSpan option }
 
     let private dumpStats (kind : string) (xs : TimeSpan seq) (log : ILogger) =
-        let sortedLatencies = xs |> Seq.map (fun r -> r.TotalMilliseconds) |> Seq.sort |> Seq.toArray
+        let sortedLatencies = xs |> Seq.map (fun r -> r.TotalSeconds) |> Seq.sort |> Seq.toArray
 
-        let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromMilliseconds
+        let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
         let l = {
-            avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromMilliseconds
+            avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromSeconds
             stddev =
                 let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
                 // stdev of singletons is NaN
-                if Double.IsNaN stdDev then None else TimeSpan.FromMilliseconds stdDev |> Some
+                if Double.IsNaN stdDev then None else TimeSpan.FromSeconds stdDev |> Some
 
-            min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromMilliseconds
-            max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromMilliseconds
+            min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromSeconds
+            max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromSeconds
             p50 = pc 50
             p95 = pc 95
             p99 = pc 99 }
         let inline sec (t : TimeSpan) = t.TotalSeconds
         let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
-        log.Information(" {kind} {count} : max={1:n3}s p99={2:n3}s p95={3:n3}s p50={4:n3}s min={5:n3}s avg={6:n3}s stddev={7:n3}s",
+        let m = Log.Metric.AttemptLatencies (kind, sortedLatencies)
+        (log |> Log.metric m).Information(" {kind} {count} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
             kind, sortedLatencies.Length, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
 
     /// Operations on an instance are safe cross-thread
@@ -152,8 +198,8 @@ module Progress =
                     if streams.Add s then
                         tmp.Add((s, (batch, -getStreamWeight s)))
             let c = Comparer<_>.Default
-            tmp.Sort(fun (_, _a) ((_, _b)) -> c.Compare(_a, _b))
-            tmp |> Seq.map (fun ((s, _)) -> s)
+            tmp.Sort(fun (_, _a) (_, _b) -> c.Compare(_a, _b))
+            tmp |> Seq.map (fun (s, _) -> s)
 
 module Buffering =
 
@@ -265,15 +311,17 @@ module Buffering =
                 merge x.Key x.Value
 
         member __.Dump(log : ILogger, estimateSize, categorize) =
-            let mutable waiting, waitingB = 0, 0L
+            let mutable waiting, waitingE, waitingB = 0, 0, 0L
             let waitingCats, waitingStreams = CatStats(), CatStats()
             for KeyValue (stream, state) in states do
                 let sz = estimateSize state
                 waitingCats.Ingest(categorize stream)
-                waitingStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.write 0L) state.queue.[0].events.Length, (sz + 512L) / 1024L)
+                if sz <> 0L then waitingStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.write 0L) state.queue.[0].events.Length, (sz + 512L) / 1024L)
                 waiting <- waiting + 1
+                waitingE <- waitingE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 waitingB <- waitingB + sz
-            if waiting <> 0 then log.Information(" Streams Waiting {busy:n0}/{busyMb:n1}MB ", waiting, mb waitingB)
+            let m = Log.Metric.BufferReport { cats = waitingCats.Count; streams = waiting; events = waitingE; bytes = waitingB }
+            (log |> Log.metric m).Information(" Streams Waiting {busy:n0}/{busyMb:n1}MB ", waiting, mb waitingB)
             if waitingCats.Any then log.Information(" Waiting Categories, events {@readyCats}", Seq.truncate 5 waitingCats.StatsDescending)
             if waitingCats.Any then log.Information(" Waiting Streams, KB {@readyStreams}", Seq.truncate 5 waitingStreams.StatsDescending)
 
@@ -349,8 +397,10 @@ module Scheduling =
             pending trySlipstreamed byQueuedPriority
 
         member __.Dump(log : ILogger, estimateSize) =
-            let mutable busyCount, busyB, ready, readyB, unprefixed, unprefixedB, malformed, malformedB, synced = 0, 0L, 0, 0L, 0, 0L, 0, 0L, 0
-            let busyCats, readyCats, readyStreams, unprefixedStreams, malformedStreams = CatStats(), CatStats(), CatStats(), CatStats(), CatStats()
+            let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
+            let mutable (unprefixed, unprefixedE, unprefixedB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
+            let busyCats, readyCats, readyStreams = CatStats(), CatStats(), CatStats()
+            let unprefixedCats, unprefixedStreams, malformedCats, malformedStreams = CatStats(), CatStats(), CatStats(), CatStats()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
                 match estimateSize state with
@@ -360,20 +410,31 @@ module Scheduling =
                     busyCats.Ingest(StreamName.categorize stream)
                     busyCount <- busyCount + 1
                     busyB <- busyB + sz
+                    busyE <- busyE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz when state.isMalformed ->
+                    malformedCats.Ingest(StreamName.categorize stream)
                     malformedStreams.Ingest(StreamName.toString stream, mb sz |> int64)
                     malformed <- malformed + 1
                     malformedB <- malformedB + sz
+                    malformedE <- malformedE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz when not state.IsReady ->
+                    unprefixedCats.Ingest(StreamName.categorize stream)
                     unprefixedStreams.Ingest(StreamName.toString stream, mb sz |> int64)
                     unprefixed <- unprefixed + 1
                     unprefixedB <- unprefixedB + sz
+                    unprefixedE <- unprefixedE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz ->
                     readyCats.Ingest(StreamName.categorize stream)
                     readyStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.write 0L) state.queue.[0].events.Length, kb sz)
                     ready <- ready + 1
                     readyB <- readyB + sz
-            log.Information("Streams Synced {synced:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
+                    readyE <- readyE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
+            let busyStats : Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
+            let readyStats : Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
+            let bufferingStats : Log.BufferMetric = { cats = unprefixedCats.Count; streams = unprefixedStreams.Count; events = unprefixedE; bytes = unprefixedB }
+            let malformedStats : Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
+            let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
+            (log |> Log.metric m).Information("Streams Synced {synced:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
                 synced, busyCount, mb busyB, ready, mb readyB, unprefixed, mb unprefixedB, malformed, mb malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
@@ -407,7 +468,8 @@ module Scheduling =
             log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{skipped:n0}e)",
                 batchesWaiting, !batchesPended, !streamsPended, !eventsSkipped + !eventsPended, !eventsSkipped)
             batchesPended := 0; streamsPended := 0; eventsSkipped := 0; eventsPended := 0
-            log.Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s",
+            let m = Log.Metric.SchedulerCpu (mt, it, ft, dt, st)
+            (log |> Log.metric m).Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s",
                 mt.TotalSeconds, it.TotalSeconds, ft.TotalSeconds, dt.TotalSeconds, st.TotalSeconds)
             dt <- TimeSpan.Zero; ft <- TimeSpan.Zero; it <- TimeSpan.Zero; st <- TimeSpan.Zero; mt <- TimeSpan.Zero
 
