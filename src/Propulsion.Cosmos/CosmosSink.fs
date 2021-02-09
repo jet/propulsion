@@ -160,7 +160,7 @@ module Internal =
                         streams.SetMalformed(stream, malformed), malformed
                 let (_stream, ss), malformed = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
-                ss.write, res
+                ss.Write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 

@@ -82,3 +82,10 @@ let [<Fact>] ``fail`` () =
 let [<Fact>] ``fail 2`` () =
     let r = mergeSpans 11613L [ mk 11614L 1; {index=11614L; events=null} ]
     test <@ r |> is [| mk 11614L 1 |] @>
+
+type Perf(out : Xunit.Abstractions.ITestOutputHelper) =
+
+    let [<Fact>] layout () =
+        ObjectLayoutInspector.TypeLayout.GetLayout<StreamState<byte[]>>()
+        |> fun s -> s.ToString(true)
+        |> out.WriteLine

@@ -257,14 +257,56 @@ module Buffering =
             let trimmed = { streamSpan with events = streamSpan.events |> Array.takeWhile withinLimits }
             stats trimmed, trimmed
 
-    [<NoComparison; NoEquality>]
-    type StreamState<'Format> = { isMalformed : bool; write : int64 option; queue : StreamSpan<'Format>[] } with
+(*  // ORIGINAL StreamState memory representation:
+
+    Type layout for 'StreamState`1'
+    Size: 24 bytes. Paddings: 7 bytes (%29 of empty space)
+    |========================================|
+    | Object Header (8 bytes)                |
+    |----------------------------------------|
+    | Method Table Ptr (8 bytes)             |
+    |========================================|
+    |   0-7: FSharpOption`1 write@ (8 bytes) |
+    |----------------------------------------|
+    |  8-15: StreamSpan`1[] queue@ (8 bytes) |
+    |----------------------------------------|
+    |    16: Boolean isMalformed@ (1 byte)   |
+    |----------------------------------------|
+    | 17-23: padding (7 bytes)               |
+    |========================================|
+
+    // CURRENT layout:
+
+    Type layout for 'StreamState`1'
+    Size: 16 bytes. Paddings: 0 bytes (%0 of empty space)
+    |========================================|
+    |   0-7: StreamSpan`1[] queue@ (8 bytes) |
+    |----------------------------------------|
+    |  8-15: Int64 write@ (8 bytes)          |
+    |========================================|
+    *)
+
+    // NOTE: Optimized Representation as we can have a lot of these
+    // 1. -2 sentinel value for write position signifying `None` (no write position yet established)
+    // 2. -3 sentinel value for malformed data
+    [<NoComparison; NoEquality; Struct>]
+    type StreamState<'Format> = private { write : int64; queue : StreamSpan<'Format>[] } with
+        static member Create(write, queue, ?malformed) =
+            let effWrite =
+                match write with
+                | _ when malformed = Some true -> -3L
+                | None -> -2L
+                | Some w -> w
+            { write = effWrite; queue = queue }
         member __.IsEmpty = obj.ReferenceEquals(null, __.queue)
-        member __.HasValid = not __.IsEmpty && not __.isMalformed
+        member __.IsMalformed = not __.IsEmpty && -3L = __.write
+        member __.HasValid = not __.IsEmpty && not __.IsMalformed
+        member __.Write = match __.write with -2L -> None | x -> Some x
+        member __.Queue : StreamSpan<'Format>[] = __.queue
         member __.IsReady =
             if not __.HasValid then false else
 
-            match __.write, Array.head __.queue with
+            match __.Write, Array.head __.queue with
             | Some w, { index = i } -> i = w
             | None, _ -> true
 
@@ -284,10 +326,10 @@ module Buffering =
             | None, None -> None
             | None, x | x, None -> x
 
-        let combine (s1 : StreamState<_>) (s2 : StreamState<_>) : StreamState<_> =
-            let writePos = optionCombine max s1.write s2.write
+        let combine (s1 : StreamState<_>) (s2 : StreamState<_>) : StreamState<'Format> =
+            let writePos = optionCombine max s1.Write s2.Write
             let items = let (NNA q1, NNA q2) = s1.queue, s2.queue in Seq.append q1 q2
-            { write = writePos; queue = StreamSpan.merge (defaultArg writePos 0L) items; isMalformed = s1.isMalformed || s2.isMalformed }
+            StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultArg writePos 0L) items, s1.IsMalformed || s2.IsMalformed)
 
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
@@ -300,7 +342,7 @@ module Buffering =
                 states.[stream] <- updated
 
         member __.Merge(item : StreamEvent<'Format>) =
-            merge item.stream { isMalformed = false; write = None; queue = [| { index = item.event.Index; events = [| item.event |] } |] }
+            merge item.stream (StreamState<'Format>.Create(None, [| { index = item.event.Index; events = [| item.event |] } |]))
 
         member private __.States = states
 
@@ -316,7 +358,7 @@ module Buffering =
             for KeyValue (stream, state) in states do
                 let sz = estimateSize state
                 waitingCats.Ingest(categorize stream)
-                if sz <> 0L then waitingStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.write 0L) state.queue.[0].events.Length, (sz + 512L) / 1024L)
+                if sz <> 0L then waitingStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.Write 0L) state.queue.[0].events.Length, (sz + 512L) / 1024L)
                 waiting <- waiting + 1
                 waitingE <- waitingE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 waitingB <- waitingB + sz
@@ -345,9 +387,9 @@ module Scheduling =
                 let updated = StreamState.combine current state
                 states.[stream] <- updated
                 stream, updated
-        let updateWritePos stream isMalformed pos span = update stream { isMalformed = isMalformed; write = pos; queue = span }
+        let updateWritePos stream isMalformed pos span = update stream (StreamState<'Format>.Create(pos, span, isMalformed))
         let markCompleted stream index = updateWritePos stream false (Some index) null |> ignore
-        let merge (buffer : Streams<_>) =
+        let merge (buffer : Streams<'Format>) =
             for x in buffer.Items do
                 update x.Key x.Value |> ignore
 
@@ -358,18 +400,18 @@ module Scheduling =
                 let state = states.[s]
                 if state.HasValid && not (busy.Contains s) then
                     proposed.Add s |> ignore
-                    yield { writePos = state.write; stream = s; span = Array.head state.queue }
+                    yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
             if trySlipstreamed then
                 // [lazily] Slipstream in further events that are not yet referenced by in-scope batches
                 for KeyValue(s, v) in states do
                     if v.HasValid && not (busy.Contains s) && proposed.Add s then
-                        yield { writePos = v.write; stream = s; span = Array.head v.queue } }
+                        yield { writePos = v.Write; stream = s; span = Array.head v.Queue } }
 
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
         member __.InternalMerge buffer = merge buffer
-        member __.InternalUpdate stream pos queue = update stream { isMalformed = false; write = Some pos; queue = queue }
+        member __.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos,queue))
 
         member __.Add(stream, index, event, ?isMalformed) =
             updateWritePos stream (defaultArg isMalformed false) None [| { index = index; events = [| event |] } |]
@@ -410,25 +452,25 @@ module Scheduling =
                     busyCats.Ingest(StreamName.categorize stream)
                     busyCount <- busyCount + 1
                     busyB <- busyB + sz
-                    busyE <- busyE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
-                | sz when state.isMalformed ->
+                    busyE <- busyE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
+                | sz when state.IsMalformed ->
                     malformedCats.Ingest(StreamName.categorize stream)
                     malformedStreams.Ingest(StreamName.toString stream, mb sz |> int64)
                     malformed <- malformed + 1
                     malformedB <- malformedB + sz
-                    malformedE <- malformedE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
+                    malformedE <- malformedE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz when not state.IsReady ->
                     unprefixedCats.Ingest(StreamName.categorize stream)
                     unprefixedStreams.Ingest(StreamName.toString stream, mb sz |> int64)
                     unprefixed <- unprefixed + 1
                     unprefixedB <- unprefixedB + sz
-                    unprefixedE <- unprefixedE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
+                    unprefixedE <- unprefixedE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz ->
                     readyCats.Ingest(StreamName.categorize stream)
-                    readyStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.write 0L) state.queue.[0].events.Length, kb sz)
+                    readyStreams.Ingest(sprintf "%s@%dx%d" (StreamName.toString stream) (defaultArg state.Write 0L) state.Queue.[0].events.Length, kb sz)
                     ready <- ready + 1
                     readyB <- readyB + sz
-                    readyE <- readyE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
+                    readyE <- readyE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
             let busyStats : Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
             let readyStats : Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
             let bufferingStats : Log.BufferMetric = { cats = unprefixedCats.Count; streams = unprefixedStreams.Count; events = unprefixedE; bytes = unprefixedB }
@@ -685,7 +727,7 @@ module Scheduling =
 
         let weight stream =
             let state = streams.Item stream
-            let firstSpan = Array.head state.queue
+            let firstSpan = Array.head state.Queue
             let mutable acc = 0
             for x in firstSpan.events do acc <- acc + eventSize x
             int64 acc
@@ -723,7 +765,7 @@ module Scheduling =
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingestPendingBatch feedStats (markCompleted, items : seq<KeyValuePair<StreamName, int64>>) =
             let inline validVsSkip (streamState : StreamState<_>) required =
-                match streamState.write with
+                match streamState.Write with
                 | Some cw when cw >= required -> 0, 1
                 | _ -> 1, 0
             let reqs = Dictionary()
