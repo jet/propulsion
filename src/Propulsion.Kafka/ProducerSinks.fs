@@ -24,6 +24,9 @@ type StreamsProducerSink =
             stats : Streams.Sync.Stats<'Outcome>, statsInterval,
             /// Default 1 ms
             ?idleDelay,
+            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
+            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            ?purgeInterval,
             /// Default 1 MiB
             ?maxBytes,
             /// Default 16384
@@ -48,7 +51,7 @@ type StreamsProducerSink =
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
                      stats, statsInterval=statsInterval,
-                     maxBytes=maxBytes, ?idleDelay=idleDelay,
+                     maxBytes=maxBytes, ?idleDelay=idleDelay,?purgeInterval=purgeInterval,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
 
    static member Start
@@ -58,6 +61,9 @@ type StreamsProducerSink =
             stats : Streams.Sync.Stats<unit>, statsInterval,
             /// Default 1 ms
             ?idleDelay,
+            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
+            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            ?purgeInterval,
             /// Default 1 MiB
             ?maxBytes,
             /// Default 16384
@@ -74,5 +80,5 @@ type StreamsProducerSink =
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
                      stats, statsInterval,
-                     ?idleDelay=idleDelay, ?maxBytes=maxBytes,
+                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxBytes=maxBytes,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)
