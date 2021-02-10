@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- Streams Scheduler: Tune memory consumption [#93](https://github.com/jet/propulsion/pull/93) 
+
 ### Changed
 ### Removed
 ### Fixed
