@@ -11,7 +11,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - Streams Scheduler: Tune memory consumption [#93](https://github.com/jet/propulsion/pull/93) 
-- Streams Scheduler: Add `purgeInterval` [#94](https://github.com/jet/propulsion/pull/94) 
+- Streams Scheduler: Add `purgeInterval` to reclaim memory used by write positions of inactive streams [#94](https://github.com/jet/propulsion/pull/94) 
 
 ### Changed
 ### Removed

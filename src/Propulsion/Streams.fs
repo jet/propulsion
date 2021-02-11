@@ -299,7 +299,7 @@ module Buffering =
                 | Some w -> w
             { write = effWrite; queue = queue }
         member __.IsEmpty = obj.ReferenceEquals(null, __.queue)
-        member __.IsPurgeable = not __.IsMalformed && __.IsEmpty
+        member __.IsPurgeable = __.IsEmpty && not __.IsMalformed
         member __.IsMalformed = not __.IsEmpty && -3L = __.write
         member __.HasValid = not __.IsEmpty && not __.IsMalformed
         member __.Write = match __.write with -2L -> None | x -> Some x
@@ -721,8 +721,8 @@ module Scheduling =
             ?maxCycles,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            /// Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            /// NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
             /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
@@ -981,8 +981,8 @@ type StreamsProjector =
             stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            /// Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            /// NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
@@ -1001,8 +1001,8 @@ type StreamsProjector =
             stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            /// Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            /// NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
@@ -1016,11 +1016,11 @@ type StreamsProjector =
     static member Start<'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<'Outcome>,
-            stats, statsInterval, pumpInterval,
+            stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            /// Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            /// NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
@@ -1083,8 +1083,8 @@ module Sync =
                 ?maxCycles,
                 /// Hook to wire in external stats
                 ?dumpExternalStats,
-                /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-                /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+                /// Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+                /// NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
                 ?purgeInterval)
             : ProjectorPipeline<_> =
 
