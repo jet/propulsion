@@ -140,7 +140,7 @@ module Internal =
                     | Choice2Of2 (_stats, _exn) -> streams.SetMalformed(stream, false)
                 let _stream, ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
-                ss.write, res
+                ss.Write, res
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
