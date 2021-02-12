@@ -421,10 +421,11 @@ module Scheduling =
         let pending trySlipstreamed (requestedOrder : FsCodec.StreamName seq) : seq<DispatchItem<'Format>> = seq {
             let proposed = HashSet()
             for s in requestedOrder do
-                let state = states[s]
-                if state.HasValid && not (busy.Contains s) then
+                match tryGetItem s with
+                | Some state when state.HasValid && not (busy.Contains s) ->
                     proposed.Add s |> ignore
                     yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
+                | _ -> ()
             if trySlipstreamed then
                 // [lazily] slipstream in further events that are not yet referenced by in-scope batches
                 for KeyValue(s, v) in states do
@@ -447,8 +448,7 @@ module Scheduling =
         member _.SetMalformed(stream, isMalformed) =
             updateWritePos stream isMalformed None [| { index = 0L; events = null } |]
 
-        member _.Item(stream) =
-            states[stream]
+        member _.TryGetItem(stream) = tryGetItem stream
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
@@ -860,11 +860,13 @@ module Scheduling =
         let purgeDue = purgeInterval |> Option.map intervalCheck
 
         let weight stream =
-            let state = streams.Item stream
-            let firstSpan = Array.head state.Queue
-            let mutable acc = 0
-            for x in firstSpan.events do acc <- acc + eventSize x
-            int64 acc
+            match streams.TryGetItem stream with
+            | Some state when not state.IsEmpty ->
+                let firstSpan = Array.head state.Queue
+                let mutable acc = 0
+                for x in firstSpan.events do acc <- acc + eventSize x
+                int64 acc
+            | _ -> 0L
 
         // ingest information to be gleaned from processing the results into `streams`
         let workLocalBuffer = Array.zeroCreate 1024
