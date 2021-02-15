@@ -378,12 +378,16 @@ module Scheduling =
     type StreamStates<'Format>() =
         let states = Dictionary<StreamName, StreamState<'Format>>()
 
-        let update stream (state : StreamState<_>) =
+        let tryGetItem stream =
             match states.TryGetValue stream with
-            | false, _ ->
+            | true, v -> Some v
+            | _ -> None
+        let update stream (state : StreamState<_>) =
+            match tryGetItem stream with
+            | None ->
                 states.Add(stream, state)
                 stream, state
-            | true, current ->
+            | Some current ->
                 let updated = StreamState.combine current state
                 states.[stream] <- updated
                 stream, updated
@@ -424,6 +428,11 @@ module Scheduling =
 
         member __.Item(stream) =
             states.[stream]
+
+        member __.WritePositionIsAlreadyBeyond(stream, required) =
+            match tryGetItem stream with
+            | Some streamState -> streamState.Write |> Option.exists (fun cw -> cw >= required)
+            | _ -> false
 
         member __.MarkBusy stream =
             markBusy stream
@@ -764,19 +773,13 @@ module Scheduling =
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingestPendingBatch feedStats (markCompleted, items : seq<KeyValuePair<StreamName, int64>>) =
-            let inline validVsSkip (streamState : StreamState<_>) required =
-                match streamState.Write with
-                | Some cw when cw >= required -> 0, 1
-                | _ -> 1, 0
             let reqs = Dictionary()
             let mutable count, skipCount = 0, 0
             for item in items do
-                let streamState = streams.Item item.Key
-                match validVsSkip streamState item.Value with
-                | 0, skip ->
-                    skipCount <- skipCount + skip
-                | required, _ ->
-                    count <- count + required
+                if streams.WritePositionIsAlreadyBeyond(item.Key, item.Value) then
+                    skipCount <- skipCount + 1
+                else
+                    count <- count + 1
                     reqs.[item.Key] <- item.Value
             progressState.AppendBatch(markCompleted, reqs)
             feedStats <| Added (reqs.Count, skipCount, count)
@@ -982,9 +985,9 @@ type StreamsProjector =
     static member Start<'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
-            stats, statsInterval,
+            stats, statsInterval, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay, ?pumpInterval)
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
