@@ -146,6 +146,33 @@ Splitting event categories into containers solely to optimize these effects can 
 - having relatively consistent document sizes
 - economies of scale - if each container (or database if you provision at that level) needs to individually managed (with a degree of headroom to ensure availability for load spikes etc), you'll tend to require higher aggregate RU assignment for a given overall workload based on a topology that has more containers
 
+### any tips for testing Propulsion (projection) in an integration/end-to-end fashion? :pray: [@James Booth](https://github.com/absolutejam)
+
+> I know for unit testing, I can just test the obvious parts. Or if end to end testing is even required
+
+Depends what you want to achieve. One important technique for doing end-to-end scenarios, especially where some reaction is supposed to feed back into Equinox is to use `Equinox.MemoryStore` as the store, and then wire Propulsion to consume from that using [`MemoryStoreProjector`](https://github.com/jet/dotnet-templates/blob/237e1586902b691b8e79f6c14c73faf2b12d89cb/equinox-shipping/Watchdog.Integration/PropulsionInfrastructure.fs#L16). 
+That technique has been internally validated and that code from dotnet-templates is on the road to becoming `Propulsion.MemoryStore` a la https://github.com/jet/propulsion/issues/64
+
+Other techniques I've seen/heard are:
+- rig things to use ephemeral ESDB or cosmos databases (the emulator is only windows but works, you can use serverless or database level RU allocated DBs) to run your system against an ephemeral store. For such cases, you would tend to spin up all your projector apps (maybe in docker-compose etc) and then check for externally visible effects.
+
+In general I'd be looking to use `MemoryStoreProjector` as a default technique, but there are no particularly deep examples to work off beyond the one adjacent to the impl (which is not a typical straightforward projection scenario)
+
+To answer more completely, I'd say given a scenario involving Propulsion and Equinox, you'll typically have the following ingredients:
+
+1. writing to the store - you can either assume that's well-tested infra or say you want to know you wired it up properly
+2. serialization/deserialization - you can either have unit tests and/or property tests to validate roundtripping, or say its critical to know it really works with real data
+3. reading from feed, propagating to handler - that's harder to config and has the biggest variablity in a test scenario so either
+  
+  a) you want to take it out of the equation
+  b) you want to know its wired properly
+  
+4. does handler work complete - yes you and should can unit test that, but maybe you want to know it really does work in a broader context with more real stuff
+
+5. does it trigger follow-on work, i.e. a cascade of reactions. you can either do triangulation and say its proven if I observe the trigger for the next bit, or you can want to prove it end to end
+
+6. do overall thing really work - sometimes you want to be able to validate workflows rather than having to pay the tax of going in the front door for all the things
+
 ### What's the deal with the history of this repo?
 
 This repo is derived from [`FsKafka`](https://github.com/jet/FsKafka); the history has been edited to focus only on edits to the `Propulsion` libraries.
