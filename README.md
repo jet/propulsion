@@ -173,6 +173,89 @@ To answer more completely, I'd say given a scenario involving Propulsion and Equ
 
 6. do overall thing really work - sometimes you want to be able to validate workflows rather than having to pay the tax of going in the front door for all the things
 
+### Any reason you didn’t use one of the different subscription models available in ESDB? :pray: [@James Booth](https://github.com/absolutejam)
+
+#### TL;DR Differing goals
+
+While the implementation and patterns in Propulsion happen to overlap to a degree with the use cases of the ESDB's subscription mechanisms, the primary reason they are not used directly stem from the needs and constraints that Propulsion was evolved to cover. 
+
+One thing that should be clear is that Propulsion is definitely *not* solving for the need of being the simplest conceivable projection library with a low concept count that's easy to get started with. If you're looking to build such a library, you'll likely give yourself some important guiding non-goals, e.g., if we need to add 3 more concepts to get a 20% improvement in throughput, then we'd prefer to retain the simplicity.
+
+For Propulsion, almost literally, job one was to be able to shift 1TB of ordered events in streams to/from ESDB/Cosmos/Kafka in well under 24h - a general naive thing reading and writing in small batches takes more like 24d to do the same thing. A secondary goal is to keep them in sync continually after that point (it's definitely more than a one time bulk ingestion system).
+
+While Propulsion scales down to running simple subscriptions (and I've built systems using it for exactly that), its got quite a few additional concepts compared to using something built literally for that job because that use case was almost literally an afterthought.
+
+That's not to say that all those concepts overall make for a more complex system when all is said and done; there are lots of scenarios where you avoid having to do concurrent/async tricks one might otherwise do more explicitly in a more basic subscription system.
+
+_When looking at the vast majority of typical projections/reactions/denormalizers one runs in an event-sourced system it should come as no surprise that EventStoreDB's subscription features offer lots of excellent ways of achieving those common goals with a good balance of:
+- time to implement
+- ease of operation
+- good enough performance_
+That's literally the company's goal: enabling rapidly building systems to solve business problems. 
+
+The potential upsides that Propulsion can offer when used as a Projection system can definitely be valuable _when actually needed_, but on average, they'll frequently simply be massive overkill.
+
+OK, with that context set, some key things that are arguably upsides of using Propulsion for Projectors rather than building a minimal thing without it:
+- similar APIs regardless of whether events arrive via CosmosDB, EventStoreDB or Kafka
+- consistent dashboards across all those sources
+- generally excellent performance for high throughput scenarios (it was built for that)
+- good handling for processing of workloads that don't have uniform (and low) cost per handler invocation, i.e., rate-limited writes of events to `Equinox.Cosmos` versus feeding stuff to Redis
+- orthogonality to Equinox features but still offering a degree of commonality of concepts and terminology
+- provide a degree of isolation from the low level drivers, e.g.:
+  - moving from Cosmos CFP V2 to the Azure.Cosmos V4 SDK will be a matter of changing package references and fixing some minimal compilation errors, as opposed to learning a whole new API set
+  - moving from EventStore's TCP API / EventStore.Client as per V5 to the gRPC based >= v20 clients also becomes a package switch (massive TODO though: actually port it!)
+  - migrating a workload from EventStoreDB to CosmosDB or vice versa can be accomplished more cleanly if you're only changing the wiring of your projector host while making no changes to the handler implementations 
+  - SqlStreamStore fits logically in as well; using it gives a cleaner mix and match / onramp to/from ESDB (Note however that migrating SSS <-> ESDB is a relatively trivial operation vs migrating from raw EventStore usage to Equinox.Cosmos, i.e. "we're using Propulsion to isolate us from deciding between SSS or ESDB" is not a good enough reason on its own)
+- Specifically when consuming from Cosmos, being able to do that over a longer wire by feeding to Kafka to limit RU consumption from projections is a minor change. (Having to do reorganize like that for performance reasons is much more rarely a concern for EventStoreDB)
+
+#### A Brief History of Propulsion's feature set
+
+The order in which the need for various components arose (as a side effect of building out [Equinox](https://github.com/jet/equinox); solving specific needs in terms of feeding events into and out of EventStoreDB, CosmosDB and Kafka) was also an influence on the abstractions within and general facilities of Propulsion.
+
+  - `Propulsion.Cosmos`'s `Source` was the first bit done; it's a light wrapper over the [CFP V2 client](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet). Key implications from that are:
+    - order of events in a logical partition can be maintained
+    - global ordering of events across all logical streams is not achievable due to how CosmosDB works (only ordering guarantees are only logical partition level, the data is sharded into notes which can split as data grows)
+  - `Propulsion.Kafka`'s `Sink` was next; the central goal here is be able to replicate events being read from CosmosDB onto a Kafka Topic _maintaining the ordering guarantees_. Implications:
+    - There are two high level ways of achieving ordering guarantees in Kafka:
+       1. only ever have a single event in flight; only when you've got the ack for a write do you send the next one. *However, literally doing that compromises throughput massively*.
+       2. use Kafka's transaction facilities (not implemented in `Confluent.Kafka` at the time)
+    => The approach used is to continuously emit messages concurrently in order to maintain throughput, but guarantee to never emit messages for the same _key_ at the same time.
+  - `Propulsion.Cosmos`'s `Sink` was next up. It writes to CosmosDB using `Equinox.Cosmos`. Key implications:  
+    - because rate-limiting is at the physical partition level, it's crucial for throughput that you keep other partitions busy while wait/retry loops are triggered on hotspots (and you absolutely don't want to exacerbate this effect by competing with yourself)
+    - you want to ideally batch the writing of multiple events/documents to minimize round-trips (and write RU costs are effectively _O(log N)_ despite high level guidance characterizing it as _O(N)_))
+    - you can only touch one logical partition for any given write
+    - when you hit a hotspot and need to retry, ideally you'd pack events queued up behind you into the retry too
+    - there is no one-size fits all batch size ([yet](https://github.com/Azure/azure-cosmos-dotnet-v3/issues/1763)) that balances
+      a) not overloading the source
+      b) maintaining throughput
+      => You'll often need a small batch size, which implies larger per-event checkpointing overhead unless you make the checkpointing asynchronous
+    => The implementation thus:
+      - manages reading async from writing in order to maintain throughput (you define a batch size _and_ a number of batches to read ahead)
+      - schedules write attempts at stream level (the reader concurrently ingests successor events, making all buffered events available when retrying)
+      - writes checkpoints asynchronously when all the items involved complete within the (stream-level) processing
+  - At the point where `Propulsion.EventStore`'s `Source` and `Sink` were being implemented (within weeks of the `Cosmos` equivalents; largely overlapping), the implications from realizing goals of providing good throughput while avoiding adding new concepts if it can be avoided are:
+    - The cheapest (lowest impact in terms of triggering scattered reads across disks on an ESDB server, with associated latency implications) and most general API set for reading events is to read the `$all` stream
+    - Maintaining checkpoints in an EventStoreDB that you're also monitoring is prone to feedback events (so using the Async checkpointing strategy used for `.Cosmos` but saving them in an external store such as an `Equinox.Cosmos` one makes sense)
+    - If handlers and/or sinks don't have uniform processing time per message and/or are subject to rate limiting, most of the constraints of the `CosmosSink` apply too; you don't want to sit around retrying the last request out of a batch of 100 while tens of thousands of provisioned RUs are sitting idle in Cosmos and throughput is stalled
+
+#### Conclusion/comparison checklist
+
+The things Propulsion in general accomplishes in the projections space:
+- make reading, checkpointing, parsing and running independent async things (all big perf boosts with Cosmos, less relevant for ESDB)
+- allow handlers to handle all accumulated items for a stream as a batch if desired
+- concurrency across streams
+- (for Cosmos, but could be achieved for ESDB), provide for running multiple instances of consumers leasing physical partitions roughly how Kafka does it (aka the ChangeFeedProcessor lease management - Propulsion just wraps that and does not seek to impose any significant semantics on top of that)
+- provide good instrumentation as to latency, errors, throughput in a pluggable way [akin to how Equinox does stuff (e.g. it has a Prometheus plugin)]
+- good stories for isolating from specific drivers - i.e., there will be a Propulsion.CosmosDb which allows you to run identical consumer code using the V3 SDK instead of the V2 one (akin to how it will at some point provide a .EventStoreDb using gRPC to go with the V5 SDK based .EventStore :wink:)
+- handlers/reactors/the projections can be ported to .Cosmos by swapping driver modules; similar to how Equinox.Cosmos vs Equinox.EventStore provides a common programming model despite the underpinnings being fundamentally quite different in nature
+- Kafka reading and writing generally fits within the same patterns - i.e. if you want to push CosmosDb CFP output to Kafka and consume over that as a 'longer wire' thing without placing extra load on the source if you e.g. have 50 consumers, that's just an extra 250 line dotnet new proProjector app, and a tweak to ~30 lines of consumer app wireup to connect to Kafka instead of Cosmos
+- Uniform dashboards for throughput and alerting for stuck projectors over Cosmos, EventStore, Kafka
+
+Things ESDB's# subscriptions can do that are not covered in Propulsion (highlights, by no means a complete list):
+- `$et-`, `$ec-` streams
+- honoring the global `$all` order
+- stacks more things - ESDB is a well designed purpose based solution used by thousands of systems with a massive mix of throughput and complexity constraints
+
 ### What's the deal with the history of this repo?
 
 This repo is derived from [`FsKafka`](https://github.com/jet/FsKafka); the history has been edited to focus only on edits to the `Propulsion` libraries.
