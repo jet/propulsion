@@ -9,12 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- Streams Scheduler: Tune memory consumption re write positions of inactive streams [#94](https://github.com/jet/propulsion/pull/94) 
-
 ### Changed
 ### Removed
 ### Fixed
+
+<a name="2.10.0-rc3"></a>
+## [2.10.0-rc3] - 2021-03-04
+
+### Added
+
+- Streams Scheduler: Tune memory consumption re write positions of inactive streams [#94](https://github.com/jet/propulsion/pull/94) 
 
 <a name="2.10.0-rc2"></a>
 ## [2.10.0-rc2] - 2021-01-27
@@ -518,7 +522,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc3...HEAD
+[2.10.0-rc3]: https://github.com/jet/propulsion/compare/2.10.0-rc2...2.10.0-rc3
 [2.10.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.10.0-rc2
 [2.10.0-rc1]: https://github.com/jet/propulsion/compare/2.9.1...2.10.0-rc1
 [2.9.1]: https://github.com/jet/propulsion/compare/2.9.0...2.9.1
