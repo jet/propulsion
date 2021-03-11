@@ -23,7 +23,7 @@ type ChangeFeedObserverContext = { source : ContainerId; leasePrefix : string }
 /// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
 type ChangeFeedObserver =
     static member Create
-      ( /// Base logger context; will be decorated with a `partitionKeyRangeId` property when passed to `assign`, `init` and `processBatch`
+      ( /// Base logger context; will be decorated with a `partitionKeyRangeId` property when passed to `assign`, `init` and `ingest`
         log : ILogger,
         /// Callback responsible for
         /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
@@ -33,7 +33,7 @@ type ChangeFeedObserver =
         ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Async<unit>,
         /// Called when this Observer is being created (triggered before `assign`)
         ?init : ILogger -> int -> unit,
-        /// Called when a lease is won and the observer is being spun up (0 or more `processBatch` calls will follow). Overriding inhibits default logging.
+        /// Called when a lease is won and the observer is being spun up (0 or more `ingest` calls will follow). Overriding inhibits default logging.
         ?assign : ILogger -> int -> Async<unit>,
         /// Called when a lease is revoked [and the observer is about to be `Dispose`d], overriding inhibits default logging.
         ?revoke : ILogger -> Async<unit>,
@@ -85,7 +85,7 @@ type ChangeFeedProcessor =
             aux : ContainerId,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             leasePrefix : string,
-            createObserver : ChangeFeedObserverContext -> unit -> IChangeFeedObserver,
+            createObserver : ChangeFeedObserverContext -> IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `client`
             ?auxClient : DocumentClient,
@@ -151,7 +151,7 @@ type ChangeFeedProcessor =
                 return! emitLagMetrics () }
             let! _ = Async.StartChild(emitLagMetrics ()) in ()
         let context : ChangeFeedObserverContext = { source = source; leasePrefix = leasePrefix }
-        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
+        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (fun () -> createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
         do! processor.StartAsync() |> Async.AwaitTaskCorrect
         return processor }
     static member private mkLeaseOwnerIdForProcess() =

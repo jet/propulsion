@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Remove wart from `createObserver` signature introduced in [#91](https://github.com/jet/propulsion/pull/91) [#101](https://github.com/jet/propulsion/pull/101)
+
 ### Removed
 ### Fixed
 
