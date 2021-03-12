@@ -11,15 +11,15 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 - `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion including `ParallelProjector`, `StreamsProjector`. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
 - `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Serilog`
   
-  1. writing to `Equinox.Cosmos` :- `CosmosSink`
-  2. reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet) :- `CosmosSource`. 
-  3. pruning `Equinox.Cosmos` :- `CosmosPruner`
+  1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
+  2. `CosmosSink`: writing to `Equinox.Cosmos`.
+  3. `CosmosPruner`: pruning `Equinox.Cosmos`.
   
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`
   
-  1. writing to `Equinox.CosmosStore` :- `CosmosStoreSink`
-  2. pruning from `Equinox.CosmosStore` :- `CosmosStorePruner`.
-  3. **TODO `CosmosSource`: Not yet implemented as [the Azure Cosmos SDK Team have yet to re-expose CheckpointAsync and other such required APIs](https://github.com/jet/propulsion/issues/15)**
+  1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet). **NOTE not yet implemented using the V3 SDK as yet as [the Azure Cosmos SDK Team have yet to re-expose CheckpointAsync and other such required APIs](https://github.com/jet/propulsion/issues/15)**
+  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore`.
+  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore`.
   
 - `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore`, `Serilog`
 - `Propulsion.Kafka` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Kafka.svg)](https://www.nuget.org/packages/Propulsion.Kafka/) Provides bindings for producing and consuming both streamwise and in parallel. Includes a standard codec for use with streamwise projection and consumption, `Propulsion.Kafka.Codec.NewtonsoftJson.RenderedSpan`. [Depends](https://www.fuget.org/packages/Propulsion.Kafka) on `FsKafka` v `1.5.0`, `Serilog`
