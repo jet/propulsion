@@ -14,6 +14,7 @@
   <Target Name="Pack">
     <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.CosmosStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
