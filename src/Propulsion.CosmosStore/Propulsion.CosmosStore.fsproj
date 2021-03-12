@@ -19,14 +19,13 @@
     <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
 
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.9.0" />
 
-<!--    <PackageReference Include="Equinox.CosmosStore" Version="3.0.0" />-->
+    <PackageReference Include="Equinox.CosmosStore" Version="3.0.0-beta.2" />
+    <!--    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.17.0" />-->
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
-    <ProjectReference Include="..\..\..\equinox\src\Equinox.CosmosStore\Equinox.CosmosStore.fsproj" />
   </ItemGroup>
 
 </Project>

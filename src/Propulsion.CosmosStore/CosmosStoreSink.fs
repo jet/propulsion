@@ -6,9 +6,8 @@ open Propulsion
 open Propulsion.Streams
 open Propulsion.Streams.Internal // Helpers
 open Serilog
-open System.Collections.Generic
 open System
-open System.Threading
+open System.Collections.Generic
 
 [<AutoOpen>]
 module private Impl =
