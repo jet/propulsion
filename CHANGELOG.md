@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0-rc4"></a>
+## [2.10.0-rc4] - 2021-03-12
+
+### Added
 
 - `StreamSpan.Version`, `SpanResult.NoneProcessed` [#102](https://github.com/jet/propulsion/pull/102)
 
 ### Changed
 
 - Remove wart from `createObserver` signature introduced in [#91](https://github.com/jet/propulsion/pull/91) [#101](https://github.com/jet/propulsion/pull/101)
-
-### Removed
-### Fixed
 
 <a name="2.10.0-rc3"></a>
 ## [2.10.0-rc3] - 2021-03-04
@@ -528,7 +533,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc3...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc4...HEAD
+[2.10.0-rc4]: https://github.com/jet/propulsion/compare/2.10.0-rc3...2.10.0-rc4
 [2.10.0-rc3]: https://github.com/jet/propulsion/compare/2.10.0-rc2...2.10.0-rc3
 [2.10.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.10.0-rc2
 [2.10.0-rc1]: https://github.com/jet/propulsion/compare/2.9.1...2.10.0-rc1
