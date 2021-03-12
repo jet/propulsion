@@ -9,12 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- `Propulsion.CosmosStore.CosmosStoreSource` - equivalents of features in `Propulsion.Cosmos` [#103](https://github.com/jet/propulsion/pull/103)
-
 ### Changed
 ### Removed
 ### Fixed
+
+<a name="2.10.0-rc5"></a>
+## [2.10.0-rc5] - 2021-03-12
+
+### Added
+
+- `Propulsion.CosmosStore.CosmosStoreSource` - equivalent of feature in `Propulsion.Cosmos` [#103](https://github.com/jet/propulsion/pull/103)
 
 <a name="2.10.0-rc4"></a>
 ## [2.10.0-rc4] - 2021-03-12
@@ -537,7 +541,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc4...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc5...HEAD
+[2.10.0-rc5]: https://github.com/jet/propulsion/compare/2.10.0-rc4...2.10.0-rc5
 [2.10.0-rc4]: https://github.com/jet/propulsion/compare/2.10.0-rc3...2.10.0-rc4
 [2.10.0-rc3]: https://github.com/jet/propulsion/compare/2.10.0-rc2...2.10.0-rc3
 [2.10.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.10.0-rc2
