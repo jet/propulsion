@@ -202,7 +202,7 @@ let main argv =
             let source = { database = dbName; container = containerName }
             let aux = { database = dbName; container = auxContainerName }
 
-            let buildRangeProjector _context () =
+            let buildRangeProjector _context =
                 let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
                 let producer, disposeProducer =
                     match broker,topic with
