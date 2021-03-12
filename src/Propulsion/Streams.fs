@@ -59,7 +59,9 @@ type StreamEvent<'Format> = { stream : FsCodec.StreamName; event : FsCodec.ITime
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
-type StreamSpan<'Format> = { index : int64; events : FsCodec.ITimelineEvent<'Format>[] }
+type StreamSpan<'Format> =
+    { index : int64; events : FsCodec.ITimelineEvent<'Format>[] }
+    member x.Version = x.events.[x.events.Length - 1].Index + 1L
 
 module Internal =
 
@@ -944,19 +946,28 @@ module Projector =
             ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
 
 /// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
-/// This will be reflected in adjustments to the Write Position for the stream.
-/// Incoming <c>StreamEvents</c> with <c>Index</c>es prior to the active Write Position are proactively dropped from incoming buffers.
+/// This will be reflected in adjustments to the Write Position for the stream in question.
+/// Incoming <c>StreamEvents</c> with <c>Index</c>es prior to the Write Position implied by the result are proactively
+/// dropped from incoming buffers, yielding increased throughput due to reduction of redundant processing.
 type SpanResult =
-   /// Indicates all events supplied in the <c>StreamSpan</c> have been processed; Write Position should move one beyond that of the last event.
+   /// Indicates no events where processed.
+   /// Handler should be supplied the same events (plus any that arrived in the interim) in the next scheduling cycle.
+   | NoneProcessed
+   /// Indicates all events supplied in the <c>StreamSpan</c> have been processed.
+   /// Write Position should move beyond the last event in the supplied StreamSpan.
    | AllProcessed
-   /// Indicates only a subset of the presented events have been processed; Write Position should move one beyond the <c>Index</c> of Item <c>count</c> of the <c>StreamSpan</c>.
+   /// Indicates only a subset of the presented events have been processed;
+   /// Write Position should move <c>count</c> items of the <c>StreamSpan</c> forward.
    | PartiallyProcessed of count : int
-   /// Apply an externally derived Write Position determined by the handler during processing (e.g., if downstream is running ahead of current inputs)
-   | OverrideWritePosition of index : int64
+   /// Apply an externally observed Version determined by the handler during processing.
+   /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
+   /// events that have already been handled be dropped from the scheduler's buffers and/or as they arrive.
+   | OverrideWritePosition of version : int64
 
 module SpanResult =
 
     let toIndex (_sn, span : StreamSpan<byte[]>) = function
+        | NoneProcessed -> span.index
         | AllProcessed -> span.index + span.events.LongLength
         | PartiallyProcessed count -> span.index + int64 count
         | OverrideWritePosition index -> index

@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `StreamSpan.Version`, `SpanResult.NoneProcessed` [#102](https://github.com/jet/propulsion/pull/102)
+
 ### Changed
 
 - Remove wart from `createObserver` signature introduced in [#91](https://github.com/jet/propulsion/pull/91) [#101](https://github.com/jet/propulsion/pull/101)
