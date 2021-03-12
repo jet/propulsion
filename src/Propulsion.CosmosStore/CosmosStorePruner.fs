@@ -109,7 +109,7 @@ module Pruner =
                 | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosStorePruner =
