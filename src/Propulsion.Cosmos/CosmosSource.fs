@@ -1,4 +1,8 @@
-﻿namespace Propulsion.Cosmos
+﻿#if COSMOSSTORE
+namespace Propulsion.CosmosStore
+#else
+namespace Propulsion.Cosmos
+#endif
 
 open Equinox.Core // Stopwatch.Time
 open Microsoft.Azure.Documents
@@ -37,7 +41,12 @@ module Log =
         | true, SerilogScalar (:? Metric as e) -> Some e
         | _ -> None
 
+#if COSMOSSTORE
+type CosmosStoreSource =
+#else
 type CosmosSource =
+#endif
+
     static member CreateObserver<'Items,'Batch>
         (   log : ILogger, context : ChangeFeedObserverContext,
             createIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,

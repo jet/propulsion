@@ -1,4 +1,8 @@
+#if COSMOSSTORE
+namespace Propulsion.CosmosStore
+#else
 namespace Propulsion.Cosmos
+#endif
 
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client

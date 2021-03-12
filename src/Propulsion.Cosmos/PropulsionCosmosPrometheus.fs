@@ -1,4 +1,8 @@
+#if COSMOSSTORE
+namespace Propulsion.CosmosStore.Prometheus
+#else
 namespace Propulsion.Cosmos.Prometheus
+#endif
 
 module private Impl =
 
@@ -53,7 +57,11 @@ module private Histogram =
     let latency stat desc = sHistogram (Impl.baseName stat + "_seconds") (Impl.baseDesc desc + " latency")
     let charge stat desc = ruHistogram (Impl.baseName stat + "_ru") (Impl.baseDesc desc + " charge")
 
+#if COSMOSSTORE
+open Propulsion.CosmosStore.Log
+#else
 open Propulsion.Cosmos.Log
+#endif
 
 module private Stats =
 

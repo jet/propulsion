@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.CosmosStore.CosmosStoreSource` - equivalents of features in `Propulsion.Cosmos` [#103](https://github.com/jet/propulsion/pull/103)
+
 ### Changed
 ### Removed
 ### Fixed
@@ -18,7 +21,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Propulsion.CosmosStore.CosmosStoreSink`+`CosmosStorePruner` - equivalents of equivalent features in `Propulsion.Cosmos` [#89](https://github.com/jet/propulsion/pull/89)
+- `Propulsion.CosmosStore.CosmosStoreSink`+`CosmosStorePruner` - equivalents of features in `Propulsion.Cosmos` [#89](https://github.com/jet/propulsion/pull/89)
 - `StreamSpan.Version`, `SpanResult.NoneProcessed` [#102](https://github.com/jet/propulsion/pull/102)
 
 ### Changed

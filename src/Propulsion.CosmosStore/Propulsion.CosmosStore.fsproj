@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <WarningLevel>5</WarningLevel>
+    <DefineConstants>COSMOSSTORE</DefineConstants>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
@@ -10,8 +11,23 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Propulsion.Cosmos\EquinoxCosmosParser.fs">
+      <Link>EquinoxCosmosParser.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.Cosmos\Infrastructure.fs">
+      <Link>Infrastructure.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.Cosmos\ChangeFeedProcessor.fs">
+      <Link>ChangeFeedProcessor.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.Cosmos\CosmosSource.fs">
+      <Link>CosmosSource.fs</Link>
+    </Compile>
     <Compile Include="CosmosStoreSink.fs" />
     <Compile Include="CosmosStorePruner.fs" />
+    <Compile Include="..\Propulsion.Cosmos\PropulsionCosmosPrometheus.fs">
+      <Link>PropulsionCosmosPrometheus.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +37,7 @@
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
 
     <PackageReference Include="Equinox.CosmosStore" Version="3.0.0-beta.2" />
+    <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.3.2" />
   </ItemGroup>
 
   <ItemGroup>
