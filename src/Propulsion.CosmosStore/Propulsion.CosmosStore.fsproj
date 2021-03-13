@@ -28,6 +28,7 @@
     <Compile Include="..\Propulsion.Cosmos\PropulsionCosmosPrometheus.fs">
       <Link>PropulsionCosmosPrometheus.fs</Link>
     </Compile>
+    <Compile Include="EquinoxCosmosShims.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,6 +39,7 @@
 
     <PackageReference Include="Equinox.CosmosStore" Version="3.0.0-beta.2" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.3.2" />
+    <PackageReference Include="Microsoft.Azure.DocumentDB.Core" Version="2.2.0" />
   </ItemGroup>
 
   <ItemGroup>

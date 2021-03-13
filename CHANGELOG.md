@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.CosmosStore`: Included select aspects of `Equinox.Cosmos` constructs wrt connection logic etc; required until the `CosmosStoreSource` impl uses V >=3 `CosmosClient` [#104](https://github.com/jet/propulsion/pull/104)
+
 ### Changed
 ### Removed
 ### Fixed
