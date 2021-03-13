@@ -15,7 +15,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   2. `CosmosSink`: writing to `Equinox.Cosmos`.
   3. `CosmosPruner`: pruning `Equinox.Cosmos`.
   
-- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`
+- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Microsoft.Azure.DocumentDB.Core`
   
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet). **NOTE not yet implemented using the V3 SDK as yet as [the Azure Cosmos SDK Team have yet to re-expose CheckpointAsync and other such required APIs](https://github.com/jet/propulsion/issues/15)**
   2. `CosmosStoreSink`: writing to `Equinox.CosmosStore`.
