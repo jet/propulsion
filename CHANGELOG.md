@@ -9,12 +9,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
-
-- `Propulsion.CosmosStore`: Included select aspects of `Equinox.Cosmos` constructs wrt connection logic etc; required until the `CosmosStoreSource` impl uses V >=3 `CosmosClient` [#104](https://github.com/jet/propulsion/pull/104)
-
 ### Changed
 ### Removed
 ### Fixed
+
+<a name="2.10.0-rc6"></a>
+## [2.10.0-rc6] - 2021-03-13
+
+### Added
+
+- `Propulsion.CosmosStore`: Included select aspects of `Equinox.Cosmos` constructs wrt connection logic etc; required until the `CosmosStoreSource` impl uses V >=3 `CosmosClient` [#104](https://github.com/jet/propulsion/pull/104)
 
 <a name="2.10.0-rc5"></a>
 ## [2.10.0-rc5] - 2021-03-12
@@ -544,7 +548,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc5...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc6...HEAD
+[2.10.0-rc5]: https://github.com/jet/propulsion/compare/2.10.0-rc5...2.10.0-rc6
 [2.10.0-rc5]: https://github.com/jet/propulsion/compare/2.10.0-rc4...2.10.0-rc5
 [2.10.0-rc4]: https://github.com/jet/propulsion/compare/2.10.0-rc3...2.10.0-rc4
 [2.10.0-rc3]: https://github.com/jet/propulsion/compare/2.10.0-rc2...2.10.0-rc3
