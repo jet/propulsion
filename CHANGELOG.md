@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `StreamsProjector`: Tuned submission policy to forward 80% of batches read ahead (except in Kafka case where there's limited benefit so default remains to submit 5 per partition) [#105](https://github.com/jet/propulsion/pull/105)
-
 ### Removed
 ### Fixed
+
+<a name="2.10.0-rc7"></a>
+## [2.10.0-rc7] - 2021-03-15
+
+### Changed
+
+- `StreamsProjector`: Tuned submission policy to forward 80% of batches read ahead (except in Kafka case where there's limited benefit so default remains to submit 5 per partition) [#105](https://github.com/jet/propulsion/pull/105)
 
 <a name="2.10.0-rc6"></a>
 ## [2.10.0-rc6] - 2021-03-13
@@ -551,7 +555,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc6...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc7...HEAD
+[2.10.0-rc7]: https://github.com/jet/propulsion/compare/2.10.0-rc6...2.10.0-rc7
 [2.10.0-rc6]: https://github.com/jet/propulsion/compare/2.10.0-rc5...2.10.0-rc6
 [2.10.0-rc5]: https://github.com/jet/propulsion/compare/2.10.0-rc4...2.10.0-rc5
 [2.10.0-rc4]: https://github.com/jet/propulsion/compare/2.10.0-rc3...2.10.0-rc4
