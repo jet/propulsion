@@ -987,9 +987,8 @@ type StreamsProjector =
     static member StartEx<'Progress, 'Outcome>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
-            stats, statsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay)
+            stats, statsInterval,
+            ?maxSubmissionsPerPartition, ?pumpInterval, ?idleDelay)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
