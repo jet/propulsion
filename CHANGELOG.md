@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `StreamsProjector`: Tuned submission policy to forward 80% of batches read ahead (except in Kafka case where there's limited benefit so default remains to submit 5 per partition) [#105](https://github.com/jet/propulsion/pull/105)
+
 ### Removed
 ### Fixed
 

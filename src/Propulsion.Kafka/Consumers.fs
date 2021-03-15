@@ -291,9 +291,9 @@ module Core =
                 Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
             let submitter =
                 Streams.Projector.StreamsSubmitter.Create
-                    (   log, mapConsumedMessagesToStreamsBatch,
+                    (   log, defaultArg maxSubmissionsPerPartition 5, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
-                        ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval,
+                        ?pumpInterval=pumpInterval,
                         ?disableCompaction=maximizeOffsetWriting)
             ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
 
@@ -510,7 +510,11 @@ type BatchesConsumer =
             stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>, statsInterval,
             /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
-            ?schedulerIngestionBatchCount, ?maxSubmissionsPerPartition,
+            ?schedulerIngestionBatchCount,
+            /// Limits number of batches passed to the scheduler.
+            /// Holding items back makes scheduler processing more efficient as less state needs to be traversed.
+            /// Default 5
+            ?maxSubmissionsPerPartition,
             /// Default 5ms
             ?pumpInterval,
             ?logExternalState,
@@ -545,6 +549,6 @@ type BatchesConsumer =
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter =
             Streams.Projector.StreamsSubmitter.Create
-                (   log, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval,
-                    ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+                (   log, defaultArg maxSubmissionsPerPartition 5, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval,
+                    ?pumpInterval=pumpInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump(), streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
