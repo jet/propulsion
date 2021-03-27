@@ -1,7 +1,6 @@
 // Implements a Sink that removes every submitted event (and all preceding events)     from the relevant stream
 namespace Propulsion.CosmosStore
 
-open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
@@ -12,7 +11,7 @@ module Pruner =
 
     let (|TimedOutMessage|RateLimitedMessage|Other|) (e : exn) =
         match e with
-        | (:? Microsoft.Azure.Cosmos.CosmosException as ce) when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
+        | :? Microsoft.Azure.Cosmos.CosmosException as ce when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
         | e when e.GetType().FullName = "Microsoft.Azure.Documents.RequestTimeoutException" -> TimedOutMessage
         | _ -> Other
     let classify = function
@@ -32,7 +31,7 @@ module Pruner =
         let rateLimited, timedOut = ref 0, ref 0
         let rlStreams, toStreams = HashSet(), HashSet()
 
-        override __.HandleOk outcome =
+        override _.HandleOk outcome =
             match outcome with
             | Nop count ->
                 nops <- nops + 1
@@ -43,7 +42,7 @@ module Pruner =
                 totalDeferred <- totalDeferred + deferred
 
         /// Used to render exceptions that don't fall into the rate-limiting or timed-out categories
-        override __.HandleExn(log, exn) =
+        override _.HandleExn(log, exn) =
             match classify exn with
             | ExceptionKind.RateLimited | ExceptionKind.TimedOut ->
                 () // Outcomes are already included in the statistics - no logging is warranted
@@ -51,11 +50,11 @@ module Pruner =
                 log.Warning(exn, "Unhandled")
 
         /// Gather stats pertaining to and/or filter exceptions pertaining to timeouts or rate-limiting
-        override __.Handle message =
+        override _.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 (_, exn))) ->
+            | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 (_, exn))) ->
                 match classify exn with
                 | ExceptionKind.RateLimited ->
                     adds stream rlStreams; incr rateLimited
@@ -64,7 +63,7 @@ module Pruner =
                 | ExceptionKind.Other -> ()
             | _ -> ()
 
-        override __.DumpStats() =
+        override _.DumpStats() =
             log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
                 ops, totalDeletes, totalDeferred, nops, totalRedundant)
             ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0
@@ -98,18 +97,18 @@ module Pruner =
 
     type StreamSchedulingEngine =
 
-        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval)
-            : Scheduling.StreamSchedulingEngine<_, _, _> =
-            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
-                let stats = Buffering.StreamSpan.stats item.span
+        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay)
+            : Propulsion.Streams.Scheduling.StreamSchedulingEngine<_, _, _> =
+            let attemptWrite (item : Propulsion.Streams.Scheduling.DispatchItem<_>) = async {
+                let stats = Propulsion.Streams.Buffering.StreamSpan.stats item.span
                 try let! index', res = handle pruneUntil (item.stream, item.span)
                     return Choice1Of2 (index', stats, res)
                 with e -> return Choice2Of2 (stats, e) }
             let interpretProgress _streams _stream : Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn> -> int64 option * Choice<'Metrics * 'Outcome, 'Metrics * exn> = function
                 | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
+            let dispatcher = Propulsion.Streams.Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
+            Propulsion.Streams.Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosStorePruner =
@@ -123,18 +122,15 @@ type CosmosStorePruner =
             /// Default 5m
             ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
             /// Delay when no items available. Default 10ms.
-            ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval)
+            ?idleDelay)
         : Propulsion.ProjectorPipeline<_> =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 10.)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
+        let dumpStreams (s : Propulsion.Streams.Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let pruneUntil stream index = Equinox.CosmosStore.Core.Events.pruneUntil context stream index
-        let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+        let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)

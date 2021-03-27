@@ -60,10 +60,6 @@ type Connector
         /// consistency mode (default: ConsistencyLevel.Session)
         [<O; D(null)>]?defaultConsistencyLevel : ConsistencyLevel,
 
-        /// Retries for read requests, over and above those defined by the mandatory policies
-        [<O; D(null)>]?readRetryPolicy,
-        /// Retries for write requests, over and above those defined by the mandatory policies
-        [<O; D(null)>]?writeRetryPolicy,
         /// Additional strings identifying the context of this connection; should provide enough context to disambiguate all potential connections to a cluster
         /// NB as this will enter server and client logs, it should not contain sensitive information
         [<O; D(null)>]?tags : (string*string) seq,
@@ -99,7 +95,7 @@ type Connector
             name, discovery : Discovery,
             /// <c>true</c> to inhibit logging of client name
             [<O; D null>]?skipLog) : Client.DocumentClient =
-        let (Discovery.UriAndKey (databaseUri=uri; key=key)) = discovery
+        let Discovery.UriAndKey (databaseUri=uri; key=key) = discovery
         if skipLog <> Some true then logName uri name
         let consistencyLevel = Nullable(defaultArg defaultConsistencyLevel ConsistencyLevel.Session)
         if defaultArg bypassCertificateValidation false then

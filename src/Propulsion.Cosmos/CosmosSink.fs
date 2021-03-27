@@ -87,7 +87,7 @@ module Internal =
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-        override __.DumpStats() =
+        override _.DumpStats() =
             let results = !resultOk + !resultDup + !resultPartialDup + !resultPrefix
             log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
                 mb okBytes, results, okStreams.Count, okEvents, !resultOk, !resultDup, !resultPartialDup, !resultPrefix)
@@ -103,7 +103,7 @@ module Internal =
                 badCats.Clear(); tooLarge := 0; malformed := 0;  resultExnOther := 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
 
-        override __.Handle message =
+        override this.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             base.Handle message
@@ -118,7 +118,7 @@ module Internal =
                 | Writer.Result.Duplicate _ -> incr resultDup
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
-                __.HandleOk res
+                this.HandleOk res
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
@@ -129,11 +129,11 @@ module Internal =
                 | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
                 | ResultKind.Malformed -> bads stream mfStreams; incr malformed
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
-                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : Result -> unit
-        default __.HandleOk(_) : unit = ()
+        default _.HandleOk _ : unit = ()
         abstract member HandleExn : log : ILogger * exn : exn -> unit
-        default __.HandleExn(_, _) : unit = ()
+        default _.HandleExn(_, _) : unit = ()
 
     type StreamSchedulingEngine =
 

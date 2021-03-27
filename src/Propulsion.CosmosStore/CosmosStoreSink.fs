@@ -26,15 +26,15 @@ module Internal =
             | PrefixMissing of batch : StreamSpan<byte[]> * writePos : int64
         let logTo (log : ILogger) malformed (res : StreamName * Choice<EventMetrics * Result, EventMetrics * exn>) =
             match res with
-            | stream, (Choice1Of2 (_, Ok pos)) ->
+            | stream, Choice1Of2 (_, Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, (Choice1Of2 (_, Duplicate updatedPos)) ->
+            | stream, Choice1Of2 (_, Duplicate updatedPos) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, (Choice1Of2 (_, PartialDuplicate overage)) ->
+            | stream, Choice1Of2 (_, PartialDuplicate overage) ->
                 log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
-            | stream, (Choice1Of2 (_, PrefixMissing (batch, pos))) ->
+            | stream, Choice1Of2 (_, PrefixMissing (batch, pos)) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch.index-pos, batch.events.Length, batch.index)
-            | stream, (Choice2Of2 (_, exn)) ->
+            | stream, Choice2Of2 (_, exn) ->
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
@@ -61,8 +61,8 @@ module Internal =
                 m.Contains "SyntaxError: JSON.parse Error: Unexpected input at position"
                  || m.Contains "SyntaxError: JSON.parse Error: Invalid character at position"
             match e with
-            | (:? Microsoft.Azure.Cosmos.CosmosException as ce) when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
-            | (:? Microsoft.Azure.Cosmos.CosmosException as ce) when ce.StatusCode = System.Net.HttpStatusCode.RequestEntityTooLarge -> TooLargeMessage
+            | :? Microsoft.Azure.Cosmos.CosmosException as ce when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
+            | :? Microsoft.Azure.Cosmos.CosmosException as ce when ce.StatusCode = System.Net.HttpStatusCode.RequestEntityTooLarge -> TooLargeMessage
             | e when e.GetType().FullName = "Microsoft.Azure.Documents.RequestTimeoutException" -> TimedOutMessage
             | e when isMalformed e -> MalformedMessage
             | _ -> Other
@@ -84,7 +84,7 @@ module Internal =
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-        override __.DumpStats() =
+        override _.DumpStats() =
             let results = !resultOk + !resultDup + !resultPartialDup + !resultPrefix
             log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
                 mb okBytes, results, okStreams.Count, okEvents, !resultOk, !resultDup, !resultPartialDup, !resultPrefix)
@@ -100,7 +100,7 @@ module Internal =
                 badCats.Clear(); tooLarge := 0; malformed := 0;  resultExnOther := 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
-        override __.Handle message =
+        override this.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             base.Handle message
@@ -115,7 +115,7 @@ module Internal =
                 | Writer.Result.Duplicate _ -> incr resultDup
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
-                __.HandleOk res
+                this.HandleOk res
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
@@ -126,11 +126,11 @@ module Internal =
                 | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
                 | ResultKind.Malformed -> bads stream mfStreams; incr malformed
                 | ResultKind.Other -> bads stream oStreams; incr resultExnOther
-                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : Result -> unit
-        default __.HandleOk(_) : unit = ()
+        default _.HandleOk _ : unit = ()
         abstract member HandleExn : log : ILogger * exn : exn -> unit
-        default __.HandleExn(_, _) : unit = ()
+        default _.HandleExn(_, _) : unit = ()
 
     type StreamSchedulingEngine =
 
@@ -170,9 +170,6 @@ type CosmosStoreSink =
             ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            /// NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval,
             /// Default: 16384
             ?maxEvents,
             /// Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)

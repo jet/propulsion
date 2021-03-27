@@ -33,7 +33,7 @@ module Pruner =
         let rateLimited, timedOut = ref 0, ref 0
         let rlStreams, toStreams = HashSet(), HashSet()
 
-        override __.HandleOk outcome =
+        override _.HandleOk outcome =
             match outcome with
             | Nop count ->
                 nops <- nops + 1
@@ -44,7 +44,7 @@ module Pruner =
                 totalDeferred <- totalDeferred + deferred
 
         /// Used to render exceptions that don't fall into the rate-limiting or timed-out categories
-        override __.HandleExn(log, exn) =
+        override _.HandleExn(log, exn) =
             match classify exn with
             | ExceptionKind.RateLimited | ExceptionKind.TimedOut ->
                 () // Outcomes are already included in the statistics - no logging is warranted
@@ -52,7 +52,7 @@ module Pruner =
                 log.Warning(exn, "Unhandled")
 
         /// Gather stats pertaining to and/or filter exceptions pertaining to timeouts or rate-limiting
-        override __.Handle message =
+        override _.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
@@ -65,7 +65,7 @@ module Pruner =
                 | ExceptionKind.Other -> ()
             | _ -> ()
 
-        override __.DumpStats() =
+        override _.DumpStats() =
             log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
                 ops, totalDeletes, totalDeferred, nops, totalRedundant)
             ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0

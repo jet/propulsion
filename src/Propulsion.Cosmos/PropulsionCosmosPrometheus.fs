@@ -107,7 +107,7 @@ module private Stats =
 
 type LogSink(app) =
     interface Serilog.Core.ILogEventSink with
-        member __.Emit logEvent = logEvent |> function
+        member _.Emit logEvent = logEvent |> function
             | MetricEvent cm -> cm |> function
                 | Metric.Read m -> Stats.observeRead app m
                 | Metric.Lag m -> Stats.observeLag app m

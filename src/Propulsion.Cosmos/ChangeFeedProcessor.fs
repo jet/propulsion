@@ -64,11 +64,11 @@ type ChangeFeedObserver =
             | Some f -> return! f log
             | None -> log.Information("Range {partitionKeyRangeId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
         { new IChangeFeedObserver with
-            member __.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
-            member __.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _
-            member __.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
+            member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
+            member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _
+            member _.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
           interface IDisposable with
-            member __.Dispose() =
+            member _.Dispose() =
                 log.Warning "Disposing" // Added to enable diagnosing correct Disposal; will be removed eventually
                 match dispose with
                 | Some f -> f ()
@@ -76,7 +76,7 @@ type ChangeFeedObserver =
 
 type ChangeFeedObserverFactory =
     static member FromFunction (f : unit -> #IChangeFeedObserver) =
-        { new IChangeFeedObserverFactory with member __.CreateObserver () = f () :> _ }
+        { new IChangeFeedObserverFactory with member _.CreateObserver () = f () :> _ }
 
 //// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
 type ChangeFeedProcessor =

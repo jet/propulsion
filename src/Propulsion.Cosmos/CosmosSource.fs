@@ -32,9 +32,9 @@ module Log =
     let internal metric (value : Metric) (log : ILogger) =
         let enrich (e : Serilog.Events.LogEvent) =
             e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
-        log.ForContext({ new Serilog.Core.ILogEventEnricher with member __.Enrich(evt,_) = enrich evt })
+        log.ForContext({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = enrich evt })
     let internal (|SerilogScalar|_|) : Serilog.Events.LogEventPropertyValue -> obj option = function
-        | (:? Serilog.Events.ScalarValue as x) -> Some x.Value
+        | :? Serilog.Events.ScalarValue as x -> Some x.Value
         | _ -> None
     let (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric option =
         match logEvent.Properties.TryGetValue PropertyTag with
