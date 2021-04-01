@@ -10,7 +10,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Propulsion.Feed`: Initial implementation of generic feed consumer with support for checkpointing in an Equinox stream (HT [@scrwtp](https://github.com/scrwtp) who provided the baseline impl in `Propulsion.SqlStreamStore`) [#105](https://github.com/jet/propulsion/pull/105)
+- `Propulsion.Feed`: Initial implementation of generic feed consumer with support for checkpointing in an Equinox stream (HT [@scrwtp](https://github.com/scrwtp) who provided the baseline impl in `Propulsion.SqlStreamStore`) [#106](https://github.com/jet/propulsion/pull/106)
 
 ### Changed
 
