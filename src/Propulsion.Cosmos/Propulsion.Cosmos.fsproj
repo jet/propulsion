@@ -17,6 +17,7 @@
     <Compile Include="CosmosSink.fs" />
     <Compile Include="CosmosPruner.fs" />
     <Compile Include="PropulsionCosmosPrometheus.fs" />
+    <Compile Include="ReaderCheckpoint.fs" />
   </ItemGroup>
 
   <ItemGroup>

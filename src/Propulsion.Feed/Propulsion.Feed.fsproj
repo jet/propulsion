@@ -1,0 +1,30 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netcoreapp3.1</TargetFramework>
+        <WarningLevel>5</WarningLevel>
+        <IsTestProject>false</IsTestProject>
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+        <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Infrastructure.fs" />
+        <Compile Include="FeedReader.fs" />
+        <Compile Include="FeedSource.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+        <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
+
+        <PackageReference Include="FSharp.Core" Version="4.7.1" />
+        <PackageReference Include="Equinox.Cosmos" Version="2.3.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    </ItemGroup>
+
+</Project>
