@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.Feed
 
 open FSharp.UMX
+open System
 
 type SourceId = string<sourceId>
 and [<Measure>] sourceId
@@ -18,9 +19,12 @@ module TrancheId =
 type Position = int64<position>
 and [<Measure>] position
 module Position =
+    let initial : Position = %0L
     let parse (value : int64) : Position = %value
     let toInt64 (value : Position) : int64 = %value
 
 type IFeedCheckpointStore =
-    abstract member ReadPosition: source: SourceId * tranche : TrancheId -> Async<Position option>
+
+    /// Determines the starting position, and checkpointing frequency for a given tranche
+    abstract member Start: source: SourceId * tranche : TrancheId * defaultCheckpointFrequency : TimeSpan -> Async<TimeSpan * Position>
     abstract member Commit: source: SourceId * tranche : TrancheId * pos: Position -> Async<unit>

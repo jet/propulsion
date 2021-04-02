@@ -53,26 +53,30 @@ module Fold =
         | [Events.Updated _], state -> [], [toSnapshot state]
         | xs, state ->                 xs, [toSnapshot state]
 
-type Command =
-    | Start of    at : DateTimeOffset * checkpointFreq : TimeSpan * pos : Position
-    | Override of at : DateTimeOffset * checkpointFreq : TimeSpan * pos : Position
-    | Update of   at : DateTimeOffset                             * pos : Position
+let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
+let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
+    let freq = int interval.TotalSeconds
+    let next = at.AddSeconds(float freq)
+    { checkpointFreqS = freq }, mkCheckpoint at next pos
+let private configFreq (config : Events.Config) =
+    config.checkpointFreqS |> float |> TimeSpan.FromSeconds
 
-let interpret command (state : Fold.State) =
-    let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
-    let mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
-        let freq = int interval.TotalSeconds
-        let next = at.AddSeconds(float freq)
-        { checkpointFreqS = freq }, mkCheckpoint at next pos
+let decideStart at freq = function
+    | Fold.NotStarted ->
+        let config, checkpoint = mk at freq Position.initial
+        (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
+    | Fold.Running s ->
+        (configFreq s.config, s.state.pos), []
 
-    match command, state with
-    | Start (at, freq, pos), Fold.NotStarted ->
-        let config, checkpoint = mk at freq pos
-        [Events.Started { config = config; origin = checkpoint}]
-    | Override (at, freq, pos), Fold.Running _ ->
+let decideOverride at (freq : TimeSpan) pos = function
+    | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> []
+    | _ ->
         let config, checkpoint = mk at freq pos
         [Events.Overrode { config = config; pos = checkpoint}]
-    | Update (at, pos), Fold.Running state ->
+
+let decideUpdate at pos = function
+    | Fold.NotStarted -> failwith "Cannot Commit a checkpoint for a series that has not been Started"
+    | Fold.Running state ->
         if at < state.state.nextCheckpointDue then
             if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
             else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
@@ -81,7 +85,6 @@ let interpret command (state : Fold.State) =
             let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
             let config, checkpoint = mk at freq pos
             [Events.Checkpointed { config = config; pos = checkpoint }]
-    | c, s -> failwithf "Command %A invalid when %A" c s
 
 #if COSMOSSTORE
 type Decider<'e, 's> = Equinox.Decider<'e, 's>
@@ -91,32 +94,25 @@ type Decider<'e, 's> = Equinox.Stream<'e, 's>
 
 type Service internal (resolve : SourceId * TrancheId -> Decider<Events.Event, Fold.State>) =
 
-    /// Start a checkpointing series with the supplied parameters
-    /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Start(source, tranche, freq : TimeSpan, pos : Position) =
-        let decider = resolve (source, tranche)
-        decider.Transact(interpret (Command.Start (DateTimeOffset.UtcNow, freq, pos)))
-
-    /// Override a checkpointing series with the supplied parameters
-    /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Override(source, tranche, freq : TimeSpan, pos : Position) =
-        let decider = resolve (source, tranche)
-        decider.Transact(interpret (Command.Override (DateTimeOffset.UtcNow, freq, pos)))
-
     interface IFeedCheckpointStore with
 
-        /// Determines the present Checkpointed Position (if any)
-        member _.ReadPosition(source, tranche) : Async<Position option> =
+        /// Start a checkpointing series with the supplied parameters
+        /// Yields the checkpoint interval and the starting position
+        member _.Start(source, tranche, freq) : Async<TimeSpan * Position> =
             let decider = resolve (source, tranche)
-            decider.Query(function
-                | Fold.NotStarted -> None
-                | Fold.Running r -> Some r.state.pos)
+            decider.Transact(decideStart DateTimeOffset.UtcNow freq)
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-        member _.Commit(source, tranche, pos : Position) =
+        member _.Commit(source, tranche, pos : Position) : Async<unit> =
             let decider = resolve (source, tranche)
-            decider.Transact(interpret (Command.Update (DateTimeOffset.UtcNow, pos)))
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
+
+    /// Override a checkpointing series with the supplied parameters
+    member _.Override(source, tranche, freq : TimeSpan, pos : Position) =
+        let decider = resolve (source, tranche)
+        decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
+
 
 let private create log resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)

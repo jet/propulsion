@@ -13,11 +13,10 @@ module private Impl =
         member page.IsEmpty = Array.isEmpty page.items
         member page.Size = page.items.Length
         member page.FirstPosition = page.items.[0].Index |> Position.parse
-        member page.LastPosition = (Array.last page.items).Index |> Position.parse
+        member page.LastPosition = (Array.last page.items).Index + 1L |> Position.parse
 
     type Stats(log : ILogger, statsInterval : TimeSpan) =
 
-        let mutable batchFirstPosition = Position.parse -1L
         let mutable batchLastPosition = Position.parse -1L
         let mutable batchCaughtUp = false
 
@@ -32,21 +31,23 @@ module private Impl =
         let mutable lastCommittedPosition = Position.parse -1L
 
         let report () =
+            let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
             log.Information(
                 "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | cur {cur} / max {max}",
-                pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, batchLastPosition, lastCommittedPosition, batchCaughtUp, currentBatches, maxBatches)
+                pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, p batchLastPosition, p lastCommittedPosition, batchCaughtUp, currentBatches, maxBatches)
             recentPagesRead <- 0
             recentPagesEmpty <- 0
 
         member _.RecordBatch(batch: Page<_>) =
-            batchFirstPosition <- batch.FirstPosition
             batchLastPosition <- batch.LastPosition
             batchCaughtUp <- batch.isTail
 
             pagesRead <- pagesRead + 1
             recentPagesRead <- recentPagesRead + 1
 
-        member _.RecordEmptyPage() =
+        member _.RecordEmptyPage(isTail) =
+            batchCaughtUp <- isTail
+
             pagesEmpty <- pagesEmpty + 1
             recentPagesEmpty <- recentPagesEmpty + 1
 
@@ -68,7 +69,7 @@ type ReadPageHandler =
     delegate of
         /// lastWasTail may be used to induce a suitable backoff when repeatedly reading from tail
         lastWasTail : bool
-        * checkpoint : Position option
+        * checkpoint : Position
         -> Async<Page<byte[]>>
 
 /// Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
@@ -119,25 +120,25 @@ type FeedReader
         let streamEvents : Propulsion.Streams.StreamEvent<_> seq =
             if Array.isEmpty batch.items then
                 log.Debug("Empty page retrieved, nothing to submit")
-                stats.RecordEmptyPage()
+                stats.RecordEmptyPage(batch.isTail)
                 Seq.empty
             else
                 log.Debug("Submitting a batch of {batchSize} events, position {firstPosition} through {lastPosition}",
                     batch.Size, batch.FirstPosition, batch.LastPosition)
                 stats.RecordBatch(batch)
                 seq { for x in batch.items -> { stream = streamName; event = x } }
-        let! cur, max = submitBatch.Invoke(Position.toInt64 batch.LastPosition, commit batch.checkpoint, streamEvents)
+        let! cur, max = submitBatch.Invoke(int64 batch.checkpoint, commit batch.checkpoint, streamEvents)
         stats.UpdateCurMax(cur, max) }
 
-    member _.Pump(initialPosition : Position option) = async {
+    member _.Pump(initialPosition : Position) = async {
         // Start reporting stats
         let! _ = Async.StartChild stats.Pump
 
-        log.Information("Starting reading stream from position {initialPosition}", Option.toNullable initialPosition)
+        log.Debug("Starting reading stream from position {initialPosition}", initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
             let! page = readPage.Invoke(lastWasTail, currentPos)
             do! submitPage page
-            currentPos <- Some page.checkpoint
+            currentPos <- page.checkpoint
             lastWasTail <- page.isTail }

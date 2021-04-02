@@ -1,14 +1,22 @@
 namespace Propulsion.Feed
 
+open Propulsion
 open System
+
+type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
+
+type StartPos =
+    | StartOrCheckpoint
+    | TailOrCheckpoint
+    | Position of Position
 
 type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore,
+        checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-        readPage : TrancheId -> Position option -> Async<Page<_>>,
-        sink: Propulsion.ProjectorPipeline<_>) =
+        readPage : TrancheId * Position -> Async<Page<_>>,
+        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent>, Submission.SubmissionBatch<int,StreamEvent>>>) =
 
     let log =
         log.ForContext("instanceId", let g = Guid.NewGuid() in g.ToString "N")
@@ -16,7 +24,7 @@ type FeedSource
 
     let pumpPartition partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
-        let ingester : Propulsion.Ingestion.Ingester<Propulsion.Streams.StreamEvent<_> seq,unit> =
+        let ingester : Ingestion.Ingester<_, _> =
             sink.StartIngester(log, partitionId)
         let reader =
             let submit : SubmitBatchHandler = SubmitBatchHandler(fun epoch commit events -> ingester.Submit(epoch, commit, events)  : Async<int * int>)
@@ -24,10 +32,11 @@ type FeedSource
             let readPage wasLast pos = async {
                 if wasLast then
                     do! Async.Sleep tailSleepInterval
-                return! readPage trancheId pos }
+                return! readPage (trancheId, pos) }
             FeedReader(log, sourceId, trancheId, statsInterval, ReadPageHandler readPage, submit, commit)
-        try let! maybePos = checkpoints.ReadPosition(sourceId, trancheId)
-            do! reader.Pump(maybePos)
+        try let! freq, pos = checkpoints.Start(sourceId, trancheId, defaultCheckpointEventInterval)
+            log.Information("Reading {sourceId}/{trancheId} @ {pos} checkpointing every {checkpointFreq:n1}m", sourceId, trancheId, pos, freq.TotalMinutes)
+            do! reader.Pump(pos)
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
             return! Async.Raise e
