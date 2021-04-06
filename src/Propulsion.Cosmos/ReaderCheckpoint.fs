@@ -113,7 +113,6 @@ type Service internal (resolve : SourceId * TrancheId -> Decider<Events.Event, F
         let decider = resolve (source, tranche)
         decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
 
-
 let private create log resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
     Service(resolve)

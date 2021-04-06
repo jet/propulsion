@@ -14,12 +14,14 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
   2. `CosmosSink`: writing to `Equinox.Cosmos`.
   3. `CosmosPruner`: pruning `Equinox.Cosmos`.
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`
   
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Microsoft.Azure.DocumentDB.Core`
   
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet). **NOTE not yet implemented using the V3 SDK as yet as [the Azure Cosmos SDK Team have yet to re-expose CheckpointAsync and other such required APIs](https://github.com/jet/propulsion/issues/15)**
   2. `CosmosStoreSink`: writing to `Equinox.CosmosStore`.
   3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore`.
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`
   
 - `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore`, `Serilog`
 - `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.Cosmos` or `Propulsion.CosmosStore`)

@@ -20,7 +20,6 @@
         <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
 
         <PackageReference Include="FSharp.Core" Version="4.7.1" />
-        <PackageReference Include="Equinox.Cosmos" Version="2.3.0" />
     </ItemGroup>
 
     <ItemGroup>
