@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0-rc8"></a>
+## [2.10.0-rc8] - 2021-04-06
+
+### Added
 
 - `Propulsion.Feed`: Initial implementation of generic feed consumer with support for checkpointing in an Equinox stream (HT [@scrwtp](https://github.com/scrwtp) who provided the baseline impl in `Propulsion.SqlStreamStore`) [#106](https://github.com/jet/propulsion/pull/106)
 
 ### Changed
 
 - Moved `Propulsion.Streams.Projector.Stats` to `Propulsion.Streams.Stats` [#108](https://github.com/jet/propulsion/pull/108)
-
-### Removed
-### Fixed
 
 <a name="2.10.0-rc7"></a>
 ## [2.10.0-rc7] - 2021-03-15
@@ -561,7 +566,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc7...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc8...HEAD
+[2.10.0-rc8]: https://github.com/jet/propulsion/compare/2.10.0-rc7...2.10.0-rc8
 [2.10.0-rc7]: https://github.com/jet/propulsion/compare/2.10.0-rc6...2.10.0-rc7
 [2.10.0-rc6]: https://github.com/jet/propulsion/compare/2.10.0-rc5...2.10.0-rc6
 [2.10.0-rc5]: https://github.com/jet/propulsion/compare/2.10.0-rc4...2.10.0-rc5
