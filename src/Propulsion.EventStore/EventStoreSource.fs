@@ -79,7 +79,7 @@ type EventStoreSource =
 
         let ingester = sink.StartIngester(log.ForContext("Tranche", "Ingester"), 0)
 
-        let initialSeriesId, conns, dop =  
+        let initialSeriesId, conns, dop =
             log.Information("Tailing every {intervalS:n1}s TODO with {streamReaders} stream catchup-readers", spec.tailInterval.TotalSeconds, spec.streamReaders)
             match spec.gorge with
             | Some factor ->

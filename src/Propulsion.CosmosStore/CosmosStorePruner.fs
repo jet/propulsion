@@ -24,7 +24,7 @@ module Pruner =
         | Nop of int
 
     type Stats(log, statsInterval, stateInterval) =
-        inherit Propulsion.Streams.Projector.Stats<Outcome>(log, statsInterval, stateInterval)
+        inherit Propulsion.Streams.Stats<Outcome>(log, statsInterval, stateInterval)
 
         let mutable nops, totalRedundant, ops, totalDeletes, totalDeferred = 0, 0, 0, 0, 0
 

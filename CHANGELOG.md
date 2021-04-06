@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Moved `Propulsion.Streams.Projector.Stats` to `Propulsion.Streams.Stats` [#108](https://github.com/jet/propulsion/pull/108)
+
 ### Removed
 ### Fixed
 

@@ -867,45 +867,45 @@ module Scheduling =
             : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn> =
             StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
+[<AbstractClass>]
+type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
+    inherit Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>(log, statsInterval, statesInterval)
+    let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
+    let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
+
+    override __.DumpStats() =
+        log.Information("Projected {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok)",
+            mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
+        okStreams.Clear(); resultOk := 0; okEvents <- 0; okBytes <- 0L
+        if !resultExnOther <> 0 then
+            log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+                mb exnBytes, !resultExnOther, failStreams.Count, exnEvents)
+            resultExnOther := 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
+            log.Warning("Affected cats {@badCats}", badCats.StatsDescending)
+            badCats.Clear()
+
+    override __.Handle message =
+        let inline adds x (set : HashSet<_>) = set.Add x |> ignore
+        let inline bads x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
+        base.Handle message
+        match message with
+        | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
+        | Scheduling.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
+            adds stream okStreams
+            okEvents <- okEvents + es
+            okBytes <- okBytes + int64 bs
+            incr resultOk
+            __.HandleOk res
+        | Scheduling.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
+            bads stream failStreams
+            exnEvents <- exnEvents + es
+            exnBytes <- exnBytes + int64 bs
+            incr resultExnOther
+            __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+    abstract member HandleOk : outcome : 'Outcome -> unit
+    abstract member HandleExn : log : ILogger * exn : exn -> unit
+
 module Projector =
-
-    [<AbstractClass>]
-    type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
-        inherit Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>(log, statsInterval, statesInterval)
-        let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
-        let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
-
-        override __.DumpStats() =
-            log.Information("Projected {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok)",
-                mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
-            okStreams.Clear(); resultOk := 0; okEvents <- 0; okBytes <- 0L
-            if !resultExnOther <> 0 then
-                log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
-                    mb exnBytes, !resultExnOther, failStreams.Count, exnEvents)
-                resultExnOther := 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-                log.Warning("Affected cats {@badCats}", badCats.StatsDescending)
-                badCats.Clear()
-
-        override __.Handle message =
-            let inline adds x (set : HashSet<_>) = set.Add x |> ignore
-            let inline bads x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
-            base.Handle message
-            match message with
-            | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
-                adds stream okStreams
-                okEvents <- okEvents + es
-                okBytes <- okBytes + int64 bs
-                incr resultOk
-                __.HandleOk res
-            | Scheduling.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
-                bads stream failStreams
-                exnEvents <- exnEvents + es
-                exnBytes <- exnBytes + int64 bs
-                incr resultExnOther
-                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
-        abstract member HandleOk : outcome : 'Outcome -> unit
-        abstract member HandleExn : log : ILogger * exn : exn -> unit
 
     type StreamsIngester =
 
