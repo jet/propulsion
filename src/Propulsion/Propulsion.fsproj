@@ -18,6 +18,7 @@
     <Compile Include="Parallel.fs" />
     <Compile Include="Streams.fs" />
     <Compile Include="PropulsionPrometheus.fs" />
+    <Compile Include="Feed.fs" />
   </ItemGroup>
 
   <ItemGroup>
