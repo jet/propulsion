@@ -4,58 +4,99 @@ namespace Propulsion.CosmosStore.Prometheus
 namespace Propulsion.Cosmos.Prometheus
 #endif
 
+(*
+    This file implements a Serilog Sink `LogSink`
+    which publishes metric values to Prometheus.
+
+    It takes in an additional set of custom tags
+    to annotate the metric we're publishing.
+
+*)
+
+type TagNames = string array
+type TagValues = string array
+type Tags = TagNames * TagValues
+
+[<AutoOpen>]
 module private Impl =
 
     let baseName stat = "propulsion_changefeed_" + stat
     let baseDesc desc = "Propulsion CosmosDB: ChangeFeed " + desc
     let groupLabels = [| "app"; "db"; "con"; "group" |]
     let rangeLabels = [| "app"; "db"; "con"; "group"; "rangeId" |]
+    let [<Literal>] secondsStat = "_seconds"
+    let [<Literal>] rusStat = "_rus"
+    let [<Literal>] latencyDesc = " latency"
+    let [<Literal>] chargeDesc = " charge"
+
+    let append = Array.append
 
 module private Gauge =
 
-    let private mk (cfg : Prometheus.GaugeConfiguration) name help =
-        let g = Prometheus.Metrics.CreateGauge(name, help, cfg)
-        fun app (db, con, group, range) v -> g.WithLabels(app, db, con, group, range).Set(v)
-    let private config = Prometheus.GaugeConfiguration(LabelNames = Impl.rangeLabels)
-    let create stat desc = mk config (Impl.baseName stat) (Impl.baseDesc desc)
+    let private make (config : Prometheus.GaugeConfiguration) name desc =
+        let gauge = Prometheus.Metrics.CreateGauge(name, desc, config)
+        fun tagValues (db, con, group, range) value ->
+            let labelValues = append tagValues [| db; con; group; range |]
+            gauge.WithLabels(labelValues).Set(value)
+
+    let create (tagNames, tagValues) stat desc =
+        let config = Prometheus.GaugeConfiguration(LabelNames = append tagNames rangeLabels)
+        make config (baseName stat) (baseDesc desc) tagValues
 
 module private Counter =
-
-    let private mk (cfg : Prometheus.CounterConfiguration) name desc =
-        let c = Prometheus.Metrics.CreateCounter(name, desc, cfg)
-        fun app (db, con, group, range) v -> c.WithLabels(app, db, con, group, range).Inc(v)
-    let private config = Prometheus.CounterConfiguration(LabelNames = Impl.rangeLabels)
-    let create stat desc =
-        mk config (Impl.baseName stat) (Impl.baseDesc desc)
+    
+    let private make (config : Prometheus.CounterConfiguration) name desc =
+        let ctr = Prometheus.Metrics.CreateCounter(name, desc, config)           
+        fun tagValues (db, con, group, range) value ->
+            let labelValues = append tagValues [| db; con; group; range |]
+            ctr.WithLabels(labelValues).Inc(value)
+    
+    let create (tagNames, tagValues) stat desc =
+        let config = Prometheus.CounterConfiguration(LabelNames = append tagNames rangeLabels)
+        make config (baseName stat) (baseDesc desc) tagValues
 
 module private Summary =
 
-    let private create (cfg : Prometheus.SummaryConfiguration) name desc  =
-        let s = Prometheus.Metrics.CreateSummary(name, desc, cfg)
-        fun app (db, con, group) v -> s.WithLabels(app, db, con, group).Observe(v)
-    let config =
-        let inline qep q e = Prometheus.QuantileEpsilonPair(q, e)
-        let objectives = [| qep 0.50 0.05; qep 0.95 0.01; qep 0.99 0.01 |]
-        Prometheus.SummaryConfiguration(Objectives = objectives, LabelNames = Impl.groupLabels, MaxAge = System.TimeSpan.FromMinutes 1.)
-    let latency stat desc = create config (Impl.baseName stat + "_seconds") (Impl.baseDesc desc + " latency")
-    let charge stat desc = create config (Impl.baseName stat + "_ru") (Impl.baseDesc desc + " charge")
+    let private create (config : Prometheus.SummaryConfiguration) name desc =
+        let summary = Prometheus.Metrics.CreateSummary(name, desc, config)
+        fun tagValues (db, con, group) value ->
+            let labelValues = append tagValues [| db; con; group; |]
+            summary.WithLabels(labelValues).Observe(value)
+
+    let private objectives =
+        [|
+            0.50, 0.05 // Between 45th and 55th percentile
+            0.95, 0.01 // Between 94th and 96th percentile
+            0.99, 0.01 // Between 100th and 98th percentile
+        |] |> Array.map Prometheus.QuantileEpsilonPair
+
+    let private create' statSuffix descSuffix (tagNames, tagValues) stat desc =
+        let config =
+            Prometheus.SummaryConfiguration(Objectives = objectives, LabelNames = append tagNames groupLabels, MaxAge = System.TimeSpan.FromMinutes 1.)
+
+        create config (baseName stat + statSuffix) (baseDesc desc + descSuffix) tagValues
+
+    
+    let latency = create' secondsStat latencyDesc
+    let charge = create' rusStat chargeDesc
 
 module private Histogram =
 
-    let private create (cfg : Prometheus.HistogramConfiguration) name desc =
-        let h = Prometheus.Metrics.CreateHistogram(name, desc, cfg)
-        fun app (db, con, group) v -> h.WithLabels(app, db, con, group).Observe(v)
-    // Given we also have summary metrics with equivalent labels, we focus the bucketing on LAN latencies
-    let private sHistogram =
-        let sBuckets = [| 0.0005; 0.001; 0.002; 0.004; 0.008; 0.016; 0.5; 1.; 2.; 4.; 8.; 16. |]
-        let sCfg = Prometheus.HistogramConfiguration(Buckets = sBuckets, LabelNames = Impl.groupLabels)
-        create sCfg
-    let private ruHistogram =
-        let ruBuckets = Prometheus.Histogram.ExponentialBuckets(1., 2., 9) // 1 .. 256
-        let ruCfg = Prometheus.HistogramConfiguration(Buckets = ruBuckets, LabelNames = Impl.groupLabels)
-        create ruCfg
-    let latency stat desc = sHistogram (Impl.baseName stat + "_seconds") (Impl.baseDesc desc + " latency")
-    let charge stat desc = ruHistogram (Impl.baseName stat + "_ru") (Impl.baseDesc desc + " charge")
+    let private create (config : Prometheus.HistogramConfiguration) name desc =        
+        let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
+        fun tagValues (db, con, group) value ->
+            let labelValues = append tagValues [| db; con; group; |]
+            histogram.WithLabels(labelValues).Observe(value)
+
+    let private create' buckets statSuffix descSuffix (tagNames, tagValues) stat desc =
+        let config = Prometheus.HistogramConfiguration(Buckets = buckets, LabelNames = append tagNames groupLabels)
+        create config (baseName stat + statSuffix) (baseDesc desc + descSuffix) tagValues
+
+    let latencyBuckets = [| 0.0005; 0.001; 0.002; 0.004; 0.008; 0.016; 0.5; 1.; 2.; 4.; 8.; 16. |]
+    let ruBuckets = Prometheus.Histogram.ExponentialBuckets(1., 2., 9)
+
+    let latency = create' latencyBuckets secondsStat latencyDesc
+    let charge = create' ruBuckets rusStat chargeDesc
 
 #if COSMOSSTORE
 open Propulsion.CosmosStore.Log
@@ -63,52 +104,55 @@ open Propulsion.CosmosStore.Log
 open Propulsion.Cosmos.Log
 #endif
 
-module private Stats =
+/// ILogEventSink which publishes to Prometheus
+type LogSink(tags : Tags) =
+
+    let (keys, values) = tags
+    do if (keys.Length <> values.Length) then invalidArg "tags" "Keys in tags should have the same number of values"
 
     (* Group level metrics *)
 
-    let observeReadLatencyHis = Histogram.latency    "read"            "Read"
-    let observeReadLatencySum = Summary.latency      "read_summary"    "Read"
-    let observeReadChargeHis =  Histogram.charge     "read"            "Read"
-    let observeReadChargeSum =  Summary.charge       "read_summary"    "Read"
-    let observeIngestLatHis =   Histogram.latency    "ingest"          "Ingest"
-    let observeIngestLatSum =   Summary.latency      "ingest_summary"  "Ingest"
+    let observeReadLatencyHis = Histogram.latency   tags "read"            "Read"
+    let observeReadLatencySum = Summary.latency     tags "read_summary"    "Read"
+    let observeReadChargeHis =  Histogram.charge    tags "read"            "Read"
+    let observeReadChargeSum =  Summary.charge      tags "read_summary"    "Read"
+    let observeIngestLatHis =   Histogram.latency   tags "ingest"          "Ingest"
+    let observeIngestLatSum =   Summary.latency     tags "ingest_summary"  "Ingest"
 
     (* Group+Range level metrics *)
 
-    let observeRangeToken =     Gauge.create         "position_token"  "Feed Token of most recent Batch observed" // read
-    let observeRangeAge =       Gauge.create         "age_seconds"     "Age of most recent Batch observed" // read
-    let observeRangeLag =       Gauge.create         "lag_documents"   "Unread documents queued for this Range" // read
-    let observeIngestQueue =    Gauge.create         "ingest_queue"    "Ingest queue length"
-    let observeRangeDocCount =  Counter.create       "documents_total" "Observed document count" // read
-    let observeRangeRu =        Counter.create       "ru_total"        "Observed batch read Request Charges" // read
+    let observeRangeToken =     Gauge.create        tags "position_token"  "Feed Token of most recent Batch observed" // read
+    let observeRangeAge =       Gauge.create        tags "age_seconds"     "Age of most recent Batch observed" // read
+    let observeRangeLag =       Gauge.create        tags "lag_documents"   "Unread documents queued for this Range" // read
+    let observeIngestQueue =    Gauge.create        tags "ingest_queue"    "Ingest queue length"
+    let observeRangeDocCount =  Counter.create      tags "documents_total" "Observed document count" // read
+    let observeRangeRu =        Counter.create      tags "ru_total"        "Observed batch read Request Charges" // read
 
-    let observeRead app (m : ReadMetric) =
+    let observeRead (m : ReadMetric) =
         let range = m.database, m.container, m.group, string m.rangeId
         let ageS, latS, readDocs, token = m.age.TotalSeconds, m.latency.TotalSeconds, float m.docs, float m.token
-        observeRangeToken app range token
-        observeRangeAge app range ageS
-        observeRangeDocCount app range readDocs
-        observeRangeRu app range m.rc
+        observeRangeToken range token
+        observeRangeAge range ageS
+        observeRangeDocCount range readDocs
+        observeRangeRu range m.rc
         let group = m.database, m.container, m.group
-        observeReadLatencyHis app group latS
-        observeReadLatencySum app group latS
-        observeReadChargeHis app group m.rc
-        observeReadChargeSum app group m.rc
+        observeReadLatencyHis group latS
+        observeReadLatencySum group latS
+        observeReadChargeHis group m.rc
+        observeReadChargeSum group m.rc
         let ingestLatS, ingestQueueLen = m.ingestLatency.TotalSeconds, float m.ingestQueued
-        observeIngestLatHis app group ingestLatS
-        observeIngestLatSum app group ingestLatS
-        observeIngestQueue app range ingestQueueLen
+        observeIngestLatHis group ingestLatS
+        observeIngestLatSum group ingestLatS
+        observeIngestQueue range ingestQueueLen
 
-    let observeLag app (m : LagMetric) =
+    let observeLag (m : LagMetric) =
         for rangeId, lag in m.rangeLags do
             let range = m.database, m.container, m.group, string rangeId
-            observeRangeLag app range (float lag)
+            observeRangeLag range (float lag)
 
-type LogSink(app) =
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
             | MetricEvent cm -> cm |> function
-                | Metric.Read m -> Stats.observeRead app m
-                | Metric.Lag m -> Stats.observeLag app m
+                | Metric.Read m -> observeRead m
+                | Metric.Lag m -> observeLag m
             | _ -> ()
