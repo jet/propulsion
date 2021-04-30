@@ -4,18 +4,8 @@ namespace Propulsion.CosmosStore.Prometheus
 namespace Propulsion.Cosmos.Prometheus
 #endif
 
-(*
-    This file implements a Serilog Sink `LogSink`
-    which publishes metric values to Prometheus.
-
-    It takes in an additional set of custom tags
-    to annotate the metric we're publishing.
-
-*)
-
-type TagNames = string array
-type TagValues = string array
-type Tags = TagNames * TagValues
+/// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
+/// It takes in an additional set of custom tags to annotate the metric we're publishing.
 
 [<AutoOpen>]
 module private Impl =
@@ -105,7 +95,7 @@ open Propulsion.Cosmos.Log
 #endif
 
 /// ILogEventSink which publishes to Prometheus
-type LogSink(tags : Tags) =
+type LogSink(tags: string[] * string[]) =
 
     let (keys, values) = tags
     do if (keys.Length <> values.Length) then invalidArg "tags" "Keys in tags should have the same number of values"
