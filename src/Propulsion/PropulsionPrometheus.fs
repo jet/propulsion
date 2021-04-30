@@ -1,8 +1,6 @@
-namespace Propulsion.Prometheus
-
 /// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
 /// It takes in an additional set of custom tags to annotate the metric we're publishing.
-
+namespace Propulsion.Prometheus
 
 [<AutoOpen>]
 module private Impl =
@@ -83,10 +81,9 @@ module private Histogram =
 open Propulsion.Streams.Log
 
 /// ILogEventSink that publishes to Prometheus
-type LogSink(tags: string[] * string[], group: string) =
+type LogSink(customTags: seq<string * string>, group: string) =
 
-    let (keys, values) = tags
-    do if (keys.Length <> values.Length) then invalidArg "tags" "Keys in tags should have the same number of values"
+    let tags = Array.ofSeq customTags |> Array.unzip
     
     let observeCats =    Gauge.create      tags "cats"            "Current categories"
     let observeStreams = Gauge.create      tags "streams"         "Current streams"
@@ -110,6 +107,9 @@ type LogSink(tags: string[] * string[], group: string) =
         for v in latenciesS do
            observeLatSum (group, kind) v
            observeLatHis (group, kind) v
+
+    new(keys: string[], values : string[], group: string) =
+        LogSink(Array.zip keys values, group)
 
     interface Serilog.Core.ILogEventSink with
         member __.Emit logEvent = logEvent |> function

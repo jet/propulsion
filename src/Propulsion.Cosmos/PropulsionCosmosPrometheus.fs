@@ -1,11 +1,11 @@
+/// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
+/// It takes in an additional set of custom tags to annotate the metric we're publishing.
 #if COSMOSSTORE
 namespace Propulsion.CosmosStore.Prometheus
 #else
 namespace Propulsion.Cosmos.Prometheus
 #endif
 
-/// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
-/// It takes in an additional set of custom tags to annotate the metric we're publishing.
 
 [<AutoOpen>]
 module private Impl =
@@ -95,11 +95,10 @@ open Propulsion.Cosmos.Log
 #endif
 
 /// ILogEventSink that publishes to Prometheus
-type LogSink(tags: string[] * string[]) =
+type LogSink(customTags: seq<string * string>) =
 
-    let (keys, values) = tags
-    do if (keys.Length <> values.Length) then invalidArg "tags" "Keys in tags should have the same number of values"
-
+    let tags = Array.ofSeq customTags |> Array.unzip
+    
     (* Group level metrics *)
 
     let observeReadLatencyHis = Histogram.latency   tags "read"            "Read"
