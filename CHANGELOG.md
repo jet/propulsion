@@ -10,11 +10,19 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `Cosmos`: Add `partitionKeyRangeId` to ChangeFeed Read message 
-
 ### Removed
 ### Fixed
+
+<a name="2.10.0-rc9"></a>
+## [2.10.0-rc9] - 2021-04-30
+
+### Added
+
+- `*.Prometheus.LogSink`: Generalized `app` tag to arbitrary custom tags as per Equinox [#287](https://github.com/jet/equinox/issues/287) [#109](https://github.com/jet/propulsion/pull/109) :pray: [@deviousasti](https://github.com/deviousasti)
+
+### Changed
+
+- `Cosmos`: Add `partitionKeyRangeId` to ChangeFeed Read message
 
 <a name="2.10.0-rc8"></a>
 ## [2.10.0-rc8] - 2021-04-06
@@ -569,7 +577,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc8...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc9...HEAD
+[2.10.0-rc9]: https://github.com/jet/propulsion/compare/2.10.0-rc8...2.10.0-rc9
 [2.10.0-rc8]: https://github.com/jet/propulsion/compare/2.10.0-rc7...2.10.0-rc8
 [2.10.0-rc7]: https://github.com/jet/propulsion/compare/2.10.0-rc6...2.10.0-rc7
 [2.10.0-rc6]: https://github.com/jet/propulsion/compare/2.10.0-rc5...2.10.0-rc6
