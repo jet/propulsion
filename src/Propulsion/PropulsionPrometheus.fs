@@ -7,9 +7,9 @@ module private Impl =
 
     let baseName stat = "propulsion_scheduler_" + stat
     let baseDesc desc = "Propulsion Scheduler " + desc
-    let groupLabels = [| "app"; "group"; "state" |]
-    let activityLabels = [| "app"; "group"; "activity" |]
-    let latencyLabels = [| "app"; "group"; "kind" |]
+    let groupLabels = [| "group"; "state" |]
+    let activityLabels = [| "group"; "activity" |]
+    let latencyLabels = [| "group"; "kind" |]
 
     let [<Literal>] secondsStat = "_seconds"
     let [<Literal>] latencyDesc = " latency"

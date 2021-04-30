@@ -12,8 +12,8 @@ module private Impl =
 
     let baseName stat = "propulsion_changefeed_" + stat
     let baseDesc desc = "Propulsion CosmosDB: ChangeFeed " + desc
-    let groupLabels = [| "app"; "db"; "con"; "group" |]
-    let rangeLabels = [| "app"; "db"; "con"; "group"; "rangeId" |]
+    let groupLabels = [| "db"; "con"; "group" |]
+    let rangeLabels = [| "db"; "con"; "group"; "rangeId" |]
     let [<Literal>] secondsStat = "_seconds"
     let [<Literal>] rusStat = "_rus"
     let [<Literal>] latencyDesc = " latency"
