@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Cosmos`: Add `partitionKeyRangeId` to ChangeFeed Read message 
+
 ### Removed
 ### Fixed
 

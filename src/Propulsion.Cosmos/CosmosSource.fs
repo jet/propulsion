@@ -64,8 +64,8 @@ type CosmosSource =
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
                 token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
-            (log |> Log.metric m).Information("Read {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Ingest {pt:f3}s {cur}/{max}",
-                epoch, age, docs.Count, rc, readS, postS, cur, max)
+            (log |> Log.metric m).Information("Read {token,9}/{partitionKeyRangeId} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Ingest {pt:f3}s {cur}/{max}",
+                epoch, ctx.PartitionKeyRangeId, age, docs.Count, rc, readS, postS, cur, max)
             sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
         }
         ChangeFeedObserver.Create(log, ingest, init=init, dispose=dispose)
