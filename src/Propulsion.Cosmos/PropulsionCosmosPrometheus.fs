@@ -94,7 +94,7 @@ open Propulsion.CosmosStore.Log
 open Propulsion.Cosmos.Log
 #endif
 
-/// ILogEventSink which publishes to Prometheus
+/// ILogEventSink that publishes to Prometheus
 type LogSink(tags: string[] * string[]) =
 
     let (keys, values) = tags

@@ -82,8 +82,11 @@ module private Histogram =
 
 open Propulsion.Streams.Log
 
+/// ILogEventSink that publishes to Prometheus
 type LogSink(tags: string[] * string[], group: string) =
 
+    let (keys, values) = tags
+    do if (keys.Length <> values.Length) then invalidArg "tags" "Keys in tags should have the same number of values"
     
     let observeCats =    Gauge.create      tags "cats"            "Current categories"
     let observeStreams = Gauge.create      tags "streams"         "Current streams"
