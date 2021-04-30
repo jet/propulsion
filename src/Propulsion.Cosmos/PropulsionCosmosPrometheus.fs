@@ -1,11 +1,10 @@
-/// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
-/// It takes in an additional set of custom tags to annotate the metric we're publishing.
+// This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
+
 #if COSMOSSTORE
 namespace Propulsion.CosmosStore.Prometheus
 #else
 namespace Propulsion.Cosmos.Prometheus
 #endif
-
 
 [<AutoOpen>]
 module private Impl =
@@ -94,7 +93,8 @@ open Propulsion.CosmosStore.Log
 open Propulsion.Cosmos.Log
 #endif
 
-/// ILogEventSink that publishes to Prometheus
+/// <summary>An ILogEventSink that publishes to Prometheus</summary>
+/// <param name="customTags">An additional set of custom tags to annotate the metric we're publishing.</param>
 type LogSink(customTags: seq<string * string>) =
 
     let tags = Array.ofSeq customTags |> Array.unzip
