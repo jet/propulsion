@@ -245,13 +245,13 @@ type StreamsConsumerStats<'Outcome>(log : ILogger, statsInterval, stateInterval)
     let okStreams, failStreams = HashSet(), HashSet()
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-    override __.DumpStats() =
+    override _.DumpStats() =
         if okStreams.Count <> 0 && failStreams.Count <> 0 then
             log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
                 mb okBytes, okStreams.Count, okEvents, mb exnBytes, failStreams.Count, exnEvents)
         okStreams.Clear(); okEvents <- 0; okBytes <- 0L
 
-    override __.Handle message =
+    override this.Handle message =
         let inline adds x (set:HashSet<_>) = set.Add x |> ignore
         base.Handle message
         match message with
@@ -260,15 +260,14 @@ type StreamsConsumerStats<'Outcome>(log : ILogger, statsInterval, stateInterval)
             adds stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
-            __.HandleOk res
+            this.HandleOk res
         | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
             adds stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
-            __.HandleExn exn
-
+            this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
     abstract member HandleOk : outcome : 'Outcome -> unit
-    abstract member HandleExn : exn : exn -> unit
+    abstract member HandleExn : log : ILogger * exn : exn -> unit
 
 /// APIs only required for advanced scenarios (specifically the integration tests)
 /// APIs within are not part of the stable API and are subject to unlimited change

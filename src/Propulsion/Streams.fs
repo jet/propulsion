@@ -873,7 +873,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
     let okStreams, failStreams, badCats, resultOk, resultExnOther = HashSet(), HashSet(), CatStats(), ref 0, ref 0
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
-    override __.DumpStats() =
+    override _.DumpStats() =
         log.Information("Projected {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok)",
             mb okBytes, !resultOk, okStreams.Count, okEvents, !resultOk)
         okStreams.Clear(); resultOk := 0; okEvents <- 0; okBytes <- 0L
@@ -884,7 +884,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             log.Warning("Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
-    override __.Handle message =
+    override this.Handle message =
         let inline adds x (set : HashSet<_>) = set.Add x |> ignore
         let inline bads x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
         base.Handle message
@@ -895,13 +895,13 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             incr resultOk
-            __.HandleOk res
+            this.HandleOk res
         | Scheduling.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
             bads stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             incr resultExnOther
-            __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+            this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
     abstract member HandleOk : outcome : 'Outcome -> unit
     abstract member HandleExn : log : ILogger * exn : exn -> unit
 
@@ -1057,7 +1057,7 @@ module Sync =
             okStreams.Clear(); okEvents <- 0; okBytes <- 0L
             prepareStats.Dump log
 
-        override __.Handle message =
+        override this.Handle message =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
@@ -1067,12 +1067,12 @@ module Sync =
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
-                __.HandleOk outcome
+                this.HandleOk outcome
             | Scheduling.InternalMessage.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                __.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
+                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : outcome : 'Outcome -> unit
         abstract member HandleExn : log : ILogger * exn : exn -> unit
 
