@@ -10,6 +10,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `StreamsConsumerStats`: Deprecated [#110](https://github.com/jet/propulsion/pull/110)
+- `StreamsConsumerStats`: Standardized `HandleExn` signature and context [#110](https://github.com/jet/propulsion/pull/110)
+
 ### Removed
 ### Fixed
 
