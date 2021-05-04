@@ -117,9 +117,9 @@ module Helpers =
         { consumerId = consumerId; meta = d; payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
-        inherit Propulsion.Kafka.StreamsConsumerStats<unit>(log, statsInterval, stateInterval)
+        inherit Propulsion.Streams.Stats<unit>(log, statsInterval, stateInterval)
 
-        override _.HandleOk res = ()
+        override _.HandleOk(()) = ()
         override _.HandleExn(log, exn) = log.Information(exn, "Unhandled")
 
     let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {

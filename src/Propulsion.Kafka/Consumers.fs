@@ -239,7 +239,7 @@ type ParallelConsumer private () =
 
 type EventMetrics = Streams.EventMetrics
 
-[<AbstractClass>]
+[<AbstractClass; Obsolete("Deprecated; Please replace with usage of Propulsion.Streams.Stats")>]
 type StreamsConsumerStats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
     inherit Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>(log, statsInterval, stateInterval)
     let okStreams, failStreams = HashSet(), HashSet()
