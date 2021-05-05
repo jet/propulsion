@@ -27,7 +27,7 @@ type ChangeFeedObserverContext = { source : ContainerId; leasePrefix : string }
 /// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
 type ChangeFeedObserver =
     static member Create
-      ( /// Base logger context; will be decorated with a `partitionKeyRangeId` property when passed to `assign`, `init` and `ingest`
+      ( /// Base logger context; will be decorated with a `partitionId` property when passed to `assign`, `init` and `ingest`
         log : ILogger,
         /// Callback responsible for
         /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
@@ -45,24 +45,24 @@ type ChangeFeedObserver =
         ?dispose : unit -> unit) =
         let mutable log = log
         let _open (ctx : IChangeFeedObserverContext) = async {
-            log <- log.ForContext("partitionKeyRangeId",ctx.PartitionKeyRangeId)
+            log <- log.ForContext("partitionId",ctx.PartitionKeyRangeId)
             let rangeId = int ctx.PartitionKeyRangeId
             match init with
             | Some f -> f log rangeId
             | None ->  ()
             match assign with
             | Some f -> return! f log rangeId
-            | None -> log.Information("Range {partitionKeyRangeId} Assigned", ctx.PartitionKeyRangeId) }
+            | None -> log.Information("Reader {partitionId} Assigned", ctx.PartitionKeyRangeId) }
         let _process (ctx, docs) = async {
             try do! ingest log ctx docs
             with e ->
-                log.Error(e, "Range {partitionKeyRangeId} Handler Threw", ctx.PartitionKeyRangeId)
+                log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
                 do! Async.Raise e }
         let _close (ctx : IChangeFeedObserverContext, reason) = async {
             log.Warning "Closing" // Added to enable diagnosing underlying CFP issues; will be removed eventually
             match revoke with
             | Some f -> return! f log
-            | None -> log.Information("Range {partitionKeyRangeId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
+            | None -> log.Information("Reader {partitionId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
         { new IChangeFeedObserver with
             member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
             member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _

@@ -16,14 +16,14 @@ type ProgressWriter<'Res when 'Res : equality>(?period, ?sleep) =
     let mutable validatedPos = None
     let result = Event<Choice<'Res, exn>>()
 
-    [<CLIEvent>] member __.Result = result.Publish
+    [<CLIEvent>] member _.Result = result.Publish
 
-    member __.Post(version,f) =
+    member _.Post(version,f) =
         Volatile.Write(&validatedPos,Some (version, f))
 
-    member __.CommittedEpoch = Volatile.Read(&committedEpoch)
+    member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
-    member __.Pump = async {
+    member _.Pump = async {
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
             match Volatile.Read &validatedPos with
@@ -43,32 +43,33 @@ type private InternalMessage =
     /// Internal message for stats purposes
     | Added of streams : int * events : int
 
-type private Stats(log : ILogger, statsInterval : TimeSpan) =
+type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
     let progCommitFails, progCommits = ref 0, ref 0
     let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
     let statsDue = intervalCheck statsInterval
 
     let dumpStats (activeReads, maxReads) =
-        log.Information("Buffering Cycles {cycles} Ingested {batches} ({streams:n0}s {events:n0}e)", !cycles, !batchesPended, !streamsPended, !eventsPended)
+        log.Information("Reader {partitionId} Cycles {cycles} Ingested {batches} ({streams:n0}s {events:n0}e)",
+               partitionId, !cycles, !batchesPended, !streamsPended, !eventsPended)
         cycles := 0; batchesPended := 0; streamsPended := 0; eventsPended := 0
         if !progCommitFails <> 0 || !progCommits <> 0 then
             match committedEpoch with
             | None ->
-                log.Error("Uncommitted {activeReads}/{maxReads} @ {validated}; writing failing: {failures} failures ({commits} successful commits)",
-                        activeReads, maxReads, Option.toNullable validatedEpoch, !progCommitFails, !progCommits)
+                log.Error("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated}; writing failing: {failures} failures ({commits} successful commits)",
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, !progCommitFails, !progCommits)
             | Some committed when !progCommitFails <> 0 ->
-                log.Warning("Uncommitted {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits, {failures} failures)",
-                        activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits, !progCommitFails)
+                log.Warning("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits, {failures} failures)",
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits, !progCommitFails)
             | Some committed ->
-                log.Information("Uncommitted {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits)",
-                        activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits)
+                log.Information("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits)",
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits)
             progCommits := 0; progCommitFails := 0
         else
-            log.Information("Uncommitted {activeReads}/{maxReads} @ {validated} (committed: {committed})",
-                    activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch)
+            log.Information("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed})",
+                    partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch)
 
-    member __.Handle : InternalMessage -> unit = function
+    member _.Handle : InternalMessage -> unit = function
         | Validated epoch ->
             validatedEpoch <- Some epoch
         | ProgressResult (Choice1Of2 epoch) ->
@@ -81,7 +82,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
             streamsPended := !streamsPended + streams
             eventsPended := !eventsPended + events
 
-    member __.TryDump(readState) =
+    member _.TryDump(readState) =
         incr cycles
         let due = statsDue ()
         if due then dumpStats readState
@@ -91,7 +92,7 @@ type private Stats(log : ILogger, statsInterval : TimeSpan) =
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
 type Ingester<'Items, 'Batch> private
     (   stats : Stats, maxRead, sleepInterval : TimeSpan,
-        makeBatch : (unit -> unit) -> 'Items -> ('Batch * (int * int)),
+        makeBatch : (unit -> unit) -> 'Items -> 'Batch * (int * int),
         submit : 'Batch -> unit,
         cts : CancellationTokenSource) =
 
@@ -127,7 +128,7 @@ type Ingester<'Items, 'Batch> private
             stats.Handle x
             true
 
-    member private __.Pump() = async {
+    member private _.Pump() = async {
         let! ct = Async.CancellationToken
         use _ = progressWriter.Result.Subscribe(ProgressResult >> messages.Enqueue)
         let! _ = Async.StartChild(progressWriter.Pump)
@@ -141,10 +142,10 @@ type Ingester<'Items, 'Batch> private
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Item>(log, maxRead, makeBatch, submit, ?statsInterval, ?sleepInterval) =
+    static member Start<'Item>(log, partitionId, maxRead, makeBatch, submit, ?statsInterval, ?sleepInterval) =
         let maxWait, statsInterval = defaultArg sleepInterval (TimeSpan.FromMilliseconds 5.), defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let cts = new CancellationTokenSource()
-        let stats = Stats(log, statsInterval)
+        let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<_, _>(stats, maxRead, maxWait, makeBatch, submit, cts)
         Async.Start(instance.Pump(), cts.Token)
         instance
@@ -153,7 +154,7 @@ type Ingester<'Items, 'Batch> private
     /// Returns (reads in flight, maximum reads in flight)
     /// markCompleted will (if supplied) be triggered when the supplied batch has completed processing
     ///   (but prior to the calling of the checkpoint method, which will take place asynchronously)
-    member __.Submit(epoch, checkpoint, items, ?markCompleted) = async {
+    member _.Submit(epoch, checkpoint, items, ?markCompleted) = async {
         // If we've read it, feed it into the queue for unpacking
         incoming.Enqueue (epoch, checkpoint, items, markCompleted)
         // ... but we might hold off on yielding if we're at capacity
@@ -161,4 +162,4 @@ type Ingester<'Items, 'Batch> private
         return maxRead.State }
 
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
-    member __.Stop() = cts.Cancel()
+    member _.Stop() = cts.Cancel()
