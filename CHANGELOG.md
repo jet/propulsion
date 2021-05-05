@@ -10,6 +10,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `Cosmos`: Replace incomplete/inconsistent usage of `partitionKeyRangeId` and `"Range"` with `partitionId` and `"Reader"` in ChangeFeed ingestion path [#112](https://github.com/jet/propulsion/pull/112)
+- `Ingester`: Replace `"Uncommitted" with "Reader" and "Ahead"` terminology, and include `partitionId` in all messages [#112](https://github.com/jet/propulsion/pull/112)
+
 ### Removed
 
 - `Kafka.StreamsConsumerStats`: replaced by `Propulsion.Streams.Stats` [#111](https://github.com/jet/propulsion/pull/111)
@@ -24,8 +28,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `*.Prometheus.LogSink`: Generalized `app` tag to arbitrary custom tags as per Equinox [#287](https://github.com/jet/equinox/issues/287) [#109](https://github.com/jet/propulsion/pull/109) :pray: [@deviousasti](https://github.com/deviousasti)
 
 ### Changed
-
-- `Cosmos`: Add `partitionKeyRangeId` to ChangeFeed Read message
 
 <a name="2.10.0-rc8"></a>
 ## [2.10.0-rc8] - 2021-04-06
