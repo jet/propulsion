@@ -10,6 +10,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0-rc10"></a>
+## [2.10.0-rc10] - 2021-05-05
+
+### Changed
 
 - `Cosmos`: Replace incomplete/inconsistent usage of `partitionKeyRangeId` and `"Range"` with `partitionId` and `"Reader"` in ChangeFeed ingestion path [#112](https://github.com/jet/propulsion/pull/112)
 - `Ingester`: Replace `"Uncommitted" with "Reader" and "Ahead"` terminology, and include `partitionId` in all messages [#112](https://github.com/jet/propulsion/pull/112)
@@ -17,8 +24,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 
 - `Kafka.StreamsConsumerStats`: replaced by `Propulsion.Streams.Stats` [#111](https://github.com/jet/propulsion/pull/111)
-
-### Fixed
 
 <a name="2.10.0-rc9"></a>
 ## [2.10.0-rc9] - 2021-04-30
@@ -582,7 +587,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc9...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc10...HEAD
+[2.10.0-rc10]: https://github.com/jet/propulsion/compare/2.10.0-rc9...2.10.0-rc10
 [2.10.0-rc9]: https://github.com/jet/propulsion/compare/2.10.0-rc8...2.10.0-rc9
 [2.10.0-rc8]: https://github.com/jet/propulsion/compare/2.10.0-rc7...2.10.0-rc8
 [2.10.0-rc7]: https://github.com/jet/propulsion/compare/2.10.0-rc6...2.10.0-rc7
