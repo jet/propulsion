@@ -10,6 +10,11 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.0`
+- `Cosmos`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
+- `EventStore`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
+
 ### Removed
 ### Fixed
 
