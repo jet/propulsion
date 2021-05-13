@@ -10,13 +10,17 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.10.0"></a>
+## [2.10.0] - 2021-05-13
+
+### Changed
 
 - `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.0`
 - `Cosmos`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
 - `EventStore`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
-
-### Removed
-### Fixed
 
 <a name="2.10.0-rc10"></a>
 ## [2.10.0-rc10] - 2021-05-05
@@ -592,7 +596,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0-rc10...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0...HEAD
+[2.10.0]: https://github.com/jet/propulsion/compare/2.10.0-rc10...2.10.0
 [2.10.0-rc10]: https://github.com/jet/propulsion/compare/2.10.0-rc9...2.10.0-rc10
 [2.10.0-rc9]: https://github.com/jet/propulsion/compare/2.10.0-rc8...2.10.0-rc9
 [2.10.0-rc8]: https://github.com/jet/propulsion/compare/2.10.0-rc7...2.10.0-rc8
