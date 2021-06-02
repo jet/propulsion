@@ -1,42 +1,18 @@
 #if COSMOSSTORE
 namespace Propulsion.CosmosStore
 
-open System.IO
+open FSharp.Control
 open Microsoft.Azure.Cosmos
 open Serilog
 open System
 open System.Collections.Generic
 
 [<NoComparison>]
-type ChangeFeedObserverContext = { source : Container; leasePrefix : string }
+type ChangeFeedHandlerContext =
+    {   monitored : Container; leasePrefix : string; epoch : int64; timestamp : DateTime
+        partitionId : int; requestCharge : float }
 
-type IChangeFeedObserverContext(partitionKeyRangeId, checkpoint) =
-
-    member x.PartitionKeyRangeId = partitionKeyRangeId
-    member x.Checkpoint() : Async<unit> = checkpoint ()
-
-/// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
-type ChangeFeedObserver =
-    static member Create
-      ( /// Base logger context; will be decorated with a `partitionId` property when passed to `assign`, `init` and `ingest`
-        log : ILogger,
-        /// Callback responsible for
-        /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
-        /// - ceding control as soon as commencement of the next batch retrieval is desired
-        /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
-        /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
-        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Newtonsoft.Json.Linq.JObject> -> Async<unit>) =
-        let _process (ctx, docs) = async {
-            try do! ingest log ctx docs
-            with e ->
-                log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
-                do! Async.Raise e }
-        { new IChangeFeedObserver with
-            member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
-            member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _
-            member _.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
-
-//// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
+//// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
     static member Start
         (   log : ILogger, monitored : Container,
@@ -47,7 +23,12 @@ type ChangeFeedProcessor =
             leases : Container,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             leasePrefix : string,
-            createObserver : ChangeFeedObserverContext -> IChangeFeedObserver,
+            /// Callback responsible for
+            /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
+            /// - ceding control as soon as commencement of the next batch retrieval is desired
+            /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
+            /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
+            ingest : ChangeFeedHandlerContext -> (* tryCheckpointAsync :*) Async<Choice<unit, exn>> -> IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>,
             ?leaseOwnerId : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
             /// Specify `true` to request starting of projection from the present write position.
@@ -74,24 +55,37 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
-        log.Information("ChangeFeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+        log.Information("ChangeFeed {leasePrefix} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
+            leasePrefix, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
         let processorName =  leasePrefix + ":"
-        let builder =
-            let handler //: Container.ChangeFeedStreamHandlerWithManualCheckpoint
+        let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
+        let processor =
+            let handler // : Container.ChangeFeedHandlerWithManualCheckpoint
                     (context : ChangeFeedProcessorContext)
-                    (changes : Stream)
+                    (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
                     (tryCheckpointAsync : Func<System.Threading.Tasks.Task<struct (bool*exn)>>)
-                    _ct =
-                let t = context.LeaseToken
-                let parsed = monitored.Database.Client.ClientOptions.Serializer.FromStream<Newtonsoft.Json.Linq.JObject>(changes)
-                Unchecked.defaultof<_>
+                    _ct = async {
+                let checkpoint = async {
+                    match! tryCheckpointAsync.Invoke() |> Async.AwaitTaskCorrect with
+                    | true, _ -> return Choice1Of2 ()
+                    | false, ex -> return Choice2Of2 ex }
+                let unixEpoch = DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                let lastChange = Seq.last changes
+                try let ctx = { monitored = monitored; leasePrefix = leasePrefix
+                                epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
+                                timestamp = unixEpoch.AddSeconds(lastChange.Value<double>("_ts"))
+                                partitionId = leaseTokenToPartitionId context.LeaseToken
+                                requestCharge = context.Headers.RequestCharge }
+                    return! ingest ctx checkpoint changes
+                with e ->
+                    log.Error(e, "Reader {leasePrefix}/{partitionId} Handler Threw", leasePrefix, context.LeaseToken)
+                    do! Async.Raise e } |> Async.StartAsTask :> System.Threading.Tasks.Task
             monitored
-                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName, handler)
-                .WithPollInterval(feedPollDelay)
-                .WithLeaseConfiguration(acquireInterval=leaseAcquireInterval, expirationInterval=leaseTtl, renewInterval=leaseRenewInterval)
-                .WithInstanceName(leaseOwnerId)
+                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)
+                .WithPollInterval(feedPollDelay)
+                .WithLeaseConfiguration(acquireInterval=Nullable leaseAcquireInterval, expirationInterval=Nullable leaseTtl, renewInterval=Nullable leaseRenewInterval)
+                .WithInstanceName(leaseOwnerId)
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
                 |> fun b -> match maxDocuments with Some mi -> b.WithMaxItems(mi) | None -> b
@@ -99,14 +93,26 @@ type ChangeFeedProcessor =
         match reportLagAndAwaitNextEstimation with
         | None -> ()
         | Some lagMonitorCallback ->
-            let! estimator = monitored.GetChangeFeedEstimatorBuilder(processorName, estimationDelegate=fun () -> () ).BuildEstimatorAsync() |> Async.AwaitTaskCorrect
+            let estimator = monitored.GetChangeFeedEstimator(processorName, leases)
             let rec emitLagMetrics () = async {
-                let! remainingWork = estimator.GetEstimatedRemainingWorkPerPartitionAsync() |> Async.AwaitTaskCorrect
-                do! lagMonitorCallback <| List.ofSeq (seq { for r in remainingWork -> int (r.PartitionKeyRangeId.Trim[|'"'|]),r.RemainingWork } |> Seq.sortBy fst)
+                let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
+                    let rec loop () : AsyncSeq<'u> = asyncSeq {
+                        if not query.HasMoreResults then return None else
+                        let! ct = Async.CancellationToken
+                        let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
+                        for x in res do yield map x
+                        if query.HasMoreResults then
+                            yield! loop () }
+                    // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
+                    use __ = query // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                    loop ()
+                let! leasesState =
+                    estimator.GetCurrentStateIterator()
+                    |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
+                    |> AsyncSeq.toListAsync
+                do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
                 return! emitLagMetrics () }
             let! _ = Async.StartChild(emitLagMetrics ()) in ()
-        let context : ChangeFeedObserverContext = { source = monitored; leasePrefix = leasePrefix }
-        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (fun () -> createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
         do! processor.StartAsync() |> Async.AwaitTaskCorrect
         return processor }
 #else

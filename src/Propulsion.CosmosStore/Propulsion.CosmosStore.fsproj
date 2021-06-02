@@ -27,7 +27,6 @@
     <Compile Include="..\Propulsion.Cosmos\PropulsionCosmosPrometheus.fs">
       <Link>PropulsionCosmosPrometheus.fs</Link>
     </Compile>
-    <Compile Include="EquinoxCosmosShims.fs" />
     <Compile Include="..\Propulsion.Cosmos\ReaderCheckpoint.fs">
       <Link>ReaderCheckpoint.fs</Link>
     </Compile>
