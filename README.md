@@ -72,17 +72,17 @@ While Equinox focuses on the **Consistent Processing** element of building an ev
 
 The overall territory is laid out here in this [C4](https://c4model.com) System Context Diagram:
 
-![Propulsion c4model.com Context Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/diag/diagrams/context.puml&fmt=svg)
+![Propulsion c4model.com Context Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/context.puml&fmt=svg)
 
 <!-- ## [C4](https://c4model.com) Container diagram
 
 The relevant pieces of the above break down as follows, when we emphasize the [Containers](https://c4model.com) aspects relevant to Propulsion:
 
-![Propulsion c4model.com Container Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/diag/diagrams/container.puml&fmt=svg)
+![Propulsion c4model.com Container Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/container.puml&fmt=svg)
 
  -->
 
-**[See Overview section in `DOCUMENTATION`.md for further drill down](https://github.com/jet/propulsion/blob/diag/DOCUMENTATION.md#overview)**
+**[See Overview section in `DOCUMENTATION`.md for further drill down](https://github.com/jet/propulsion/blob/master/DOCUMENTATION.md#overview)**
 
 ## QuickStart
 
