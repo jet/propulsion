@@ -123,22 +123,20 @@ module CosmosStore =
     open Equinox.CosmosStore
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let private resolve (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let resolver = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        fun opt sn -> resolver.Resolve(sn, opt)
     let create log (context, cache) =
-        create log (resolve (context, cache))
+        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
+        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let resolveStream opt sn = cat.Resolve(sn, opt)
+        create log resolveStream
 #else
 module Cosmos =
 
     open Equinox.Cosmos
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let private resolve (context, cache) =
+    let create log (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let resolver = Resolver(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        fun opt sn -> resolver.Resolve(sn, opt)
-    let create log (context, cache) =
-        create log (resolve (context, cache))
+        let resolveStream opt sn = resolver.Resolve(sn, opt)
+        create log resolveStream
 #endif
