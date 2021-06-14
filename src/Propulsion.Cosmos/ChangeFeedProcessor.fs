@@ -8,12 +8,21 @@ open System
 open System.Collections.Generic
 
 [<NoComparison>]
-type ChangeFeedHandlerContext =
-    {   monitored : Container; leasePrefix : string; epoch : int64; timestamp : DateTime
-        partitionId : int; requestCharge : float }
+type ChangeFeedObserverContext = { source : Container; group : string; epoch : int64; timestamp : DateTime; rangeId : int; requestCharge : float }
+
+type IChangeFeedObserver =
+    inherit IDisposable
+
+    /// Callback responsible for
+    /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
+    /// - ceding control as soon as commencement of the next batch retrieval is desired
+    /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
+    /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
+
     static member Start
         (   log : ILogger, monitored : Container,
             /// The aux, non-partitioned container holding the partition leases.
@@ -22,13 +31,9 @@ type ChangeFeedProcessor =
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
             leases : Container,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
-            leasePrefix : string,
-            /// Callback responsible for
-            /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
-            /// - ceding control as soon as commencement of the next batch retrieval is desired
-            /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
-            /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
-            ingest : ChangeFeedHandlerContext -> (* tryCheckpointAsync :*) Async<Choice<unit, exn>> -> IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>,
+            processorName : string,
+            /// Observers to forward documents to
+            observer : IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
             /// Specify `true` to request starting of projection from the present write position.
@@ -55,9 +60,9 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
-        log.Information("ChangeFeed {leasePrefix} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            leasePrefix, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
-        let processorName =  leasePrefix + ":"
+        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
+            processorName, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+        let processorName_ =  processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =
             let handler // : Container.ChangeFeedHandlerWithManualCheckpoint
@@ -67,21 +72,21 @@ type ChangeFeedProcessor =
                     _ct = async {
                 let checkpoint = async {
                     match! tryCheckpointAsync.Invoke() |> Async.AwaitTaskCorrect with
-                    | true, _ -> return Choice1Of2 ()
-                    | false, ex -> return Choice2Of2 ex }
+                    | true, _ -> return ()
+                    | false, ex -> return! Async.Raise ex } 
                 let unixEpoch = DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
                 let lastChange = Seq.last changes
-                try let ctx = { monitored = monitored; leasePrefix = leasePrefix
+                try let ctx = { source = monitored; group = processorName
                                 epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
                                 timestamp = unixEpoch.AddSeconds(lastChange.Value<double>("_ts"))
-                                partitionId = leaseTokenToPartitionId context.LeaseToken
+                                rangeId = leaseTokenToPartitionId context.LeaseToken
                                 requestCharge = context.Headers.RequestCharge }
-                    return! ingest ctx checkpoint changes
+                    return! observer.Ingest(ctx, checkpoint, changes)
                 with e ->
-                    log.Error(e, "Reader {leasePrefix}/{partitionId} Handler Threw", leasePrefix, context.LeaseToken)
+                    log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
                     do! Async.Raise e } |> Async.StartAsTask :> System.Threading.Tasks.Task
             monitored
-                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName, Container.ChangeFeedHandlerWithManualCheckpoint handler)
+                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)
                 .WithPollInterval(feedPollDelay)
                 .WithLeaseConfiguration(acquireInterval=Nullable leaseAcquireInterval, expirationInterval=Nullable leaseTtl, renewInterval=Nullable leaseRenewInterval)
@@ -93,7 +98,7 @@ type ChangeFeedProcessor =
         match reportLagAndAwaitNextEstimation with
         | None -> ()
         | Some lagMonitorCallback ->
-            let estimator = monitored.GetChangeFeedEstimator(processorName, leases)
+            let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
             let rec emitLagMetrics () = async {
                 let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
                     let rec loop () : AsyncSeq<'u> = asyncSeq {
