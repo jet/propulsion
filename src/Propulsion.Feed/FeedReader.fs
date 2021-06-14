@@ -106,7 +106,7 @@ type FeedReader
 
     let submitPage (batch: Page<byte[]>) = async {
         let streamEvents : Propulsion.Streams.StreamEvent<_> seq =
-            if Array.isEmpty batch.items then
+            if batch.IsEmpty then
                 log.Debug("Empty page retrieved, nothing to submit")
                 stats.RecordEmptyPage(batch.isTail)
                 Seq.empty
