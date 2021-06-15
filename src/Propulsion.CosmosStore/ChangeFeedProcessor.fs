@@ -52,11 +52,11 @@ type ChangeFeedProcessor =
             /// callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation) = async {
 
-        let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
         let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
+        let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
         let leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.FromSeconds 1.)
-        let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
+        let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
