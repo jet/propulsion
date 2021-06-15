@@ -1,9 +1,9 @@
 // This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
 
-#if COSMOSSTORE
-namespace Propulsion.CosmosStore.Prometheus
-#else
+#if COSMOSV2
 namespace Propulsion.Cosmos.Prometheus
+#else
+namespace Propulsion.CosmosStore.Prometheus
 #endif
 
 [<AutoOpen>]
@@ -87,10 +87,10 @@ module private Histogram =
     let latency = create' latencyBuckets secondsStat latencyDesc
     let charge = create' ruBuckets rusStat chargeDesc
 
-#if COSMOSSTORE
-open Propulsion.CosmosStore.Log
-#else
+#if COSMOSV2
 open Propulsion.Cosmos.Log
+#else
+open Propulsion.CosmosStore.Log
 #endif
 
 /// <summary>An ILogEventSink that publishes to Prometheus</summary>

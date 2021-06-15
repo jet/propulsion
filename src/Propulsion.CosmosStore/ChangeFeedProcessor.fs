@@ -1,4 +1,4 @@
-namespace Propulsion.Cosmos
+namespace Propulsion.CosmosStore
 
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client

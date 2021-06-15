@@ -1,7 +1,7 @@
-﻿#if COSMOSSTORE
-namespace Propulsion.CosmosStore
-#else
+﻿#if COSMOSV2
 namespace Propulsion.Cosmos
+#else
+namespace Propulsion.CosmosStore
 #endif
 
 open System
