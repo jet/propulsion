@@ -17,7 +17,7 @@ open Propulsion.Streams
 #if COSMOSV2 
 module EquinoxCosmosParser =
 #else
-module EquinoxNewtonsoftParser =
+module EquinoxCosmosStoreParser =
 #endif
     type Document with
         member document.Cast<'T>() =
