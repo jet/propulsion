@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `CosmosStore`: Clean/reorg in preparation for porting to V3 SDK; target `Equinox.CosmosStore` v `3.0.1` [#114](https://github.com/jet/propulsion/pull/114)
+
 ### Removed
 ### Fixed
 
