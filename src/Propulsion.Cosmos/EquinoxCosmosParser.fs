@@ -1,31 +1,20 @@
-#if COSMOSSTORE
-namespace Propulsion.CosmosStore
-
-open Equinox.CosmosStore.Core
-#else
+#if COSMOSV2
 namespace Propulsion.Cosmos
 
 open Equinox.Cosmos.Store
+open Microsoft.Azure.Documents
+#else
+namespace Propulsion.CosmosStore
+
+open Equinox.CosmosStore.Core
 #endif
 
-open Microsoft.Azure.Documents
 open Propulsion.Streams
 
 /// Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams
 /// <remarks>NOTE No attempt is made to filter out Tip (`id=-1`) batches from the ChangeFeed; Equinox versions >= 3, Tip batches can bear events.</remarks>
 [<RequireQualifiedAccess>]
-#if COSMOSSTORE
-module EquinoxCosmosStoreParser =
-
-    type Newtonsoft.Json.Linq.JObject with
-        member document.Cast<'T>() =
-            document.ToObject<'T>()
-
-    /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
-    let isEquinoxBatch (d : Newtonsoft.Json.Linq.JObject) =
-        d.ContainsKey "p" && d.ContainsKey "i" && d.ContainsKey "n" && d.ContainsKey "e"
-
-#else
+#if COSMOSV2 
 module EquinoxCosmosParser =
 
     type Document with
@@ -38,6 +27,16 @@ module EquinoxCosmosParser =
     let isEquinoxBatch (d : Document) =
         d.GetPropertyValue "p" <> null && d.GetPropertyValue "i" <> null
         && d.GetPropertyValue "n" <> null && d.GetPropertyValue "e" <> null
+#else
+module EquinoxNewtonsoftParser =
+
+    type Newtonsoft.Json.Linq.JObject with
+        member document.Cast<'T>() =
+            document.ToObject<'T>()
+
+    /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
+    let isEquinoxBatch (d : Newtonsoft.Json.Linq.JObject) =
+        d.ContainsKey "p" && d.ContainsKey "i" && d.ContainsKey "n" && d.ContainsKey "e"
 #endif
 
     /// Enumerates the events represented within a batch
@@ -49,3 +48,4 @@ module EquinoxCosmosParser =
     let enumStreamEvents d : StreamEvent<byte[]> seq =
         if isEquinoxBatch d then d.Cast<Batch>() |> enumEquinoxCosmosEvents
         else Seq.empty
+

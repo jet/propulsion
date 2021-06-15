@@ -1,12 +1,12 @@
-﻿#if COSMOSSTORE
-namespace Propulsion.CosmosStore
-
-open Microsoft.Azure.Cosmos
-#else
+﻿#if COSMOSV2
 namespace Propulsion.Cosmos
 
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+#else
+namespace Propulsion.CosmosStore
+
+open Microsoft.Azure.Cosmos
 #endif
 
 open Equinox.Core // Stopwatch.Time
@@ -31,8 +31,8 @@ module Log =
 
     /// Attach a property to the captured event record to hold the metric information
     // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
-#if COSMOSSTORE
-    let [<Literal>] PropertyTag = "propulsionCosmosStoreEvent"
+#if COSMOSV2
+    let [<Literal>] PropertyTag = "propulsionCosmosEventV2"
 #else
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
 #endif
@@ -48,7 +48,33 @@ module Log =
         | true, SerilogScalar (:? Metric as e) -> Some e
         | _ -> None
 
-#if COSMOSSTORE
+#if COSMOSV2
+type CosmosSource =
+
+    static member CreateObserver<'Items,'Batch>
+        (   log : ILogger, context : ChangeFeedObserverContext,
+            createIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,
+            mapContent : IReadOnlyList<Microsoft.Azure.Documents.Document> -> 'Items) =
+        let mutable rangeIngester = Unchecked.defaultof<_>
+        let init rangeLog partitionId = rangeIngester <- createIngester (rangeLog, partitionId)
+        let dispose () = rangeIngester.Stop()
+        let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
+        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
+            sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
+            let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs.[docs.Count-1].Timestamp
+            let! pt, (cur,max) = rangeIngester.Submit(epoch, ctx.Checkpoint(), mapContent docs) |> Stopwatch.Time
+            let readS, postS, rc = float sw.ElapsedMilliseconds / 1000., (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
+            let m = Log.Metric.Read {
+                database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
+                token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
+                ingestLatency = pt.Elapsed; ingestQueued = cur }
+            (log |> Log.metric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
+                ctx.PartitionKeyRangeId, epoch, age, docs.Count, rc, readS, postS, cur, max)
+            sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
+        }
+        ChangeFeedObserver.Create(log, ingest, init=init, dispose=dispose)
+
+#else
 type CosmosStoreSource =
 
     static member private CreateTrancheObserver<'Items,'Batch>
@@ -95,42 +121,18 @@ type CosmosStoreSource =
             member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
           interface IDisposable with
             member _.Dispose() = dispose() }
-#else
-type CosmosSource =
-
-    static member CreateObserver<'Items,'Batch>
-        (   log : ILogger, context : ChangeFeedObserverContext,
-            createIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,
-            mapContent : IReadOnlyList<Microsoft.Azure.Documents.Document> -> 'Items) =
-        let mutable rangeIngester = Unchecked.defaultof<_>
-        let init rangeLog partitionId = rangeIngester <- createIngester (rangeLog, partitionId)
-        let dispose () = rangeIngester.Stop()
-        let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
-            sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
-            let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs.[docs.Count-1].Timestamp
-            let! pt, (cur,max) = rangeIngester.Submit(epoch, ctx.Checkpoint(), mapContent docs) |> Stopwatch.Time
-            let readS, postS, rc = float sw.ElapsedMilliseconds / 1000., (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
-            let m = Log.Metric.Read {
-                database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
-                token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
-                ingestLatency = pt.Elapsed; ingestQueued = cur }
-            (log |> Log.metric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
-                ctx.PartitionKeyRangeId, epoch, age, docs.Count, rc, readS, postS, cur, max)
-            sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
-        }
-        ChangeFeedObserver.Create(log, ingest, init=init, dispose=dispose)
 #endif
 
     static member Run
         (   log : ILogger,
-#if COSMOSSTORE
-            monitored : Container, leases : Container, processorName, observer,
-            startFromTail, ?maxDocuments, ?lagReportFreq : TimeSpan) = async {
-#else
+#if COSMOSV2
             client, source, aux, leaseId, startFromTail, createObserver,
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
-        let processorName = leaseId;
+        let databaseId, containerId, processorName = source.database, source.container, leaseId
+#else
+            monitored : Container, leases : Container, processorName, observer,
+            startFromTail, ?maxDocuments, ?lagReportFreq : TimeSpan) = async {
+        let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
             let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
@@ -138,11 +140,6 @@ type CosmosSource =
                 total := !total + lag
                 incr count
                 if lag = 0L then synced.Add partitionId else lagged.Add value
-#if COSMOSSTORE
-            let databaseId, containerId = monitored.Database.Id, monitored.Id
-#else
-            let databaseId, containerId = source.database, source.container
-#endif
             let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
             (log |> Log.metric m).Information("ChangeFeed Backlog {backlog:n0} / {count} Lagging {@lagging} Synced {@inSync}",
                 !total, !count, lagged, synced)
@@ -150,12 +147,13 @@ type CosmosSource =
         let maybeLogLag = lagReportFreq |> Option.map logLag
         let! _feedEventHost =
             ChangeFeedProcessor.Start
-#if COSMOSSTORE
-              ( log, monitored, leases, processorName, observer,
-                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
-#else
+#if COSMOSV2
               ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, startFromTail=startFromTail,
                 createObserver=createObserver, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
+#else
+              ( log, monitored, leases, processorName, observer,
+                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
 #endif
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
+
