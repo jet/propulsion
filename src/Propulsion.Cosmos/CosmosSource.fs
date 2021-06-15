@@ -76,8 +76,7 @@ type CosmosStoreSource =
 
     static member Run
         (   log : ILogger,
-            client, source,
-            aux, leaseId, startFromTail, createObserver,
+            client, source, aux, leaseId, startFromTail, createObserver,
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
         let databaseId, containerId, processorName = source.database, source.container, leaseId
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {

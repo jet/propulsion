@@ -39,8 +39,6 @@
     <PackageReference Include="Equinox.CosmosStore" Version="3.0.1" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.3.2" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.Core" Version="2.2.0" />
-	<PackageReference Include="Equinox.CosmosStore" Version="3.0.0" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.19.0-preview" />
   </ItemGroup>
 
   <ItemGroup>
