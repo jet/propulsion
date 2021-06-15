@@ -86,10 +86,10 @@ let decideUpdate at pos = function
             let config, checkpoint = mk at freq pos
             [Events.Checkpointed { config = config; pos = checkpoint }]
 
-#if COSMOSSTORE
-type Decider<'e, 's> = Equinox.Decider<'e, 's>
-#else
+#if COSMOSV2
 type Decider<'e, 's> = Equinox.Stream<'e, 's>
+#else
+type Decider<'e, 's> = Equinox.Decider<'e, 's>
 #endif
 
 type Service internal (resolve : SourceId * TrancheId -> Decider<Events.Event, Fold.State>) =
@@ -117,18 +117,7 @@ let private create log resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
     Service(resolve)
 
-#if COSMOSSTORE
-module CosmosStore =
-
-    open Equinox.CosmosStore
-
-    let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let create log (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        let resolveStream opt sn = cat.Resolve(sn, opt)
-        create log resolveStream
-#else
+#if COSMOSV2
 module Cosmos =
 
     open Equinox.Cosmos
@@ -138,5 +127,16 @@ module Cosmos =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let resolver = Resolver(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = resolver.Resolve(sn, opt)
+        create log resolveStream
+#else
+module CosmosStore =
+
+    open Equinox.CosmosStore
+
+    let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
+    let create log (context, cache) =
+        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
+        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let resolveStream opt sn = cat.Resolve(sn, opt)
         create log resolveStream
 #endif

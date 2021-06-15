@@ -1,7 +1,7 @@
-﻿#if COSMOSSTORE
-namespace Propulsion.CosmosStore
-#else
+﻿#if COSMOSV2
 namespace Propulsion.Cosmos
+#else
+namespace Propulsion.CosmosStore
 #endif
 
 open Equinox.Core // Stopwatch.Time
@@ -28,7 +28,11 @@ module Log =
 
     /// Attach a property to the captured event record to hold the metric information
     // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
+#if COSMOSV2
+    let [<Literal>] PropertyTag = "propulsionCosmosEventV2"
+#else
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
+#endif
     let internal metric (value : Metric) (log : ILogger) =
         let enrich (e : Serilog.Events.LogEvent) =
             e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
@@ -41,10 +45,10 @@ module Log =
         | true, SerilogScalar (:? Metric as e) -> Some e
         | _ -> None
 
-#if COSMOSSTORE
-type CosmosStoreSource =
-#else
+#if COSMOSV2
 type CosmosSource =
+#else
+type CosmosStoreSource =
 #endif
 
     static member CreateObserver<'Items,'Batch>
@@ -75,20 +79,22 @@ type CosmosSource =
             client, source,
             aux, leaseId, startFromTail, createObserver,
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
+        let databaseId, containerId, processorName = source.database, source.container, leaseId
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
             let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
             for partitionId, lag as value in remainingWork do
                 total := !total + lag
                 incr count
                 if lag = 0L then synced.Add partitionId else lagged.Add value
-            let m = Log.Metric.Lag { database = source.database; container = source.container; group = leaseId; rangeLags = remainingWork |> Array.ofList }
+            let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
             (log |> Log.metric m).Information("ChangeFeed Backlog {backlog:n0} / {count} Lagging {@lagging} Synced {@inSync}",
                 !total, !count, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
         let! _feedEventHost =
             ChangeFeedProcessor.Start
-              ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, startFromTail=startFromTail,
+              ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=processorName, startFromTail=startFromTail,
                 createObserver=createObserver, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
+
