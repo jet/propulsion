@@ -24,8 +24,8 @@ type ChangeFeedProcessor =
 
     static member Start
         (   log : ILogger, monitored : Container,
-            /// The aux, non-partitioned container holding the partition leases.
-            // Aux container should always read from the write region to keep the number of write conflicts to a minimum when the sdk
+            /// The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
+            // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
             leases : Container,

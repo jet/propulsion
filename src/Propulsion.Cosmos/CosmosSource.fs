@@ -148,12 +148,11 @@ type CosmosStoreSource =
         let! _feedEventHost =
             ChangeFeedProcessor.Start
 #if COSMOSV2
-              ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, startFromTail=startFromTail,
-                createObserver=createObserver, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
+              ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, createObserver=createObserver,
 #else
               ( log, monitored, leases, processorName, observer,
-                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
 #endif
+                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
 
