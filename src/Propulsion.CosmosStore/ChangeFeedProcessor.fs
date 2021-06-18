@@ -73,7 +73,7 @@ type ChangeFeedProcessor =
                     match! tryCheckpointAsync.Invoke() |> Async.AwaitTaskCorrect with
                     | true, _ -> return ()
                     | false, ex -> return! Async.Raise ex } 
-                let unixEpoch = DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc)
+                let unixEpoch = DateTime.UnixEpoch
                 let lastChange = Seq.last changes
                 try let ctx = { source = monitored; group = processorName
                                 epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
