@@ -5,6 +5,7 @@
     <WarningLevel>5</WarningLevel>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -34,6 +35,7 @@
     <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
 
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
+	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
     <PackageReference Include="Equinox.CosmosStore" Version="3.0.1" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.19.0-preview" />

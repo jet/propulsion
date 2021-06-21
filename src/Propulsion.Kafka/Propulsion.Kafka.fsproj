@@ -5,6 +5,7 @@
     <WarningLevel>5</WarningLevel>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -21,9 +22,9 @@
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
     <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
 
-	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
     <PackageReference Include="FSharp.Core" Version="3.1.2.5" Condition=" '$(TargetFramework)' == 'net461' " />
     <PackageReference Include="FSharp.Core" Version="4.3.4" Condition=" '$(TargetFramework)' != 'net461' " />
+	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
     <PackageReference Include="FsCodec.NewtonsoftJson" Version="2.0.0" />
     <PackageReference Include="FsKafka" Version="[1.5.0,1.6.0)" />
