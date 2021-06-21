@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Propulsion.Cosmos\Propulsion.Cosmos.fsproj" />
+    <ProjectReference Include="..\..\src\Propulsion.CosmosStore\Propulsion.CosmosStore.fsproj" />
     <ProjectReference Include="..\..\src\Propulsion.Kafka\Propulsion.Kafka.fsproj" />
   </ItemGroup>
 

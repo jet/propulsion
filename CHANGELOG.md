@@ -12,6 +12,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - `CosmosStore`: Clean/reorg in preparation for porting to V3 SDK; target `Equinox.CosmosStore` v `3.0.1` [#114](https://github.com/jet/propulsion/pull/114)
+- `CosmosStore`: Port from `Microsoft.Azure.Documents.ChangeFeedProcessor` (V2 CFP) to `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.19-preview1` [#113](https://github.com/jet/propulsion/pull/113)
 
 ### Removed
 ### Fixed

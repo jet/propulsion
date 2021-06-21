@@ -1,94 +1,39 @@
 namespace Propulsion.CosmosStore
 
-open Microsoft.Azure.Documents
-open Microsoft.Azure.Documents.Client
-open Microsoft.Azure.Documents.ChangeFeedProcessor
-open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+open FSharp.Control
+open Microsoft.Azure.Cosmos
 open Serilog
 open System
 open System.Collections.Generic
 
-[<AutoOpen>]
-module IChangeFeedObserverContextExtensions =
-    /// Provides F#-friendly wrapping for the `CheckpointAsync` function, which typically makes sense to pass around in `Async` form
-    type Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing.IChangeFeedObserverContext with
-        /// Triggers `CheckpointAsync()`; Mark the the full series up to and including this batch as having been confirmed consumed.
-        member __.Checkpoint() = async {
-            return! __.CheckpointAsync() |> Async.AwaitTaskCorrect }
+[<NoComparison>]
+type ChangeFeedObserverContext = { source : Container; group : string; epoch : int64; timestamp : DateTime; rangeId : int; requestCharge : float }
 
-type ContainerId = { database : string; container : string }
+type IChangeFeedObserver =
+    inherit IDisposable
 
-type ChangeFeedObserverContext = { source : ContainerId; leasePrefix : string }
+    /// Callback responsible for
+    /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
+    /// - ceding control as soon as commencement of the next batch retrieval is desired
+    /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
+    /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 
-/// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
-type ChangeFeedObserver =
-    static member Create
-      ( /// Base logger context; will be decorated with a `partitionId` property when passed to `assign`, `init` and `ingest`
-        log : ILogger,
-        /// Callback responsible for
-        /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
-        /// - ceding control as soon as commencement of the next batch retrieval is desired
-        /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
-        /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
-        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Async<unit>,
-        /// Called when this Observer is being created (triggered before `assign`)
-        ?init : ILogger -> int -> unit,
-        /// Called when a lease is won and the observer is being spun up (0 or more `ingest` calls will follow). Overriding inhibits default logging.
-        ?assign : ILogger -> int -> Async<unit>,
-        /// Called when a lease is revoked [and the observer is about to be `Dispose`d], overriding inhibits default logging.
-        ?revoke : ILogger -> Async<unit>,
-        /// Called when this Observer is being destroyed due to the revocation of a lease (triggered after `revoke`)
-        ?dispose : unit -> unit) =
-        let mutable log = log
-        let _open (ctx : IChangeFeedObserverContext) = async {
-            log <- log.ForContext("partitionId",ctx.PartitionKeyRangeId)
-            let rangeId = int ctx.PartitionKeyRangeId
-            match init with
-            | Some f -> f log rangeId
-            | None ->  ()
-            match assign with
-            | Some f -> return! f log rangeId
-            | None -> log.Information("Reader {partitionId} Assigned", ctx.PartitionKeyRangeId) }
-        let _process (ctx, docs) = async {
-            try do! ingest log ctx docs
-            with e ->
-                log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
-                do! Async.Raise e }
-        let _close (ctx : IChangeFeedObserverContext, reason) = async {
-            log.Warning "Closing" // Added to enable diagnosing underlying CFP issues; will be removed eventually
-            match revoke with
-            | Some f -> return! f log
-            | None -> log.Information("Reader {partitionId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
-        { new IChangeFeedObserver with
-            member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
-            member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _
-            member _.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
-          interface IDisposable with
-            member _.Dispose() =
-                log.Warning "Disposing" // Added to enable diagnosing correct Disposal; will be removed eventually
-                match dispose with
-                | Some f -> f ()
-                | None -> () }
-
-type ChangeFeedObserverFactory =
-    static member FromFunction (f : unit -> #IChangeFeedObserver) =
-        { new IChangeFeedObserverFactory with member _.CreateObserver () = f () :> _ }
-
-//// Wraps the [Azure CosmosDb ChangeFeedProcessor library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet)
+//// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
+
     static member Start
-        (   log : ILogger, client : DocumentClient, source : ContainerId,
-            /// The aux, non-partitioned container holding the partition leases.
-            // Aux container should always read from the write region to keep the number of write conflicts to a minimum when the sdk
+        (   log : ILogger, monitored : Container,
+            /// The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
+            // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
-            aux : ContainerId,
+            leases : Container,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
-            leasePrefix : string,
-            createObserver : ChangeFeedObserverContext -> IChangeFeedObserver,
+            processorName : string,
+            /// Observers to forward documents to
+            observer : IChangeFeedObserver,
             ?leaseOwnerId : string,
-            /// Used to specify an endpoint/account key for the aux container, where that varies from that of the source container. Default: use `client`
-            ?auxClient : DocumentClient,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
             /// Specify `true` to request starting of projection from the present write position.
             /// Default: false (projecting all events from start beforehand)
@@ -114,44 +59,64 @@ type ChangeFeedProcessor =
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
         let inline s (x : TimeSpan) = x.TotalSeconds
-        log.Information("ChangeFeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
-
-        let builder =
-            let feedProcessorOptions =
-                ChangeFeedProcessorOptions(
-                    StartFromBeginning=not (defaultArg startFromTail false),
-                    LeaseAcquireInterval=leaseAcquireInterval, LeaseExpirationInterval=leaseTtl, LeaseRenewInterval=leaseRenewInterval,
-                    FeedPollDelay=feedPollDelay,
-                    LeasePrefix=leasePrefix + ":")
-            // As of CFP 2.2.5, the default behavior does not afford any useful characteristics when the processing is erroring:-
-            // a) progress gets written regardless of whether the handler completes with an Exception or not
-            // b) no retries happen while the processing is online
-            // ... as a result the checkpointing logic is turned off.
-            // NB for lag reporting to work correctly, it is of course still important that the writing take place, and that it be written via the CFP lib
-            feedProcessorOptions.CheckpointFrequency.ExplicitCheckpoint <- true
-            // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
-            maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
-            let mkD cid (dc : DocumentClient) =
-                DocumentCollectionInfo(Uri=dc.ServiceEndpoint,ConnectionPolicy=dc.ConnectionPolicy,DatabaseName=cid.database,CollectionName=cid.container)
-            ChangeFeedProcessorBuilder()
-                .WithHostName(leaseOwnerId)
-                .WithFeedCollection(mkD source client)
-                .WithLeaseCollection(mkD aux (defaultArg auxClient client))
-                .WithFeedDocumentClient(client)
-                .WithLeaseDocumentClient(defaultArg auxClient client)
-                .WithProcessorOptions(feedProcessorOptions)
+        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
+            processorName, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+        let processorName_ =  processorName + ":"
+        let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
+        let processor =
+            let handler // : Container.ChangeFeedHandlerWithManualCheckpoint
+                    (context : ChangeFeedProcessorContext)
+                    (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
+                    (tryCheckpointAsync : Func<System.Threading.Tasks.Task<struct (bool*exn)>>)
+                    _ct = async {
+                let checkpoint = async {
+                    match! tryCheckpointAsync.Invoke() |> Async.AwaitTaskCorrect with
+                    | true, _ -> return ()
+                    | false, ex -> return! Async.Raise ex } 
+                let unixEpoch = DateTime.UnixEpoch
+                let lastChange = Seq.last changes
+                try let ctx = { source = monitored; group = processorName
+                                epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
+                                timestamp = unixEpoch.AddSeconds(lastChange.Value<double>("_ts"))
+                                rangeId = leaseTokenToPartitionId context.LeaseToken
+                                requestCharge = context.Headers.RequestCharge }
+                    return! observer.Ingest(ctx, checkpoint, changes)
+                with e ->
+                    log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
+                    do! Async.Raise e } |> Async.StartAsTask :> System.Threading.Tasks.Task
+            monitored
+                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
+                .WithLeaseContainer(leases)
+                .WithPollInterval(feedPollDelay)
+                .WithLeaseConfiguration(acquireInterval=Nullable leaseAcquireInterval, expirationInterval=Nullable leaseTtl, renewInterval=Nullable leaseRenewInterval)
+                .WithInstanceName(leaseOwnerId)
+                |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
+                // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
+                |> fun b -> match maxDocuments with Some mi -> b.WithMaxItems(mi) | None -> b
+                |> fun b -> b.Build()
         match reportLagAndAwaitNextEstimation with
         | None -> ()
         | Some lagMonitorCallback ->
-            let! estimator = builder.BuildEstimatorAsync() |> Async.AwaitTaskCorrect
+            let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
             let rec emitLagMetrics () = async {
-                let! remainingWork = estimator.GetEstimatedRemainingWorkPerPartitionAsync() |> Async.AwaitTaskCorrect
-                do! lagMonitorCallback <| List.ofSeq (seq { for r in remainingWork -> int (r.PartitionKeyRangeId.Trim[|'"'|]),r.RemainingWork } |> Seq.sortBy fst)
+                let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
+                    let rec loop () : AsyncSeq<'u> = asyncSeq {
+                        if not query.HasMoreResults then return None else
+                        let! ct = Async.CancellationToken
+                        let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
+                        for x in res do yield map x
+                        if query.HasMoreResults then
+                            yield! loop () }
+                    // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
+                    use __ = query // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                    loop ()
+                let! leasesState =
+                    estimator.GetCurrentStateIterator()
+                    |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
+                    |> AsyncSeq.toArrayAsync
+                do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
                 return! emitLagMetrics () }
             let! _ = Async.StartChild(emitLagMetrics ()) in ()
-        let context : ChangeFeedObserverContext = { source = source; leasePrefix = leasePrefix }
-        let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (fun () -> createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
         do! processor.StartAsync() |> Async.AwaitTaskCorrect
         return processor }
     static member private mkLeaseOwnerIdForProcess() =
