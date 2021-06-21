@@ -10,12 +10,16 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+### Removed
+### Fixed
+
+<a name="2.11.0-rc1"></a>
+## [2.11.0-rc1] - 2021-06-21
+
+### Changed
 
 - `CosmosStore`: Clean/reorg in preparation for porting to V3 SDK; target `Equinox.CosmosStore` v `3.0.1` [#114](https://github.com/jet/propulsion/pull/114)
 - `CosmosStore`: Port from `Microsoft.Azure.Documents.ChangeFeedProcessor` (V2 CFP) to `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.19-preview1` [#113](https://github.com/jet/propulsion/pull/113)
-
-### Removed
-### Fixed
 
 <a name="2.10.0"></a>
 ## [2.10.0] - 2021-05-13
@@ -600,7 +604,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.10.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0-rc1...HEAD
+[2.11.0-rc1]: https://github.com/jet/propulsion/compare/2.10.0...2.11.0-rc1
 [2.10.0]: https://github.com/jet/propulsion/compare/2.10.0-rc10...2.10.0
 [2.10.0-rc10]: https://github.com/jet/propulsion/compare/2.10.0-rc9...2.10.0-rc10
 [2.10.0-rc9]: https://github.com/jet/propulsion/compare/2.10.0-rc8...2.10.0-rc9
