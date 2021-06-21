@@ -113,7 +113,7 @@ type ChangeFeedProcessor =
                 let! leasesState =
                     estimator.GetCurrentStateIterator()
                     |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                    |> AsyncSeq.toListAsync
+                    |> AsyncSeq.toArrayAsync
                 do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
                 return! emitLagMetrics () }
             let! _ = Async.StartChild(emitLagMetrics ()) in ()
