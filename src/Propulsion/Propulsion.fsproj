@@ -5,6 +5,7 @@
     <WarningLevel>5</WarningLevel>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <DefineConstants Condition=" '$(TargetFramework)' == 'net461' ">NET461</DefineConstants>
   </PropertyGroup>

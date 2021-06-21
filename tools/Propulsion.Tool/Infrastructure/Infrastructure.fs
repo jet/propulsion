@@ -1,5 +1,5 @@
 ﻿[<AutoOpen>]
-module Propulsion.Tool.Infrastructure.Prelude
+module Propulsion.Tool.Infrastructure
 
 open System
 open System.Threading

@@ -2,14 +2,10 @@
 
 open Argu
 open Equinox.Core // Stopwatch.Time
-open FsKafka
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Serilog
 open Serilog.Events
-open Propulsion.Codec.NewtonsoftJson
 open Propulsion.Cosmos
-open Propulsion.Tool.Infrastructure
-open Propulsion.Streams
 open System
 open System.Collections.Generic
 open System.Diagnostics
@@ -208,13 +204,13 @@ let main argv =
                     match broker,topic with
                     | Some b,Some t ->
                         let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 100.)
-                        let cfg = KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
-                        let p = BatchedProducer.Create(log, cfg, t)
+                        let cfg = FsKafka.KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
+                        let p = FsKafka.BatchedProducer.Create(log, cfg, t)
                         Some p, (p :> IDisposable).Dispose
                     | _ -> None, id
                 let projectBatch (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
                     sw.Stop() // Stop the clock after CFP hands off to us
-                    let render (e: StreamEvent<_>) = RenderedSpan.ofStreamSpan e.stream { StreamSpan.index = e.event.Index; events=[| e.event |] }
+                    let render (e: Propulsion.Streams.StreamEvent<_>) = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan e.stream { index = e.event.Index; events=[| e.event |] }
                     let pt, events = (fun () -> docs |> Seq.collect EquinoxCosmosParser.enumStreamEvents |> Seq.map render |> Array.ofSeq) |> Stopwatch.Time
                     let! et = async {
                         match producer with

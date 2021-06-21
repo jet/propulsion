@@ -5,6 +5,7 @@
     <WarningLevel>5</WarningLevel>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
@@ -24,7 +25,8 @@
     <Compile Include="..\Propulsion.Cosmos\PropulsionCosmosPrometheus.fs">
       <Link>PropulsionCosmosPrometheus.fs</Link>
     </Compile>
-    <Compile Include="EquinoxCosmosShims.fs" />
+    <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.3.2" />
+    <PackageReference Include="Microsoft.Azure.DocumentDB.Core" Version="2.2.0" />
     <Compile Include="..\Propulsion.Cosmos\ReaderCheckpoint.fs">
       <Link>ReaderCheckpoint.fs</Link>
     </Compile>
@@ -35,6 +37,7 @@
     <PackageReference Include="MinVer" Version="2.2.0" PrivateAssets="All" />
 
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
+	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
     <PackageReference Include="Equinox.CosmosStore" Version="3.0.1" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.3.2" />
