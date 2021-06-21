@@ -189,7 +189,7 @@ let main argv =
             let monitored = args.MonitoredContainer(log)
             let leases = args.ConnectLeases(log)
             let group = pargs.GetResult ConsumerGroupName
-            pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("ChangeFeed Maximum Document Count {changeFeedMaxItems}", bs))
+            pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("ChangeFeed Max docs Count {changeFeedMaxItems}", bs))
             if pargs.Contains FromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
             let maybeLogLagInterval = pargs.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
