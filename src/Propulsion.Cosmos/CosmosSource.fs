@@ -134,7 +134,7 @@ type CosmosStoreSource =
             startFromTail, ?maxDocuments, ?lagReportFreq : TimeSpan) = async {
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
-        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed Lag stats interval {lagS:n0}s", s.TotalSeconds))
+        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed Lag stats interval {lagReportIntervalS:n0}s", s.TotalSeconds))
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
             let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
             for partitionId, gap as partitionAndGap in remainingWork do
@@ -142,7 +142,7 @@ type CosmosStoreSource =
                 incr count
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
             let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
-            (log |> Log.metric m).Information("ChangeFeed Lag Partitions {partitions} Gap {gapDocs:n0} {@laggingShards} Synced {@syncedShards}",
+            (log |> Log.metric m).Information("ChangeFeed Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
                 !count, !total, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
