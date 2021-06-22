@@ -69,11 +69,9 @@ type ChangeFeedProcessor =
                         (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
                         (checkpointAsync : Func<System.Threading.Tasks.Task>) = async {
                     let checkpoint = async { return! checkpointAsync.Invoke() |> Async.AwaitTaskCorrect }
-                    let unixEpoch = DateTime.UnixEpoch
-                    let lastChange = Seq.last changes
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
-                                    timestamp = unixEpoch.AddSeconds(lastChange.Value<double>("_ts"))
+                                    timestamp = changes |> Seq.last |> EquinoxNewtonsoftParser.timestamp
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
                         return! observer.Ingest(ctx, checkpoint, changes)
