@@ -177,6 +177,10 @@ let main argv =
         match args.GetSubCommand() with
         | Init iargs -> CosmosInit.aux log iargs |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
         | Project pargs ->
+            let group, startFromTail, maxDocuments = pargs.GetResult ConsumerGroupName, pargs.Contains FromTail, pargs.TryGetResult MaxDocuments
+            maxDocuments |> Option.iter (fun bs -> log.Information("ChangeFeed Max docs Count {changeFeedMaxItems}", bs))
+            if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
+            let maybeLogLagInterval = pargs.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
             let broker, topic, storeArgs =
                 match pargs.GetSubCommand() with
                 | Kafka kargs ->
@@ -188,10 +192,6 @@ let main argv =
             let args = Cosmos.Info storeArgs
             let monitored = args.MonitoredContainer(log)
             let leases = args.ConnectLeases(log)
-            let group = pargs.GetResult ConsumerGroupName
-            pargs.TryGetResult MaxDocuments |> Option.iter (fun bs -> log.Information("ChangeFeed Maximum Document Count {changeFeedMaxItems}", bs))
-            if pargs.Contains FromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
-            let maybeLogLagInterval = pargs.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
             let producer =
                 match broker, topic with
@@ -201,26 +201,21 @@ let main argv =
                     let p = FsKafka.KafkaProducer.Create(log, cfg, t)
                     Some p
                 | _ -> None
-            let render stream (span: Propulsion.Streams.StreamSpan<_>) =
-                Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span
-                |> Newtonsoft.Json.JsonConvert.SerializeObject
-            let handle (stream : FsCodec.StreamName, events : Propulsion.Streams.StreamSpan<_>) = async {
-                match producer with
-                | None -> ()
-                | Some producer ->
-                    let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, (render stream events)) in ()
-             }
             let sink =
                 let stats = Stats(log, TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5.)
                 let maxReadAhead, maxConcurrentStreams=2, 16
+                let handle (stream : FsCodec.StreamName, span : Propulsion.Streams.StreamSpan<_>) = async {
+                    match producer with
+                    | None -> ()
+                    | Some producer ->
+                        let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
+                        let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
                 Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
             let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
             use observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
             Propulsion.CosmosStore.CosmosStoreSource.Run
               ( log, monitored, leases, group, observer,
-                startFromTail = pargs.Contains FromTail,
-                ?maxDocuments = pargs.TryGetResult MaxDocuments,
-                ?lagReportFreq = maybeLogLagInterval) 
+                startFromTail = startFromTail, ?maxDocuments = maxDocuments, ?lagReportFreq = maybeLogLagInterval) 
             |> Async.RunSynchronously
         | _ -> failwith "Please specify a valid subcommand :- init or project"
         0

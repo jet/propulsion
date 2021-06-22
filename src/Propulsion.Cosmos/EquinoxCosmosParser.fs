@@ -34,6 +34,10 @@ module EquinoxNewtonsoftParser =
         member document.Cast<'T>() =
             document.ToObject<'T>()
 
+    let timestamp (doc : Newtonsoft.Json.Linq.JObject) =
+        let unixEpoch = System.DateTime.UnixEpoch
+        unixEpoch.AddSeconds(doc.Value<double>("_ts"))
+
     /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
     let isEquinoxBatch (d : Newtonsoft.Json.Linq.JObject) =
         d.ContainsKey "p" && d.ContainsKey "i" && d.ContainsKey "n" && d.ContainsKey "e"

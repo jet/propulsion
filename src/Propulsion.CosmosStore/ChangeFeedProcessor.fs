@@ -64,31 +64,26 @@ type ChangeFeedProcessor =
         let processorName_ =  processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =
-            let handler // : Container.ChangeFeedHandlerWithManualCheckpoint
-                    (context : ChangeFeedProcessorContext)
-                    (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
-                    (tryCheckpointAsync : Func<System.Threading.Tasks.Task<struct (bool*exn)>>)
-                    _ct = async {
-                let checkpoint = async {
-                    match! tryCheckpointAsync.Invoke() |> Async.AwaitTaskCorrect with
-                    | true, _ -> return ()
-                    | false, ex -> return! Async.Raise ex } 
-                let unixEpoch = DateTime.UnixEpoch
-                let lastChange = Seq.last changes
-                try let ctx = { source = monitored; group = processorName
-                                epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
-                                timestamp = unixEpoch.AddSeconds(lastChange.Value<double>("_ts"))
-                                rangeId = leaseTokenToPartitionId context.LeaseToken
-                                requestCharge = context.Headers.RequestCharge }
-                    return! observer.Ingest(ctx, checkpoint, changes)
-                with e ->
-                    log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
-                    do! Async.Raise e } |> Async.StartAsTask :> System.Threading.Tasks.Task
+            let handler =
+                let aux (context : ChangeFeedProcessorContext)
+                        (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
+                        (checkpointAsync : Func<System.Threading.Tasks.Task>) = async {
+                    let checkpoint = async { return! checkpointAsync.Invoke() |> Async.AwaitTaskCorrect }
+                    try let ctx = { source = monitored; group = processorName
+                                    epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
+                                    timestamp = changes |> Seq.last |> EquinoxNewtonsoftParser.timestamp
+                                    rangeId = leaseTokenToPartitionId context.LeaseToken
+                                    requestCharge = context.Headers.RequestCharge }
+                        return! observer.Ingest(ctx, checkpoint, changes)
+                    with e ->
+                        log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
+                        do! Async.Raise e }
+                fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> System.Threading.Tasks.Task
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)
                 .WithPollInterval(feedPollDelay)
-                .WithLeaseConfiguration(acquireInterval=Nullable leaseAcquireInterval, expirationInterval=Nullable leaseTtl, renewInterval=Nullable leaseRenewInterval)
+                .WithLeaseConfiguration(acquireInterval = Nullable leaseAcquireInterval, expirationInterval = Nullable leaseTtl, renewInterval = Nullable leaseRenewInterval)
                 .WithInstanceName(leaseOwnerId)
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
