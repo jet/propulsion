@@ -13,6 +13,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+<a name="2.11.0-rc2"></a>
+## [2.11.0-rc2] - 2021-06-22
+
+### Changed
+
+- `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.20-preview1` [#115](https://github.com/jet/propulsion/pull/115)
+
 <a name="2.11.0-rc1"></a>
 ## [2.11.0-rc1] - 2021-06-21
 
@@ -604,7 +611,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0-rc1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0-rc2...HEAD
+[2.11.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.11.0-rc2
 [2.11.0-rc1]: https://github.com/jet/propulsion/compare/2.10.0...2.11.0-rc1
 [2.10.0]: https://github.com/jet/propulsion/compare/2.10.0-rc10...2.10.0
 [2.10.0-rc10]: https://github.com/jet/propulsion/compare/2.10.0-rc9...2.10.0-rc10
