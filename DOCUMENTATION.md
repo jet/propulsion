@@ -64,18 +64,17 @@ It should be noted that the ChangeFeed is not special-cased by CosmosDB itself i
 
 As outlined above, the CosmosDB ChangeFeed's real world manifestation is as a continuous query per CosmosDB Container ("physical partition") _node_.
 
-For .NET, this is wrapped in a set of APIs presented within the `Microsoft.Azure.DocumentDB[.Core]` packages.
+For .NET, this is wrapped in a set of APIs presented within the `Microsoft.Azure.DocumentDB[.Core]` and/or `Microsoft.Azure.Cosmos` packages.
 
 A ChangeFeed _Processor_ consists of (per CosmosDB processor/range) the following elements:
-- a _host_ process running somewhere that will run the query and then do something with the results before marking off progress
+- a _host_ process running somewhere that will run the query and then do something with the results before marking off progress (the instances need to coordinate to distribute the consumption processing load fairly, typically via a Leases Container)
 - a continuous query across the set of documents that fall within the partition key range hosted by a given physical partition host
-- that progress then needs to be maintained durably in some form of checkpoint stores
+- that progress then needs to be maintained durably in some form of checkpoint stores (aka Leases Container), which by convention are maintained in an ancillary container alongside the source one, e.g. a given `container` will typically have a `container-aux` Leases Container sitting alongside it.
 
-The implementation in this repo uses [Microsoft's .NET `ChangeFeedProcessor` implementation: `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring.
+The `Propulsion.Cosmos` implementation in this repo uses [Microsoft's .NET `ChangeFeedProcessor` implementation: `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), which is a proven component used for diverse purposes including as the underlying substrate for various Azure Functions wiring.
+The `Propulsion.CosmosStore` in this repo uses the evoution of the [original `ChangeFeedProcessor` implementation: `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet), that is integrated into [OSS `Microsoft.Azure.Cosmos` impl](https://github.com/Azure/azure-cosmos-dotnet-v3). NOTE the necessary explicit checkpointing support was not exposed in the `Microsoft.Azure.Cosmos` package until version `3.21.0`.
 
-(It should be noted that the `Microsost.Azure.Cosmos` packages (aka the V3 SDK) combine both the Change Feed querying and the ChangeFeedProcessor logic into a single package - both Equinox and Propulsion will ultimately move to use the V4 SDKs, but right now neither the V3 nor V4 are ready -- there are feature gaps (e.g. CheckpointAsync and diagnostics) and bugs (more RU consumption without a benefit) which are currently being addressed on the Microsoft side)
-
-See the [PR that added the initial support for CosmosDb Projections](https://github.com/jet/equinox/pull/87) and [the QuickStart](https://github.com/jet/equinox/blob/master/README.md#quickstart) for instructions.
+See the [PR that added the initial support for CosmosDb Projections](https://github.com/jet/equinox/pull/87) and [the Equinox QuickStart](https://github.com/jet/equinox/blob/master/README.md#quickstart) for instructions.
 
 # `Propulsion.Kafka`
 

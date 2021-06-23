@@ -16,7 +16,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `2.6.0`.
   
-- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Microsoft.Azure.DocumentDB.Core`
+- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.Cosmos` v `3.20.0-preview`
   
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing currently only in `-preview` releases)
   2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.0`.
@@ -50,9 +50,9 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
       - `proReactor` template, which includes multiple sources and multiple processing modes
       - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
       - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
-      - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
+      - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosStoreSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
       - `feedConsumer`,`feedApi`: templates illustrating usage of `Propulsion.Feed`
-      - `proArchiver`, `proPruner`: templates illustrating usage of [hot/cold](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#hot-cold) and support for secondary fallback in `Equinox.CosmosStore`
+      - `proArchiver`, `proPruner`: templates illustrating usage of [hot/cold](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#hot-cold) support and support for secondary fallback in `Equinox.CosmosStore`
 
 - See [the `FsKafka` repo](https://github.com/jet/FsKafka) for `BatchedProducer` and `BatchedConsumer` implementations (together with the `KafkaConsumerConfig` and `KafkaProducerConfig` used in the Parallel and Streams wrappers in `Propulsion.Kafka`)
 

@@ -82,7 +82,7 @@ open Propulsion.Streams.Log
 
 /// <summary>An ILogEventSink that publishes to Prometheus</summary>
 /// <param name="customTags">Custom tags to annotate the metric we're publishing where such tag manipulation cannot better be achieved via the Prometheus scraper config.</param>
-/// <param name="group">ChangeFeedProcessor consumer group name.</param>
+/// <param name="group">ChangeFeedProcessor <c>processorName</c>.</param>
 type LogSink(customTags: seq<string * string>, group: string) =
 
     let tags = Array.ofSeq customTags |> Array.unzip
