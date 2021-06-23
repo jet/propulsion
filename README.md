@@ -42,15 +42,17 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
 - See [the `dotnet new` templates repo](https://github.com/jet/dotnet-templates) for examples using the packages herein:
 
     - [Propulsion-specific templates](https://github.com/jet/dotnet-templates#propulsion-related):
-      - `proProjector` template for `CosmosSource`+`StreamsProjector` logic consuming from a CosmosDb `ChangeFeedProcessor`.
+      - `proProjector` template for `CosmosStoreSource`+`StreamsProjector` logic consuming from a CosmosDb `ChangeFeedProcessor`.
       - `proProjector` template (in `--kafka` mode) for producer logic using `StreamsProducerSink` or `ParallelProducerSink`.
       - `proConsumer` template for example consumer logic using `ParallelConsumer` and `StreamsConsumer` etc.
-
+      
     - [Propulsion+Equinox templates](https://github.com/jet/dotnet-templates#producerreactor-templates-combining-usage-of-equinox-and-propulsion):
       - `proReactor` template, which includes multiple sources and multiple processing modes
-      - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.Cosmos` store
-      - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic
+      - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
+      - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
       - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
+      - `feedConsumer`,`feedApi`: templates illustrating usage of `Propulsion.Feed`
+      - `proArchiver`, `proPruner`: templates illustrating usage of [hot/cold](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#hot-cold) and support for secondary fallback in `Equinox.CosmosStore`
 
 - See [the `FsKafka` repo](https://github.com/jet/FsKafka) for `BatchedProducer` and `BatchedConsumer` implementations (together with the `KafkaConsumerConfig` and `KafkaProducerConfig` used in the Parallel and Streams wrappers in `Propulsion.Kafka`)
 
