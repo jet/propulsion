@@ -18,7 +18,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.20-preview1` [#115](https://github.com/jet/propulsion/pull/115)
+- `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.20-preview` [#115](https://github.com/jet/propulsion/pull/115)
 
 <a name="2.11.0-rc1"></a>
 ## [2.11.0-rc1] - 2021-06-21
@@ -35,7 +35,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.0`
 - `Cosmos`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
-- `EventStore`: Target `Equinox.Cosmos` v `[2.6.0,2.99.0]`
+- `EventStore`: Target `Equinox.EventStore` v `[2.6.0,2.99.0]`
 
 <a name="2.10.0-rc10"></a>
 ## [2.10.0-rc10] - 2021-05-05
