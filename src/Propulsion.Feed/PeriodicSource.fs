@@ -25,18 +25,21 @@ module private TimelineEvent =
         FsCodec.Core.TimelineEvent.Create(
             baseIndex + x.Index, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, x.IsUnfold, x.Context)
 
-/// Drives reading and checkpointing for a custom source. <br/>
-///   typically concluding in the termination of the entire processing pipeline in response to the Pump loop throwing. <br/>
-/// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read by the start of the traversal <br/>
-/// This ensures the Index of each event passed to the Sink is monotonically increasing
+/// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
+/// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
+///   in order to ensure that the Index of each event propagated to the Sink is monotonically increasing as required. <br/>
+/// Processing concludes if the `source` throws, which results in <c>Pump</c> loop propagating the underlying exception.
 type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// The <c>source AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
-        /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down of the source pipeline,
+        /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline,
         source : AsyncSeq<FsCodec.ITimelineEvent<byte[]> array>, pollInterval : TimeSpan,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+
+    // We could conceivably expose multi-tranche support; can't think of a use case at present
+    let readTranches () = async { return [| TrancheId.parse "0" |] }
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl _wasLast (_trancheId, position) = asyncSeq {
@@ -66,8 +69,6 @@ type PeriodicSource
             | lastItem -> lastItem, lastItem |> Array.last |> TimelineEvent.toCheckpointPosition
         yield { items = items; checkpoint = checkpoint; isTail = true } }
 
-    /// Drives the processing activity.
-    /// Propagates exceptions raised by <c>read</c>, in order to let such failures drive termination of the overall projector loop
+    /// Drives the continual loop of reading and checkpointing until the <c>source</c> reports a fault (by throwing).
     member _.Pump() =
-        let readTranches () = async { return [| TrancheId.parse "0" |] }
         base.Pump(readTranches, crawl)
