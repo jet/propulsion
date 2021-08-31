@@ -37,13 +37,13 @@ type PeriodicSource
         /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline,
         source : AsyncSeq<(FsCodec.StreamName * FsCodec.IEventData<byte[]>) array>, pollInterval : TimeSpan,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
 
     // We could conceivably expose multi-tranche support; can't think of a use case at present
     let readTranches () = async { return [| TrancheId.parse "0" |] }
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl _wasLast (_trancheId, position) = asyncSeq {
+    let crawl _wasLast (_trancheId, position) : AsyncSeq<Internal.Batch<_>> = asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + pollInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -69,13 +69,13 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield { Slice.items = items; checkpoint = position; isTail = false }
+                yield ({ items = items; checkpoint = position; isTail = false } : Internal.Batch<_> )
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
-            | finalItem -> finalItem, (Array.last finalItem).event |> TimelineEvent.toCheckpointPosition
-        yield { items = items; checkpoint = checkpoint; isTail = true } }
+            | finalItem -> finalItem, (Array.last finalItem).event |> Internal.TimelineEvent.toCheckpointPosition
+        yield ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
 
     /// Drives the continual loop of reading and checkpointing until the <c>source</c> reports a fault (by throwing).
     member _.Pump() =

@@ -1,24 +1,25 @@
-namespace Propulsion.Feed
+namespace Propulsion.Feed.Internal
 
 open FSharp.Control
+open Propulsion.Feed
 open System
 open Serilog
 
 [<NoComparison; NoEquality>]
-type Slice<'e> = { items : Propulsion.Streams.StreamEvent<'e>[]; checkpoint : Position; isTail : bool }
+type Batch<'e> = { items : Propulsion.Streams.StreamEvent<'e>[]; checkpoint : Position; isTail : bool }
+
+module internal TimelineEvent =
+
+    let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
 
 [<AutoOpen>]
 module private Impl =
 
-    module internal TimelineEvent =
-
-        let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
-
-    type Slice<'e> with
-        member page.IsEmpty = Array.isEmpty page.items
-        member page.Size = page.items.Length
-        member page.FirstPosition = page.items.[0].event.Index |> Position.parse
-        member page.LastPosition = (Array.last page.items).event |> TimelineEvent.toCheckpointPosition
+    type Batch<'e> with
+        member batch.IsEmpty = Array.isEmpty batch.items
+        member batch.Size = batch.items.Length
+        member batch.FirstPosition = batch.items.[0].event.Index |> Position.parse
+        member batch.LastPosition = (Array.last batch.items).event |> TimelineEvent.toCheckpointPosition
 
     type Stats(log : ILogger, statsInterval : TimeSpan) =
 
@@ -43,7 +44,7 @@ module private Impl =
             recentPagesRead <- 0
             recentPagesEmpty <- 0
 
-        member _.RecordBatch(batch: Slice<_>) =
+        member _.RecordBatch(batch: Batch<_>) =
             batchLastPosition <- batch.LastPosition
             batchCaughtUp <- batch.isTail
 
@@ -77,7 +78,7 @@ type FeedReader
         crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            -> AsyncSeq<Slice<byte[]>>,
+            -> AsyncSeq<Batch<byte[]>>,
         /// Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         /// Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         /// In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
@@ -109,7 +110,7 @@ type FeedReader
             log.Warning(exc, "Exception while committing position {position}", position)
             return! Async.Raise exc }
 
-    let submitPage (batch: Slice<byte[]>) = async {
+    let submitPage (batch: Batch<byte[]>) = async {
         let streamEvents : Propulsion.Streams.StreamEvent<_> seq =
             if batch.IsEmpty then
                 log.Debug("Empty page retrieved, nothing to submit")
@@ -131,7 +132,7 @@ type FeedReader
         let mutable currentPos, lastWasTail = initialPosition, false
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
-            for page in crawl (lastWasTail, currentPos) do
-                do! submitPage page
-                currentPos <- page.checkpoint
-                lastWasTail <- page.isTail }
+            for batch in crawl (lastWasTail, currentPos) do
+                do! submitPage batch
+                currentPos <- batch.checkpoint
+                lastWasTail <- batch.isTail }

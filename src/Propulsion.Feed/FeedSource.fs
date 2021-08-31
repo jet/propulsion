@@ -1,7 +1,8 @@
-namespace Propulsion.Feed
+namespace Propulsion.Feed.Internal
 
 open FSharp.Control
 open Propulsion
+open Propulsion.Feed
 open Propulsion.Streams
 open System
 
@@ -31,7 +32,7 @@ type FeedSourceBase internal
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<Slice<byte[]>>) = async {
+            crawl : TrancheId -> bool * Position -> AsyncSeq<Internal.Batch<byte[]>>) = async {
         try let! tranches = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
             let crawl trancheId (wasLast, pos) = asyncSeq {
@@ -40,6 +41,13 @@ type FeedSourceBase internal
         with e ->
             log.Warning(e, "Exception encountered while running source, exiting loop")
             return! Async.Raise e }
+
+namespace Propulsion.Feed
+
+open FSharp.Control
+open Propulsion
+open Propulsion.Streams
+open System
 
 [<NoComparison; NoEquality>]
 type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; isTail : bool }
@@ -54,7 +62,7 @@ type FeedSource
         /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position -> Async<Page<byte[]>>,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
 
     let crawl trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
@@ -63,7 +71,7 @@ type FeedSource
                 do! Async.Sleep tailSleepInterval
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> { stream = streamName; event = x })
-            let slice : Slice<_> = { items = items'; checkpoint = page.checkpoint; isTail = page.isTail }
+            let slice : Internal.Batch<_> = { items = items'; checkpoint = page.checkpoint; isTail = page.isTail }
             yield slice
         }
 
