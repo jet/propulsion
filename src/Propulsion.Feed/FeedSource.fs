@@ -5,7 +5,7 @@ open Propulsion
 open Propulsion.Streams
 open System
 
-/// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed. <br/>
+/// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
@@ -27,9 +27,7 @@ type FeedSourceBase internal
             return! Async.Raise e
     }
 
-    /// Drives the processing activity.
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
-    ///   in order to enable triggering termination of the overall projector loop
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
@@ -43,10 +41,9 @@ type FeedSourceBase internal
             log.Warning(e, "Exception encountered while running source, exiting loop")
             return! Async.Raise e }
 
-/// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed. <br/>
-/// The <c>readTranches</c> and <c>readPage</c> callbacks are expected to manage their own resilience strategies (retries etc). <br/>
-/// Yielding an exception from either will result in the tearing down of the source pipeline,
-///   which typically concludes in the termination of the entire processing pipeline.
+/// Drives reading and checkpointing for a set of change feeds (tranches) of a custom data source that can represent their
+///   content as an append-only data source with a change feed wherein each <c>FsCodec.ITimelineEvent</c> has a monotonically increasing <c>Index</c>. <br/>
+/// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
@@ -63,8 +60,8 @@ type FeedSource
         yield page
     }
 
-    /// Drives the processing activity.
-    /// Propagates exceptions raised by <c>readTranches</c> or <c>readPage</c>,
-    ///   in order to let trigger termination of the overall projector loop
+    /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
+    /// The <c>readTranches</c> and <c>readPage</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
+    /// Any exception from <c>readTranches</c> or <c>readPage</c> will be propagated in order to enable termination of the overall projector loop
     member _.Pump(readTranches : unit -> Async<TrancheId[]>) =
         base.Pump(readTranches, crawl)

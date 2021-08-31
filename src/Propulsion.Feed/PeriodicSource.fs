@@ -28,7 +28,7 @@ module private TimelineEvent =
 /// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
 /// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
 ///   in order to ensure that the Index of each event propagated to the Sink is monotonically increasing as required. <br/>
-/// Processing concludes if the `source` throws, which results in <c>Pump</c> loop propagating the underlying exception.
+/// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
