@@ -10,6 +10,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
+- `PeriodicSource`: Enables periodic traversal of a source where the source does not present an incrementally readable change feed [#117](https://github.com/jet/propulsion/pull/117)
 - `Pipeline`: Added `AwaitWithStopOnCancellation` [#118](https://github.com/jet/propulsion/pull/118)
 
 ### Changed

@@ -25,6 +25,10 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   
 - `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `2.6.0`, `Serilog`
 - `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.Cosmos` or `Propulsion.CosmosStore`)
+
+  1. `FeedSource`: Handles continual reading and checkpointing of events from a set ('tranches') of feeds (collectively, a 'source') that a given source can provide a list of (`readTranches` is expected to yield a `TrancheId` list; the Source starts a logical reader thread per Tranche). Each Tranche is required to be able to represent its content as an incrementally retrievable change feed with a monotonically increasing `Index` per `FsCodec.ITimelineEvent` read from a given tranche.
+  2. `PeriodicSource`: Handles regular crawling of an external datasource (such as a SQL database) where there is no way (based on either the properties of the data, or of the store itself) to identify the changes since a given checkpoint. The source is expected to represent its content as an `AsyncSeq` of `FsCodec.ITimelineEvents`. Checkpointing occurs only when all events have been completely ingested by the Sink.   
+
 - `Propulsion.Kafka` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Kafka.svg)](https://www.nuget.org/packages/Propulsion.Kafka/) Provides bindings for producing and consuming both streamwise and in parallel. Includes a standard codec for use with streamwise projection and consumption, `Propulsion.Kafka.Codec.NewtonsoftJson.RenderedSpan`. [Depends](https://www.fuget.org/packages/Propulsion.Kafka) on `FsKafka` v `1.7.0`-`1.9.99`, `Serilog`
 - `Propulsion.SqlStreamStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.SqlStreamStore.svg)](https://www.nuget.org/packages/Propulsion.SqlStreamStore/). Provides bindings to [SqlStreamStore](https://github.com/SQLStreamStore/SQLStreamStore), maintaining checkpoints in a SQL table using Dapper [Depends](https://www.fuget.org/packages/Propulsion.SqlStreamStore) on `SqlStreamStore`, `Dapper` v `2.0`, `Microsoft.Data.SqlClient` v `1.1.3`, `Serilog`
 
@@ -50,7 +54,8 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
       - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
       - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
       - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosStoreSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
-      - `feedConsumer`,`feedApi`: templates illustrating usage of `Propulsion.Feed`
+      - `feedConsumer`,`feedApi`: templates illustrating usage of `Propulsion.Feed.FeedSource`
+      - `periodicIngester`: template illustrating usage of `Propulsion.Feed.PeriodicSource`
       - `proArchiver`, `proPruner`: templates illustrating usage of [hot/cold](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#hot-cold) support and support for secondary fallback in `Equinox.CosmosStore`
 
 - See [the `FsKafka` repo](https://github.com/jet/FsKafka) for `BatchedProducer` and `BatchedConsumer` implementations (together with the `KafkaConsumerConfig` and `KafkaProducerConfig` used in the Parallel and Streams wrappers in `Propulsion.Kafka`)
