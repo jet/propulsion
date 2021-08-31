@@ -1,5 +1,6 @@
 namespace Propulsion.Feed
 
+open FSharp.Control
 open System
 open Serilog
 
@@ -9,11 +10,15 @@ type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; i
 [<AutoOpen>]
 module private Impl =
 
+    module internal TimelineEvent =
+
+        let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
+
     type Page<'e> with
         member page.IsEmpty = Array.isEmpty page.items
         member page.Size = page.items.Length
         member page.FirstPosition = page.items.[0].Index |> Position.parse
-        member page.LastPosition = (Array.last page.items).Index + 1L |> Position.parse
+        member page.LastPosition = page.items |> Array.last |> TimelineEvent.toCheckpointPosition
 
     type Stats(log : ILogger, statsInterval : TimeSpan) =
 
@@ -66,18 +71,19 @@ module private Impl =
 
 type FeedReader
     (   log : ILogger, sourceId, trancheId, statsInterval : TimeSpan,
-        /// Read a page from source. Responsible for managing exceptions, retries and backoff.
+        /// Walk all content in the source. Responsible for managing exceptions, retries and backoff.
+        /// Implementation is expected to inject an appropriate sleep based on the supplied `Position`
         /// Processing loop will abort if an exception is yielded
-        readPage :
+        crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            -> Async<Page<byte[]>>,
+            -> AsyncSeq<Page<byte[]>>,
         /// Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         /// Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         /// In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         ///   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
         submitBatch :
-            int64 // tag used to identify batch in logging
+            int64 // unique tag used to identify batch in internal logging
             * Async<unit> // commit callback. Internal checkpointing dictates when it will be called.
             * seq<Propulsion.Streams.StreamEvent<byte[]>>
             // Yields (current batches pending,max readAhead) for logging purposes
@@ -115,7 +121,7 @@ type FeedReader
                     batch.Size, batch.FirstPosition, batch.LastPosition)
                 stats.RecordBatch(batch)
                 seq { for x in batch.items -> { stream = streamName; event = x } }
-        let! cur, max = submitBatch (int64 batch.checkpoint, commit batch.checkpoint, streamEvents)
+        let! cur, max = submitBatch (int64 batch.FirstPosition, commit batch.checkpoint, streamEvents)
         stats.UpdateCurMax(cur, max) }
 
     member _.Pump(initialPosition : Position) = async {
@@ -126,7 +132,7 @@ type FeedReader
         let mutable currentPos, lastWasTail = initialPosition, false
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
-            let! page = readPage (lastWasTail, currentPos)
-            do! submitPage page
-            currentPos <- page.checkpoint
-            lastWasTail <- page.isTail }
+            for page in crawl (lastWasTail, currentPos) do
+                do! submitPage page
+                currentPos <- page.checkpoint
+                lastWasTail <- page.isTail }
