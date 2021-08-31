@@ -5,7 +5,7 @@ open System
 open Serilog
 
 [<NoComparison; NoEquality>]
-type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; isTail : bool }
+type Slice<'e> = { items : Propulsion.Streams.StreamEvent<'e>[]; checkpoint : Position; isTail : bool }
 
 [<AutoOpen>]
 module private Impl =
@@ -14,11 +14,11 @@ module private Impl =
 
         let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
 
-    type Page<'e> with
+    type Slice<'e> with
         member page.IsEmpty = Array.isEmpty page.items
         member page.Size = page.items.Length
-        member page.FirstPosition = page.items.[0].Index |> Position.parse
-        member page.LastPosition = page.items |> Array.last |> TimelineEvent.toCheckpointPosition
+        member page.FirstPosition = page.items.[0].event.Index |> Position.parse
+        member page.LastPosition = (Array.last page.items).event |> TimelineEvent.toCheckpointPosition
 
     type Stats(log : ILogger, statsInterval : TimeSpan) =
 
@@ -43,7 +43,7 @@ module private Impl =
             recentPagesRead <- 0
             recentPagesEmpty <- 0
 
-        member _.RecordBatch(batch: Page<_>) =
+        member _.RecordBatch(batch: Slice<_>) =
             batchLastPosition <- batch.LastPosition
             batchCaughtUp <- batch.isTail
 
@@ -77,7 +77,7 @@ type FeedReader
         crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            -> AsyncSeq<Page<byte[]>>,
+            -> AsyncSeq<Slice<byte[]>>,
         /// Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         /// Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         /// In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
@@ -99,7 +99,6 @@ type FeedReader
             -> Async<unit>) =
 
     let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
-    let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
     let stats = Stats(log, statsInterval)
 
     let commit position = async {
@@ -110,7 +109,7 @@ type FeedReader
             log.Warning(exc, "Exception while committing position {position}", position)
             return! Async.Raise exc }
 
-    let submitPage (batch: Page<byte[]>) = async {
+    let submitPage (batch: Slice<byte[]>) = async {
         let streamEvents : Propulsion.Streams.StreamEvent<_> seq =
             if batch.IsEmpty then
                 log.Debug("Empty page retrieved, nothing to submit")
@@ -120,7 +119,7 @@ type FeedReader
                 log.Debug("Submitting a batch of {batchSize} events, position {firstPosition} through {lastPosition}",
                     batch.Size, batch.FirstPosition, batch.LastPosition)
                 stats.RecordBatch(batch)
-                seq { for x in batch.items -> { stream = streamName; event = x } }
+                Seq.ofArray batch.items
         let! cur, max = submitBatch (int64 batch.FirstPosition, commit batch.checkpoint, streamEvents)
         stats.UpdateCurMax(cur, max) }
 

@@ -20,10 +20,11 @@ module private DateTimeOffsetPosition =
 
 module private TimelineEvent =
 
-    let offsetBy<'t> (pos : Position) (x : FsCodec.ITimelineEvent<'t>) =
-        let baseIndex = Position.toInt64 pos
-        FsCodec.Core.TimelineEvent.Create(
-            baseIndex + x.Index, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, x.IsUnfold, x.Context)
+    let ofBasePositionIndexAndEventData<'t> (basePosition : Position) =
+        let baseIndex = Position.toInt64 basePosition
+        fun (i, x : FsCodec.IEventData<_>) ->
+            FsCodec.Core.TimelineEvent.Create(
+                baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true)
 
 /// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
 /// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
@@ -34,7 +35,7 @@ type PeriodicSource
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// The <c>source AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline,
-        source : AsyncSeq<FsCodec.ITimelineEvent<byte[]> array>, pollInterval : TimeSpan,
+        source : AsyncSeq<(FsCodec.StreamName * FsCodec.IEventData<byte[]>) array>, pollInterval : TimeSpan,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
 
@@ -50,23 +51,30 @@ type PeriodicSource
         | _ -> ()
 
         let basePosition = DateTimeOffset.UtcNow |> DateTimeOffsetPosition.ofDateTimeOffset
-        let offsetFromStartTimestamp = TimelineEvent.offsetBy basePosition
+        let mkTimelineEvent = TimelineEvent.ofBasePositionIndexAndEventData basePosition
         // wrap the source AsyncSeq, holding back one an item to go into a final
         // guaranteed (assuming the source contains at least one item, that is) non-empty batch
-        let mutable buffer = ResizeArray()
+        let buffer = ResizeArray()
+        let mutable index = 0L
         for xs in source do
-            buffer.AddRange(Seq.map offsetFromStartTimestamp xs)
+            let streamEvents = seq {
+                for sn, eventData in xs ->
+                    let i = index
+                    index <- index + 1L
+                    { StreamEvent.stream = sn; event = mkTimelineEvent (i, eventData) }
+            }
+            buffer.AddRange(streamEvents)
             match buffer.Count - 1 with
             | ready when ready > 0 ->
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield { items = items; checkpoint = position; isTail = false }
+                yield { Slice.items = items; checkpoint = position; isTail = false }
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
-            | lastItem -> lastItem, lastItem |> Array.last |> TimelineEvent.toCheckpointPosition
+            | finalItem -> finalItem, (Array.last finalItem).event |> TimelineEvent.toCheckpointPosition
         yield { items = items; checkpoint = checkpoint; isTail = true } }
 
     /// Drives the continual loop of reading and checkpointing until the <c>source</c> reports a fault (by throwing).
