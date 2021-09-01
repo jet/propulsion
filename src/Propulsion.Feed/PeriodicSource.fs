@@ -22,9 +22,9 @@ module private TimelineEvent =
 
     let ofBasePositionIndexAndEventData<'t> (basePosition : Position) =
         let baseIndex = Position.toInt64 basePosition
-        fun (i, x : FsCodec.IEventData<_>) ->
+        fun (i, x : FsCodec.IEventData<_>, context : obj) ->
             FsCodec.Core.TimelineEvent.Create(
-                baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true)
+                baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 
 /// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
 /// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
@@ -34,8 +34,8 @@ type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// The <c>source AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
-        /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline,
-        source : AsyncSeq<(FsCodec.StreamName * FsCodec.IEventData<byte[]>) array>, pollInterval : TimeSpan,
+        /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
+        source : AsyncSeq<(FsCodec.StreamName * FsCodec.IEventData<byte[]> * obj) array>, pollInterval : TimeSpan,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
 
@@ -58,10 +58,10 @@ type PeriodicSource
         let mutable index = 0L
         for xs in source do
             let streamEvents = seq {
-                for sn, eventData in xs ->
+                for sn, eventData, context in xs ->
                     let i = index
                     index <- index + 1L
-                    { StreamEvent.stream = sn; event = mkTimelineEvent (i, eventData) }
+                    { StreamEvent.stream = sn; event = mkTimelineEvent (i, eventData, context) }
             }
             buffer.AddRange(streamEvents)
             match buffer.Count - 1 with
