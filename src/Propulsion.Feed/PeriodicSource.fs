@@ -84,6 +84,6 @@ type PeriodicSource
             | finalItem -> finalItem, (Array.last finalItem).event |> Internal.TimelineEvent.toCheckpointPosition
         yield ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
 
-    /// Drives the continual loop of reading and checkpointing until the <c>source</c> reports a fault (by throwing).
+    /// Drives the continual loop of reading and checkpointing until the <c>crawl</c> <c>AsyncSeq</c> reports a fault (by throwing).
     member _.Pump() =
         base.Pump(readTranches, crawl)
