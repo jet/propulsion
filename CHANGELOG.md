@@ -13,6 +13,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 ### Fixed
 
+- Fix CI to stop emitting builds with incorrect `AssemblyVersion 1.0.0.0` (updated MinVer to `2.5.0`)
+- Update global.json to use SDK version `5.0.200`
+
 <a name="2.11.0-rc2"></a>
 ## [2.11.0-rc2] - 2021-06-22
 
