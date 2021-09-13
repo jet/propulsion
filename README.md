@@ -16,9 +16,9 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `2.6.0`.
   
-- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.Cosmos` v `3.20.0-preview`
+- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore`, `Microsoft.Azure.Cosmos` v `3.21.0`
   
-  1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing currently only in `-preview` releases)
+  1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
   2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.0`.
   3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.0`.
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `3.0.0`.
