@@ -54,7 +54,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
       - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
       - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
       - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosStoreSource` or `EventStoreSource` to a `CosmosSink` or `EventStoreSink`
-      - `feedConsumer`,`feedApi`: templates illustrating usage of `Propulsion.Feed.FeedSource`
+      - `feedConsumer`,`feedSource`: templates illustrating usage of `Propulsion.Feed.~~FeedSource~~`
       - `periodicIngester`: template illustrating usage of `Propulsion.Feed.PeriodicSource`
       - `proArchiver`, `proPruner`: templates illustrating usage of [hot/cold](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#hot-cold) support and support for secondary fallback in `Equinox.CosmosStore`
 
