@@ -131,7 +131,7 @@ type CosmosStoreSource =
         let databaseId, containerId, processorName = source.database, source.container, leaseId
 #else
             monitored : Container, leases : Container, processorName, observer,
-            startFromTail, ?maxDocuments, ?lagReportFreq : TimeSpan) = async {
+            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan) = async {
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed Lag stats interval {lagReportIntervalS:n0}s", s.TotalSeconds))
@@ -150,10 +150,11 @@ type CosmosStoreSource =
             ChangeFeedProcessor.Start
 #if COSMOSV2
               ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, createObserver=createObserver,
+                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
 #else
               ( log, monitored, leases, processorName, observer,
+                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
 #endif
-                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
 

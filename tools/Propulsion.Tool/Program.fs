@@ -51,7 +51,7 @@ module Cosmos =
         /// Use sparingly; in general one wants to use CreateAndInitialize to avoid slow first requests
         member private x.CreateUninitialized(databaseId, containerId) =
             x.CreateUninitialized().GetDatabase(databaseId).GetContainer(containerId)
-        
+
         /// Creates a CosmosClient suitable for running a CFP via CosmosStoreSource
         member x.CreateClient(log, databaseId, containerId, ?connectionName) =
             x.LogConfiguration(log, defaultArg connectionName "Source", databaseId, containerId)
@@ -66,7 +66,7 @@ module Cosmos =
         let database =                      a.TryGetResult Database  |> defaultWithEnvVar "EQUINOX_COSMOS_DATABASE"  "Database"
         member val ContainerId =            a.TryGetResult Container |> defaultWithEnvVar "EQUINOX_COSMOS_CONTAINER" "Container"
         member x.MonitoredContainer(log) =  connector.CreateClient(log, database, x.ContainerId)
-        
+
         member val LeaseContainerId =       a.TryGetResult LeaseContainer
         member private _.ConnectLeases(log, containerId) = connector.CreateClient(log, database, containerId, "Leases")
         member x.ConnectLeases(log) =       match x.LeaseContainerId with
@@ -108,7 +108,7 @@ and [<NoComparison; NoEquality>]InitAuxArguments =
 and [<NoComparison; NoEquality; RequireSubcommand>] ProjectArguments =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine("-Z"); Unique>]      FromTail
-    | [<AltCommandLine("-md"); Unique>]     MaxDocuments of int
+    | [<AltCommandLine("-m"); Unique>]      MaxItems of int
     | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsTarget>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaTarget>
@@ -116,7 +116,7 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectArguments =
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name."
             | FromTail _ ->                 "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
-            | MaxDocuments _ ->             "Maximum item count to supply to Changefeed Api when querying. Default: Unlimited"
+            | MaxItems _ ->                 "Maximum item count to supply to ChangeFeed Api when querying. Default: Unlimited"
             | LagFreqM _ ->                 "Specify frequency to dump lag stats. Default: off"
 
             | Stats _ ->                    "Do not emit events, only stats."
@@ -177,8 +177,8 @@ let main argv =
         match args.GetSubCommand() with
         | Init iargs -> CosmosInit.aux log iargs |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
         | Project pargs ->
-            let group, startFromTail, maxDocuments = pargs.GetResult ConsumerGroupName, pargs.Contains FromTail, pargs.TryGetResult MaxDocuments
-            maxDocuments |> Option.iter (fun bs -> log.Information("ChangeFeed Max docs Count {changeFeedMaxItems}", bs))
+            let group, startFromTail, maxItems = pargs.GetResult ConsumerGroupName, pargs.Contains FromTail, pargs.TryGetResult MaxItems
+            maxItems |> Option.iter (fun bs -> log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs))
             if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
             let maybeLogLagInterval = pargs.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
             let broker, topic, storeArgs =
@@ -215,11 +215,10 @@ let main argv =
             use observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
             Propulsion.CosmosStore.CosmosStoreSource.Run
               ( log, monitored, leases, group, observer,
-                startFromTail = startFromTail, ?maxDocuments = maxDocuments, ?lagReportFreq = maybeLogLagInterval) 
+                startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
             |> Async.RunSynchronously
         | _ -> failwith "Please specify a valid subcommand :- init or project"
         0
     with :? Argu.ArguParseException as e -> eprintfn "%s" e.Message; 1
         | MissingArg msg -> eprintfn "%s" msg; 1
         | e -> eprintfn "%s" e.Message; 1
-

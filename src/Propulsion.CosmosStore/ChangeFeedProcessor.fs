@@ -46,8 +46,9 @@ type ChangeFeedProcessor =
             ?leaseTtl : TimeSpan,
             /// Delay before re-polling a partition after backlog has been drained
             ?feedPollDelay : TimeSpan,
-            /// Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited
-            ?maxDocuments : int,
+            /// Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
+            /// Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
+            ?maxItems : int,
             /// Continuously fed per-partition lag information until parent Async completes
             /// callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation) = async {
@@ -86,8 +87,7 @@ type ChangeFeedProcessor =
                 .WithLeaseConfiguration(acquireInterval = Nullable leaseAcquireInterval, expirationInterval = Nullable leaseTtl, renewInterval = Nullable leaseRenewInterval)
                 .WithInstanceName(leaseOwnerId)
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
-                // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
-                |> fun b -> match maxDocuments with Some mi -> b.WithMaxItems(mi) | None -> b
+                |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> b.Build()
         match reportLagAndAwaitNextEstimation with
         | None -> ()

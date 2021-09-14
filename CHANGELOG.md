@@ -12,6 +12,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.21`
+- `CosmosStore`: rename `maxDocuments` to `maxItems`
 
 ### Removed
 ### Fixed
