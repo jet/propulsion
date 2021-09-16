@@ -144,7 +144,7 @@ type KafkaIngestionEngine<'Info>
             closeConsumer() (* Orderly Close() before Dispose() is critical *) }
 
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
-/// Conclusion of processing can be awaited by via `AwaitCompletion()`.
+/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
 type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
     inherit Pipeline(task, triggerStop)
 
