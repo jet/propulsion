@@ -9,10 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Pipeline`: Added `AwaitWithStopOnCancellation` [#118](https://github.com/jet/propulsion/pull/118)
+
 ### Changed
 
 - `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.21`
 - `CosmosStore`: rename `maxDocuments` to `maxItems`
+- `Pipeline`: Renamed `AwaitCompletion` to `AwaitShutdown` [#118](https://github.com/jet/propulsion/pull/118)
 
 ### Removed
 ### Fixed
