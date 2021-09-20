@@ -126,12 +126,8 @@ type T3(testOutputHelper) =
         // consumer should have all partitions assigned to it
         testPartitionCount =! consumer.Inner.Assignment.Count
 
-#if KAFKA0
-        let ac = consumer.Inner
-#else
         let acc = AdminClientConfig(config.Inner)
         let ac = AdminClientBuilder(acc).Build()
-#endif
 
         // should be one member in group
         1 =! ac.ListGroup(group, TimeSpan.FromSeconds 30.).Members.Count
