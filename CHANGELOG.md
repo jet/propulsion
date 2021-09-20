@@ -15,6 +15,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.21`
+- `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.3`
 - `CosmosStore`: rename `maxDocuments` to `maxItems`
 - `Pipeline`: Renamed `AwaitCompletion` to `AwaitShutdown` [#118](https://github.com/jet/propulsion/pull/118)
 - `Kafka`: Target [`FsKafka [1.7.0, 1.9.99)`](https://github.com/jet/FsKafka/releases/tag/1.7.0)
