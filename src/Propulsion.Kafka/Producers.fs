@@ -31,33 +31,18 @@ type Producer
 
     /// Execute a producer operation, including recording of the latency statistics for the operation
     /// NOTE: the `execute` function is expected to throw in the event of a failure to produce (this is the standard semantic for all Confluent.Kafka ProduceAsync APIs)
-#if KAFKA0
-    /// NOTE: Confluent.Kafka0 APIs are expected to adhere to V1 semantics (i.e. throwing in the event of a failure to produce)
-    ///       However, a failure check is incorporated here as a backstop
-    member __.Produce(execute : KafkaProducer -> Async<Message<_,_>>) : Async<Message<_,_>> = async {
-#else
     member __.Produce(execute : KafkaProducer -> Async<'r>) : Async<'r> = async {
-#endif
         let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! res = execute producer
-#if KAFKA0
-        if res.Error.HasError then return invalidOp res.Error.Reason // CK 1.x throws, we do the same here for consistency
-#endif
         produceStats.Record sw.Elapsed
         return res }
 
-#if KAFKA0
-    /// Throws if producing fails, for consistency with Confluent.Kafka >= 1.0 APIs
-    /// NOTE The underlying 0.11.x Confluent.Kafka drivers do not throw; This implementation throws if the response `.Error.HasError` for symmetry with the Confluent.Kafka >= 1 behavior
-    /// NOTE Propulsion.Kafka (i.e. not using Propulsion.Kafka0) adds an optional `headers` argument
-    member __.Produce(key, value) =
-        __.Produce(fun producer -> producer.ProduceAsync(key, value)) |> Async.Ignore
-#else
     /// Throws if producing fails, per normal Confluent.Kafka 1.x semantics
     member __.Produce(key, value, ?headers) =
-        __.Produce(fun producer -> producer.ProduceAsync(key, value, ?headers=headers) |> Async.Ignore)
-#endif
+        match headers with
+        | Some h -> __.Produce(fun producer -> producer.ProduceAsync(key, value, h) |> Async.Ignore)
+        | None -> __.Produce(fun producer -> producer.ProduceAsync(key, value) |> Async.Ignore)
 
     [<Obsolete("Please migrate code to an appropriate Produce overload")>]
     /// Throws if producing fails, per normal Confluent.Kafka 1.x semantics
