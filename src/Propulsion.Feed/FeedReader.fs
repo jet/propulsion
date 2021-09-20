@@ -39,7 +39,7 @@ module private Impl =
         let report () =
             let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
             log.Information(
-                "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | cur {cur} / max {max}",
+                "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | Ahead {cur}/{max}",
                 pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, p batchLastPosition, p lastCommittedPosition, batchCaughtUp, currentBatches, maxBatches)
             recentPagesRead <- 0
             recentPagesEmpty <- 0
@@ -111,17 +111,18 @@ type FeedReader
             return! Async.Raise exc }
 
     let submitPage (batch: Batch<byte[]>) = async {
-        let streamEvents : Propulsion.Streams.StreamEvent<_> seq =
+        let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq =
             if batch.IsEmpty then
                 log.Debug("Empty page retrieved, nothing to submit")
                 stats.RecordEmptyPage(batch.isTail)
-                Seq.empty
+                int64 batch.checkpoint, Seq.empty
             else
                 log.Debug("Submitting a batch of {batchSize} events, position {firstPosition} through {lastPosition}",
                     batch.Size, batch.FirstPosition, batch.LastPosition)
                 stats.RecordBatch(batch)
-                Seq.ofArray batch.items
-        let! cur, max = submitBatch (int64 batch.FirstPosition, commit batch.checkpoint, streamEvents)
+                int64 batch.FirstPosition, Seq.ofArray batch.items
+
+        let! cur, max = submitBatch (epoch, commit batch.checkpoint, streamEvents)
         stats.UpdateCurMax(cur, max) }
 
     member _.Pump(initialPosition : Position) = async {
