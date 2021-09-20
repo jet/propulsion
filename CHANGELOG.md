@@ -17,8 +17,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.21`
 - `CosmosStore`: rename `maxDocuments` to `maxItems`
 - `Pipeline`: Renamed `AwaitCompletion` to `AwaitShutdown` [#118](https://github.com/jet/propulsion/pull/118)
+- `Kafka`: Target [`FsKafka [1.7.0, 1.9.99)`](https://github.com/jet/FsKafka/releases/tag/1.7.0)
 
 ### Removed
+
+- `Kafka0`: Triggered by [removal of underlying `FsKafka0`](https://github.com/jet/FsKafka/releases/tag/1.7.0) [#119](https://github.com/jet/propulsion/pull/119)
+- `Kafka`: Removed support for `net461`, [triggered by removal of underlying `FsKafka0`](https://github.com/jet/FsKafka/releases/tag/1.7.0)~~~~~~~~ [#119](https://github.com/jet/propulsion/pull/119)
+
 ### Fixed
 
 - Fix CI to stop emitting builds with incorrect `AssemblyVersion 1.0.0.0` (updated MinVer to `2.5.0`)

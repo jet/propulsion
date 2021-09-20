@@ -64,7 +64,7 @@ type T1(testOutputHelper) =
         use consumer = startConsumer log broker topic group onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(observeErrorsMonitorHandler)
-        do! monitor.StartAsChild(consumer.Inner, group)
+        use _ = monitor.Start(consumer.Inner, group)
         let sw = TimeoutGuard()
         let waitFor cond = async { while not (cond()) && not sw.IsTimedOut do do! Async.Sleep 1000 }
         do! waitFor <| fun () -> Volatile.Read(&errorObserved)
@@ -88,7 +88,7 @@ type T2(testOutputHelper) =
         use consumerOne = startConsumer log broker topic group onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(partitionsObserver)
-        do! monitor.StartAsChild(consumerOne.Inner, group)
+        use _ = monitor.Start(consumerOne.Inner, group)
         // first consumer is only member of group, should have all partitions
         let sw = TimeoutGuard()
         let waitFor cond = async { while not (cond()) && not sw.IsTimedOut do do! Async.Sleep 1000 }
@@ -118,7 +118,7 @@ type T3(testOutputHelper) =
         use consumer = startConsumerFromConfig log config onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(noopObserver)
-        do! monitor.StartAsChild(consumer.Inner, group)
+        use _ = monitor.Start(consumer.Inner, group)
         let sw = TimeoutGuard()
         let waitFor cond = async { while not (cond()) && not sw.IsTimedOut do do! Async.Sleep 1000 }
         do! waitFor <| fun () -> consumer.Inner.Assignment.Count = testPartitionCount
@@ -126,12 +126,8 @@ type T3(testOutputHelper) =
         // consumer should have all partitions assigned to it
         testPartitionCount =! consumer.Inner.Assignment.Count
 
-#if KAFKA0
-        let ac = consumer.Inner
-#else
         let acc = AdminClientConfig(config.Inner)
         let ac = AdminClientBuilder(acc).Build()
-#endif
 
         // should be one member in group
         1 =! ac.ListGroup(group, TimeSpan.FromSeconds 30.).Members.Count

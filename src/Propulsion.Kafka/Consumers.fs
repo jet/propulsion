@@ -49,23 +49,12 @@ module private Impl =
         16 + len m.Key + len m.Value |> int64
     let inline mb x = float x / 1024. / 1024.
 
-#if !KAFKA0 // TODO push overload down into FsKafka
-#nowarn "0040"
+module private Binding =
 
-[<AutoOpen>]
-module internal Shims =
-
-    type FsKafka.Core.InFlightMessageCounter with
-        member __.AwaitThreshold(ct : CancellationToken, consumer : IConsumer<_,_>, ?busyWork) =
-            // Avoid having our assignments revoked due to MAXPOLL (exceeding max.poll.interval.ms between calls to .Consume)
-            let showConsumerWeAreStillAlive () =
-                let tps = consumer.Assignment
-                consumer.Pause(tps)
-                match busyWork with Some f -> f () | None -> ()
-                let _ = consumer.Consume(1)
-                consumer.Resume(tps)
-            __.AwaitThreshold(ct, showConsumerWeAreStillAlive)
-#endif
+    let mapConsumeResult (result : ConsumeResult<string,string>) =
+        let m = Binding.message result
+        if m = null then invalidOp "Cannot dereference null message"
+        KeyValuePair(m.Key, m.Value)
 
 /// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accumulated messages as
 ///   checkpointable Batches
@@ -88,10 +77,11 @@ type KafkaIngestionEngine<'Info>
     let mkSubmission topicPartition span : Submission.SubmissionBatch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
-            Binding.storeOffset log consumer span.highWaterMark
+            try consumer.StoreOffset(span.highWaterMark)
+            with e -> log.Error(e, "Consuming... storing offsets failed")
         { source = topicPartition; onCompletion = checkpoint; messages = span.messages.ToArray() }
-    let ingest result =
-        let m = FsKafka.Binding.message result
+    let ingest (result : ConsumeResult<string, string>) =
+        let m = result.Message
         if m = null then invalidOp "Cannot dereference null message"
         let sz = approximateMessageBytes m
         counter.Delta(+sz) // counterbalanced by Delta(-) in checkpoint(), below
@@ -121,23 +111,19 @@ type KafkaIngestionEngine<'Info>
         try while not ct.IsCancellationRequested do
                 match counter.IsOverLimitNow(), remainingIngestionWindow () with
                 | true, _ ->
-#if KAFKA0
-                    let busyWork () =
-                        submit()
-                        maybeLogStats()
-                        Thread.Sleep 1
-                    counter.AwaitThreshold(ct, busyWork)
-#else
                     let busyWork () =
                         submit()
                         maybeLogStats()
                     counter.AwaitThreshold(ct, consumer, busyWork)
-#endif
                 | false, None ->
                     submit()
                     maybeLogStats()
                 | false, Some intervalRemainder ->
-                    Binding.tryConsume log consumer intervalRemainder ingest
+                    try match consumer.Consume(intervalRemainder) with
+                        | null -> ()
+                        | message -> ingest message
+                    with| :? OperationCanceledException -> log.Warning("Consuming... cancelled")
+                        | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
             dumpStats () // Unconditional logging when completing
@@ -160,9 +146,9 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., maxDelay.TotalSeconds, maxItems)
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
-        let consumer, closeConsumer = Binding.createConsumer log config.Inner // teardown is managed by ingester.Pump()
+        let consumer = ConsumerBuilder.WithLogging(log, config.Inner) // teardown is managed by ingester.Pump()
         consumer.Subscribe config.Topics
-        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, closeConsumer, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
+        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = TaskCompletionSource<unit>()
@@ -334,7 +320,7 @@ module Core =
         FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
 
     let toStreamName defaultCategory (result : ConsumeResult<string, string>) =
-        let m = Binding.message result
+        let m = result.Message
         if m = null then invalidOp "Cannot dereference null message"
         parseMessageKey defaultCategory m.Key
 
