@@ -106,7 +106,7 @@ module Helpers =
 
             timeout |> Option.iter consumer.StopAfter
 
-            do! consumer.AwaitCompletion()
+            do! consumer.AwaitShutdown()
         }
 
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
@@ -156,7 +156,7 @@ module Helpers =
 
             timeout |> Option.defaultValue (TimeSpan.FromMinutes 15.) |> consumer.StopAfter
 
-            do! consumer.AwaitCompletion()
+            do! consumer.AwaitShutdown()
         }
 
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
@@ -195,7 +195,7 @@ module Helpers =
 
             timeout |> Option.defaultValue (TimeSpan.FromMinutes 15.) |> consumer.StopAfter
 
-            do! consumer.AwaitCompletion()
+            do! consumer.AwaitShutdown()
         }
 
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore

@@ -6,7 +6,7 @@ open System.Threading
 open System.Threading.Tasks
 
 /// Runs triggered by a `Start` method , until `Stop()` is requested or `handle` yields a fault.
-/// Conclusion of processing can be awaited by via `AwaitCompletion()`.
+/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
 type Pipeline (task : Task<unit>, triggerStop) =
 
     interface IDisposable with member __.Dispose() = __.Stop()
@@ -14,14 +14,21 @@ type Pipeline (task : Task<unit>, triggerStop) =
     /// Inspects current status of processing task
     member __.Status = task.Status
 
-    /// After AwaitCompletion, can be used to infer whether exit was clean
+    /// After AwaitShutdown, can be used to infer whether exit was clean
     member __.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
     /// Request cancellation of processing
     member __.Stop() = triggerStop ()
 
     /// Asynchronously awaits until consumer stops or a `handle` invocation yields a fault
-    member __.AwaitCompletion() = Async.AwaitTaskCorrect task
+    member __.AwaitShutdown() = Async.AwaitTaskCorrect task
+
+    /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
+    /// Reacts to cancellation by Stopping the Consume loop via <c>Stop()</c>; see <c>AwaitShutdown</c> if such semantics are not desired.
+    member x.AwaitWithStopOnCancellation() = async {
+        let! ct = Async.CancellationToken
+        use _ = ct.Register(fun () -> x.Stop())
+        return! x.AwaitShutdown() }
 
 type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
