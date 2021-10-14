@@ -23,7 +23,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 
 - `Kafka0`: Triggered by [removal of underlying `FsKafka0`](https://github.com/jet/FsKafka/releases/tag/1.7.0) [#119](https://github.com/jet/propulsion/pull/119)
-- `Kafka`: Removed support for `net461`, [triggered by removal of underlying `FsKafka0`](https://github.com/jet/FsKafka/releases/tag/1.7.0)~~~~~~~~ [#119](https://github.com/jet/propulsion/pull/119)
+- `Kafka`: Removed support for `net461`, [triggered by removal of same in underlying `FsKafka`](https://github.com/jet/FsKafka/releases/tag/1.7.0) [#119](https://github.com/jet/propulsion/pull/119)
 
 ### Fixed
 
