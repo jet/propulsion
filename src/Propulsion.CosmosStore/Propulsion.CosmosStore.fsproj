@@ -37,8 +37,8 @@
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
 	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
-    <PackageReference Include="Equinox.CosmosStore" Version="3.0.3" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.21.0" />
+    <PackageReference Include="Equinox.CosmosStore" Version="3.0.4" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="[3.22.0-preview]" />
   </ItemGroup>
 
   <ItemGroup>

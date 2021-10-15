@@ -51,7 +51,11 @@ type ChangeFeedProcessor =
             ?maxItems : int,
             /// Continuously fed per-partition lag information until parent Async completes
             /// callback should Async.Sleep until next update is desired
-            ?reportLagAndAwaitNextEstimation) = async {
+            ?reportLagAndAwaitNextEstimation,
+            /// Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
+            ?notifyError : int -> exn -> unit,
+            /// Admits customizations in the ChangeFeedProcessorBuilder chain
+            ?customize) = async {
 
         let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
         let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
@@ -80,14 +84,21 @@ type ChangeFeedProcessor =
                         log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }
                 fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> System.Threading.Tasks.Task
+            let acquireAsync leaseToken = log.Information("Reader {partitionId} Assigned", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
+            let releaseAsync leaseToken = log.Information("Reader {partitionId} Revoked", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
+            let notifyError = notifyError |> Option.map (fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; System.Threading.Tasks.Task.CompletedTask)
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)
                 .WithPollInterval(feedPollDelay)
                 .WithLeaseConfiguration(acquireInterval = Nullable leaseAcquireInterval, expirationInterval = Nullable leaseTtl, renewInterval = Nullable leaseRenewInterval)
                 .WithInstanceName(leaseOwnerId)
+                .WithLeaseAcquireNotification(Container.ChangeFeedMonitorLeaseAcquireDelegate acquireAsync)
+                .WithLeaseReleaseNotification(Container.ChangeFeedMonitorLeaseReleaseDelegate releaseAsync)
+                |> fun b -> match notifyError with Some ne -> b.WithErrorNotification(Container.ChangeFeedMonitorErrorDelegate ne) | None -> b
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
+                |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
         match reportLagAndAwaitNextEstimation with
         | None -> ()
