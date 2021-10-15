@@ -12,6 +12,31 @@ module internal TimelineEvent =
 
     let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
 
+module Log =
+
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type Metric =
+        | Read of ReadMetric
+     and [<NoEquality; NoComparison>] ReadMetric =
+        {   source : SourceId; tranche : TrancheId
+            token : Nullable<Position>; latency : TimeSpan; pages : int; items : int
+            ingestLatency : TimeSpan; ingestQueued : int }
+
+    /// Attach a property to the captured event record to hold the metric information
+    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
+    let [<Literal>] PropertyTag = "propulsionFeedEvent"
+    let internal metric (value : Metric) (log : ILogger) =
+        let enrich (e : Serilog.Events.LogEvent) =
+            e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
+        log.ForContext({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = enrich evt })
+    let internal (|SerilogScalar|_|) : Serilog.Events.LogEventPropertyValue -> obj option = function
+        | :? Serilog.Events.ScalarValue as x -> Some x.Value
+        | _ -> None
+    let (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric option =
+        match logEvent.Properties.TryGetValue PropertyTag with
+        | true, SerilogScalar (:? Metric as e) -> Some e
+        | _ -> None
+
 [<AutoOpen>]
 module private Impl =
 
@@ -21,34 +46,40 @@ module private Impl =
         member batch.FirstPosition = batch.items.[0].event.Index |> Position.parse
         member batch.LastPosition = (Array.last batch.items).event |> TimelineEvent.toCheckpointPosition
 
-    type Stats(log : ILogger, statsInterval : TimeSpan) =
+    type Stats(log : ILogger, statsInterval : TimeSpan, source : SourceId, tranche : TrancheId) =
 
         let mutable batchLastPosition = Position.parse -1L
         let mutable batchCaughtUp = false
 
-        let mutable pagesRead = 0
-        let mutable pagesEmpty = 0
-        let mutable recentPagesRead = 0
-        let mutable recentPagesEmpty = 0
+        let mutable pagesRead, pagesEmpty = 0, 0
+        let mutable readLatency, recentPagesRead, itemsRead, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
 
-        let mutable currentBatches = 0
-        let mutable maxBatches = 0
+        let mutable ingestLatency, currentBatches, maxBatches = TimeSpan.Zero, 0, 0
 
         let mutable lastCommittedPosition = Position.parse -1L
 
         let report () =
             let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
-            log.Information(
-                "Pages Read {pagesRead} Empty {pagesEmpty} | Recent Read {recentPagesRead} Empty {recentPagesEmpty} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | Ahead {cur}/{max}",
-                pagesRead, pagesEmpty, recentPagesRead, recentPagesEmpty, p batchLastPosition, p lastCommittedPosition, batchCaughtUp, currentBatches, maxBatches)
-            recentPagesRead <- 0
-            recentPagesEmpty <- 0
+            let m = Log.Metric.Read {
+                source = source; tranche = tranche
+                token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = itemsRead
+                ingestLatency = ingestLatency; ingestQueued = currentBatches }
+            let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
+            (log |> Log.metric m).Information(
+                "Reader {source}/{tranche} Pages {pagesRead} Empty {pagesEmpty} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Items {itemsRead} | Position Read {batchLastPosition} Committed {lastCommittedPosition} | Caught up {caughtUp} | Wait {pausedS:f1}s Ahead {cur}/{max}",
+                source, tranche, pagesRead, pagesEmpty, readS, recentPagesRead, recentPagesEmpty, itemsRead, p batchLastPosition, p lastCommittedPosition, batchCaughtUp, postS, currentBatches, maxBatches)
+            readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
+            recentPagesRead <- 0; itemsRead <- 0; recentPagesEmpty <- 0
+
+        member _.RecordReadLatency(latency) =
+            readLatency <- readLatency + latency
 
         member _.RecordBatch(batch: Batch<_>) =
             batchLastPosition <- batch.LastPosition
             batchCaughtUp <- batch.isTail
 
             pagesRead <- pagesRead + 1
+            itemsRead <- itemsRead + batch.items.Length
             recentPagesRead <- recentPagesRead + 1
 
         member _.RecordEmptyPage(isTail) =
@@ -60,7 +91,8 @@ module private Impl =
         member _.UpdateCommittedPosition(pos) =
             lastCommittedPosition <- pos
 
-        member _.UpdateCurMax(cur, max) =
+        member _.UpdateCurMax(latency, cur, max) =
+            ingestLatency <- ingestLatency + latency
             currentBatches <- cur
             maxBatches <- max
 
@@ -79,10 +111,10 @@ type FeedReader
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
             -> AsyncSeq<Batch<byte[]>>,
-        /// Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
+        /// <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         /// Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         /// In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
-        ///   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
+        ///   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         submitBatch :
             int64 // unique tag used to identify batch in internal logging
             * Async<unit> // commit callback. Internal checkpointing dictates when it will be called.
@@ -100,7 +132,7 @@ type FeedReader
             -> Async<unit>) =
 
     let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
-    let stats = Stats(log, statsInterval)
+    let stats = Stats(log, statsInterval, sourceId, trancheId)
 
     let commit position = async {
         try do! commitCheckpoint (sourceId, trancheId, position)
@@ -122,10 +154,12 @@ type FeedReader
                 stats.RecordBatch(batch)
                 int64 batch.FirstPosition, Seq.ofArray batch.items
 
+        let ingestTimer = System.Diagnostics.Stopwatch.StartNew()
         let! cur, max = submitBatch (epoch, commit batch.checkpoint, streamEvents)
-        stats.UpdateCurMax(cur, max) }
+        stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }
 
     member _.Pump(initialPosition : Position) = async {
+        stats.UpdateCommittedPosition(initialPosition)
         // Commence reporting stats until such time as we quit pumping
         let! _ = Async.StartChild stats.Pump
 
@@ -133,7 +167,10 @@ type FeedReader
         let mutable currentPos, lastWasTail = initialPosition, false
         let! ct = Async.CancellationToken
         while not ct.IsCancellationRequested do
+            let readTimer = System.Diagnostics.Stopwatch.StartNew()
             for batch in crawl (lastWasTail, currentPos) do
+                stats.RecordReadLatency(readTimer.Elapsed)
                 do! submitPage batch
+                readTimer.Restart()
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail }
