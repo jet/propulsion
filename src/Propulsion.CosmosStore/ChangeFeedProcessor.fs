@@ -86,7 +86,10 @@ type ChangeFeedProcessor =
                 fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> System.Threading.Tasks.Task
             let acquireAsync leaseToken = log.Information("Reader {partitionId} Assigned", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
             let releaseAsync leaseToken = log.Information("Reader {partitionId} Revoked", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
-            let notifyError = notifyError |> Option.map (fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; System.Threading.Tasks.Task.CompletedTask)
+            let notifyError =
+                notifyError
+                |> Option.defaultValue (fun i ex -> log.Error(ex, "Reader {partitionId} error", i))
+                |> fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; System.Threading.Tasks.Task.CompletedTask
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)
@@ -95,7 +98,7 @@ type ChangeFeedProcessor =
                 .WithInstanceName(leaseOwnerId)
                 .WithLeaseAcquireNotification(Container.ChangeFeedMonitorLeaseAcquireDelegate acquireAsync)
                 .WithLeaseReleaseNotification(Container.ChangeFeedMonitorLeaseReleaseDelegate releaseAsync)
-                |> fun b -> match notifyError with Some ne -> b.WithErrorNotification(Container.ChangeFeedMonitorErrorDelegate ne) | None -> b
+                .WithErrorNotification(Container.ChangeFeedMonitorErrorDelegate notifyError)
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
