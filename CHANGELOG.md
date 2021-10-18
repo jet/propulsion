@@ -10,6 +10,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
+- `Feed.PeriodicSource`: Enables periodic traversal of a source where the source does not present an incrementally readable change feed [#117](https://github.com/jet/propulsion/pull/117)
+- `Feed.Prometheus`: Prometheus integration providing metrics not dissimilar to those available from `.CosmosStore` (no lag metrics though) [#117](https://github.com/jet/propulsion/pull/117)
 - `Pipeline`: Added `AwaitWithStopOnCancellation` [#118](https://github.com/jet/propulsion/pull/118)
 - `CosmosStore`: Added handling of `With(Error|LeaseAcquire|LeaseRevoke)Notification` APIs [introduced in `Microsoft.Azure.Cosmos` v `3.22.0-preview`](https://github.com/Azure/azure-cosmos-dotnet-v3/pull/2613) [#120](https://github.com/jet/propulsion/pull/120)
 

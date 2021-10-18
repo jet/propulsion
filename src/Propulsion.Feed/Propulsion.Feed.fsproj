@@ -13,6 +13,8 @@
         <Compile Include="Infrastructure.fs" />
         <Compile Include="FeedReader.fs" />
         <Compile Include="FeedSource.fs" />
+        <Compile Include="PeriodicSource.fs" />
+        <Compile Include="FeedPrometheus.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -20,6 +22,8 @@
         <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
 
         <PackageReference Include="FSharp.Core" Version="4.7.1" />
+        
+        <PackageReference Include="FSharp.Control.AsyncSeq" Version="2.0.23" />
     </ItemGroup>
 
     <ItemGroup>
