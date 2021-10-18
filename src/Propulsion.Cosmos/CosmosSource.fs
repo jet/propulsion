@@ -131,10 +131,9 @@ type CosmosStoreSource =
         let databaseId, containerId, processorName = source.database, source.container, leaseId
 #else
             monitored : Container, leases : Container, processorName, observer,
-            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan) = async {
+            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) = async {
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
-        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed Lag stats interval {lagReportIntervalS:n0}s", s.TotalSeconds))
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
             let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
             for partitionId, gap as partitionAndGap in remainingWork do
@@ -142,8 +141,8 @@ type CosmosStoreSource =
                 incr count
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
             let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
-            (log |> Log.metric m).Information("ChangeFeed Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-                !count, !total, lagged, synced)
+            (log |> Log.metric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
+                processorName, !count, !total, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
         let! _feedEventHost =
@@ -152,9 +151,9 @@ type CosmosStoreSource =
               ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, createObserver=createObserver,
                 startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
 #else
-              ( log, monitored, leases, processorName, observer,
+              ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
                 startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
 #endif
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
+        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
-
