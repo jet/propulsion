@@ -9,6 +9,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.11.0-rc3"></a>
+## [2.11.0-rc3] - 2021-10-18
+
+### Added
 
 - `Feed.PeriodicSource`: Enables periodic traversal of a source where the source does not present an incrementally readable change feed [#117](https://github.com/jet/propulsion/pull/117)
 - `Feed.Prometheus`: Prometheus integration providing metrics not dissimilar to those available from `.CosmosStore` (no lag metrics though) [#117](https://github.com/jet/propulsion/pull/117)
@@ -631,7 +639,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0-rc2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0-rc3...HEAD
+[2.11.0-rc3]: https://github.com/jet/propulsion/compare/2.10.0-rc2...2.11.0-rc3
 [2.11.0-rc2]: https://github.com/jet/propulsion/compare/2.10.0-rc1...2.11.0-rc2
 [2.11.0-rc1]: https://github.com/jet/propulsion/compare/2.10.0...2.11.0-rc1
 [2.10.0]: https://github.com/jet/propulsion/compare/2.10.0-rc10...2.10.0
