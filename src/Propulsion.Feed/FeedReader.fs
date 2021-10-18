@@ -2,8 +2,8 @@ namespace Propulsion.Feed.Internal
 
 open FSharp.Control
 open Propulsion.Feed
-open System
 open Serilog
+open System
 
 [<NoComparison; NoEquality>]
 type Batch<'e> = { items : Propulsion.Streams.StreamEvent<'e>[]; checkpoint : Position; isTail : bool }
