@@ -87,9 +87,9 @@ type LogSink(customTags: seq<string * string>) =
     let observeIngestLatHis =   Histogram.latency   tags "ingest"           "Ingest"
     let observeIngestLatSum =   Summary.latency     tags "ingest_summary"   "Ingest"
     let observeToken =          Gauge.create        tags "position_token"   "Feed Token of most recent Page observed" // read
+    let observeIngestQueue =    Gauge.create        tags "ingest_queue"     "Ingest queue length"
     let observePageCount =      Counter.create      tags "pages_total"      "Observed page count" // read
     let observeItemCount =      Counter.create      tags "items_total"      "Observed item count" // read
-    let observeIngestQueue =    Gauge.create        tags "ingest_queue"     "Ingest queue length"
 
     let observeRead (m : ReadMetric) =
         let group = m.source, m.tranche
