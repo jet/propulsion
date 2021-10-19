@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+ 
+- `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.22`
+
 ### Removed
 ### Fixed
 
