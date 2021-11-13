@@ -35,3 +35,6 @@ packages.config
 # macOS
 
 .DS_Store
+
+# VS Code User Settings
+.vscode
