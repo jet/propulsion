@@ -96,7 +96,7 @@ module Internal =
             avg = ArrayStatistics.Mean sortedLatencies |> TimeSpan.FromSeconds
             stddev =
                 let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
-                // stdev of singletons is NaN
+                // stddev of singletons is NaN
                 if Double.IsNaN stdDev then None else TimeSpan.FromSeconds stdDev |> Some
 
             min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromSeconds
@@ -404,7 +404,7 @@ module Scheduling =
                     proposed.Add s |> ignore
                     yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
             if trySlipstreamed then
-                // [lazily] Slipstream in further events that are not yet referenced by in-scope batches
+                // [lazily] slipstream in further events that are not yet referenced by in-scope batches
                 for KeyValue(s, v) in states do
                     if v.HasValid && not (busy.Contains s) && proposed.Add s then
                         yield { writePos = v.Write; stream = s; span = Array.head v.Queue } }
@@ -808,7 +808,7 @@ module Scheduling =
                         dispatcherState <- Busy
                     | Idle -> // need to bring more work into the pool as we can't fill the work queue from what we have
                         // If we're going to fill the write queue with random work, we should bring all read events into the state first
-                        // If we're going to bring in lots of batches, that's more efficient when the streamwise merges are carried out first
+                        // If we're going to bring in lots of batches, that's more efficient when the stream-wise merges are carried out first
                         let mutable more, batchesTaken = true, 0
                         while more do
                             match pending.TryDequeue() with
@@ -880,19 +880,19 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             badCats.Clear()
 
     override this.Handle message =
-        let inline adds x (set : HashSet<_>) = set.Add x |> ignore
-        let inline bads x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
+        let inline addStream x (set : HashSet<_>) = set.Add x |> ignore
+        let inline addBadStream x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); addStream x set
         base.Handle message
         match message with
         | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
         | Scheduling.Result (_duration, (stream, Choice1Of2 ((es, bs), res))) ->
-            adds stream okStreams
+            addStream stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             resultOk <- resultOk + 1
             this.HandleOk res
         | Scheduling.Result (_duration, (stream, Choice2Of2 ((es, bs), exn))) ->
-            bads stream failStreams
+            addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             resultExnOther <- resultExnOther + 1
