@@ -3,15 +3,6 @@ namespace Propulsion
 open System
 open System.Threading.Tasks
 
-#if NET461
-module Array =
-    let takeWhile p = Seq.takeWhile p >> Array.ofSeq
-    let head = Seq.head
-
-module Option = 
-    let toNullable option = match option with None -> System.Nullable() | Some v -> System.Nullable(v)
-#endif
-
 [<AutoOpen>]
 module private AsyncHelpers =
     type Async with

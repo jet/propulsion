@@ -209,11 +209,7 @@ module Buffering =
         let dropBeforeIndex min : StreamSpan<_> -> StreamSpan<_> = function
             | x when x.index >= min -> x // don't adjust if min not within
             | End n when n < min -> { index = min; events = [||] } // throw away if before min
-#if NET461
-            | x -> { index = min; events = x.events |> Seq.skip (min - x.index |> int) |> Seq.toArray }
-#else
             | x -> { index = min; events = x.events |> Array.skip (min - x.index |> int) }  // slice
-#endif
 
         let merge min (xs : StreamSpan<_> seq) =
             let xs =

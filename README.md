@@ -6,7 +6,7 @@ If you're looking for a good discussion forum on these kinds of topics, look no 
 
 ## Components
 
-The components within this repository are delivered as a multi-targeted Nuget package targeting `net461` (F# 3.1+) and `netstandard2.0` (F# 4.5+) profiles
+The components within this repository are delivered as a multi-targeted Nuget package targeting `netstandard2.0` (internally it targets FSharp.Core >= 4.3.4, which works with SDKs back to F# 4.5+)
 
 - `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion including `ParallelProjector`, `StreamsProjector`. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
 - `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Serilog`
@@ -134,7 +134,7 @@ Please note the [QuickStart](#quickstart) is probably the best way to gain an ov
 
 NB The `Propulsion.Kafka.Integration` tests are reliant on a `TEST_KAFKA_BROKER` environment variable pointing to a Broker that has been configured to auto-create ephemeral Kafka Topics as required by the tests (each test run blindly writes to a guid-named topic and trusts the broker will accept the write without any initialization step)
 
-### build, including tests on net461 and netcoreapp3.1
+### build, including tests
 
 ```powershell
 dotnet build build.proj -v n

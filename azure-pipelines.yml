@@ -1,7 +1,7 @@
 name: $(Rev:r)
 
 # Summary:
-#	Linux: Tests using docker Kafka instance (note test suite does not run net461 as CK on mono is not supported)
+#	Linux: Tests using docker Kafka instance
 #	Windows: Builds and emits nupkg as artifacts
 #	MacOS: Builds only
 

@@ -11,6 +11,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 ### Changed
 ### Removed
+
+- `net461` support [#123](https://github.com/jet/propulsion/pull/123)
+
 ### Fixed
 
 - `StreamsProjector`: Fix failure to pump batches when using `maxReadAhead` of `Int32.MaxValue` [#124](https://github.com/jet/propulsion/pull/124)
