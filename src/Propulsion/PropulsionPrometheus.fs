@@ -1,5 +1,4 @@
 // This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
-
 namespace Propulsion.Prometheus
 
 [<AutoOpen>]
@@ -21,32 +20,31 @@ module private Gauge =
     let private make (config : Prometheus.GaugeConfiguration) name desc =
         let gauge = Prometheus.Metrics.CreateGauge(name, desc, config)
         fun tagValues group state value ->
-            let labelValues = append tagValues [| group; state; |]
+            let labelValues = append tagValues [| group; state |]
             gauge.WithLabels(labelValues).Set(value)
 
-    
     let create (tagNames, tagValues) stat desc =
         let config = Prometheus.GaugeConfiguration(LabelNames = append tagNames groupLabels)
-        make config (Impl.baseName stat) (Impl.baseDesc desc) tagValues
+        make config (baseName stat) (baseDesc desc) tagValues
 
 module private Counter =
 
     let private make (config : Prometheus.CounterConfiguration) name desc =
         let counter = Prometheus.Metrics.CreateCounter(name, desc, config)
         fun tagValues group activity value ->
-            let labelValues = append tagValues [| group; activity; |]
+            let labelValues = append tagValues [| group; activity |]
             counter.WithLabels(labelValues).Inc(value)
-    
+
     let create (tagNames, tagValues) stat desc =
         let config = Prometheus.CounterConfiguration(LabelNames = append tagNames activityLabels)
-        make config (Impl.baseName stat) (Impl.baseDesc desc) tagValues
+        make config (baseName stat) (baseDesc desc) tagValues
 
 module private Summary =
 
     let private create (config : Prometheus.SummaryConfiguration) name desc  =
         let summary = Prometheus.Metrics.CreateSummary(name, desc, config)
         fun tagValues (group, kind) value ->
-            let labelValues = append tagValues [| group; kind; |]
+            let labelValues = append tagValues [| group; kind |]
             summary.WithLabels(labelValues).Observe(value)
 
     let private objectives =
@@ -58,25 +56,24 @@ module private Summary =
 
     let latency (tagNames, tagValues) stat desc =
         let config =
-            let labelValues = append tagNames Impl.latencyLabels
+            let labelValues = append tagNames latencyLabels
             Prometheus.SummaryConfiguration(Objectives = objectives, LabelNames = labelValues, MaxAge = System.TimeSpan.FromMinutes 1.)
-
-        create config (Impl.baseName stat + secondsStat) (Impl.baseDesc desc + latencyDesc) tagValues
+        create config (baseName stat + secondsStat) (baseDesc desc + latencyDesc) tagValues
 
 module private Histogram =
 
     let private create (config : Prometheus.HistogramConfiguration) name desc =
         let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
         fun tagValues (group, kind) value ->
-            let labelValues = append tagValues [| group; kind; |]
+            let labelValues = append tagValues [| group; kind |]
             histogram.WithLabels(labelValues).Observe(value)
 
     let private sBuckets =
         Prometheus.Histogram.ExponentialBuckets(0.001, 2., 16) // 1ms .. 64s
 
-    let latency  (tagNames, tagValues) stat desc =        
-        let config = Prometheus.HistogramConfiguration(Buckets = sBuckets, LabelNames = append tagNames Impl.latencyLabels)
-        create config (Impl.baseName stat + secondsStat) (Impl.baseDesc desc + latencyDesc) tagValues
+    let latency (tagNames, tagValues) stat desc =
+        let config = Prometheus.HistogramConfiguration(Buckets = sBuckets, LabelNames = append tagNames latencyLabels)
+        create config (baseName stat + secondsStat) (baseDesc desc + latencyDesc) tagValues
 
 open Propulsion.Streams.Log
 
@@ -86,14 +83,14 @@ open Propulsion.Streams.Log
 type LogSink(customTags: seq<string * string>, group: string) =
 
     let tags = Array.ofSeq customTags |> Array.unzip
-    
+
     let observeCats =    Gauge.create      tags "cats"            "Current categories"
     let observeStreams = Gauge.create      tags "streams"         "Current streams"
     let observeEvents =  Gauge.create      tags "events"          "Current events"
     let observeBytes =   Gauge.create      tags "bytes"           "Current bytes"
-                                           
+
     let observeCpu =     Counter.create    tags "cpu"             "Processing Time Breakdown"
-                                           
+
     let observeLatSum =  Summary.latency   tags "handler_summary" "Handler action"
     let observeLatHis =  Histogram.latency tags "handler"         "Handler action"
 
@@ -111,8 +108,8 @@ type LogSink(customTags: seq<string * string>, group: string) =
            observeLatHis (group, kind) v
 
     interface Serilog.Core.ILogEventSink with
-        member __.Emit logEvent = logEvent |> function
-            | MetricEvent cm -> cm |> function
+        member _.Emit logEvent = logEvent |> function
+            | MetricEvent e -> e |> function
                 | Metric.BufferReport m ->
                     observeState "ingesting" m
                 | Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats) ->
