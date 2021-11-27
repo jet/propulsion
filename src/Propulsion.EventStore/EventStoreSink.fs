@@ -89,7 +89,7 @@ module Internal =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, Choice1Of2 ((es, bs), res)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice1Of2 ((es, bs), res)) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -99,7 +99,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
                 this.HandleOk res
-            | Scheduling.InternalMessage.Result (_duration, stream, Choice2Of2 ((es, bs), exn)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice2Of2 ((es, bs), exn)) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -124,8 +124,8 @@ module Internal =
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span'
-                    return Choice1Of2 (met, res)
-                with e -> return Choice2Of2 (met, e) }
+                    return span'.events.Length > 0, Choice1Of2 (met, res)
+                with e -> return false, Choice2Of2 (met, e) }
 
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
