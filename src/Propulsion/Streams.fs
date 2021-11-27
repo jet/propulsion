@@ -539,8 +539,8 @@ module Scheduling =
         type Monitor() =
             let failing, stuck = Set(), Set()
             let emit (log : ILogger) state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
-                log.Information(" {state} {streams} for {oldest:n1}-{newest:n1}s, {attempts} attempts",
-                                state, streams, oldest.TotalSeconds, newest.TotalSeconds, attempts)
+                log.Information(" {state} {streams} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
+                                state, streams, newest.TotalSeconds, oldest.TotalSeconds, attempts)
             member _.Handle(sn, succeeded, progressed) =
                 failing.Update(sn, not succeeded)
                 stuck.Update(sn, succeeded && not progressed)
