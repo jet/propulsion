@@ -620,7 +620,7 @@ module Scheduling =
         abstract member DumpStats : int -> unit
         abstract member TryDumpState : BufferState * StreamStates<byte[]> * (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
 
-    /// Implementation of IDispatcher which feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
+    /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type MultiDispatcher<'P, 'R, 'E>
         (   inner : ItemDispatcher<Choice<'P, 'E>>,
             project : DispatchItem<byte[]> -> Async<Choice<'P, 'E>>,
@@ -850,7 +850,8 @@ module Scheduling =
             let project (item : DispatchItem<byte[]>) : Async<Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn>> = async {
                 let stats, req = prepare (item.stream, item.span)
                 try let! progress, outcome = handle req
-                    return Choice1Of2 (toIndex req progress, stats, outcome)
+                    let pos' = toIndex req progress
+                    return Choice1Of2 (pos', stats, outcome)
                 with e -> return Choice2Of2 (stats, e) }
 
             let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn> -> int64 option * Choice<'Metrics * 'Outcome, 'Metrics * exn> = function
@@ -1100,7 +1101,8 @@ module Sync =
                 try let req = (item.stream, span)
                     let! res, outcome = handle req
                     let prepareElapsed = sw.Elapsed
-                    return Choice1Of2 (SpanResult.toIndex req res, ((eventCount, bytesCount), prepareElapsed), outcome)
+                    let pos' = SpanResult.toIndex req res
+                    return Choice1Of2 (pos', ((eventCount, bytesCount), prepareElapsed), outcome)
                 with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
