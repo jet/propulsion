@@ -528,30 +528,32 @@ module Scheduling =
             member _.State =
                 match state.Count with
                 | 0 ->  (0, 0), (TimeSpan.Zero, TimeSpan.Zero)
-                | x ->  let mutable oldest, newest, attempts = Int64.MinValue, Int64.MaxValue, 0
+                | x ->  let mutable oldest, newest, attempts = Int64.MaxValue, Int64.MinValue, 0
                         for x in state.Values do
-                            oldest <- max oldest x.since
-                            newest <- min newest x.since
+                            oldest <- min oldest x.since
+                            newest <- max newest x.since
                             attempts <- attempts + x.count
                         let now = System.Diagnostics.Stopwatch.GetTimestamp()
                         let age since = match now - since with x when x > 0L -> timeSpanFromStopwatchTicks x | _ -> TimeSpan.Zero
                         (x, attempts), (age oldest, age newest)
         type Monitor() =
             let failing, stuck = Set(), Set()
+            let emit (log : ILogger) state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
+                log.Information(" {state} {streams} for {oldest:n1}-{newest:n1}s, {attempts} attempts",
+                                state, streams, oldest.TotalSeconds, newest.TotalSeconds, attempts)
             member _.Handle(sn, succeeded, progressed) =
                 failing.Update(sn, not succeeded)
                 stuck.Update(sn, succeeded && not progressed)
             member _.DumpState(log : ILogger) =
-                let inline dump state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
-                    if streams <> 0 then log.Information(" {state}: {streams} for {oldest:n1}-{newest:n1}s {attempts} attempts",
-                                                         state, streams, oldest.TotalSeconds, newest.TotalSeconds, attempts)
+                let inline dump state (streams, attempts) ages =
+                    if streams <> 0 then
+                        emit log state (streams, attempts) ages
                 failing.State ||> dump "failing"
                 stuck.State ||> dump "stalled"
             member _.EmitMetrics(log : ILogger) =
                 let inline report state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
                     let m = Log.Metric.Stuck (state, streams, oldest.TotalSeconds, newest.TotalSeconds)
-                    (log |> Log.metric m).Information("{streams} {state} age {oldest:n1}-{newest:n1}s {attempts} attempts",
-                                                      streams, state, oldest.TotalSeconds, newest.TotalSeconds, attempts)
+                    emit (log |> Log.metric m) state (streams, attempts) (oldest, newest)
                 failing.State ||> report "failing"
                 stuck.State ||> report "stalled"
 
