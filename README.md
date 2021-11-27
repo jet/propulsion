@@ -1,6 +1,6 @@
 # Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=16) [![release](https://img.shields.io/github/release/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/vpre/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg) [<img src="https://img.shields.io/badge/slack-DDD--CQRS--ES%20%23equinox-yellow.svg?logo=slack">](https://j.mp/ddd-es-cqrs) [![docs status](https://img.shields.io/badge/DOCUMENTATION-WIP-important.svg?style=popout)](DOCUMENTATION.md) [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-908a85?logo=gitpod)](https://gitpod.io/#https://github.com/jet/propulsion)
 
-While the bulk of this code is in production across various Walmart systems, the [documentation](DOCUMENTATION.md) is very much a work in progress (ideally there'd be a nice [summary of various projection patterns](https://github.com/jet/propulsion/issues/21), but also much [broader information discussing the tradeoffs implied in an event-centric system as a whole](https://github.com/ylorph/The-Inevitable-Event-Centric-Book/issues)
+While the bulk of this code is mature and running in production in Walmart and outside, the [documentation](DOCUMENTATION.md) is very much a work in progress (ideally there'd be a nice [summary of various projection patterns](https://github.com/jet/propulsion/issues/21), but also much [broader information discussing the tradeoffs implied in an event-centric system as a whole](https://github.com/ylorph/The-Inevitable-Event-Centric-Book/issues)
 
 If you're looking for a good discussion forum on these kinds of topics, look no further than the [DDD-CQRS-ES Slack](https://github.com/ddd-cqrs-es/slack-community)'s [#equinox channel](https://ddd-cqrs-es.slack.com/messages/CF5J67H6Z) ([invite link](https://j.mp/ddd-es-cqrs)).
 
@@ -261,20 +261,20 @@ The order in which the need for various components arose (as a side effect of bu
 #### Conclusion/comparison checklist
 
 The things Propulsion in general accomplishes in the projections space:
-- make reading, checkpointing, parsing and running independent async things (all big perf boosts with Cosmos, less relevant for ESDB)
-- allow handlers to handle all accumulated items for a stream as a batch if desired
+- Uniform dashboards for throughput, successes vs failures, and latency distributions over CosmosDB, EventStoreDB, Kafka and generic Feeds
+- make reading, checkpointing, parsing and running independent asynchronous activities (all big perf boosts with Cosmos, less relevant for EventStoreDB)
+- allow handlers to handle backlog of accumulated items for a stream as a batch if desired
 - concurrency across streams
-- (for Cosmos, but could be achieved for ESDB), provide for running multiple instances of consumers leasing physical partitions roughly how Kafka does it (aka the ChangeFeedProcessor lease management - Propulsion just wraps that and does not seek to impose any significant semantics on top of that)
-- provide good instrumentation as to latency, errors, throughput in a pluggable way [akin to how Equinox does stuff (e.g. it has a Prometheus plugin)]
-- good stories for isolating from specific drivers - i.e., there will be a Propulsion.CosmosDb which allows you to run identical consumer code using the V3 SDK instead of the V2 one (akin to how it will at some point provide a .EventStoreDb using gRPC to go with the V5 SDK based .EventStore :wink:)
+- (for Cosmos, but could be achieved for EventStoreDB) provides for running multiple instances of consumers leasing physical partitions roughly how Kafka does it (aka the ChangeFeedProcessor lease management - Propulsion just wraps that and does not seek to impose any significant semantics on top of that)
+- provide good instrumentation as to latency, errors, throughput in a pluggable way akin to how Equinox does stuff (e.g. it has a Prometheus support)
+- good stories for isolating from specific drivers - i.e., there's `Propulsion.Cosmos` (using the V2 SDK) and a `Propulsion.CosmosStore` (for the V3 SDK) with close-to-identical interfaces (at some point there'll be a `Propulsion.EventStoreDb` using the gRPC-based SDKs to go with the V5 SDK-based `Propulsion.EventStore`)
 - handlers/reactors/the projections can be ported to .Cosmos by swapping driver modules; similar to how Equinox.Cosmos vs Equinox.EventStore provides a common programming model despite the underpinnings being fundamentally quite different in nature
-- Kafka reading and writing generally fits within the same patterns - i.e. if you want to push CosmosDb CFP output to Kafka and consume over that as a 'longer wire' thing without placing extra load on the source if you e.g. have 50 consumers, that's just an extra 250 line dotnet new proProjector app, and a tweak to ~30 lines of consumer app wireup to connect to Kafka instead of Cosmos
-- Uniform dashboards for throughput and alerting for stuck projectors over Cosmos, EventStore, Kafka
+- Kafka reading and writing generally fits within the same patterns - i.e. if you want to push CosmosDb CFP output to Kafka and consume over that as a 'longer wire' thing without placing extra load on the source if you e.g. have 50 consumers, that's just an extra 250 line `dotnet new proProjector` app, and a tweak to ~30 lines of consumer app wireup to connect to Kafka instead of Cosmos
 
-Things ESDB's# subscriptions can do that are not covered in Propulsion (highlights, by no means a complete list):
+Things ESDB's subscriptions can do that are not covered in Propulsion (highlights, by no means a complete list):
 - `$et-`, `$ec-` streams
-- honoring the global `$all` order
-- stacks more things - ESDB is a well designed purpose based solution used by thousands of systems with a massive mix of throughput and complexity constraints
+- honoring the full `$all` order
+- stacks more things - EventStoreDB is a well designed purpose-built solution used by thousands of systems with a massive mix of throughput and complexity constraints
 
 ### What's the deal with the history of this repo?
 
