@@ -134,10 +134,10 @@ module Internal =
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
-            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) item.span
-                try let! res = Writer.write log eventsContext (StreamName.toString item.stream) span'
-                    return  Choice1Of2 (stats, res)
+            let attemptWrite (stream, span) = async {
+                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
+                try let! res = Writer.write log eventsContext (StreamName.toString stream) span'
+                    return Choice1Of2 (stats, res)
                 with e -> return Choice2Of2 (stats, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
@@ -151,7 +151,7 @@ module Internal =
                 let (_stream, ss), malformed = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 ss.Write, res
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 type CosmosStoreSink =

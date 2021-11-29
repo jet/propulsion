@@ -524,7 +524,7 @@ module Scheduling =
             dt <- TimeSpan.Zero; ft <- TimeSpan.Zero; it <- TimeSpan.Zero; st <- TimeSpan.Zero; mt <- TimeSpan.Zero
 
         abstract member Handle : InternalMessage<Choice<'R, 'E>> -> unit
-        default _.Handle msg = msg |> function
+        default x.Handle msg = msg |> function
             | Added (streams, skipped, events) ->
                 batchesPended <- batchesPended + 1
                 streamsPended <- streamsPended + streams
@@ -598,7 +598,7 @@ module Scheduling =
                 let xs = potential.GetEnumerator()
                 while xs.MoveNext() && hasCapacity do
                     let item = xs.Current
-                    let succeeded = inner.TryAdd(async { let! r = project item in return item.stream, r })
+                    let succeeded = inner.TryAdd(project item)
                     if succeeded then
                         markBusy item.stream
                     hasCapacity <- succeeded
@@ -623,10 +623,27 @@ module Scheduling =
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type MultiDispatcher<'P, 'R, 'E>
         (   inner : ItemDispatcher<Choice<'P, 'E>>,
-            project : DispatchItem<byte[]> -> Async<Choice<'P, 'E>>,
+            project : DispatchItem<byte[]> -> Async<FsCodec.StreamName * Choice<'P, 'E>>,
             interpretProgress : StreamStates<byte[]> -> FsCodec.StreamName -> Choice<'P, 'E> -> int64 option * Choice<'R, 'E>,
             stats : Stats<'R, 'E>,
             dumpStreams) =
+        static member Create(inner, project, interpretProgress, stats, dumpStreams) =
+            let project (item : DispatchItem<byte[]>) : Async<FsCodec.StreamName * Choice<'P, 'E>> = async {
+                let! res = project (item.stream, item.span)
+                return item.stream, res }
+            MultiDispatcher(inner, project, interpretProgress, stats, dumpStreams)
+        static member Create(inner, handle, interpret, toIndex, stats, dumpStreams) =
+            let project item = async {
+                let stats, (stream, span) = interpret item
+                try let! index', res = handle (stream, span)
+                    let index' = toIndex (stream, span) index'
+                    return Choice1Of2 (index', stats, res)
+                with e -> return Choice2Of2 (stats, e) }
+            let interpretProgress (_streams : StreamStates<_>) _stream = function
+                | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
+                | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
+            MultiDispatcher<_, _, _>.Create(inner, project, interpretProgress, stats, dumpStreams)
+
         interface IDispatcher<'P, 'R, 'E> with
             override _.TryReplenish pending markStreamBusy = inner.TryReplenish pending project markStreamBusy
             [<CLIEvent>] override _.Result = inner.Result
@@ -840,25 +857,14 @@ module Scheduling =
 
     type StreamSchedulingEngine =
 
-        static member Create<'Metrics, 'Req, 'Progress, 'Outcome>
+        static member Create<'Metrics, 'Progress, 'Outcome>
             (   itemDispatcher : ItemDispatcher<Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn>>,
                 stats : Stats<'Metrics * 'Outcome, 'Metrics * exn>,
-                prepare : FsCodec.StreamName*StreamSpan<byte[]> -> 'Metrics * 'Req, handle : 'Req -> Async<'Progress * 'Outcome>, toIndex : 'Req -> 'Progress -> int64,
+                prepare : _ * _ -> 'Metrics * (_ * _), handle : _ * _ -> Async<'Progress * 'Outcome>, toIndex : _ * _ -> 'Progress -> int64,
                 dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn> =
 
-            let project (item : DispatchItem<byte[]>) : Async<Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn>> = async {
-                let stats, req = prepare (item.stream, item.span)
-                try let! progress, outcome = handle req
-                    let pos' = toIndex req progress
-                    return Choice1Of2 (pos', stats, outcome)
-                with e -> return Choice2Of2 (stats, e) }
-
-            let interpretProgress (_streams : StreamStates<_>) _stream : Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn> -> int64 option * Choice<'Metrics * 'Outcome, 'Metrics * exn> = function
-                | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
-                | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
-
-            let dispatcher = MultiDispatcher<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn>(itemDispatcher, project, interpretProgress, stats, dumpStreams)
+            let dispatcher = MultiDispatcher<_, _, _>.Create(itemDispatcher, handle, prepare, toIndex, stats, dumpStreams)
             StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
@@ -988,7 +994,7 @@ type StreamsProjector =
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
-            Scheduling.StreamSchedulingEngine.Create<_, FsCodec.StreamName * StreamSpan<byte[]>, 'Progress, 'Outcome>
+            Scheduling.StreamSchedulingEngine.Create<_, 'Progress, 'Outcome>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
                     (fun s l -> s.Dump(l, Buffering.StreamState.eventsSize)),
@@ -1095,15 +1101,15 @@ module Sync =
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
-                let (eventCount, bytesCount), span = Buffering.StreamSpan.slice (maxEvents, maxBytes) item.span
+            let attemptWrite (stream, span) = async {
+                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
-                try let req = (item.stream, span)
+                try let req = (stream, span')
                     let! res, outcome = handle req
                     let prepareElapsed = sw.Elapsed
-                    let pos' = SpanResult.toIndex req res
-                    return Choice1Of2 (pos', ((eventCount, bytesCount), prepareElapsed), outcome)
-                with e -> return Choice2Of2 ((eventCount, bytesCount), e) }
+                    let index' = SpanResult.toIndex req res
+                    return Choice1Of2 (index', (stats, prepareElapsed), outcome)
+                with e -> return Choice2Of2 (stats, e) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
                 | Choice1Of2 (i', stats, outcome) ->
@@ -1117,7 +1123,7 @@ module Sync =
                 s.Dump(l, Buffering.StreamState.eventsSize)
                 match dumpExternalStats with Some f -> f l | None -> ()
 
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay)

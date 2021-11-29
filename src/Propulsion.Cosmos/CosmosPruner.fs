@@ -101,15 +101,10 @@ module Pruner =
 
         static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
-            let attemptWrite (item : Scheduling.DispatchItem<_>) = async {
-                let stats = Buffering.StreamSpan.stats item.span
-                try let! index', res = handle pruneUntil (item.stream, item.span)
-                    return Choice1Of2 (index', stats, res)
-                with e -> return Choice2Of2 (stats, e) }
-            let interpretProgress _streams _stream : Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn> -> int64 option * Choice<'Metrics * 'Outcome, 'Metrics * exn> = function
-                | Choice1Of2 (index, stats, outcome) -> Some index, Choice1Of2 (stats, outcome)
-                | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _>(itemDispatcher, attemptWrite, interpretProgress, stats, dumpStreams)
+            let interpret (stream, span) =
+                let stats = Buffering.StreamSpan.stats span
+                stats, (stream, span)
+            let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=false, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
