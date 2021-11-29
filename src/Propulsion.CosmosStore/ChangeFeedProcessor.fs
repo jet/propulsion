@@ -66,7 +66,7 @@ type ChangeFeedProcessor =
         let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
             processorName, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
-        let processorName_ =  processorName + ":"
+        let processorName_ = processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =
             let handler =
@@ -135,5 +135,5 @@ type ChangeFeedProcessor =
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         let processName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
         let processId = System.Diagnostics.Process.GetCurrentProcess().Id
-        let hostName = System.Environment.MachineName
+        let hostName = Environment.MachineName
         sprintf "%s-%s-%d" hostName processName processId

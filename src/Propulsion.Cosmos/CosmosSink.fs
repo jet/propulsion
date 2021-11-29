@@ -51,11 +51,7 @@ module Internal =
                     match pos.index with
                     | actual when actual < span.index -> PrefixMissing (span, actual)
                     | actual when actual >= span.index + span.events.LongLength -> Duplicate actual
-#if NET461
-                    | actual -> PartialDuplicate { index = actual; events = span.events |> Seq.skip (actual-span.index |> int) |> Array.ofSeq }
-#else
                     | actual -> PartialDuplicate { index = actual; events = span.events |> Array.skip (actual-span.index |> int) }
-#endif
             log.Debug("Result: {res}", res')
             return res' }
         let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e : exn) =

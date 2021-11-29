@@ -12,16 +12,16 @@ type Pipeline (task : Task<unit>, triggerStop) =
     interface IDisposable with member __.Dispose() = __.Stop()
 
     /// Inspects current status of processing task
-    member __.Status = task.Status
+    member _.Status = task.Status
 
     /// After AwaitShutdown, can be used to infer whether exit was clean
-    member __.RanToCompletion = task.Status = TaskStatus.RanToCompletion
+    member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
     /// Request cancellation of processing
-    member __.Stop() = triggerStop ()
+    member _.Stop() = triggerStop ()
 
     /// Asynchronously awaits until consumer stops or a `handle` invocation yields a fault
-    member __.AwaitShutdown() = Async.AwaitTaskCorrect task
+    member _.AwaitShutdown() = Async.AwaitTaskCorrect task
 
     /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
     /// Reacts to cancellation by Stopping the Consume loop via <c>Stop()</c>; see <c>AwaitShutdown</c> if such semantics are not desired.
@@ -33,9 +33,9 @@ type Pipeline (task : Task<unit>, triggerStop) =
 type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
-    member __.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
+    member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
 
-    static member Start(log : Serilog.ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
+    static member Start(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = TaskCompletionSource<unit>()
