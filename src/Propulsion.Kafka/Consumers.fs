@@ -240,7 +240,7 @@ module Core =
             let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
                 logExternalState |> Option.iter (fun f -> f log)
                 streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
-            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
+            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams, ?idleDelay=idleDelay, ?maxBatches=maxBatches)
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
