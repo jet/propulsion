@@ -1177,7 +1177,7 @@ module Sync =
                     let! res, outcome = handle req
                     let prepareElapsed = sw.Elapsed
                     let index' = SpanResult.toIndex req res
-                    return index' > span'.index, Choice1Of2 (index', (met, prepareElapsed), outcome)
+                    return index' > span.index, Choice1Of2 (index', (met, prepareElapsed), outcome)
                 with e -> return false, Choice2Of2 (met, e) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
