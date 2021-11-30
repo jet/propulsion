@@ -162,7 +162,7 @@ type Stats(log, statsInterval, statesInterval) =
     inherit Propulsion.Streams.Stats<unit>(log, statsInterval=statsInterval, statesInterval=statesInterval)
     member val StatsInterval = statsInterval
     override _.HandleOk(_log) = ()
-    override _.HandleExn(_log, _stream, _exn) = ()
+    override _.HandleExn(_log, _exn) = ()
 
 [<EntryPoint>]
 let main argv =
