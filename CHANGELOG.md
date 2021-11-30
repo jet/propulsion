@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+ 
+- `Streams`: Added `propulsion_scheduler_busy` metrics: `count` and `seconds` [#126](https://github.com/jet/propulsion/pull/126)
+
 ### Changed
 ### Removed
 

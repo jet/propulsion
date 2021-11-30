@@ -92,9 +92,10 @@ type LogSink(customTags: seq<string * string>, group: string) =
     let observeStreams = Gauge.create      tags "streams"         "Current streams"
     let observeEvents =  Gauge.create      tags "events"          "Current events"
     let observeBytes =   Gauge.create      tags "bytes"           "Current bytes"
-    let observeStuckCount = Gauge.create   tags "stuck_count"     "Current Stuck Streams count"
-    let observeStuckOldest = Gauge.createWithKind tags "oldest" "stuck_seconds" "Stuck Stream age, seconds"
-    let observeStuckNewest = Gauge.createWithKind tags "newest" "stuck_seconds" "Stuck Stream age, seconds"
+
+    let observeBusyCount = Gauge.create    tags "busy_count"      "Current Busy Streams count"
+    let observeBusyOldest = Gauge.createWithKind tags "oldest" "busy_seconds" "Busy Streams age, seconds"
+    let observeBusyNewest = Gauge.createWithKind tags "newest" "busy_seconds" "Busy Streams age, seconds"
 
     let observeCpu =     Counter.create    tags "cpu"             "Processing Time Breakdown"
 
@@ -112,10 +113,10 @@ type LogSink(customTags: seq<string * string>, group: string) =
     let observeLatency kind latency =
         observeLatSum (group, kind) latency
         observeLatHis (group, kind) latency
-    let observeStuck kind count oldest newest =
-        observeStuckCount group kind (float count)
-        observeStuckOldest group kind oldest
-        observeStuckNewest group kind newest
+    let observeBusy kind count oldest newest =
+        observeBusyCount group kind (float count)
+        observeBusyOldest group kind oldest
+        observeBusyNewest group kind newest
 
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
@@ -136,6 +137,6 @@ type LogSink(customTags: seq<string * string>, group: string) =
                     observeCpu "stats" stats.TotalSeconds
                 | Metric.HandlerResult (kind, latency) ->
                     observeLatency kind latency
-                | Metric.Stuck (kind, count, oldest, newest) ->
-                    observeStuck kind count oldest newest
+                | Metric.StreamsBusy (kind, count, oldest, newest) ->
+                    observeBusy kind count oldest newest
             | _ -> ()

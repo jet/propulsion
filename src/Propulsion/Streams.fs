@@ -39,7 +39,7 @@ module Log =
             kind : string *
             /// handler duration in s
             latency : float
-        | Stuck of
+        | StreamsBusy of
             /// "Failing" or "stuck"
             kind : string *
             count : int *
@@ -512,7 +512,8 @@ module Scheduling =
 
     type BufferState = Idle | Busy | Full | Slipstreaming
 
-    module Stuck =
+    /// Manages state used to generate metrics (and summary logs) regarding streams currently being processed by a Handler
+    module Busy =
         let private ticksPerSecond = double System.Diagnostics.Stopwatch.Frequency
         let timeSpanFromStopwatchTicks = function
             | ticks when ticks > 0L -> TimeSpan.FromSeconds(double ticks / ticksPerSecond)
@@ -531,6 +532,8 @@ module Scheduling =
                 attempts <- attempts + count
             if streams = 0 then oldest <- 0L; newest <- 0L
             (streams, attempts), (timeSpanFromStopwatchTicks oldest, timeSpanFromStopwatchTicks newest)
+        /// Manages the list of currently dispatched Handlers
+        /// NOTE we are guaranteed we'll hear about a Start before a Finish (or another Start) per stream by the design of the Dispatcher
         type private Active() =
             let state = Dictionary<FsCodec.StreamName, StreamState>()
             member _.HandleStarted(sn, ts) = state.Add(sn, { ts = ts; count = 1 })
@@ -539,7 +542,7 @@ module Scheduling =
                 state.Remove sn |> ignore
                 res.ts
             member _.State = walkAges state |> renderState
-        /// Represents state of streams where the handler did not make progress on the last execution
+        /// Represents state of streams where the handler did not make progress on the last execution either intentionally or due to an exception
         type private Repeating() =
             let state = Dictionary<FsCodec.StreamName, StreamState>()
             member _.HandleResult(sn, isStuck, startTs) =
@@ -548,6 +551,7 @@ module Scheduling =
                      | true, v -> v.count <- v.count + 1
                      | false, _ -> state.Add(sn, { ts = startTs; count = 1 })
             member _.State = walkAges state |> renderState
+        /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
         type Monitor() =
             let active, failing, stuck = Active(), Repeating(), Repeating()
             let emit (log : ILogger) state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
@@ -568,7 +572,7 @@ module Scheduling =
                 stuck.State ||> dump "stalled"
             member _.EmitMetrics(log : ILogger) =
                 let inline report state (streams, attempts) (oldest : TimeSpan, newest : TimeSpan) =
-                    let m = Log.Metric.Stuck (state, streams, oldest.TotalSeconds, newest.TotalSeconds)
+                    let m = Log.Metric.StreamsBusy (state, streams, oldest.TotalSeconds, newest.TotalSeconds)
                     emit (log |> Log.metric m) state (streams, attempts) (oldest, newest)
                 active.State ||> report "active"
                 failing.State ||> report "failing"
@@ -578,7 +582,7 @@ module Scheduling =
     [<AbstractClass>]
     type Stats<'R, 'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
         let mutable cycles, fullCycles = 0, 0
-        let states, oks, exns, mon = CatStats(), LatencyStats("ok"), LatencyStats("exceptions"), Stuck.Monitor()
+        let states, oks, exns, mon = CatStats(), LatencyStats("ok"), LatencyStats("exceptions"), Busy.Monitor()
         let mutable batchesPended, streamsPended, eventsSkipped, eventsPended = 0, 0, 0, 0
         let statsDue, stateDue, stucksDue = intervalCheck statsInterval, intervalCheck stateInterval, intervalCheck (TimeSpan.FromSeconds 1.)
         let metricsLog = log.ForContext("isMetric", true)
@@ -723,7 +727,7 @@ module Scheduling =
             let project sw (item : DispatchItem<byte[]>) : Async<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>> = async {
                 let! progressed, res = project (item.stream, item.span)
                 let now = System.Diagnostics.Stopwatch.GetTimestamp()
-                return Stuck.timeSpanFromStopwatchTicks (now - sw), item.stream, progressed, res }
+                return Busy.timeSpanFromStopwatchTicks (now - sw), item.stream, progressed, res }
             MultiDispatcher(inner, project, interpretProgress, stats, dumpStreams)
         static member Create(inner, handle, interpret, toIndex, stats, dumpStreams) =
             let project item = async {
