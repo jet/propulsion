@@ -480,23 +480,29 @@ type BatchesConsumer =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
         let handle (items : Streams.Scheduling.DispatchItem<byte[]>[])
-            : Async<(StreamName * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = async {
+            : Async<(TimeSpan * StreamName * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = async {
+            let sw = Stopwatch.StartNew()
+            let avgElapsed () =
+                let tot = let e = sw.Elapsed in e.TotalMilliseconds
+                TimeSpan.FromMilliseconds(tot / float items.Length)
             try let! results = handle items
+                let ae = avgElapsed ()
                 return
                     [| for x in Seq.zip items results ->
                         match x with
                         | item, Choice1Of2 index' ->
                             let used : Streams.StreamSpan<_> = { item.span with events = item.span.events |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq }
                             let s = Streams.Buffering.StreamSpan.stats used
-                            item.stream, Choice1Of2 (index', (s, ()))
+                            ae, item.stream, Choice1Of2 (index', (s, ()))
                         | item, Choice2Of2 exn ->
                             let s = Streams.Buffering.StreamSpan.stats item.span
-                            item.stream, Choice2Of2 (s, exn) |]
+                            ae, item.stream, Choice2Of2 (s, exn) |]
             with e ->
+                let ae = avgElapsed ()
                 return
                     [| for x in items ->
                         let s = Streams.Buffering.StreamSpan.stats x.span
-                        x.stream, Choice2Of2 (s, e) |] }
+                        ae, x.stream, Choice2Of2 (s, e) |] }
         let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, ?idleDelay=idleDelay, maxBatches=maxBatches)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
