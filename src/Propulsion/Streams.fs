@@ -1032,7 +1032,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             resultExnOther <- resultExnOther + 1
             this.HandleExn(log.ForContext("stream", stream).ForContext("events", es).ForContext("duration", duration), stream, exn)
     abstract member HandleOk : outcome : 'Outcome -> unit
-    abstract member HandleExn : log : ILogger * sn : FsCodec.StreamName * exn : exn -> unit
+    abstract member HandleExn : log : ILogger * streamName : FsCodec.StreamName * exn : exn -> unit
 
 module Projector =
 
