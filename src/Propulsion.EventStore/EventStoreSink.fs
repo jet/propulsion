@@ -78,7 +78,7 @@ module Internal =
                     mb exnBytes, fails, failStreams.Count, exnEvents, !timedOut, toStreams.Count)
                 timedOut := 0; resultExnOther := 0; failStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
             if badCats.Any then
-                log.Warning("Affected cats {@badCats} Other {other:n0}r {@oStreams}",
+                log.Warning(" Affected cats {@badCats} Other {other:n0}r {@oStreams}",
                     badCats.StatsDescending |> Seq.truncate 50, !resultExnOther, oStreams |> Seq.truncate 100)
                 badCats.Clear(); resultExnOther := 0; oStreams.Clear()
             Equinox.EventStore.Log.InternalMetrics.dump log

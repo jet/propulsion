@@ -888,7 +888,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
         if resultExnOther <> 0 then
             log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e", mb exnBytes, resultExnOther, failStreams.Count, exnEvents)
             resultExnOther <- 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-            log.Warning("Affected cats {@badCats}", badCats.StatsDescending)
+            log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
     override this.Handle message =
