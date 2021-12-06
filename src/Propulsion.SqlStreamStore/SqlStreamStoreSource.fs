@@ -1,7 +1,8 @@
 namespace Propulsion.SqlStreamStore
 
-open System
+open Propulsion.Feed
 open SqlStreamStore
+open System
 
 type ReaderSpec =
     {
@@ -9,7 +10,7 @@ type ReaderSpec =
          maxBatchSize: int
          tailSleepInterval: TimeSpan
     }
-    static member Default (consumerGroup) =
+    static member Default(consumerGroup) =
         {
             consumerGroup = consumerGroup
             maxBatchSize = 100
@@ -19,43 +20,36 @@ type ReaderSpec =
 type SqlStreamStoreSource =
 
     static member Run
-            (logger: Serilog.ILogger,
-             store: IStreamStore,
-             checkpointer: ICheckpointer,
-             spec: ReaderSpec,
-             sink: Propulsion.ProjectorPipeline<_>,
-             statsInterval: TimeSpan) : Async<unit> =
+        (   logger: Serilog.ILogger,
+            store: IStreamStore,
+            checkpointer: IFeedCheckpointStore,
+            spec: ReaderSpec,
+            sink: Propulsion.ProjectorPipeline<_>,
+            statsInterval: TimeSpan) : Async<unit> = async {
+        let streamId = "$all"
 
-        async {
-            let streamId = "$all"
+        let logger =
+            let instanceId = Guid.NewGuid()
+            logger
+                .ForContext("instanceId", string instanceId)
+                .ForContext("consumerGroup", spec.consumerGroup)
 
-            let logger =
-                let instanceId = System.Guid.NewGuid()
-                logger
-                    .ForContext("instanceId", string instanceId)
-                    .ForContext("consumerGroup", spec.consumerGroup)
+        let ingester : Propulsion.Ingestion.Ingester<_,_> =
+            sink.StartIngester(logger, 0)
 
-            let ingester : Propulsion.Ingestion.Ingester<_,_> =
-                sink.StartIngester(logger, 0)
+        let reader =
+            StreamReader(logger,
+                         store,
+                         checkpointer,
+                         ingester.Submit,
+                         SourceId.parse streamId,
+                         TrancheId.parse spec.consumerGroup,
+                         spec.maxBatchSize,
+                         spec.tailSleepInterval,
+                         statsInterval)
 
-            let reader =
-                StreamReader(logger,
-                             store,
-                             checkpointer,
-                             ingester.Submit,
-                             streamId,
-                             spec.consumerGroup,
-                             spec.maxBatchSize,
-                             spec.tailSleepInterval,
-                             statsInterval)
-
-            try
-                let! position =
-                    checkpointer.GetPosition(streamId, spec.consumerGroup)
-
-                do! reader.Start(position)
-            with
-            | exc ->
-                logger.Warning(exc, "Exception encountered while running reader, exiting loop")
-                return! Async.Raise exc
-        }
+        try let! _freq, position = checkpointer.Start(SourceId.parse streamId, TrancheId.parse spec.consumerGroup, TimeSpan.FromSeconds 5.)
+            do! reader.Start(if position = Position.initial then Nullable() else Nullable(Position.toInt64 position))
+        with exc ->
+            logger.Warning(exc, "Exception encountered while running reader, exiting loop")
+            return! Async.Raise exc }

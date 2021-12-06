@@ -10,8 +10,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Infrastructure.fs" />
-        <Compile Include="Checkpoint.fs" />
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+            <Link>PropulsionInfrastructure.fs</Link>
+        </Compile>
+        <Compile Include="..\Propulsion.Feed\Infrastructure.fs">
+            <Link>FeedInfrastructure.fs</Link>
+        </Compile>
+        <Compile Include="ReaderCheckpoint.fs" />
         <Compile Include="StreamReader.fs" />
         <Compile Include="SqlStreamStoreSource.fs" />
     </ItemGroup>

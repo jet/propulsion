@@ -1,13 +1,13 @@
 namespace Propulsion.SqlStreamStore
 
-open System
-open System.Text
-
+open Propulsion.AsyncHelpers // Infrastructure
+open Propulsion.Feed
+open Propulsion.Streams
+open Serilog
 open SqlStreamStore
 open SqlStreamStore.Streams
-
-open Serilog
-open Propulsion.Streams
+open System
+open System.Text
 
 [<AutoOpen>]
 module private Internal =
@@ -116,7 +116,7 @@ type StreamReader
     (
         logger: ILogger,
         store: IStreamStore,
-        checkpointer: ICheckpointer,
+        checkpointer: IFeedCheckpointStore,
         submitBatch: SubmitBatchHandler,
         streamId,
         consumerGroup,
@@ -130,8 +130,8 @@ type StreamReader
     let commit position =
         async {
             try
-                do! checkpointer.CommitPosition(streamId, consumerGroup, position)
-                stats.UpdateCommitedPosition(position)
+                do! checkpointer.Commit(streamId, consumerGroup, position)
+                stats.UpdateCommitedPosition(Position.toInt64 position)
                 logger.Debug("Committed position {position}", position)
             with
             | exc ->
@@ -161,7 +161,7 @@ type StreamReader
 
                 stats.UpdateBatch(batch)
 
-                let! cur, max = submitBatch (batch.lastPosition, commit batch.lastPosition, batch.messages)
+                let! cur, max = submitBatch (batch.lastPosition, commit (Position.parse batch.lastPosition), batch.messages)
 
                 stats.UpdateCurMax(cur, max)
             else
@@ -169,7 +169,7 @@ type StreamReader
                 stats.UpdateEmptyPage()
         }
 
-    member this.Start (commitedPosition: Nullable<int64>) =
+    member this.Start (committedPosition : Nullable<int64>) =
         async {
             // Start reporting stats
             do! Async.StartChild stats.Start |> Async.Ignore
@@ -185,7 +185,7 @@ type StreamReader
                         | Work.Page page -> return page
                         | Work.TakeInitial ->
                             let initialPosition =
-                                if commitedPosition.HasValue then commitedPosition.Value + 1L else 0L
+                                if committedPosition.HasValue then committedPosition.Value + 1L else 0L
 
                             logger.Information("Starting reading stream from position {initialPosition}, maxBatchSize {maxBatchSize}", initialPosition, maxBatchSize)
 
