@@ -9,13 +9,21 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
- 
+### Changed
+### Removed
+### Fixed
+
+<a name="2.12.0-rc.1"></a>
+## [2.12.0-rc.1] - 2021-12-06
+
+### Added
+
 - `Streams`: Added `propulsion_scheduler_busy` metrics: `count` and `seconds` [#126](https://github.com/jet/propulsion/pull/126)
 
 ### Changed
 
-- `PeriodicSource`: Add `readTranches` parameter to `Pump` [#130](https://github.com/jet/propulsion/pull/130)  
-- `PeriodicSource`: Add `TrancheId` parameter to `crawl` [#130](https://github.com/jet/propulsion/pull/130)
+- `Feed.PeriodicSource`: Add `readTranches` parameter to `Pump` [#130](https://github.com/jet/propulsion/pull/130)
+- `Feed.PeriodicSource`: Add `TrancheId` parameter to `crawl` [#130](https://github.com/jet/propulsion/pull/130)
 - `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.5`
 
 ### Removed
@@ -659,8 +667,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.11.0...HEAD
-[2.11.0]: https://github.com/jet/propulsion/compare/2.11.0-rc3...2.11.0~~~~
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc1...HEAD
+[2.12.0-rc.1]: https://github.com/jet/propulsion/compare/2.11.0...2.12.0-rc1
+[2.11.0]: https://github.com/jet/propulsion/compare/2.11.0-rc3...2.11.0
 [2.11.0-rc3]: https://github.com/jet/propulsion/compare/2.11.0-rc2...2.11.0-rc3
 [2.11.0-rc2]: https://github.com/jet/propulsion/compare/2.11.0-rc1...2.11.0-rc2
 [2.11.0-rc1]: https://github.com/jet/propulsion/compare/2.10.0...2.11.0-rc1
