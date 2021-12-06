@@ -863,7 +863,9 @@ module Scheduling =
         static member Create<'Metrics, 'Progress, 'Outcome>
             (   itemDispatcher : ItemDispatcher<Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn>>,
                 stats : Stats<'Metrics * 'Outcome, 'Metrics * exn>,
-                prepare : _ * _ -> 'Metrics * (_ * _), handle : _ * _ -> Async<'Progress * 'Outcome>, toIndex : _ * _ -> 'Progress -> int64,
+                prepare : FsCodec.StreamName * StreamSpan<_> -> 'Metrics * (FsCodec.StreamName * StreamSpan<_>),
+                handle : FsCodec.StreamName * StreamSpan<_> -> Async<'Progress * 'Outcome>,
+                toIndex : FsCodec.StreamName * StreamSpan<_> -> 'Progress -> int64,
                 dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn> =
 
@@ -1105,14 +1107,14 @@ module Sync =
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
             let attemptWrite (stream, span) = async {
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
+                let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 try let req = (stream, span')
                     let! res, outcome = handle req
                     let prepareElapsed = sw.Elapsed
                     let index' = SpanResult.toIndex req res
-                    return Choice1Of2 (index', (stats, prepareElapsed), outcome)
-                with e -> return Choice2Of2 (stats, e) }
+                    return Choice1Of2 (index', (met, prepareElapsed), outcome)
+                with e -> return Choice2Of2 (met, e) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
                 | Choice1Of2 (i', stats, outcome) ->

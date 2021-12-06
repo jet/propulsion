@@ -122,10 +122,10 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections.[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
+                let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span'
-                    return Choice1Of2 (stats, res)
-                with e -> return Choice2Of2 (stats, e) }
+                    return Choice1Of2 (met, res)
+                with e -> return Choice2Of2 (met, e) }
 
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function

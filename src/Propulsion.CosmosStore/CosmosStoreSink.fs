@@ -135,10 +135,10 @@ module Internal =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite (stream, span) = async {
-                let stats, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
+                let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span'
-                    return Choice1Of2 (stats, res)
-                with e -> return Choice2Of2 (stats, e) }
+                    return Choice1Of2 (met, res)
+                with e -> return Choice2Of2 (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null, false
