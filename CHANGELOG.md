@@ -16,6 +16,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `PeriodicSource`: Add `readTranches` parameter to `Pump` [#130](https://github.com/jet/propulsion/pull/130)  
 - `PeriodicSource`: Add `TrancheId` parameter to `crawl` [#130](https://github.com/jet/propulsion/pull/130)
+- `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.5`
 
 ### Removed
 
@@ -45,7 +46,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Changed
 
 - `CosmosStore`: Target `Microsoft.Azure.Cosmos` (V3 CFP) `3.0.22-preview`
-- `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.4`
+- `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.5`
 - `CosmosStore`: rename `maxDocuments` to `maxItems`
 - `Pipeline`: Renamed `AwaitCompletion` to `AwaitShutdown` [#118](https://github.com/jet/propulsion/pull/118)
 - `Kafka`: Target [`FsKafka [1.7.0, 1.9.99)`](https://github.com/jet/FsKafka/releases/tag/1.7.0)
