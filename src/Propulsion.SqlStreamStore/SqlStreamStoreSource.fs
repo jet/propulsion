@@ -32,13 +32,13 @@ type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         store : SqlStreamStore.IStreamStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
-        ?defaultCheckpointEventInterval : TimeSpan,
+        /// If the Handler does not require the bodies of the events, we can avoid querying the bodies from SqlStreamStore in the first instance
         ?excludeBodies) =
     inherit Propulsion.Feed.FeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                       checkpoints, (defaultArg defaultCheckpointEventInterval (TimeSpan.FromSeconds 5.)),
+                                       checkpoints, defaultCheckpointEventInterval,
                                        Impl.readPage (excludeBodies = Some true) maxBatchSize store, sink)
 
     member _.Pump(consumerGroupName) =
