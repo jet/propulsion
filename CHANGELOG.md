@@ -25,6 +25,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Feed.PeriodicSource`: Add `readTranches` parameter to `Pump` [#130](https://github.com/jet/propulsion/pull/130)
 - `Feed.PeriodicSource`: Add `TrancheId` parameter to `crawl` [#130](https://github.com/jet/propulsion/pull/130)
 - `CosmosStore`: Target `Equinox.CosmosStore` v `3.0.5`
+- `SqlStreamStore`: Rebase on `Propulsion.Feed.FeedSource` [#131](https://github.com/jet/propulsion/pull/131)
 
 ### Removed
 
