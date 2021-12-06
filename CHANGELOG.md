@@ -14,8 +14,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- `PeriodicSource`: Add `readTranches` parameter to `Pump`
-- `PeriodicSource`: Add `TrancheId` parameter to `crawl`: [#128](https://github.com/jet/propulsion/pull/128)
+- `PeriodicSource`: Add `readTranches` parameter to `Pump` [#130](https://github.com/jet/propulsion/pull/130)  
+- `PeriodicSource`: Add `TrancheId` parameter to `crawl` [#130](https://github.com/jet/propulsion/pull/130)
 
 ### Removed
 
