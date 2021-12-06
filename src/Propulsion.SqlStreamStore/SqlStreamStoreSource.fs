@@ -1,55 +1,46 @@
 namespace Propulsion.SqlStreamStore
 
-open Propulsion.Feed
-open SqlStreamStore
 open System
 
-type ReaderSpec =
-    {
-         consumerGroup: string
-         maxBatchSize: int
-         tailSleepInterval: TimeSpan
-    }
-    static member Default(consumerGroup) =
-        {
-            consumerGroup = consumerGroup
-            maxBatchSize = 100
-            tailSleepInterval = TimeSpan.FromSeconds(1.)
-        }
+module private Impl =
 
-type SqlStreamStoreSource =
+    open Propulsion.AsyncHelpers // AwaitTaskCorrect
+    open Propulsion.Feed
 
-    static member Run
-        (   logger: Serilog.ILogger,
-            store: IStreamStore,
-            checkpointer: IFeedCheckpointStore,
-            spec: ReaderSpec,
-            sink: Propulsion.ProjectorPipeline<_>,
-            statsInterval: TimeSpan) : Async<unit> = async {
-        let streamId = "$all"
+    let toTimelineEvent (dataJson : string) (msg: SqlStreamStore.Streams.StreamMessage) =
+        let inline len0ToNull (x : _[]) = match x with null -> null | x when x.Length = 0 -> null | x -> x
+        FsCodec.Core.TimelineEvent.Create
+            (   int64 msg.StreamVersion,
+                msg.Type,
+                (match dataJson with null -> null | x -> x |> System.Text.Encoding.UTF8.GetBytes |> len0ToNull),
+                msg.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes |> len0ToNull,
+                msg.MessageId,
+                timestamp = DateTimeOffset(msg.CreatedUtc))
+    let readWithDataAsTimelineEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
+        let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
+        return toTimelineEvent json msg }
+    let readPage excludeBodies maxBatchSize (store : SqlStreamStore.IStreamStore) (_tranche, pos) : Async<Page<_>> = async {
+        let! ct = Async.CancellationToken
+        let! page = store.ReadAllForwards(Position.toInt64 pos, maxBatchSize, not excludeBodies, ct) |> Async.AwaitTaskCorrect
+        let! items =
+            if excludeBodies then async { return page.Messages |> Array.map (toTimelineEvent null) }
+            else page.Messages |> Seq.map readWithDataAsTimelineEvent |> Async.Sequential
+        return { checkpoint = Position.parse page.NextPosition; items = items; isTail = page.IsEnd } }
 
-        let logger =
-            let instanceId = Guid.NewGuid()
-            logger
-                .ForContext("instanceId", string instanceId)
-                .ForContext("consumerGroup", spec.consumerGroup)
+type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
 
-        let ingester : Propulsion.Ingestion.Ingester<_,_> =
-            sink.StartIngester(logger, 0)
+type SqlStreamStoreSource
+    (   log : Serilog.ILogger, statsInterval : TimeSpan,
+        sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
+        store : SqlStreamStore.IStreamStore,
+        sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
+        ?defaultCheckpointEventInterval : TimeSpan,
+        ?excludeBodies) =
+    inherit Propulsion.Feed.FeedSource(log, statsInterval, sourceId, tailSleepInterval,
+                                       checkpoints, (defaultArg defaultCheckpointEventInterval (TimeSpan.FromSeconds 5.)),
+                                       Impl.readPage (excludeBodies = Some true) maxBatchSize store, sink)
 
-        let reader =
-            StreamReader(logger,
-                         store,
-                         checkpointer,
-                         ingester.Submit,
-                         SourceId.parse streamId,
-                         TrancheId.parse spec.consumerGroup,
-                         spec.maxBatchSize,
-                         spec.tailSleepInterval,
-                         statsInterval)
-
-        try let! _freq, position = checkpointer.Start(SourceId.parse streamId, TrancheId.parse spec.consumerGroup, TimeSpan.FromSeconds 5.)
-            do! reader.Start(if position = Position.initial then Nullable() else Nullable(Position.toInt64 position))
-        with exc ->
-            logger.Warning(exc, "Exception encountered while running reader, exiting loop")
-            return! Async.Raise exc }
+    member _.Pump(consumerGroupName) =
+        let readTranches () = async { return [| Propulsion.Feed.TrancheId.parse consumerGroupName |] }
+        base.Pump(readTranches)

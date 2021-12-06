@@ -30,9 +30,11 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   2. `PeriodicSource`: Handles regular crawling of an external datasource (such as a SQL database) where there is no way to isolate the changes since a given checkpoint (based on either the intrinsic properties of the data, or of the store itself). The source is expected to present its content as an `AsyncSeq` of `FsCodec.StreamName * FsCodec.IEventData * context`. Checkpointing occurs only when all events have been completely ingested by the Sink.   
 
 - `Propulsion.Kafka` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Kafka.svg)](https://www.nuget.org/packages/Propulsion.Kafka/) Provides bindings for producing and consuming both streamwise and in parallel. Includes a standard codec for use with streamwise projection and consumption, `Propulsion.Kafka.Codec.NewtonsoftJson.RenderedSpan`. [Depends](https://www.fuget.org/packages/Propulsion.Kafka) on `FsKafka` v `1.7.0`-`1.9.99`, `Serilog`
-- `Propulsion.SqlStreamStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.SqlStreamStore.svg)](https://www.nuget.org/packages/Propulsion.SqlStreamStore/). Provides bindings to [SqlStreamStore](https://github.com/SQLStreamStore/SQLStreamStore), maintaining checkpoints in a SQL table using Dapper [Depends](https://www.fuget.org/packages/Propulsion.SqlStreamStore) on `SqlStreamStore`, `Dapper` v `2.0`, `Microsoft.Data.SqlClient` v `1.1.3`, `Serilog`
+- `Propulsion.SqlStreamStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.SqlStreamStore.svg)](https://www.nuget.org/packages/Propulsion.SqlStreamStore/). Provides bindings to [SqlStreamStore](https://github.com/SQLStreamStore/SQLStreamStore), maintaining checkpoints in a SQL table using Dapper [Depends](https://www.fuget.org/packages/Propulsion.SqlStreamStore) on `Propulsion.Feed`, `SqlStreamStore`, `Dapper` v `2.0`, `Microsoft.Data.SqlClient` v `1.1.3`, `Serilog`
 
-The ubiquitous `Serilog` dependency is solely on the core module, not any sinks, i.e. you configure to emit to `NLog` etc.
+  1. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`, `Propulsion.SqlStreamStore` using `Dapper`, `Microsoft.Data.SqlClient`
+
+The ubiquitous `Serilog` dependency is solely on the core module, not any sinks, i.e. you configure to
 
 ### `dotnet tool` provisioning / projections test tool
 

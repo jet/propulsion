@@ -7,8 +7,7 @@ open Propulsion.Feed
 open System
 open System.Data
 
-[<Struct;NoComparison>]
-[<CLIMutable>]
+[<Struct; NoComparison; CLIMutable>]
 type CheckpointEntry = { Stream : string; ConsumerGroup : string; Position : Nullable<int64> }
 
 let createConnection connString =
@@ -56,9 +55,9 @@ let getPosition (conn : IDbConnection) (stream : string) (consumerGroup : string
     | Some res -> return res.Position
     | None -> return Nullable() }
 
-type Service(connString: string) =
+type Service(connString : string) =
 
-    member this.CreateSchemaIfNotExists() = async {
+    member _.CreateSchemaIfNotExists() = async {
         use conn = createConnection connString
         return! createIfNotExists conn }
 
