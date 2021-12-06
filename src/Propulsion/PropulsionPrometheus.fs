@@ -7,6 +7,7 @@ module private Impl =
     let baseName stat = "propulsion_scheduler_" + stat
     let baseDesc desc = "Propulsion Scheduler " + desc
     let groupLabels = [| "group"; "state" |]
+    let groupWithKindLabels = [| "kind"; "group"; "state" |]
     let activityLabels = [| "group"; "activity" |]
     let latencyLabels = [| "group"; "kind" |]
 
@@ -26,6 +27,9 @@ module private Gauge =
     let create (tagNames, tagValues) stat desc =
         let config = Prometheus.GaugeConfiguration(LabelNames = append tagNames groupLabels)
         make config (baseName stat) (baseDesc desc) tagValues
+    let createWithKind (tagNames, tagValues) kind stat desc =
+        let config = Prometheus.GaugeConfiguration(LabelNames = append tagNames groupWithKindLabels)
+        make config (baseName stat) (baseDesc desc) (Array.append tagValues [| kind |])
 
 module private Counter =
 
@@ -89,6 +93,10 @@ type LogSink(customTags: seq<string * string>, group: string) =
     let observeEvents =  Gauge.create      tags "events"          "Current events"
     let observeBytes =   Gauge.create      tags "bytes"           "Current bytes"
 
+    let observeBusyCount = Gauge.create    tags "busy_count"      "Current Busy Streams count"
+    let observeBusyOldest = Gauge.createWithKind tags "oldest" "busy_seconds" "Busy Streams age, seconds"
+    let observeBusyNewest = Gauge.createWithKind tags "newest" "busy_seconds" "Busy Streams age, seconds"
+
     let observeCpu =     Counter.create    tags "cpu"             "Processing Time Breakdown"
 
     let observeLatSum =  Summary.latency   tags "handler_summary" "Handler action"
@@ -102,10 +110,13 @@ type LogSink(customTags: seq<string * string>, group: string) =
 
     let observeState = observeState group
     let observeCpu = observeCpu group
-    let observeLatency kind latenciesS =
-        for v in latenciesS do
-           observeLatSum (group, kind) v
-           observeLatHis (group, kind) v
+    let observeLatency kind latency =
+        observeLatSum (group, kind) latency
+        observeLatHis (group, kind) latency
+    let observeBusy kind count oldest newest =
+        observeBusyCount group kind (float count)
+        observeBusyOldest group kind oldest
+        observeBusyNewest group kind newest
 
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
@@ -124,6 +135,8 @@ type LogSink(customTags: seq<string * string>, group: string) =
                     observeCpu "dispatch" dispatch.TotalSeconds
                     observeCpu "results" results.TotalSeconds
                     observeCpu "stats" stats.TotalSeconds
-                | Metric.AttemptLatencies (kind, latenciesS) ->
-                    observeLatency kind latenciesS
+                | Metric.HandlerResult (kind, latency) ->
+                    observeLatency kind latency
+                | Metric.StreamsBusy (kind, count, oldest, newest) ->
+                    observeBusy kind count oldest newest
             | _ -> ()

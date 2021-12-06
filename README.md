@@ -262,6 +262,7 @@ The order in which the need for various components arose (as a side effect of bu
 
 The things Propulsion in general accomplishes in the projections space:
 - Uniform dashboards for throughput, successes vs failures, and latency distributions over CosmosDB, EventStoreDB, Kafka and generic Feeds
+- Metrics to support trustworthy alerting and detailed analysis of busy, failing and stuck projections
 - make reading, checkpointing, parsing and running independent asynchronous activities (all big perf boosts with Cosmos, less relevant for EventStoreDB)
 - allow handlers to handle backlog of accumulated items for a stream as a batch if desired
 - concurrency across streams
