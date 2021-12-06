@@ -78,5 +78,6 @@ type FeedSource
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>readPage</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
     /// Any exception from <c>readTranches</c> or <c>readPage</c> will be propagated in order to enable termination of the overall projector loop
-    member _.Pump(readTranches : unit -> Async<TrancheId[]>) =
+    member _.Pump(?readTranches : unit -> Async<TrancheId[]>) =
+        let readTranches = match readTranches with Some f -> f | None -> fun () -> async { return [| TrancheId.parse "0" |] }
         base.Pump(readTranches, crawl)
