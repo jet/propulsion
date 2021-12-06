@@ -54,7 +54,7 @@ module Pruner =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
-            | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice2Of2 (_, exn)) ->
+            | Propulsion.Streams.Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 (_, exn)) ->
                 match classify exn with
                 | ExceptionKind.RateLimited ->
                     adds stream rlStreams; incr rateLimited

@@ -508,7 +508,7 @@ module Scheduling =
         /// Stats per submitted batch for stats listeners to aggregate
         | Added of streams : int * skip : int * events : int
         /// Result of processing on stream - result (with basic stats) or the `exn` encountered
-        | Result of duration : TimeSpan * stream : FsCodec.StreamName * worked : bool * result : 'R
+        | Result of duration : TimeSpan * stream : FsCodec.StreamName * progressed : bool * result : 'R
 
     type BufferState = Idle | Busy | Full | Slipstreaming
 
@@ -615,7 +615,7 @@ module Scheduling =
                 exns.Record duration
                 x.HandleResult(stream, duration, false, progressed)
 
-        abstract HandleResult : FsCodec.StreamName * TimeSpan * worked : bool * succeeded : bool -> unit
+        abstract HandleResult : FsCodec.StreamName * TimeSpan * progressed : bool * succeeded : bool -> unit
         default _.HandleResult(stream, duration, succeeded, progressed) =
             mon.HandleResult(stream, succeeded, progressed)
             if metricsLog.IsEnabled Serilog.Events.LogEventLevel.Information then
@@ -865,18 +865,18 @@ module Scheduling =
                         | Added (streams, skipped, events) ->
                             // Only processed in Stats (and actually never enters this queue)
                             Added (streams, skipped, events)
-                        | Result (duration, stream : FsCodec.StreamName, worked : bool, res : Choice<'P, 'E>) ->
+                        | Result (duration, stream : FsCodec.StreamName, progressed : bool, res : Choice<'P, 'E>) ->
                             match dispatcher.InterpretProgress(streams, stream, res) with
                             | None, Choice1Of2 (r : 'R) ->
                                 streams.MarkFailed(stream)
-                                Result (duration, stream, worked, Choice1Of2 r)
+                                Result (duration, stream, progressed, Choice1Of2 r)
                             | Some index, Choice1Of2 (r : 'R) ->
                                 progressState.MarkStreamProgress(stream, index)
                                 streams.MarkCompleted(stream, index)
-                                Result (duration, stream, worked, Choice1Of2 r)
+                                Result (duration, stream, progressed, Choice1Of2 r)
                             | _, Choice2Of2 exn ->
                                 streams.MarkFailed(stream)
-                                Result (duration, stream, worked, Choice2Of2 exn)
+                                Result (duration, stream, progressed, Choice2Of2 exn)
                     feedStats res'
             worked
 
@@ -987,13 +987,13 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
         base.Handle message
         match message with
         | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
-        | Scheduling.Result (_duration, stream, _worked, Choice1Of2 ((es, bs), res)) ->
+        | Scheduling.Result (_duration, stream, _progressed, Choice1Of2 ((es, bs), res)) ->
             addStream stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             resultOk <- resultOk + 1
             this.HandleOk res
-        | Scheduling.Result (duration, stream, _worked, Choice2Of2 ((es, bs), exn)) ->
+        | Scheduling.Result (duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
             addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
@@ -1160,13 +1160,13 @@ module Sync =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice1Of2 (((es, bs), prepareElapsed), outcome)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice1Of2 (((es, bs), prepareElapsed), outcome)) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
                 this.HandleOk outcome
-            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice2Of2 ((es, bs), exn)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs

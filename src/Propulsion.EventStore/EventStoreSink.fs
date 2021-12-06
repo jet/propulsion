@@ -89,7 +89,7 @@ module Internal =
             base.Handle message
             match message with
             | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice1Of2 ((es, bs), res)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice1Of2 ((es, bs), res)) ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -99,7 +99,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
                 | Writer.Result.PrefixMissing _ -> incr resultPrefix
                 this.HandleOk res
-            | Scheduling.InternalMessage.Result (_duration, stream, _worked, Choice2Of2 ((es, bs), exn)) ->
+            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
