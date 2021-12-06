@@ -13,6 +13,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Streams`: Added `propulsion_scheduler_busy` metrics: `count` and `seconds` [#126](https://github.com/jet/propulsion/pull/126)
 
 ### Changed
+
+- `PeriodicSource`: Add `readTranches` parameter to `Pump`
+- `PeriodicSource`: Add `TrancheId` parameter to `crawl`: [#128](https://github.com/jet/propulsion/pull/128)
+
 ### Removed
 
 - `net461` support [#123](https://github.com/jet/propulsion/pull/123)

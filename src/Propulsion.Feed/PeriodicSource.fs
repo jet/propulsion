@@ -42,15 +42,12 @@ type PeriodicSource
         checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : unit -> AsyncSeq<SourceItem array>, refreshInterval : TimeSpan,
+        crawl : TrancheId -> AsyncSeq<SourceItem array>, refreshInterval : TimeSpan,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
 
-    // We could conceivably expose multi-tranche support; can't think of a use case at present
-    let readTranches () = async { return [| TrancheId.parse "0" |] }
-
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl _wasLast (_trancheId, position) : AsyncSeq<Internal.Batch<_>> = asyncSeq {
+    let crawl trancheId (_wasLast, position) : AsyncSeq<Internal.Batch<_>> = asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -63,7 +60,7 @@ type PeriodicSource
         // guaranteed (assuming the source contains at least one item, that is) non-empty batch
         let buffer = ResizeArray()
         let mutable index = 0L
-        for xs in crawl () do
+        for xs in crawl trancheId do
             let streamEvents = seq {
                 for si in xs ->
                     let i = index
@@ -84,6 +81,8 @@ type PeriodicSource
             | finalItem -> finalItem, (Array.last finalItem).event |> Internal.TimelineEvent.toCheckpointPosition
         yield ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
 
-    /// Drives the continual loop of reading and checkpointing until the <c>crawl</c> <c>AsyncSeq</c> reports a fault (by throwing).
-    member _.Pump() =
+    /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
+    /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
+    /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
+    member _.Pump(readTranches : unit -> Async<TrancheId[]>) =
         base.Pump(readTranches, crawl)
