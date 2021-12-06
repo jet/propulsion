@@ -51,7 +51,7 @@ module Submission =
     [<NoComparison>]
     type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
         member __.Append(batch) = __.queue.Enqueue batch
-        static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits * 2) }
+        static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits) }
 
     /// Holds the stream of incoming batches, grouping by partition
     /// Manages the submission of batches into the Scheduler in a fair manner
