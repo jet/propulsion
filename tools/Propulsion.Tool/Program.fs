@@ -41,7 +41,7 @@ module Cosmos =
                 | Suffix _ ->               "Specify Container Name suffix (default: `-aux`)."
                 | LeaseContainer _ ->       "Specify full Lease Container Name (default: Container + Suffix)."
     type Equinox.CosmosStore.CosmosStoreConnector with
-        member private x.LogConfiguration(log : Serilog.ILogger, connectionName, databaseId, containerId) =
+        member private x.LogConfiguration(log : ILogger, connectionName, databaseId, containerId) =
             let o = x.Options
             let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
             log.Information("CosmosDb {name} {mode} {endpointUri} timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
@@ -86,7 +86,7 @@ type Arguments =
             | Verbose ->                    "Include low level logging regarding specific test runs."
             | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
             | LocalSeq ->                   "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
-            | Init _ ->                     "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Init _ ->                     "Initialize auxiliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 and [<NoComparison; NoEquality>]InitDbArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
@@ -226,6 +226,6 @@ let main argv =
             |> Async.RunSynchronously
         | _ -> failwith "Please specify a valid subcommand :- init or project"
         0
-    with :? Argu.ArguParseException as e -> eprintfn "%s" e.Message; 1
+    with :? ArguParseException as e -> eprintfn "%s" e.Message; 1
         | MissingArg msg -> eprintfn "%s" msg; 1
         | e -> eprintfn "%s" e.Message; 1
