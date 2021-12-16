@@ -1,4 +1,4 @@
-﻿module Propulsion.Cosmos.Infrastructure
+﻿module internal Propulsion.Cosmos.Infrastructure
 
 open System
 open System.Threading
