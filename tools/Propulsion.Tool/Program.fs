@@ -1,6 +1,7 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
+open Propulsion.CosmosStore.Infrastructure // AwaitKeyboardInterruptAsTaskCancelledException
 open Serilog
 open Serilog.Events
 open System
@@ -213,9 +214,15 @@ let main argv =
                 Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
             let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
             use observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
-            Propulsion.CosmosStore.CosmosStoreSource.Run
-              ( log, monitored, leases, group, observer,
-                startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+            let source =
+                Propulsion.CosmosStore.CosmosStoreSource.Start
+                  ( log, monitored, leases, group, observer,
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+            [   Async.AwaitKeyboardInterruptAsTaskCancelledException()
+                sink.AwaitWithStopOnCancellation()
+                source.AwaitWithStopOnCancellation() ]
+            |> Async.Parallel
+            |> Async.Ignore<unit[]>
             |> Async.RunSynchronously
         | _ -> failwith "Please specify a valid subcommand :- init or project"
         0

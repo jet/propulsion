@@ -8,7 +8,6 @@ open Propulsion.Cosmos.Infrastructure // AwaitKeyboardInterrupt
 namespace Propulsion.CosmosStore
 
 open Microsoft.Azure.Cosmos
-open Propulsion.Cosmos.Infrastructure // AwaitKeyboardInterrupt
 #endif
 
 open Equinox.Core // Stopwatch.Time
@@ -88,15 +87,15 @@ type CosmosStoreSource =
         let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
         let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>) = async {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
-            let epoch, age = ctx.epoch, DateTime.UtcNow - ctx.timestamp
-            let! pt, (cur,max) = trancheIngester.Submit(epoch, checkpoint, mapContent docs) |> Stopwatch.Time
-            let readS, postS, rc = float sw.ElapsedMilliseconds / 1000., (let e = pt.Elapsed in e.TotalSeconds), ctx.requestCharge
+            let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
+            let! pt, (cur,max) = trancheIngester.Submit(ctx.epoch, checkpoint, mapContent docs) |> Stopwatch.Time
+            let postElapsed = pt.Elapsed
             let m = Log.Metric.Read {
                 database = ctx.source.Database.Id; container = ctx.source.Id; group = ctx.group; rangeId = int ctx.rangeId
-                token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
+                token = ctx.epoch; latency = readElapsed; rc = ctx.requestCharge; age = age; docs = docs.Count
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
             (log |> Log.metric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
-                ctx.rangeId, epoch, age, docs.Count, rc, readS, postS, cur, max)
+                ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, postElapsed.TotalSeconds, cur, max)
             sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
         }
 
@@ -133,10 +132,10 @@ type CosmosStoreSource =
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
         let databaseId, containerId, processorName = source.database, source.container, leaseId
 #else
-    static member Run
+    static member Start
         (   log : ILogger,
             monitored : Container, leases : Container, processorName, observer,
-            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) = async {
+            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
@@ -150,18 +149,17 @@ type CosmosStoreSource =
                 processorName, !count, !total, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
+        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
 #if COSMOSV2
         let! _feedEventHost =
             ChangeFeedProcessor.Start
               ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, createObserver=createObserver,
                 startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
-#else
-        let! _feedEventHost =
-            ChangeFeedProcessor.Start
-              ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
-                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
-                leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
-#endif
-        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost
+#else
+        ChangeFeedProcessor.Start
+          ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
+            startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
+            leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
+#endif
