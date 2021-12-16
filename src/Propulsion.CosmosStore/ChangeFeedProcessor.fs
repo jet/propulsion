@@ -2,6 +2,7 @@ namespace Propulsion.CosmosStore
 
 open FSharp.Control
 open Microsoft.Azure.Cosmos
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic

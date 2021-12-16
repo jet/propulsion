@@ -2,7 +2,7 @@
 
 open Dapper
 open Microsoft.Data.SqlClient
-open Propulsion.AsyncHelpers // Infrastructure
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Feed
 open System
 open System.Data

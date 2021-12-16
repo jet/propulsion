@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.EventStore
 
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
