@@ -5,6 +5,7 @@ open System
 open System.Threading.Tasks
 
 type Async with
+
     static member Sleep(t : TimeSpan) : Async<unit> = Async.Sleep(int t.TotalMilliseconds)
 
     /// Re-raise an exception so that the current stacktrace is preserved
