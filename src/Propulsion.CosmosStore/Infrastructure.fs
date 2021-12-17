@@ -4,6 +4,7 @@ open System
 open System.Threading.Tasks
 
 type Async with
+
     /// Asynchronously awaits the next keyboard interrupt event, throwing a TaskCancelledException
     static member AwaitKeyboardInterruptAsTaskCancelledException() : Async<unit> =
         Async.FromContinuations <| fun (_, ec, _) ->
