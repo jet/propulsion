@@ -41,13 +41,14 @@ type SourcePipeline private (task : Task<unit>, triggerStop) =
 
             // aka base.AwaitShutdown()
             do! Async.AwaitTaskCorrect tcs.Task
-            return! stop () }
+            do! stop ()
+            log.Information("... source stopped") }
 
         let task = Async.StartAsTask machine
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-            log.Write(level, "Stopping")
-            cts.Cancel();
+            log.Write(level, "Source stopping...")
+            cts.Cancel()
 
         new SourcePipeline(task, triggerStop)
 

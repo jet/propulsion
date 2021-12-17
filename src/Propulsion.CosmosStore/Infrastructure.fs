@@ -11,6 +11,6 @@ type Async with
             let rec callback (a : ConsoleCancelEventArgs) = Task.Run(fun () ->
                 a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
                 if System.Threading.Interlocked.Increment &isDisposed = 1 then d.Dispose()
-                ec (TaskCanceledException("Execution cancelled; exiting..."))) |> ignore<Task>
+                ec (TaskCanceledException("Execution cancelled via Ctrl-C/Break; exiting..."))) |> ignore<Task>
             and d : IDisposable = Console.CancelKeyPress.Subscribe callback
             in ()
