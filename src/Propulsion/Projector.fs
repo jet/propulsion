@@ -70,6 +70,6 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Projector stopping...")
-            cts.Cancel();
+            cts.Cancel()
 
         new ProjectorPipeline<_>(task, triggerStop, startIngester)

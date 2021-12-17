@@ -22,10 +22,9 @@ type IChangeFeedObserver =
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 
-type SourcePipeline private (task : Task<unit>, triggerStop) =
-    inherit Propulsion.Pipeline(task, triggerStop)
+type internal SourcePipeline =
 
-    static member Start(log : ILogger, start, maybeStartChild, stop) =
+    static member Start(log : ILogger, start, maybeStartChild, stop, observer : IDisposable) =
         let cts = new CancellationTokenSource()
         let ct = cts.Token
         let tcs = TaskCompletionSource<unit>()
@@ -48,9 +47,10 @@ type SourcePipeline private (task : Task<unit>, triggerStop) =
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Source stopping...")
+            observer.Dispose()
             cts.Cancel()
 
-        new SourcePipeline(task, triggerStop)
+        new Propulsion.Pipeline(task, triggerStop)
 
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
@@ -64,7 +64,7 @@ type ChangeFeedProcessor =
             leases : Container,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             processorName : string,
-            /// Observers to forward documents to
+            /// Observers to forward documents to (Disposal is tied to stopping of the Source)
             observer : IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
@@ -159,7 +159,7 @@ type ChangeFeedProcessor =
                     return! emitLagMetrics () }
                 emitLagMetrics ())
         let wrap (f : unit -> Task) () = f () |> Async.AwaitTaskCorrect
-        SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync)
+        SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.

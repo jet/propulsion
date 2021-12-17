@@ -212,9 +212,9 @@ let main argv =
                         let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
                         let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
                 Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
-            let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
-            use observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
             let source =
+                let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
+                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
                 Propulsion.CosmosStore.CosmosStoreSource.Start
                   ( log, monitored, leases, group, observer,
                     startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
