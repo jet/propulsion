@@ -10,8 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Propulsion\Infrastructure.fs">
+      <Link>Infrastructure.fs</Link>
+    </Compile>
     <Compile Include="EventStoreSink.fs" />
-    <Compile Include="Infrastructure.fs" />
     <Compile Include="StripedIngester.fs" />
     <Compile Include="EventStoreReader.fs" />
     <Compile Include="Checkpoint.fs" />

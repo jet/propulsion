@@ -11,8 +11,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="EquinoxCosmosParser.fs" />
     <Compile Include="Infrastructure.fs" />
+    <Compile Include="..\Propulsion\Infrastructure.fs">
+      <Link>PropulsionInfrastructure.fs</Link>
+    </Compile>
+    <Compile Include="EquinoxCosmosParser.fs" />
     <Compile Include="ChangeFeedProcessor.fs" />
     <Compile Include="CosmosSource.fs" />
     <Compile Include="CosmosSink.fs" />

@@ -6,8 +6,7 @@ open Confluent.Kafka
 open FsCodec
 open FsKafka
 open Propulsion
-open Propulsion.Internal // intervalCheck
-open Propulsion.Kafka.Internal // AwaitTaskCorrect
+open Propulsion.Internal // intervalCheck, AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic

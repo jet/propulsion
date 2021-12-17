@@ -4,6 +4,7 @@ open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client
 open Microsoft.Azure.Documents.ChangeFeedProcessor
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic

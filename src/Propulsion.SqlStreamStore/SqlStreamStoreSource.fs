@@ -4,7 +4,7 @@ open System
 
 module private Impl =
 
-    open Propulsion.AsyncHelpers // AwaitTaskCorrect
+    open Propulsion.Infrastructure // AwaitTaskCorrect
     open Propulsion.Feed
 
     let toTimelineEvent (dataJson : string) (msg: SqlStreamStore.Streams.StreamMessage) =

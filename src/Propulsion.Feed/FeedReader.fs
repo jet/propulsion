@@ -1,6 +1,7 @@
 namespace Propulsion.Feed.Internal
 
 open FSharp.Control
+open Propulsion // Async.Sleep, Raise
 open Propulsion.Feed
 open Serilog
 open System

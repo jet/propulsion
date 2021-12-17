@@ -13,8 +13,11 @@
     <Compile Include="..\Propulsion.Cosmos\EquinoxCosmosParser.fs">
       <Link>EquinoxCosmosParser.fs</Link>
     </Compile>
+    <Compile Include="..\Propulsion\Infrastructure.fs">
+      <Link>PropulsionInfrastructure.fs</Link>
+    </Compile>
     <Compile Include="..\Propulsion.Cosmos\Infrastructure.fs">
-      <Link>Infrastructure.fs</Link>
+      <Link>PropulsionCosmosInfrastructure.fs</Link>
     </Compile>
     <Compile Include="ChangeFeedProcessor.fs" />
     <Compile Include="..\Propulsion.Cosmos\CosmosSource.fs">

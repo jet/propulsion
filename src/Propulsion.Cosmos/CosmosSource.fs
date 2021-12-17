@@ -3,13 +3,16 @@ namespace Propulsion.Cosmos
 
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+open Propulsion.Cosmos.Infrastructure // AwaitKeyboardInterrupt
 #else
 namespace Propulsion.CosmosStore
 
 open Microsoft.Azure.Cosmos
+open Propulsion.Cosmos.Infrastructure // AwaitKeyboardInterrupt
 #endif
 
 open Equinox.Core // Stopwatch.Time
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
@@ -123,13 +126,15 @@ type CosmosStoreSource =
             member _.Dispose() = dispose() }
 #endif
 
+#if COSMOSV2
     static member Run
         (   log : ILogger,
-#if COSMOSV2
             client, source, aux, leaseId, startFromTail, createObserver,
             ?maxDocuments, ?lagReportFreq : TimeSpan, ?auxClient) = async {
         let databaseId, containerId, processorName = source.database, source.container, leaseId
 #else
+    static member Run
+        (   log : ILogger,
             monitored : Container, leases : Container, processorName, observer,
             startFromTail, ?maxItems, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) = async {
         let databaseId, containerId = monitored.Database.Id, monitored.Id
@@ -145,15 +150,18 @@ type CosmosStoreSource =
                 processorName, !count, !total, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
+#if COSMOSV2
         let! _feedEventHost =
             ChangeFeedProcessor.Start
-#if COSMOSV2
               ( log, client, source, aux, ?auxClient=auxClient, leasePrefix=leaseId, createObserver=createObserver,
                 startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxDocuments=maxDocuments,
+                leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
 #else
+        let! _feedEventHost =
+            ChangeFeedProcessor.Start
               ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
                 startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
-#endif
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
+#endif
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         do! Async.AwaitKeyboardInterrupt() } // exiting will Cancel the child tasks, i.e. the _feedEventHost

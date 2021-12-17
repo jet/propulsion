@@ -1,7 +1,8 @@
 ﻿module Propulsion.EventStore.Reader
 
-open Equinox.Core // AwaitTaskCorrect
+open Equinox.Core // Stopwatch.Time
 open EventStore.ClientAPI
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal // Sem
 open Propulsion.Streams
 open Serilog // NB Needs to shadow ILogger

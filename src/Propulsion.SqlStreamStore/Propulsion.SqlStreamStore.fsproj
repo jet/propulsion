@@ -11,7 +11,7 @@
 
     <ItemGroup>
         <Compile Include="..\Propulsion\Infrastructure.fs">
-            <Link>PropulsionInfrastructure.fs</Link>
+            <Link>Infrastructure.fs</Link>
         </Compile>
         <Compile Include="SqlStreamStoreSource.fs" />
         <Compile Include="ReaderCheckpoint.fs" />
