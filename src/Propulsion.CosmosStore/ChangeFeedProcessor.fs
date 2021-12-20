@@ -6,6 +6,8 @@ open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
 
 [<NoComparison>]
 type ChangeFeedObserverContext = { source : Container; group : string; epoch : int64; timestamp : DateTime; rangeId : int; requestCharge : float }
@@ -20,6 +22,36 @@ type IChangeFeedObserver =
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 
+type internal SourcePipeline =
+
+    static member Start(log : ILogger, start, maybeStartChild, stop, observer : IDisposable) =
+        let cts = new CancellationTokenSource()
+        let ct = cts.Token
+        let tcs = TaskCompletionSource<unit>()
+
+        let machine = async {
+            do! start ()
+            // external cancellation should yield a success result
+            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
+
+            match maybeStartChild with
+            | None -> ()
+            | Some child -> let! _ = Async.StartChild child in ()
+
+            // aka base.AwaitShutdown()
+            do! Async.AwaitTaskCorrect tcs.Task
+            do! stop ()
+            log.Information("... source stopped") }
+
+        let task = Async.StartAsTask machine
+        let triggerStop () =
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            log.Write(level, "Source stopping...")
+            observer.Dispose()
+            cts.Cancel()
+
+        new Propulsion.Pipeline(task, triggerStop)
+
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
 
@@ -32,7 +64,7 @@ type ChangeFeedProcessor =
             leases : Container,
             /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             processorName : string,
-            /// Observers to forward documents to
+            /// Observers to forward documents to (Disposal is tied to stopping of the Source)
             observer : IChangeFeedObserver,
             ?leaseOwnerId : string,
             /// (NB Only applies if this is the first time this leasePrefix is presented)
@@ -56,8 +88,7 @@ type ChangeFeedProcessor =
             /// Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
             ?notifyError : int -> exn -> unit,
             /// Admits customizations in the ChangeFeedProcessorBuilder chain
-            ?customize) = async {
-
+            ?customize) =
         let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
         let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
         let leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.FromSeconds 1.)
@@ -104,31 +135,31 @@ type ChangeFeedProcessor =
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
-        match reportLagAndAwaitNextEstimation with
-        | None -> ()
-        | Some lagMonitorCallback ->
-            let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-            let rec emitLagMetrics () = async {
-                let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
-                    let rec loop () : AsyncSeq<'u> = asyncSeq {
-                        if not query.HasMoreResults then return None else
-                        let! ct = Async.CancellationToken
-                        let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
-                        for x in res do yield map x
-                        if query.HasMoreResults then
-                            yield! loop () }
-                    // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
-                    use __ = query // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
-                    loop ()
-                let! leasesState =
-                    estimator.GetCurrentStateIterator()
-                    |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                    |> AsyncSeq.toArrayAsync
-                do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
-                return! emitLagMetrics () }
-            let! _ = Async.StartChild(emitLagMetrics ()) in ()
-        do! processor.StartAsync() |> Async.AwaitTaskCorrect
-        return processor }
+        let maybePumpMetrics =
+            reportLagAndAwaitNextEstimation
+            |> Option.map (fun lagMonitorCallback ->
+                let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
+                let rec emitLagMetrics () = async {
+                    let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
+                        let rec loop () : AsyncSeq<'u> = asyncSeq {
+                            if not query.HasMoreResults then return None else
+                            let! ct = Async.CancellationToken
+                            let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
+                            for x in res do yield map x
+                            if query.HasMoreResults then
+                                yield! loop () }
+                        // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
+                        use __ = query // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                        loop ()
+                    let! leasesState =
+                        estimator.GetCurrentStateIterator()
+                        |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
+                        |> AsyncSeq.toArrayAsync
+                    do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
+                    return! emitLagMetrics () }
+                emitLagMetrics ())
+        let wrap (f : unit -> Task) () = f () |> Async.AwaitTaskCorrect
+        SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.

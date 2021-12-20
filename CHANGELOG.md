@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- `CosmosStoreSource`: Generalize `Run` with integrated Ctrl-C handling to `Start` yielding a `Pipeline` [#133](https://github.com/jet/propulsion/pull/133)
+
 ### Removed
 ### Fixed
 

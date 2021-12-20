@@ -1,6 +1,7 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
+open Propulsion.CosmosStore.Infrastructure // AwaitKeyboardInterruptAsTaskCancelledException
 open Serilog
 open Serilog.Events
 open System
@@ -40,7 +41,7 @@ module Cosmos =
                 | Suffix _ ->               "Specify Container Name suffix (default: `-aux`)."
                 | LeaseContainer _ ->       "Specify full Lease Container Name (default: Container + Suffix)."
     type Equinox.CosmosStore.CosmosStoreConnector with
-        member private x.LogConfiguration(log : Serilog.ILogger, connectionName, databaseId, containerId) =
+        member private x.LogConfiguration(log : ILogger, connectionName, databaseId, containerId) =
             let o = x.Options
             let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
             log.Information("CosmosDb {name} {mode} {endpointUri} timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
@@ -85,7 +86,7 @@ type Arguments =
             | Verbose ->                    "Include low level logging regarding specific test runs."
             | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
             | LocalSeq ->                   "Configures writing to a local Seq endpoint at http://localhost:5341, see https://getseq.net"
-            | Init _ ->                     "Initialize auxilliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Init _ ->                     "Initialize auxiliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 and [<NoComparison; NoEquality>]InitDbArguments =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
@@ -211,14 +212,20 @@ let main argv =
                         let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
                         let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
                 Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
-            let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
-            use observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
-            Propulsion.CosmosStore.CosmosStoreSource.Run
-              ( log, monitored, leases, group, observer,
-                startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+            let source =
+                let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
+                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
+                Propulsion.CosmosStore.CosmosStoreSource.Start
+                  ( log, monitored, leases, group, observer,
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+            [   Async.AwaitKeyboardInterruptAsTaskCancelledException()
+                sink.AwaitWithStopOnCancellation()
+                source.AwaitWithStopOnCancellation() ]
+            |> Async.Parallel
+            |> Async.Ignore<unit[]>
             |> Async.RunSynchronously
         | _ -> failwith "Please specify a valid subcommand :- init or project"
         0
-    with :? Argu.ArguParseException as e -> eprintfn "%s" e.Message; 1
+    with :? ArguParseException as e -> eprintfn "%s" e.Message; 1
         | MissingArg msg -> eprintfn "%s" msg; 1
         | e -> eprintfn "%s" e.Message; 1
