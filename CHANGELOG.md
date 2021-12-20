@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- `CosmosStoreSource`: Generalize `Run` with integrated Ctrl-C handling to `Start` yielding a `Pipeline` [#133](https://github.com/jet/propulsion/pull/133)
-
 ### Removed
 ### Fixed
+
+<a name="2.12.0-rc.2"></a>
+## [2.12.0-rc.2] - 2021-12-20
+
+### Changed
+
+- `CosmosStoreSource`: Generalize `Run` with integrated Ctrl-C handling to `Start` yielding a `Pipeline` [#133](https://github.com/jet/propulsion/pull/133)
 
 <a name="2.12.0-rc.1"></a>
 ## [2.12.0-rc.1] - 2021-12-06
@@ -671,8 +675,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc1...HEAD
-[2.12.0-rc.1]: https://github.com/jet/propulsion/compare/2.11.0...2.12.0-rc1
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...HEAD
+[2.12.0-rc.2]: https://github.com/jet/propulsion/compare/2.12.0-rc.1...2.12.0-rc.2
+[2.12.0-rc.1]: https://github.com/jet/propulsion/compare/2.11.0...2.12.0-rc.1
 [2.11.0]: https://github.com/jet/propulsion/compare/2.11.0-rc3...2.11.0
 [2.11.0-rc3]: https://github.com/jet/propulsion/compare/2.11.0-rc2...2.11.0-rc3
 [2.11.0-rc2]: https://github.com/jet/propulsion/compare/2.11.0-rc1...2.11.0-rc2
