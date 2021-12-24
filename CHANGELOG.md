@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+ 
+- `EventStore`: Target `Equinox.EventStore` v `3.0.5` [#134](https://github.com/jet/propulsion/pull/134)
+
 ### Removed
 ### Fixed
 

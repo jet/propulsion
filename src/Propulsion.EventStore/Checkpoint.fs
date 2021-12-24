@@ -89,7 +89,7 @@ let interpret command (state : Fold.State) =
             [Events.Checkpointed { config = config; pos = checkpoint }]
     | c, s -> failwithf "Command %A invalid when %A" c s
 
-type Service internal (resolve : CheckpointSeriesId -> Equinox.Stream<Events.Event, Fold.State>) =
+type Service internal (resolve : CheckpointSeriesId -> Equinox.Decider<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
     member __.Read(series) =
@@ -115,7 +115,7 @@ type Service internal (resolve : CheckpointSeriesId -> Equinox.Stream<Events.Eve
         stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
 
 let create log resolve =
-    let resolve id = Equinox.Stream(log, resolve (streamName id), maxAttempts = 3)
+    let resolve id = Equinox.Decider(log, resolve (streamName id), maxAttempts = 3)
     Service resolve
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
@@ -124,8 +124,6 @@ type CheckpointSeries(groupName, resolve, ?log) =
     let seriesId = CheckpointSeriesId.ofGroupName groupName
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
     let inner = create log resolve
-    [<Obsolete("Please use CheckpointSeries(groupName, resolve); to be removed in V3")>]
-    new(name, log : Serilog.ILogger, resolve) = CheckpointSeries(groupName=name, resolve=resolve, log=log)
 
     member __.Read = inner.Read seriesId
     member __.Start(freq, pos) = inner.Start(seriesId, freq, pos)

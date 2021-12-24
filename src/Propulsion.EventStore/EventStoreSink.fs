@@ -38,7 +38,7 @@ module Internal =
             | stream, (Choice2Of2 (_, exn)) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (context : Context) stream span = async {
+        let write (log : ILogger) (context : Equinox.EventStore.EventStoreContext) stream span = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span.index, span.events.Length)
             let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map (fun x -> x :> _))
             let ress =
