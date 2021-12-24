@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
- 
-- `EventStore`: Target `Equinox.EventStore` v `3.0.5` [#134](https://github.com/jet/propulsion/pull/134)
-
 ### Removed
 ### Fixed
+
+<a name="2.12.0-rc.3"></a>
+## [2.12.0-rc.3] - 2021-12-24
+
+### Changed
+
+- `EventStore`: Target `Equinox.EventStore` v `3.0.5` [#134](https://github.com/jet/propulsion/pull/134)
 
 <a name="2.12.0-rc.2"></a>
 ## [2.12.0-rc.2] - 2021-12-20
@@ -678,7 +682,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...HEAD
+[2.12.0-rc.3]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...2.12.0-rc.3
 [2.12.0-rc.2]: https://github.com/jet/propulsion/compare/2.12.0-rc.1...2.12.0-rc.2
 [2.12.0-rc.1]: https://github.com/jet/propulsion/compare/2.11.0...2.12.0-rc.1
 [2.11.0]: https://github.com/jet/propulsion/compare/2.11.0-rc3...2.11.0
