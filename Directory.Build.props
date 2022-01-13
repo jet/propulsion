@@ -1,12 +1,12 @@
 <Project>
   <PropertyGroup>
-    <Authors>@jet @bartelink @eiriktsarpalis and contributors</Authors>
+    <Authors>@jet @moneylion @bartelink @eiriktsarpalis and contributors</Authors>
     <Company>Jet.com</Company>
     <Description>Composable high performance event streaming pipelines</Description>
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
     <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor eventstore kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
-    <Copyright>Copyright © 2018-21</Copyright>
+    <Copyright>Copyright © 2018-22</Copyright>
 
     <ThisDirAbsolute>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</ThisDirAbsolute>
 
