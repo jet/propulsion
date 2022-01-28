@@ -10,9 +10,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Kafka.Producers`: optional constructor parameters [#315](https://github.com/jet/propulsion/pull/135)
+- `Kafka.Producers`: optional constructor parameters [#135](https://github.com/jet/propulsion/pull/135) :pray: [avsaditya19](https://github.com/avsaditya19)
+
 
 ### Changed
+
+- `EventStore`: Target `Equinox.EventStore` v `3.0.6` [#136](https://github.com/jet/propulsion/pull/136)
+
 ### Removed
 ### Fixed
 

@@ -16,14 +16,14 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `2.6.0`.
   
-- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `3.0.5`, `Microsoft.Azure.Cosmos` v `3.22.0`
+- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `3.0.6`, `Microsoft.Azure.Cosmos` v `3.22.0`
   
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
-  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.5`.
-  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.5`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `3.0.5`.
+  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.6`.
+  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.6`.
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed` using `Equinox.CosmosStore` v `3.0.6`.
   
-- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.5`, `Serilog`
+- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.6`, `Serilog`
 - `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.Cosmos` or `Propulsion.CosmosStore`)
 
   1. `FeedSource`: Handles continual reading and checkpointing of events from a set of feeds ('tranches' of a 'source') that collectively represent a change data capture source from a custom system (roughly analogous to how a CosmosDB Container presents a changefeed). A `readTranches` function is expected to yield a `TrancheId` list; the Feed Source operates a logical reader thread per such tranche. Each individual Tranche is required to be able to represent its content as an incrementally retrievable change feed with a monotonically increasing `Index` per `FsCodec.ITimelineEvent` read from a given tranche.
