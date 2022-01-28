@@ -8,19 +8,24 @@ open System
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer
-    (   log : ILogger, clientId, bootstrapServers, acks, topic, ?customize,
+    (   log : ILogger, clientId, bootstrapServers, acks, topic,
         /// Linger period (larger values improve compression value and throughput, lower values improve best case latency). Default 5ms (librdkafka < 1.5 default: 0.5ms, librdkafka >= 1.5 default: 5ms)
         ?linger,
         /// Default: LZ4
         ?compression,
         // Deprecated; there's a good chance this will be removed
         ?degreeOfParallelism,
-        ?config) =
+        /// Miscellaneous configuration parameters to be passed to the underlying Confluent.Kafka producer configuration. Same as constructor argument for Confluent.Kafka >=1.2.
+        ?config, 
+        /// Miscellaneous configuration parameters to be passed to the underlying Confluent.Kafka producer configuration.
+        ?custom,
+        /// Postprocesses the ProducerConfig after the rest of the rules have been applied
+        ?customize) =
     let batching =
         let linger = defaultArg linger (TimeSpan.FromMilliseconds 5.)
         FsKafka.Batching.Linger linger
     let compression = defaultArg compression CompressionType.Lz4
-    let cfg = KafkaProducerConfig.Create(clientId, bootstrapServers, acks, batching, compression, ?config = config, ?customize=customize)
+    let cfg = KafkaProducerConfig.Create(clientId, bootstrapServers, acks, batching, compression, ?config = config, ?custom = custom, ?customize=customize)
     // NB having multiple producers has yet to be proved necessary at this point
     // - the theory is that because each producer gets a dedicated rdkafka context, compression thread and set of sockets, better throughput can be attained
     // - we should consider removing the degreeOfParallelism argument and this associated logic unless we actually get to the point of leaning on this
