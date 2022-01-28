@@ -9,16 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.12.0"></a>
+## [2.12.0] - 2022-01-28
+
+### Added
 
 - `Kafka.Producers`: optional constructor parameters [#135](https://github.com/jet/propulsion/pull/135) :pray: [avsaditya19](https://github.com/avsaditya19)
-
 
 ### Changed
 
 - `EventStore`: Target `Equinox.EventStore` v `3.0.6` [#136](https://github.com/jet/propulsion/pull/136)
-
-### Removed
-### Fixed
 
 <a name="2.12.0-rc.3"></a>
 ## [2.12.0-rc.3] - 2021-12-24
@@ -689,7 +693,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0...HEAD
+[2.12.0]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...2.12.0
 [2.12.0-rc.3]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...2.12.0-rc.3
 [2.12.0-rc.2]: https://github.com/jet/propulsion/compare/2.12.0-rc.1...2.12.0-rc.2
 [2.12.0-rc.1]: https://github.com/jet/propulsion/compare/2.11.0...2.12.0-rc.1

@@ -16,7 +16,7 @@ type Producer
         // Deprecated; there's a good chance this will be removed
         ?degreeOfParallelism,
         /// Miscellaneous configuration parameters to be passed to the underlying Confluent.Kafka producer configuration. Same as constructor argument for Confluent.Kafka >=1.2.
-        ?config, 
+        ?config,
         /// Miscellaneous configuration parameters to be passed to the underlying Confluent.Kafka producer configuration.
         ?custom,
         /// Postprocesses the ProducerConfig after the rest of the rules have been applied
@@ -33,11 +33,11 @@ type Producer
     let produceStats = Streams.Internal.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
     let mutable robin = 0
 
-    member __.DumpStats log = produceStats.Dump log
+    member _.DumpStats log = produceStats.Dump log
 
     /// Execute a producer operation, including recording of the latency statistics for the operation
     /// NOTE: the `execute` function is expected to throw in the event of a failure to produce (this is the standard semantic for all Confluent.Kafka ProduceAsync APIs)
-    member __.Produce(execute : KafkaProducer -> Async<'r>) : Async<'r> = async {
+    member _.Produce(execute : KafkaProducer -> Async<'r>) : Async<'r> = async {
         let producer = producers.[System.Threading.Interlocked.Increment(&robin) % producers.Length]
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! res = execute producer
@@ -45,12 +45,7 @@ type Producer
         return res }
 
     /// Throws if producing fails, per normal Confluent.Kafka 1.x semantics
-    member __.Produce(key, value, ?headers) =
+    member x.Produce(key, value, ?headers) =
         match headers with
-        | Some h -> __.Produce(fun producer -> producer.ProduceAsync(key, value, h) |> Async.Ignore)
-        | None -> __.Produce(fun producer -> producer.ProduceAsync(key, value) |> Async.Ignore)
-
-    [<Obsolete("Please migrate code to an appropriate Produce overload")>]
-    /// Throws if producing fails, per normal Confluent.Kafka 1.x semantics
-    member __.ProduceAsync(key, value) =
-        __.Produce(fun x -> x.ProduceAsync(key, value))
+        | Some h -> x.Produce(fun producer -> producer.ProduceAsync(key, value, h) |> Async.Ignore)
+        | None -> x.Produce(fun producer -> producer.ProduceAsync(key, value) |> Async.Ignore)
