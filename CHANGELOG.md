@@ -9,6 +9,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Kafka.Producers`: optional constructor parameters [#315](https://github.com/jet/propulsion/pull/135)
+
 ### Changed
 ### Removed
 ### Fixed
