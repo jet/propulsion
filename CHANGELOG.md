@@ -9,15 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+### Changed
+### Removed
+### Fixed
+
+<a name="2.12.1"></a>
+## [2.12.1] - 2022-02-15
+
+### Added
 
 - `Prometheus`: `Propulsion.Streams.Log.LogSink`: Support indicating the consumer group name via a Serilog (`ForContext`) property `"group"` [#137](https://github.com/jet/propulsion/pull/137)
 
 ### Changed
 
 - `Prometheus`: `Propulsion.Streams.Log.LogSink`: Replace mandatory `group` argument with optional `defaultGroup` to emphasize primacy of `"group"` Log property [#137](https://github.com/jet/propulsion/pull/137)
-
-### Removed
-### Fixed
 
 <a name="2.12.0"></a>
 ## [2.12.0] - 2022-01-28
@@ -699,7 +704,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.1...HEAD
+[2.12.1]: https://github.com/jet/propulsion/compare/2.12.0...2.12.1
 [2.12.0]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...2.12.0
 [2.12.0-rc.3]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...2.12.0-rc.3
 [2.12.0-rc.2]: https://github.com/jet/propulsion/compare/2.12.0-rc.1...2.12.0-rc.2
