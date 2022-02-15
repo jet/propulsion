@@ -9,7 +9,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Prometheus.LogSink`: Support indicating the consumer group name via a Serilog (`ForContext`) property `"group"` [#137](https://github.com/jet/propulsion/pull/137)
+
 ### Changed
+
+- `Prometheus.LogSink`: Replace mandatory `group` argument with optional `defaultGroup` to emphasize primacy of `"group"` Log property [#137](https://github.com/jet/propulsion/pull/137)
+
 ### Removed
 ### Fixed
 
