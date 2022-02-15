@@ -51,6 +51,7 @@ module Log =
     /// Attach a property to the captured event record to hold the metric information
     // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let [<Literal>] PropertyTag = "propulsionEvent"
+    let [<Literal>] GroupTag = "group"
     let internal metric (value : Metric) (log : ILogger) =
         let enrich (e : Serilog.Events.LogEvent) =
             e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
@@ -58,10 +59,15 @@ module Log =
     let internal (|SerilogScalar|_|) : Serilog.Events.LogEventPropertyValue -> obj option = function
         | :? Serilog.Events.ScalarValue as x -> Some x.Value
         | _ -> None
-    let (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric option =
-        match logEvent.Properties.TryGetValue PropertyTag with
-        | true, SerilogScalar (:? Metric as e) -> Some e
+    let tryGetScalar<'t> key (logEvent : Serilog.Events.LogEvent) : 't option =
+        match logEvent.Properties.TryGetValue key with
+        | true, SerilogScalar (:? 't as e) -> Some e
         | _ -> None
+    let (|MetricEvent|_|) logEvent =
+        let metric = tryGetScalar<Metric> PropertyTag logEvent
+        match metric with
+        | Some m -> Some (m, tryGetScalar<string> GroupTag logEvent)
+        | None -> None
 
 /// A Single Event from an Ordered stream
 [<NoComparison; NoEquality>]

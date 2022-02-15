@@ -83,10 +83,15 @@ open Propulsion.Streams.Log
 
 /// <summary>An ILogEventSink that publishes to Prometheus</summary>
 /// <param name="customTags">Custom tags to annotate the metric we're publishing where such tag manipulation cannot better be achieved via the Prometheus scraper config.</param>
-/// <param name="group">ChangeFeedProcessor <c>processorName</c>.</param>
-type LogSink(customTags: seq<string * string>, group: string) =
+/// <param name="group">ChangeFeedProcessor <c>processorName</c>. It's recommended to supply this via <c>logger.ForContext("group") where possible</c></param>
+type LogSink(customTags: seq<string * string>, ?defaultGroup: string) =
 
     let tags = Array.ofSeq customTags |> Array.unzip
+    // TOCONSIDER In V3, have Ingesters and Projectors be tagged with a consumer group for metrics/logging purposes to sidestep this hackery
+    let defaultGroup () =
+        match defaultGroup with
+        | Some g -> g
+        | None -> invalidArg "group" "Propulsion.Streams Metrics events must each bear a ForContext(\"group\") value if you do not supply one for the Sink"
 
     let observeCats =    Gauge.create      tags "cats"            "Current categories"
     let observeStreams = Gauge.create      tags "streams"         "Current streams"
@@ -102,41 +107,40 @@ type LogSink(customTags: seq<string * string>, group: string) =
     let observeLatSum =  Summary.latency   tags "handler_summary" "Handler action"
     let observeLatHis =  Histogram.latency tags "handler"         "Handler action"
 
-    let observeState ctx state (m : BufferMetric) =
-        observeCats ctx state (float m.cats)
-        observeStreams ctx state (float m.streams)
-        observeEvents ctx state (float m.events)
-        observeBytes ctx state (float m.bytes)
-
-    let observeState = observeState group
-    let observeCpu = observeCpu group
-    let observeLatency kind latency =
+    let observeState group state (m : BufferMetric) =
+        observeCats group state (float m.cats)
+        observeStreams group state (float m.streams)
+        observeEvents group state (float m.events)
+        observeBytes group state (float m.bytes)
+    let observeLatency group kind latency =
         observeLatSum (group, kind) latency
         observeLatHis (group, kind) latency
-    let observeBusy kind count oldest newest =
+    let observeBusy group kind count oldest newest =
         observeBusyCount group kind (float count)
         observeBusyOldest group kind oldest
         observeBusyNewest group kind newest
 
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
-            | MetricEvent e -> e |> function
+            | MetricEvent (e, maybeContextGroup) ->
+                let group = maybeContextGroup |> Option.defaultWith defaultGroup
+                match e with
                 | Metric.BufferReport m ->
-                    observeState "ingesting" m
+                    observeState group "ingesting" m
                 | Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats) ->
                     observeStreams group "synced" (float synced)
-                    observeState "active" busyStats
-                    observeState "ready" readyStats
-                    observeState "buffering" bufferingStats
-                    observeState "malformed" malformedStats
+                    observeState group "active" busyStats
+                    observeState group "ready" readyStats
+                    observeState group "buffering" bufferingStats
+                    observeState group "malformed" malformedStats
                 | Metric.SchedulerCpu (merge, ingest, dispatch, results, stats) ->
-                    observeCpu "merge" merge.TotalSeconds
-                    observeCpu "ingest" ingest.TotalSeconds
-                    observeCpu "dispatch" dispatch.TotalSeconds
-                    observeCpu "results" results.TotalSeconds
-                    observeCpu "stats" stats.TotalSeconds
+                    observeCpu group "merge" merge.TotalSeconds
+                    observeCpu group "ingest" ingest.TotalSeconds
+                    observeCpu group "dispatch" dispatch.TotalSeconds
+                    observeCpu group "results" results.TotalSeconds
+                    observeCpu group "stats" stats.TotalSeconds
                 | Metric.HandlerResult (kind, latency) ->
-                    observeLatency kind latency
+                    observeLatency group kind latency
                 | Metric.StreamsBusy (kind, count, oldest, newest) ->
-                    observeBusy kind count oldest newest
+                    observeBusy group kind count oldest newest
             | _ -> ()
