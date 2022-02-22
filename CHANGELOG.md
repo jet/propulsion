@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Target `FsCodec.SystemTextJson` v `2.3.0` [#138](https://github.com/jet/propulsion/pull/138)
+
 ### Removed
 ### Fixed
 
