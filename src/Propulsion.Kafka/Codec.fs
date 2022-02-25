@@ -11,17 +11,10 @@ open Propulsion.Streams
 /// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
 type Serdes private () =
 
-    static let defaultSettings = lazy Settings.CreateDefault()
-    static let indentSettings = lazy Settings.CreateDefault(indent=true)
+    static let serdes = lazy NewtonsoftJson.Serdes(Settings.CreateDefault())
 
-    /// Serialize. indent defaults to `false`
-    static member Serialize<'T>(value : 'T, ?indent : bool) : string =
-        let settings = (if defaultArg indent false then defaultSettings else indentSettings).Value
-        FsCodec.NewtonsoftJson.Serdes.Serialize(value, settings)
-
-    /// Deserializes value of given type from json string.
-    static member Deserialize<'T>(json : string) =
-        FsCodec.NewtonsoftJson.Serdes.Deserialize<'T>(json, defaultSettings.Value)
+    static member Serialize<'T>(value : 'T) : string = serdes.Value.Serialize(value)
+    static member Deserialize(json : string) : 'T = serdes.Value.Deserialize(json)
 
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
