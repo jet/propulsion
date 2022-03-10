@@ -11,7 +11,7 @@ open Propulsion.Streams
 /// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
 type Serdes private () =
 
-    static let serdes = lazy NewtonsoftJson.Serdes(Settings.CreateDefault())
+    static let serdes = lazy NewtonsoftJson.Serdes Settings.Default
 
     static member Serialize<'T>(value : 'T) : string = serdes.Value.Serialize(value)
     static member Deserialize(json : string) : 'T = serdes.Value.Deserialize(json)

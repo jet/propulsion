@@ -10,11 +10,15 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
-
-- Target `FsCodec.SystemTextJson` v `2.3.0` [#138](https://github.com/jet/propulsion/pull/138)
-
 ### Removed
 ### Fixed
+
+<a name="2.12.2"></a>
+## [2.12.2] - 2022-03-10
+
+### Changed
+
+- `Kafka`: Target `FsCodec.NewtonsoftJson` v `2.3.2` [#138](https://github.com/jet/propulsion/pull/138)
 
 <a name="2.12.1"></a>
 ## [2.12.1] - 2022-02-15
@@ -707,7 +711,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/2.12.2...HEAD
+[2.12.2]: https://github.com/jet/propulsion/compare/2.12.1...2.12.2
 [2.12.1]: https://github.com/jet/propulsion/compare/2.12.0...2.12.1
 [2.12.0]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...2.12.0
 [2.12.0-rc.3]: https://github.com/jet/propulsion/compare/2.12.0-rc.2...2.12.0-rc.3
