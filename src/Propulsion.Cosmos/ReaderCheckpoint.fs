@@ -25,7 +25,11 @@ module Events =
         | Updated       of Updated
         | Snapshotted   of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
+#if !COSMOSV3 && !COSMOSV2
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
+#else
     let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
+#endif
 
 module Fold =
 
@@ -113,6 +117,19 @@ type Service internal (resolve : SourceId * TrancheId -> Decider<Events.Event, F
         let decider = resolve (source, tranche)
         decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
 
+#if !COSMOSV2 && !COSMOSV3
+module CosmosStore =
+
+    open Equinox.CosmosStore
+
+    let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
+    let create log (context, cache) =
+        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
+        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let resolveStream = streamName >> cat.Resolve
+        let resolve id = Decider(log, resolveStream id, maxAttempts = 3)
+        Service(resolve)
+#else
 let private create log resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
     Service(resolve)
@@ -129,6 +146,7 @@ module Cosmos =
         let resolveStream opt sn = resolver.Resolve(sn, opt)
         create log resolveStream
 #else
+#if COSMOSV3
 module CosmosStore =
 
     open Equinox.CosmosStore
@@ -139,4 +157,6 @@ module CosmosStore =
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log resolveStream
+#endif
+#endif
 #endif

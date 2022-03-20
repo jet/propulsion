@@ -82,10 +82,10 @@ type CosmosStoreSource =
     static member private CreateTrancheObserver<'Items,'Batch>
         (   log : ILogger,
             trancheIngester : Propulsion.Ingestion.Ingester<'Items,'Batch>,
-            mapContent : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> 'Items) : IChangeFeedObserver =
+            mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>) = async {
+        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = async {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
             let! pt, (cur,max) = trancheIngester.Submit(ctx.epoch, checkpoint, mapContent docs) |> Stopwatch.Time
@@ -107,7 +107,7 @@ type CosmosStoreSource =
     static member CreateObserver<'Items,'Batch>
         (   log : ILogger,
             startIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,
-            mapContent : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> 'Items) : IChangeFeedObserver =
+            mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
         // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops

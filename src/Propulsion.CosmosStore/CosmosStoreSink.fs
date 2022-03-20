@@ -12,6 +12,27 @@ open System.Collections.Generic
 [<AutoOpen>]
 module private Impl =
     let inline mb x = float x / 1024. / 1024.
+#if COSMOSV3 || COSMOSV2
+    let toNativeEvent = id
+#else
+    // From FsCodec.SystemTextJson.Interop
+    open System.Text.Json
+    let toNativeEventBody (x : byte[]) : JsonElement =
+        if x = null then JsonElement()
+        else JsonSerializer.Deserialize(System.ReadOnlySpan.op_Implicit x)
+    let toNativeEvent (x : ITimelineEvent<_>) : ITimelineEvent<_> =
+        { new ITimelineEvent<JsonElement> with
+            member _.Context = x.Context
+            member _.IsUnfold = x.IsUnfold
+            member _.Index = x.Index
+            member _.EventType = x.EventType
+            member _.Data = toNativeEventBody x.Data
+            member _.Meta = toNativeEventBody x.Meta
+            member _.EventId = x.EventId
+            member _.CorrelationId = x.CorrelationId
+            member _.CausationId = x.CausationId
+            member _.Timestamp = x.Timestamp }
+#endif
 
 module Internal =
 
@@ -40,7 +61,7 @@ module Internal =
 
         let write (log : ILogger) (ctx : EventsContext) stream span = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span.index, span.events.Length)
-            let! res = ctx.Sync(stream, { index = span.index; etag = None }, span.events |> Array.map (fun x -> x :> _))
+            let! res = ctx.Sync(stream, { index = span.index; etag = None }, span.events |> Array.map (fun x -> toNativeEvent x :> _))
             let res' =
                 match res with
                 | AppendResult.Ok pos -> Ok pos.index

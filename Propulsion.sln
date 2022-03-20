@@ -45,6 +45,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.CosmosStore", "s
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.Feed", "src\Propulsion.Feed\Propulsion.Feed.fsproj", "{B6C1C225-940C-425C-A2F7-A728AEBFCB31}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.CosmosStore4", "src\Propulsion.CosmosStore4\Propulsion.CosmosStore4.fsproj", "{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.EventStoreDb", "src\Propulsion.EventStoreDb\Propulsion.EventStoreDb.fsproj", "{A1964569-C6A9-46D3-8DD9-01E04AF8CC81}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -91,6 +95,14 @@ Global
 		{B6C1C225-940C-425C-A2F7-A728AEBFCB31}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B6C1C225-940C-425C-A2F7-A728AEBFCB31}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B6C1C225-940C-425C-A2F7-A728AEBFCB31}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -106,6 +118,8 @@ Global
 		{8E15F0BD-2D8F-42AE-A789-90A2F5C84CF2} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{356294D8-DF59-4903-9A9C-03F0F459B2A3} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{B6C1C225-940C-425C-A2F7-A728AEBFCB31} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{8A2D7DDF-ED05-4871-A2B1-66D22A581C95} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
+		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}

@@ -1,9 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <WarningLevel>5</WarningLevel>
-    <DefineConstants>EVENTSTORE_LEGACY</DefineConstants>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
@@ -14,25 +13,24 @@
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>Infrastructure.fs</Link>
     </Compile>
-    <Compile Include="EventStoreSink.fs" />
-    <Compile Include="StripedIngester.fs" />
-    <Compile Include="EventStoreReader.fs" />
-    <Compile Include="Checkpoint.fs" />
     <Compile Include="EventStoreSource.fs" />
+    <Compile Include="..\Propulsion.EventStore\EventStoreSink.fs">
+      <Link>EventStoreSink.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
     <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
 
-    <PackageReference Include="FSharp.Core" Version="4.5.4" />
+    <PackageReference Include="FSharp.Core" Version="4.7.1" />
 
-    <PackageReference Include="Equinox.EventStore" Version="3.0.6" />
-    <PackageReference Include="TypeShape" Version="8.0.1" />
+    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-alpha.1" />
+<!--    <PackageReference Include="TypeShape" Version="8.0.1" />-->
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
   </ItemGroup>
 
 </Project>

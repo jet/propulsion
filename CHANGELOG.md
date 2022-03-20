@@ -9,12 +9,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ## [Unreleased]
 
 ### Added
+
+- `Propulsion.CosmosStore4`: Ported `Cosmos*` to target `Equinox.EventStore` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.EventStoreDb`: Ported `EventStoreSink` to target `Equinox.EventStoreDb` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
+
 ### Changed
 
-- Targeted `net6.0` and `6.0` SDK, `FSharp.Core` >= `4.5.4`
+- Targeted `net6.0` with `6.0.200` SDK, `FSharp.Core` >= `4.5.4`
+- `Propulsion.CosmosStore4.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.EventStoreDb.EventStoreSource`: Changed API to match`Propulsion.SqlStreamStore` API rather than`Propulsion.EventStore` [#139](https://github.com/jet/propulsion/pull/139)
 
 ### Removed
 ### Fixed
+
+- `Propulsion.SqlStreamStore`: Replaced incorrect/meaningless stream name for `SqlStreamStoreSource` [#139](https://github.com/jet/propulsion/pull/139)
 
 <a name="2.12.2"></a>
 ## [2.12.2] - 2022-03-10

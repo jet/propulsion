@@ -3,7 +3,6 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <WarningLevel>5</WarningLevel>
-    <DefineConstants>COSMOSV3</DefineConstants>
     <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
@@ -14,16 +13,24 @@
     <Compile Include="..\Propulsion.Cosmos\EquinoxCosmosParser.fs">
       <Link>EquinoxCosmosParser.fs</Link>
     </Compile>
-    <Compile Include="Infrastructure.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\Infrastructure.fs">
+      <Link>Infrastructure.fs</Link>
+    </Compile>
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
-    <Compile Include="ChangeFeedProcessor.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
+      <Link>ChangeFeedProcessor.fs</Link>
+    </Compile>
     <Compile Include="..\Propulsion.Cosmos\CosmosSource.fs">
       <Link>CosmosSource.fs</Link>
     </Compile>
-    <Compile Include="CosmosStoreSink.fs" />
-    <Compile Include="CosmosStorePruner.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStoreSink.fs">
+      <Link>CosmosStoreSink.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStorePruner.fs">
+      <Link>CosmosStorePruner.fs</Link>
+    </Compile>
     <Compile Include="..\Propulsion.Cosmos\PropulsionCosmosPrometheus.fs">
       <Link>PropulsionCosmosPrometheus.fs</Link>
     </Compile>
@@ -36,11 +43,11 @@
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
     <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
 
-    <PackageReference Include="FSharp.Core" Version="4.5.4" />
+    <PackageReference Include="FSharp.Core" Version="4.3.4" />
 	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
-    <PackageReference Include="Equinox.CosmosStore" Version="3.0.6" />
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.22.0" />
+    <PackageReference Include="Equinox.CosmosStore" Version="4.0.0-alpha.1" />
+    <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
   </ItemGroup>
 
   <ItemGroup>
