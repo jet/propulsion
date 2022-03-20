@@ -8,7 +8,7 @@ name: $(Rev:r)
 jobs:
 - job: Windows
   pool:
-    vmImage: 'windows-latest'
+    vmImage: 'windows-2022'
   steps:
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
