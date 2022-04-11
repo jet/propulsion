@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="ExactlyOnceIngester.fs" />
+        <Compile Include="AppendsIndex.fs" />
+        <Compile Include="AppendsEpoch.fs" />
+        <Compile Include="DynamoStoreIndexer.fs" />
+        <Compile Include="DynamoStoreSource.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
+      <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
+      <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+    </ItemGroup>
+
+</Project>
