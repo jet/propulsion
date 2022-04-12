@@ -40,7 +40,7 @@ let interpret (trancheId, epochId) (state : Fold.State) =
 type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
     /// Determines the current active epoch for the specified Tranche
-    member _.ReadIngestionEpochId trancheId : Async<AppendsEpochId> =
+    member _.ReadIngestionEpochId(trancheId) : Async<AppendsEpochId> =
         let decider = resolve ()
         decider.Query(readEpochId trancheId >> Option.defaultValue AppendsEpochId.initial, Equinox.AllowStale)
 
@@ -52,7 +52,21 @@ type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.Stat
 
 module Config =
 
-    let private resolveStream (context, cache) =
-        let cat = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) (context, cache)
+    let private resolveStream store =
+        let cat = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
         cat.Resolve
-    let create store = Service(fun () -> streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider)
+    let internal resolveDecider store () = streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider
+    let create (context, cache) = Service(resolveDecider (context, Some cache))
+
+module Reader =
+
+    let readKnownTranches (state : Fold.State) =
+        state |> Map.keys |> Array.ofSeq
+
+    type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
+
+        member _.ReadKnownTranches() : Async<AppendsTrancheId[]> =
+            let decider = resolve ()
+            decider.Query(readKnownTranches)
+
+    let create context = Service(Config.resolveDecider (context, None))

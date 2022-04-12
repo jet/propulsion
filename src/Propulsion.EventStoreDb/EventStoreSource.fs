@@ -16,7 +16,7 @@ module private Impl =
         let Len0ToNull d, Len0ToNull m = d.ToArray(), m.ToArray()
         {   stream = Propulsion.Streams.StreamName.internalParseSafe x.Event.EventStreamId
             event = FsCodec.Core.TimelineEvent.Create(n.ToInt64(), e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) }
-    let readBatch excludeBodies maxBatchSize (store : EventStore.Client.EventStoreClient) (_tranche, pos) : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readBatch excludeBodies maxBatchSize (store : EventStore.Client.EventStoreClient) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in EventStore.Client.Position(p, p)
         let res = store.ReadAllAsync(EventStore.Client.Direction.Forwards, pos, maxBatchSize, not excludeBodies, cancellationToken = ct)
@@ -29,12 +29,10 @@ module private Impl =
 
 type EventStoreSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
-        sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
-        store : EventStore.Client.EventStoreClient,
+        store : EventStore.Client.EventStoreClient, sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?excludeBodies) =
     inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                   checkpoints, defaultCheckpointEventInterval,
-                                                   Impl.readBatch (excludeBodies = Some true) maxBatchSize store, sink)
+                                                   Impl.readBatch (excludeBodies = Some true) maxBatchSize store, checkpoints, sink)

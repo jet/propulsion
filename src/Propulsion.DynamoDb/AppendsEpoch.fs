@@ -10,9 +10,9 @@ let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheI
 [<RequireQualifiedAccess>]
 module Events =
 
-    type [<Struct>] StreamSpan ={ p : IndexStreamId; i : int64; c : int } // stream, index, count
     // NOTE while the `i` values in appended could be inferred, we redundantly store them here to enable optimal tailing
     type Ingested =             { started : StreamSpan[]; appended : StreamSpan[] }
+     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : int } // stream, index, count
     type Event =
         | Ingested of           Ingested
         | Closed
@@ -91,7 +91,7 @@ type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId 
 module Config =
 
     let private resolveStream (context, cache) =
-        let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, cache)
+        let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
         cat.Resolve
     let create maxItemsPerEpoch store =
         let shouldClose totalItems = totalItems >= maxItemsPerEpoch
@@ -108,32 +108,23 @@ module Reader =
     let fold (state : State) (events : Event seq) =
         let mutable closed = state.closed
         let changes = ResizeArray(state.changes)
-        let pos = Dictionary()
-        let index (x : Events.StreamSpan) = pos[x.p] <- int x.i + x.c
-        state.changes |> Array.iter (fun struct (_,xs) -> xs |> Array.iter index)
         for x in events do
             match x with
             | _, Events.Closed -> closed <- true
-            | i, Events.Ingested e ->
-                let spans = ResizeArray(e.started.Length + e.appended.Length)
-                spans.AddRange e.started
-                for x in e.appended do
-                    spans.Add { p = x.p; i = pos[x.p]; c = x.c }
-                spans |> Seq.iter index
-                changes.Add(int i, spans.ToArray())
+            | i, Events.Ingested e -> changes.Add(int i, Array.append e.started e.appended)
         { changes = changes.ToArray(); closed = closed }
 
-    type Service internal (resolve : AppendsTrancheId * AppendsEpochId -> Equinox.Decider<Event, State>) =
+    type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId) : Async<State> =
-            let decider = resolve (trancheId, epochId)
+        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<State> =
+            let decider = resolve (trancheId, epochId, minIndex)
             decider.Query(id)
 
     module Config =
 
-        let private resolveStream context =
-            let cat = Config.createUncachedUnoptimized codec initial fold context
+        let private resolveStream context minIndex =
+            let cat = Config.createWithOriginIndex codec initial fold context minIndex
             cat.Resolve
-        let create store =
-            let resolve = streamName >> resolveStream store >> Config.createDecider
-            Service(resolve)
+        let create context =
+            let resolve minIndex = streamName >> resolveStream context minIndex >> Config.createDecider
+            Service(fun (tid, eid, minIndex) -> resolve minIndex (tid, eid) )

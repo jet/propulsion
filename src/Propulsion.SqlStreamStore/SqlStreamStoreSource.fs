@@ -21,7 +21,7 @@ module private Impl =
     let readWithDataAsStreamEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
         let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
         return toStreamEvent json msg }
-    let readPage excludeBodies maxBatchSize (store : SqlStreamStore.IStreamStore) (_tranche, pos) : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readPage excludeBodies maxBatchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, maxBatchSize, not excludeBodies, ct) |> Async.AwaitTaskCorrect
         let! items =
@@ -31,12 +31,10 @@ module private Impl =
 
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
-        sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
-        store : SqlStreamStore.IStreamStore,
+        store : SqlStreamStore.IStreamStore, sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
-        /// If the Handler does not require the bodies of the events, we can avoid querying the bodies from SqlStreamStore in the first instance
-        ?excludeBodies) =
+        /// If the Handler does not require the bodies of the events, we can save significant Read Capacity by not having to load them
+        ?includeBodies) =
     inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                   checkpoints, defaultCheckpointEventInterval,
-                                                   Impl.readPage (excludeBodies = Some true) maxBatchSize store, sink)
+                                                   Impl.readPage (includeBodies <> Some true) maxBatchSize store, checkpoints, sink)

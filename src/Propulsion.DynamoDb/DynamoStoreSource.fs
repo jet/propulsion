@@ -1,13 +1,23 @@
 ﻿namespace Propulsion.DynamoDb
 
 open Amazon.DynamoDBv2
+open Equinox.DynamoStore
 open FSharp.Control
 open System
 
 type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
-(*
+
 module private Impl =
 
+    let readTranches context = async {
+        let index = AppendsIndex.Reader.create context
+        let! res = index.ReadKnownTranches()
+        return res |> Array.map AppendsTrancheId.toTrancheId }
+
+    let readPage includeBodies maxBatchSize (context : DynamoStoreContext) = async {
+        ()
+    }
+    (*
     let toStreamEvent (x : EventStore.Client.ResolvedEvent) : StreamEvent =
         let e = x.Event
         // TOCONSIDER wire e.Metadata["$correlationId"] and ["$causationId"] into correlationId and causationId
@@ -17,7 +27,7 @@ module private Impl =
         let Len0ToNull d, Len0ToNull m = d.ToArray(), m.ToArray()
         {   stream = Propulsion.Streams.StreamName.internalParseSafe x.Event.EventStreamId
             event = FsCodec.Core.TimelineEvent.Create(n.ToInt64(), e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) }
-    let readBatch excludeBodies maxBatchSize (store : EventStore.Client.EventStoreClient) (_tranche, pos) : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readBatch excludeBodies maxBatchSize (store : EventStore.Client.EventStoreClient) (tranche, pos) : Async<Propulsion.Feed.Internal.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in EventStore.Client.Position(p, p)
         let res = store.ReadAllAsync(EventStore.Client.Direction.Forwards, pos, maxBatchSize, not excludeBodies, cancellationToken = ct)
@@ -30,13 +40,15 @@ module private Impl =
 *)
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
-        sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
-        store : IAmazonDynamoDB,
+        storeClient : DynamoStoreClient, sourceId, maxBatchSize, tailSleepInterval : TimeSpan,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
-        ?excludeBodies) =
-    inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                   checkpoints, defaultCheckpointEventInterval,
-                                                   unbox (),//Impl.readBatch (excludeBodies = Some true) maxBatchSize store,
-                                                   sink)
+        ?includeBodies) =
+    inherit Propulsion.Feed.Internal.TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
+                                                       Impl.readPage (includeBodies = Some true) maxBatchSize (DynamoStoreContext storeClient),
+                                                       checkpoints, sink)
+
+    member _.Pump() =
+        let context = DynamoStoreContext(storeClient)
+        base.Pump(fun () -> Impl.readTranches context)

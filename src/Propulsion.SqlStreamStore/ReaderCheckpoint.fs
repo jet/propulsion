@@ -55,7 +55,12 @@ let getPosition (conn : IDbConnection) (stream : string) (consumerGroup : string
     | Some res -> return res.Position
     | None -> return Nullable() }
 
-type Service(connString : string) =
+type Service(connString : string, consumerGroupName, defaultCheckpointFrequency) =
+
+    let streamName source tranche =
+        match SourceId.toString source, TrancheId.toString tranche with
+        | s, null -> s
+        | s, tid -> String.Join("_", s, tid)
 
     member _.CreateSchemaIfNotExists() = async {
         use conn = createConnection connString
@@ -63,11 +68,11 @@ type Service(connString : string) =
 
     interface IFeedCheckpointStore with
 
-        member _.Start(source, tranche, defaultCheckpointFrequency) = async {
+        member _.Start(source, tranche) = async {
             use conn = createConnection connString
-            let! pos = getPosition conn (SourceId.toString source) (TrancheId.toString tranche)
+            let! pos = getPosition conn (streamName source tranche) consumerGroupName
             return defaultCheckpointFrequency, if pos.HasValue then Position.parse pos.Value else Position.initial }
 
         member _.Commit(source, tranche, pos) = async {
             use conn = createConnection connString
-            return! commitPosition conn (SourceId.toString source) (TrancheId.toString tranche) (Position.toInt64 pos) }
+            return! commitPosition conn (streamName source tranche) consumerGroupName (Position.toInt64 pos) }

@@ -3,7 +3,11 @@ module Propulsion.Feed.ReaderCheckpoint
 open System
 
 let [<Literal>] Category = "ReaderCheckpoint"
-let streamName (source, tranche) = FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
+let streamName (source, tranche, consumerGroupName : string) =
+    if consumerGroupName = null then
+        // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
+        FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
+    else FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
@@ -96,25 +100,25 @@ type Decider<'e, 's> = Equinox.Stream<'e, 's>
 type Decider<'e, 's> = Equinox.Decider<'e, 's>
 #endif
 
-type Service internal (resolve : SourceId * TrancheId -> Decider<Events.Event, Fold.State>) =
+type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
     interface IFeedCheckpointStore with
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche, freq) : Async<TimeSpan * Position> =
-            let decider = resolve (source, tranche)
-            decider.Transact(decideStart DateTimeOffset.UtcNow freq)
+        member _.Start(source, tranche) : Async<TimeSpan * Position> =
+            let decider = resolve (source, tranche, consumerGroupName)
+            decider.Transact(decideStart DateTimeOffset.UtcNow defaultCheckpointFrequency)
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position) : Async<unit> =
-            let decider = resolve (source, tranche)
+            let decider = resolve (source, tranche, consumerGroupName)
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 
     /// Override a checkpointing series with the supplied parameters
     member _.Override(source, tranche, freq : TimeSpan, pos : Position) =
-        let decider = resolve (source, tranche)
+        let decider = resolve (source, tranche, consumerGroupName)
         decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
 
 #if !COSMOSV2 && !COSMOSV3
@@ -123,16 +127,16 @@ module CosmosStore =
     open Equinox.CosmosStore
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let create log (context, cache) =
+    let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream = streamName >> cat.Resolve
         let resolve id = Decider(log, resolveStream id, maxAttempts = 3)
-        Service(resolve)
+        Service(resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
-let private create log resolveStream =
+let private create log defaultCheckpointFrequency resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
-    Service(resolve)
+    Service(resolve, null, defaultCheckpointFrequency)
 
 #if COSMOSV2
 module Cosmos =
@@ -140,11 +144,11 @@ module Cosmos =
     open Equinox.Cosmos
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let create log (context, cache) =
+    let create log defaultCheckpointFrequency (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let resolver = Resolver(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = resolver.Resolve(sn, opt)
-        create log resolveStream
+        create log defaultCheckpointFrequency resolveStream
 #else
 #if COSMOSV3
 module CosmosStore =
@@ -152,11 +156,11 @@ module CosmosStore =
     open Equinox.CosmosStore
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let create log (context, cache) =
+    let create log defaultCheckpointFrequency (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
-        create log resolveStream
+        create log defaultCheckpointFrequency resolveStream
 #endif
 #endif
 #endif

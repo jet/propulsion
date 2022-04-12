@@ -9,7 +9,7 @@ open System
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
+        checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
 
     let log =
@@ -20,7 +20,7 @@ type FeedSourceBase internal
         let log = log.ForContext("tranche", trancheId)
         let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
         let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit)
-        try let! freq, pos = checkpoints.Start(sourceId, trancheId, defaultCheckpointEventInterval)
+        try let! freq, pos = checkpoints.Start(sourceId, trancheId)
             log.Information("Reading {sourceId}/{trancheId} @ {pos} checkpointing every {checkpointFreq:n1}m", sourceId, trancheId, pos, freq.TotalMinutes)
             do! reader.Pump(pos)
         with e ->
@@ -40,15 +40,15 @@ type FeedSourceBase internal
             log.Warning(e, "Exception encountered while running source, exiting loop")
             return! Async.Raise e }
 
-/// Drives reading and checkpointing from a singular source that contains data from multiple streams,
-/// such as the SqlStreamStore and EventStoreDB $all feeds
-type AllFeedSource
+/// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
+/// it can have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc
+type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         readBatch : TrancheId * Position -> Async<Batch<_>>,
+        checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
 
     let crawl trancheId (wasLast, pos) = asyncSeq {
         if wasLast then
@@ -59,9 +59,23 @@ type AllFeedSource
             log.Warning(e, "Read failure")
             do! Async.Sleep tailSleepInterval }
 
-    member _.Pump(consumerGroupName) =
-        let readTranches () = async { return [| TrancheId.parse consumerGroupName |] }
+    member _.Pump(readTranches) =
         base.Pump(readTranches, crawl)
+
+/// Drives reading and checkpointing from a source that contains data from multiple streams,
+/// without being split into shards/physical partitions/tranches, such as the SqlStreamStore, and EventStoreDB $all feeds
+type AllFeedSource
+    (   log : Serilog.ILogger, statsInterval : TimeSpan,
+        sourceId, tailSleepInterval : TimeSpan,
+        readBatch : Position -> Async<Batch<_>>,
+        checkpoints : IFeedCheckpointStore,
+        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
+    inherit TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
+                              (fun (_trancheId, pos) -> readBatch pos), checkpoints, sink)
+
+    member _.Pump() =
+        let readTranches () = async { return [| TrancheId.parse "0" |] }
+        base.Pump(readTranches)
 
 namespace Propulsion.Feed
 
@@ -79,11 +93,11 @@ type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; i
 type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
+        checkpoints : IFeedCheckpointStore,
         /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position -> Async<Page<byte[]>>,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
 
     let crawl trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]

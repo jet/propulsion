@@ -39,12 +39,12 @@ type SourceItem = { streamName : FsCodec.StreamName; eventData : FsCodec.IEventD
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        checkpoints : IFeedCheckpointStore, defaultCheckpointEventInterval : TimeSpan,
         /// The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
         crawl : TrancheId -> AsyncSeq<SourceItem array>, refreshInterval : TimeSpan,
+        checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, defaultCheckpointEventInterval, sink)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl trancheId (_wasLast, position) : AsyncSeq<Internal.Batch<_>> = asyncSeq {

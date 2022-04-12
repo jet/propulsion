@@ -26,5 +26,5 @@ module Position =
 type IFeedCheckpointStore =
 
     /// Determines the starting position, and checkpointing frequency for a given tranche
-    abstract member Start: source: SourceId * tranche : TrancheId * defaultCheckpointFrequency : TimeSpan -> Async<TimeSpan * Position>
+    abstract member Start: source: SourceId * tranche : TrancheId -> Async<TimeSpan * Position>
     abstract member Commit: source: SourceId * tranche : TrancheId * pos: Position -> Async<unit>
