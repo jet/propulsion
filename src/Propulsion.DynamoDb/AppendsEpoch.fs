@@ -11,14 +11,13 @@ let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheI
 module Events =
 
     type [<Struct>] StreamSpan ={ p : IndexStreamId; i : int64; c : int } // stream, index, count
-    type [<Struct>] Added =     { p : IndexStreamId; c : int } // stream, count
-    type Ingested =             { started : StreamSpan[]; appended : Added[] }
+    // NOTE while the `i` values in appended could be inferred, we redundantly store them here to enable optimal tailing
+    type Ingested =             { started : StreamSpan[]; appended : StreamSpan[] }
     type Event =
         | Ingested of           Ingested
         | Closed
         interface TypeShape.UnionContract.IUnionContract
-    open FsCodec.SystemTextJson
-    let codec = Codec.Create<Event>().ToByteArrayCodec()
+    let codec = EventCodec.create<Event>()
 
 module Fold =
 
@@ -28,6 +27,7 @@ module Fold =
             let news = seq { for x in e.started -> KeyValuePair(x.p, Span.Of x) }
             let updates = seq { for e in e.appended -> let cur = state.versions[e.p] in KeyValuePair(e.p, { cur with count = cur.count + e.c }) }
             { state with versions = state.versions.AddRange(news).SetItems(updates)  }
+        member state.WithClosed() = { state with closed = true }
     and [<Struct>] Span =
         { index : int; count : int }
         static member Of(x : Events.StreamSpan) = { index = int x.i; count = x.c }
@@ -35,7 +35,7 @@ module Fold =
     let initial = { versions = ImmutableDictionary.Create(); closed = false }
     let private evolve (state : State) = function
         | Events.Ingested e ->  state.With(e)
-        | Events.Closed ->      { state with closed = true }
+        | Events.Closed ->      state.WithClosed()
     let fold : State -> Events.Event seq -> State = Seq.fold evolve
 
 module Ingest =
@@ -48,13 +48,13 @@ module Ingest =
             let n = xs |> Seq.map next |> Seq.max |> int
             { p = p; i = i; c = n - int i })
     let tryToIngested ({ versions = cur } : Fold.State) (inputs : Events.StreamSpan seq) : Events.Ingested option =
-        let started, appended = ResizeArray<Events.StreamSpan>(), ResizeArray<Events.Added>()
+        let started, appended = ResizeArray<Events.StreamSpan>(), ResizeArray<Events.StreamSpan>()
         for eventSpan in flatten inputs do
             match cur.TryGetValue(eventSpan.p) with
             | false, _ -> started.Add eventSpan
             | true, curSpan ->
                 match next eventSpan - curSpan.Next with
-                | appLen when appLen > 0 -> appended.Add { p = eventSpan.p; c = int appLen }
+                | appLen when appLen > 0 -> appended.Add { p = eventSpan.p; i = curSpan.Next; c = int appLen }
                 | _ -> ()
         match started.ToArray(), appended.ToArray() with
         | [||], [||] -> None
@@ -88,19 +88,52 @@ type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId 
         let decider = resolve (trancheId, epochId)
         decider.Transact(Ingest.decide shouldClose items, if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
-//    member _.Read epochId : Async<Fold.State> =
-//        let decider = resolve epochId
-//        decider.Query(id, Equinox.AllowStale)
-
 module Config =
 
     let private resolveStream (context, cache) =
-        let cacheStrategy = Equinox.DynamoStore.CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
-        let accessStrategy = Equinox.DynamoStore.AccessStrategy.Unoptimized
-        let cat = Equinox.DynamoStore.DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, cache)
         cat.Resolve
-    let private resolveDecider stream = Equinox.Decider(Serilog.Log.Logger, stream, maxAttempts = 3)
     let create maxItemsPerEpoch store =
         let shouldClose totalItems = totalItems >= maxItemsPerEpoch
-        let resolve = streamName >> resolveStream store >> resolveDecider
+        let resolve = streamName >> resolveStream store >> Config.createDecider
         Service(shouldClose, resolve)
+
+module Reader =
+
+    type Event = int64 * Events.Event
+    let codec : FsCodec.IEventCodec<Event, _, _> = EventCodec.withIndex<Events.Event>
+
+    type State = { changes : struct (int * Events.StreamSpan[])[]; closed : bool }
+    let initial = { changes = Array.empty; closed = false }
+    let fold (state : State) (events : Event seq) =
+        let mutable closed = state.closed
+        let changes = ResizeArray(state.changes)
+        let pos = Dictionary()
+        let index (x : Events.StreamSpan) = pos[x.p] <- int x.i + x.c
+        state.changes |> Array.iter (fun struct (_,xs) -> xs |> Array.iter index)
+        for x in events do
+            match x with
+            | _, Events.Closed -> closed <- true
+            | i, Events.Ingested e ->
+                let spans = ResizeArray(e.started.Length + e.appended.Length)
+                spans.AddRange e.started
+                for x in e.appended do
+                    spans.Add { p = x.p; i = pos[x.p]; c = x.c }
+                spans |> Seq.iter index
+                changes.Add(int i, spans.ToArray())
+        { changes = changes.ToArray(); closed = closed }
+
+    type Service internal (resolve : AppendsTrancheId * AppendsEpochId -> Equinox.Decider<Event, State>) =
+
+        member _.Read(trancheId, epochId) : Async<State> =
+            let decider = resolve (trancheId, epochId)
+            decider.Query(id)
+
+    module Config =
+
+        let private resolveStream context =
+            let cat = Config.createUncachedUnoptimized codec initial fold context
+            cat.Resolve
+        let create store =
+            let resolve = streamName >> resolveStream store >> Config.createDecider
+            Service(resolve)

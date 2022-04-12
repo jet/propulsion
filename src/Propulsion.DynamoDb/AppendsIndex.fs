@@ -14,8 +14,7 @@ module Events =
         | Started of {| tranche : AppendsTrancheId; epoch : AppendsEpochId |}
         | Snapshotted of {| active : Map<AppendsTrancheId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
-    open FsCodec.SystemTextJson
-    let codec = Codec.Create<Event>().ToByteArrayCodec()
+    let codec = EventCodec.create<Event>()
 
 module Fold =
 
@@ -54,9 +53,6 @@ type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.Stat
 module Config =
 
     let private resolveStream (context, cache) =
-        let accessStrategy = Equinox.DynamoStore.AccessStrategy.Snapshot (Fold.isOrigin, Fold.toSnapshot)
-        let cacheStrategy = Equinox.DynamoStore.CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
-        let cat = Equinox.DynamoStore.DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let cat = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) (context, cache)
         cat.Resolve
-    let private resolveDecider stream = Equinox.Decider(Serilog.Log.Logger, stream, maxAttempts = 3)
-    let create store = Service(fun () -> streamName IndexId.wellKnownId |> resolveStream store |> resolveDecider)
+    let create store = Service(fun () -> streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider)
