@@ -16,8 +16,10 @@ type AppendsTrancheId = int<appendsTrancheId>
 and [<Measure>] appendsTrancheId
 module AppendsTrancheId =
 
+    // Tranches are not yet fully implemented
     let wellKnownId : AppendsTrancheId = UMX.tag 0
     let toString : AppendsTrancheId -> string = UMX.untag >> string
+    let toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
 
 /// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
 type AppendsEpochId = int<appendsEpochId>
@@ -36,25 +38,27 @@ module internal Config =
     open Equinox.DynamoStore
     let createDecider stream = Equinox.Decider(Serilog.Log.Logger, stream, maxAttempts = 3)
 
-    let private createCached codec initial fold accessStrategy (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
-        DynamoStoreCategory(context, codec, fold, initial, cacheStrategy, accessStrategy)
+    let private create codec initial fold accessStrategy (context, cache) =
+        let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
+        DynamoStoreCategory(context, codec, fold, initial, cs, accessStrategy)
 
     let createSnapshotted codec initial fold (isOrigin, toSnapshot) (context, cache) =
         let accessStrategy = AccessStrategy.Snapshot (isOrigin, toSnapshot)
-        createCached codec initial fold accessStrategy (context, cache)
+        create codec initial fold accessStrategy (context, cache)
 
     let createUnoptimized codec initial fold (context, cache) =
         let accessStrategy = AccessStrategy.Unoptimized
-        createCached codec initial fold accessStrategy (context, cache)
+        create codec initial fold accessStrategy (context, cache)
 
-    let private createUncached codec initial fold accessStrategy context =
-        let cacheStrategy = CachingStrategy.NoCaching
-        DynamoStoreCategory(context, codec, fold, initial, cacheStrategy, accessStrategy)
-
-    let createUncachedUnoptimized codec initial fold context =
-        let accessStrategy = AccessStrategy.Unoptimized
-        createUncached codec initial fold accessStrategy context
+    let createWithOriginIndex codec initial fold context minIndex =
+        // TOCONSIDER include way to limit item count being read
+        // TOCONSIDER implement a loader hint to pass minIndex to the query as an additional filter
+        let isOrigin (i, _) = i <= minIndex
+        // There _should_ always be an event at minIndex - if there isn't for any reason, the load might go back one event too far
+        // Here we trim it for correctness (although Propulsion would technically ignore it)
+        let trimPotentialOverstep = Seq.filter (fun (i, _e) -> i >= minIndex)
+        let accessStrategy = AccessStrategy.MultiSnapshot (isOrigin, fun _ -> failwith "writing not applicable")
+        create codec initial (fun s -> trimPotentialOverstep >> fold s) accessStrategy (context, None)
 
 module internal EventCodec =
 
