@@ -4,38 +4,45 @@ open FSharp.UMX
 
 /// Identifies an Index within a given store
 type [<Measure>] indexId
-type IndexId = string<indexId>
-module IndexId =
+type internal IndexId = string<indexId>
+module internal IndexId =
 
     let wellKnownId : IndexId = UMX.tag "0"
     let toString : IndexId -> string = UMX.untag
 
 /// Identifies a chain of epochs within an index that's to be ingested and/or read in sequence
 /// Multiple tranches within an index are analogous to how the Table's data is split into shards
-type AppendsTrancheId = int<appendsTrancheId>
+type internal AppendsTrancheId = int<appendsTrancheId>
 and [<Measure>] appendsTrancheId
-module AppendsTrancheId =
+module internal AppendsTrancheId =
 
     // Tranches are not yet fully implemented
     let wellKnownId : AppendsTrancheId = UMX.tag 0
     let toString : AppendsTrancheId -> string = UMX.untag >> string
     let toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
+    let (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
 
 /// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
-type AppendsEpochId = int<appendsEpochId>
+type internal AppendsEpochId = int<appendsEpochId>
 and [<Measure>] appendsEpochId
-module AppendsEpochId =
+module internal AppendsEpochId =
 
     let initial : AppendsEpochId = UMX.tag 0
     let toString : AppendsEpochId -> string = UMX.untag >> string
+    let value : AppendsEpochId -> int = UMX.untag
+    let next (value : AppendsEpochId) : AppendsEpochId = % (%value + 1)
 
 /// Identifies an Equinox Store Stream; used within an AppendsEpoch
-type IndexStreamId = int<indexStreamId>
+type IndexStreamId = string<indexStreamId>
 and [<Measure>] indexStreamId
+module internal IndexStreamId =
+
+    let toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
 
 module internal Config =
 
     open Equinox.DynamoStore
+
     let createDecider stream = Equinox.Decider(Serilog.Log.Logger, stream, maxAttempts = 3)
 
     let private create codec initial fold accessStrategy (context, cache) =

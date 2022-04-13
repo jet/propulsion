@@ -31,7 +31,7 @@ type FeedSourceBase internal
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
-            /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
+            // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
             crawl : TrancheId -> bool * Position -> AsyncSeq<Batch<byte[]>>) = async {
         try let! tranches = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
@@ -41,11 +41,11 @@ type FeedSourceBase internal
             return! Async.Raise e }
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
-/// it can have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc
+/// it may have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        readBatch : TrancheId * Position -> Async<Batch<_>>,
+        readBatches : TrancheId * Position -> AsyncSeq<Batch<_>>,
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
@@ -53,8 +53,9 @@ type TailingFeedSource
     let crawl trancheId (wasLast, pos) = asyncSeq {
         if wasLast then
             do! Async.Sleep tailSleepInterval
-        try let! batch = readBatch (trancheId, pos)
-            yield batch
+        try let batches = readBatches (trancheId, pos)
+            for batch in batches do
+                yield batch
         with e ->
             log.Warning(e, "Read failure")
             do! Async.Sleep tailSleepInterval }
@@ -62,8 +63,9 @@ type TailingFeedSource
     member _.Pump(readTranches) =
         base.Pump(readTranches, crawl)
 
-/// Drives reading and checkpointing from a source that contains data from multiple streams,
-/// without being split into shards/physical partitions/tranches, such as the SqlStreamStore, and EventStoreDB $all feeds
+/// Drives reading and checkpointing from a source that aggregates data from multiple streams as a singular source
+/// without shards/physical partitions (tranches), such as the SqlStreamStore, and EventStoreDB $all feeds
+/// Per the API design of such stores, readBatch only ever yields a single page
 type AllFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
@@ -71,7 +73,8 @@ type AllFeedSource
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                              (fun (_trancheId, pos) -> readBatch pos), checkpoints, sink)
+                              (fun (_trancheId, pos) -> asyncSeq { let! b = readBatch pos in yield b } ),
+                              checkpoints, sink)
 
     member _.Pump() =
         let readTranches () = async { return [| TrancheId.parse "0" |] }
@@ -94,7 +97,7 @@ type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
-        /// Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
+        // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position -> Async<Page<byte[]>>,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
