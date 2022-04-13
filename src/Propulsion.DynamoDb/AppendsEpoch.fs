@@ -25,9 +25,17 @@ module Events =
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.create<Event>()
 
+let next (x : Events.StreamSpan) = int x.i + x.c
+/// Aggregates all spans per stream into a single Span from the lowest index to the highest
+let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
+    Seq.groupBy (fun x -> x.p)
+    >> Seq.map (fun (p, xs) ->
+        let i = xs |> Seq.map (fun x -> int64 x.i) |> Seq.min
+        let n = xs |> Seq.map next |> Seq.max |> int
+        { p = p; i = i; c = n - int i })
+
 module Fold =
 
-    let next (x : Events.StreamSpan) = int x.i + x.c
     type State =
         { versions : ImmutableDictionary<IndexStreamId, int>; closed : bool }
         member state.With(e : Events.Ingested) =
@@ -43,13 +51,6 @@ module Fold =
 
 module Ingest =
 
-    /// Aggregates all spans per stream into a single Span from the lowest index to the highest
-    let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
-        Seq.groupBy (fun x -> x.p)
-        >> Seq.map (fun (p, xs) ->
-            let i = xs |> Seq.map (fun x -> int64 x.i) |> Seq.min
-            let n = xs |> Seq.map Fold.next |> Seq.max |> int
-            { p = p; i = i; c = n - int i })
     /// Takes a set of spans, flattens them and trims them relative to the currently established per-stream high-watermarks
     let tryToIngested ({ versions = cur } : Fold.State) (inputs : Events.StreamSpan seq) : Events.Ingested option =
         let started, appended = ResizeArray<Events.StreamSpan>(), ResizeArray<Events.StreamSpan>()
@@ -57,7 +58,7 @@ module Ingest =
             match cur.TryGetValue eventSpan.p with
             | false, _ -> started.Add eventSpan
             | true, curNext ->
-                match Fold.next eventSpan - curNext with
+                match next eventSpan - curNext with
                 | appLen when appLen > 0 -> appended.Add { p = eventSpan.p; i = curNext; c = int appLen }
                 | _ -> ()
         match started.ToArray(), appended.ToArray() with
@@ -69,7 +70,7 @@ module Ingest =
             match cur.TryGetValue eventSpan.p with
             | false, _ -> ()
             | true, curNext ->
-                match Fold.next eventSpan - curNext with
+                match next eventSpan - curNext with
                 | appLen when appLen > 0 -> yield { p = eventSpan.p; i = curNext; c = int appLen }
                 | _ -> yield eventSpan |]
     let decide shouldClose (inputs : Events.StreamSpan seq) = function

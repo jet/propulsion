@@ -79,3 +79,7 @@ module internal EventCodec =
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<int64 * 'c, _, _> =
         let up (raw : FsCodec.ITimelineEvent<_>, e) = raw.Index, e
         withUpconverter<'c, int64 * 'c> up
+
+module internal Async =
+
+    let parallelThrottled dop f = Async.Parallel(f, maxDegreeOfParallelism = dop)
