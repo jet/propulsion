@@ -2,7 +2,7 @@ module Propulsion.DynamoDb.ExactlyOnceIngester
 
 open FSharp.UMX // %
 
-type IngestResult<'req, 'res> = { accepted : 'res[]; closed : bool; residual : 'req[] }
+type IngestResult<'req, 'res> = { accepted : 'res array; closed : bool; residual : 'req array }
 
 module Internal =
 
@@ -13,15 +13,15 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
     (   log : Serilog.ILogger,
         readActiveEpoch : unit -> Async<int<'id>>,
         markActiveEpoch : int<'id> -> Async<unit>,
-        ingest : int<'id> * 'req [] -> Async<IngestResult<'req, 'res>>,
-        mapResults : 'res [] -> 'outcome seq,
+        ingest : int<'id> * 'req array -> Async<IngestResult<'req, 'res>>,
+        mapResults : 'res array -> 'outcome seq,
         linger) =
 
     let uninitializedSentinel : int = %Internal.unknown
     let mutable currentEpochId_ = uninitializedSentinel
     let currentEpochId () = if currentEpochId_ <> uninitializedSentinel then Some %currentEpochId_ else None
 
-    let tryIngest (reqs : (int<'id> * 'req)[][]) =
+    let tryIngest (reqs : (int<'id> * 'req) array array) =
         let rec aux ingestedItems items = async {
             let epochId = items |> Seq.map fst |> Seq.min
             let epochItems, futureEpochItems = items |> Array.partition (fun (e, _ : 'req) -> e = epochId)
@@ -46,7 +46,7 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
             | remaining -> return! aux ingestedItemIds remaining }
         aux [||] (Array.concat reqs)
 
-    /// Concentrates batches of ingestion requests (e.g. from multiple instances of a DynamoDB Streams Lambda) into a single in flight request at a tiem
+    /// Concentrates batches of ingestion requests (e.g. from multiple instances of a DynamoDB Streams Lambda) into a single in flight request at a time
     /// In order to avoid the writes either causing concurrency conflicts, or denying each other Write Capacity
     let batchedIngest = Equinox.Core.AsyncBatchingGate(tryIngest, linger)
 

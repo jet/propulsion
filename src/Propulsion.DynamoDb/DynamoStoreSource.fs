@@ -39,14 +39,14 @@ module private Impl =
         let! res = index.ReadKnownTranches()
         return res |> Array.map AppendsTrancheId.toTrancheId }
 
-    let totalEvents : AppendsEpoch.Events.StreamSpan[] -> int = Array.sumBy (fun x -> x.c)
+    let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c)
     let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
         let sn = IndexStreamId.toStreamName span.p
         let events = Array.init span.c (fun offset -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = null, data = null))
         seq { for e in events -> { stream = sn; event = e } }
 
 #if false
-    let load (span : AppendsEpoch.Events.StreamSpan) : Async<StreamEvent[]> = async {
+    let load (span : AppendsEpoch.Events.StreamSpan) : Async<StreamEvent array> = async {
         let sn = IndexStreamId.toStreamName span.p
         let events =
                 // FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) |]

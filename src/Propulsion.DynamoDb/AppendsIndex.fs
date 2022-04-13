@@ -58,9 +58,10 @@ module Config =
     let internal resolveDecider store () = streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider
     let create (context, cache) = Service(resolveDecider (context, Some cache))
 
+/// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownTranches (state : Fold.State) =
+    let readKnownTranches (state : Fold.State) : AppendsTrancheId[] =
         state |> Map.keys |> Array.ofSeq
 
     type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
