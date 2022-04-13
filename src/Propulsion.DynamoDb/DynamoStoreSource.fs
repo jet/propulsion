@@ -39,41 +39,40 @@ module private Impl =
         let! res = index.ReadKnownTranches()
         return res |> Array.map AppendsTrancheId.toTrancheId }
 
-    let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c)
-    let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
-        let sn = IndexStreamId.toStreamName span.p
-        let events = Array.init span.c (fun offset -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = null, data = null))
-        seq { for e in events -> { stream = sn; event = e } }
-
-#if false
-    let load (span : AppendsEpoch.Events.StreamSpan) : Async<StreamEvent array> = async {
-        let sn = IndexStreamId.toStreamName span.p
-        let events =
-                // FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) |]
-                unbox ()
-        return [| for e in events -> { stream = sn; event = e } |] }
-
-#endif
     let mkBatch checkpoint isTail items : Propulsion.Feed.Internal.Batch<_> =
         { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.ofEpochAndOffset epochId offset) false items
     let finalBatch epochId (state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochContent epochId state.closed state.changes.Length) (not state.closed) items
+
     let spansToStreamEvents includeBodies batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (eid, offset)) : AsyncSeq<Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create context
         let! state = epochs.Read(tid, eid, offset)
-        let buffer = ResizeArray()
         if not includeBodies then
+            let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c)
+            let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
+                let sn = IndexStreamId.toStreamName span.p
+                let events = Array.init span.c (fun offset -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = null, data = null))
+                seq { for e in events -> { stream = sn; event = e } }
+            let buffer = ResizeArray()
             for i, spans in state.changes do
                 if buffer.Count <> 0 && buffer.Count + totalEvents spans > batchCutoff then
                     yield sliceBatch eid i (buffer.ToArray())
                     buffer.Clear()
                 buffer.AddRange(Seq.collect generateStubs spans)
+            yield finalBatch eid state (buffer.ToArray())
          else
+            let load (span : AppendsEpoch.Events.StreamSpan) : Async<StreamEvent array> = async {
+                let sn = IndexStreamId.toStreamName span.p
+                let events =
+                        // FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) |]
+                        unbox ()
+                return [| for e in events -> { stream = sn; event = e } |] }
+
+            // let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Seq.map (fun x -> x.p, x) |> dict
             // TODO coalesce spans for reading (within reason) if reading bodies/event types
             yield failwith "E_NOTIMPL"
-        yield finalBatch eid state (buffer.ToArray())
     }
 
 type DynamoStoreSource
