@@ -3,7 +3,7 @@
 /// When the maximum events count is reached, the Epoch is closed, and writes transition to the successor Epoch
 /// The Reader module reads Ingested events forward from a given Index on the Epoch's stream
 /// The Checkpoint per Index consists of the pair of 1. EpochId 2. Event Index within that Epoch (see `module Checkpoint` for detail)
-module Propulsion.DynamoDb.AppendsEpoch
+module Propulsion.DynamoStore.AppendsEpoch
 
 open System.Collections.Generic
 open System.Collections.Immutable

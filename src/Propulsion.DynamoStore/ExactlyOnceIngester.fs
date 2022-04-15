@@ -1,4 +1,4 @@
-module Propulsion.DynamoDb.ExactlyOnceIngester
+module Propulsion.DynamoStore.ExactlyOnceIngester
 
 open FSharp.UMX // %
 

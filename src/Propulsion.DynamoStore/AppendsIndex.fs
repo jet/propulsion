@@ -1,7 +1,7 @@
 /// Maintains a pointer for into the  chain for each Tranche
 /// Allows an Ingester to quickly determine the current Epoch which it should commence writing into
 /// As an Epoch is marked `Closed`, `module Index` will mark a new epoch `Started` on this aggregate
-module Propulsion.DynamoDb.AppendsIndex
+module Propulsion.DynamoStore.AppendsIndex
 
 let [<Literal>] Category = "AppendsIndex"
 let streamName iid = FsCodec.StreamName.create Category (IndexId.toString iid)

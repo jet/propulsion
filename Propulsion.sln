@@ -51,7 +51,7 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.EventStoreDb", "
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Equinox.DynamoStore", "..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj", "{1D830315-7182-4B7E-839A-2637C8F222AB}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoDb", "src\Propulsion.DynamoDb\Propulsion.DynamoDb.fsproj", "{0B1D505F-FD80-428E-92E5-4367E95E96DF}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore", "src\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj", "{0B1D505F-FD80-428E-92E5-4367E95E96DF}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Equinox", "..\equinox\src\Equinox\Equinox.fsproj", "{9644D9EF-4EAA-48DF-B4A1-D1A099EAA8AC}"
 EndProject
