@@ -1,4 +1,4 @@
-﻿namespace Propulsion.DynamoDb
+﻿namespace Propulsion.DynamoStore
 
 open Equinox.DynamoStore
 open FSharp.Control

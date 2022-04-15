@@ -1,4 +1,4 @@
-module Propulsion.DynamoDb.DynamoStoreIndexer
+module Propulsion.DynamoStore.DynamoStoreIndexer
 
 type Service internal (epochs : AppendsEpoch.Service, index : AppendsIndex.Service) =
 
