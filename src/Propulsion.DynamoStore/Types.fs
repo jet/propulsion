@@ -37,6 +37,7 @@ type IndexStreamId = string<indexStreamId>
 and [<Measure>] indexStreamId
 module internal IndexStreamId =
 
+    let ofP : string -> IndexStreamId = UMX.tag
     let toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
 
 module internal Config =

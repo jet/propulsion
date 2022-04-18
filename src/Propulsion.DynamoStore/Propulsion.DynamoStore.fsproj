@@ -23,6 +23,9 @@
       <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
       <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+
+      <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
+      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
     </ItemGroup>
 
 </Project>
