@@ -2,6 +2,7 @@
 
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
+        <DefineConstants>DYNAMOSTORE</DefineConstants>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
 
@@ -12,6 +13,10 @@
         <Compile Include="AppendsEpoch.fs" />
         <Compile Include="DynamoStoreIndexer.fs" />
         <Compile Include="DynamoStoreSource.fs" />
+        <Compile Include="..\Propulsion.Cosmos\ReaderCheckpoint.fs">
+            <Link>ReaderCheckpoint.fs</Link>
+        </Compile>
+        <Compile Include="DynamoStreamsLambda.fs" />
     </ItemGroup>
 
     <ItemGroup>

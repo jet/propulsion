@@ -3,7 +3,7 @@
 /// As an Epoch is marked `Closed`, `module Index` will mark a new epoch `Started` on this aggregate
 module Propulsion.DynamoStore.AppendsIndex
 
-let [<Literal>] Category = "AppendsIndex"
+let [<Literal>] Category = "$AppendsIndex"
 let streamName iid = FsCodec.StreamName.create Category (IndexId.toString iid)
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
