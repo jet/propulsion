@@ -18,21 +18,28 @@ module Events =
     // NOTE while the `i` values in `appended` could be inferred, we redundantly store them to enable optimal tailing
     //      without having to read and/or process/cache all preceding events
     type Ingested =             { started : StreamSpan array; appended : StreamSpan array }
-     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : int } // p: stream, i: index, c: count
+                                // Structure mapped from DynamoStore.Batch.Schema: p: stream, i: index, c: array of event types
+     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string[] }
     type Event =
         | Ingested of           Ingested
         | Closed
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.create<Event>()
 
-let next (x : Events.StreamSpan) = int x.i + x.c
+let next (x : Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
 let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
     Seq.groupBy (fun x -> x.p)
     >> Seq.map (fun (p, xs) ->
-        let i = xs |> Seq.map (fun x -> int64 x.i) |> Seq.min
-        let n = xs |> Seq.map next |> Seq.max |> int
-        { p = p; i = i; c = n - int i })
+        let mutable i = -1L
+        let c = ResizeArray()
+        for x in xs do
+            if i = -1 then i <- x.i
+            let ei = i + x.c.LongLength
+            let overlap = x.i - ei
+            if overlap < 0 then invalidOp (sprintf "Invalid gap of %d at %d in '%O'" -overlap ei p)
+            c.AddRange(Seq.skip (int overlap) x.c)
+        { p = p; i = i; c = c.ToArray() })
 
 module Fold =
 
@@ -51,28 +58,32 @@ module Fold =
 
 module Ingest =
 
+    let (|Start|Append|Discard|) ({ versions = cur } : Fold.State, eventSpan : Events.StreamSpan) =
+        match cur.TryGetValue eventSpan.p with
+        | false, _ -> Start eventSpan
+        | true, curNext ->
+            match next eventSpan - curNext with
+            | appendLen when appendLen > 0 -> Append ({ p = eventSpan.p; i = curNext; c = Array.skip (eventSpan.c.Length - appendLen) eventSpan.c } : Events.StreamSpan)
+            | _ -> Discard
+
     /// Takes a set of spans, flattens them and trims them relative to the currently established per-stream high-watermarks
-    let tryToIngested ({ versions = cur } : Fold.State) (inputs : Events.StreamSpan seq) : Events.Ingested option =
+    let tryToIngested state (inputs : Events.StreamSpan seq) : Events.Ingested option =
         let started, appended = ResizeArray<Events.StreamSpan>(), ResizeArray<Events.StreamSpan>()
         for eventSpan in flatten inputs do
-            match cur.TryGetValue eventSpan.p with
-            | false, _ -> started.Add eventSpan
-            | true, curNext ->
-                match next eventSpan - curNext with
-                | appLen when appLen > 0 -> appended.Add { p = eventSpan.p; i = curNext; c = int appLen }
-                | _ -> ()
+            match state, eventSpan with
+            | Start es -> started.Add es
+            | Append es -> appended.Add es
+            | Discard -> ()
         match started.ToArray(), appended.ToArray() with
         | [||], [||] -> None
         | s, a -> Some { started = s; appended = a }
     /// Trims the supplied inputs, removing items that overlap with this Epoch's per-stream max index
-    let removeDuplicates ({ versions = cur } : Fold.State) inputs : Events.StreamSpan array =
+    let removeDuplicates state inputs : Events.StreamSpan array =
         [| for eventSpan in flatten inputs do
-            match cur.TryGetValue eventSpan.p with
-            | false, _ -> ()
-            | true, curNext ->
-                match next eventSpan - curNext with
-                | appLen when appLen > 0 -> yield { p = eventSpan.p; i = curNext; c = int appLen }
-                | _ -> yield eventSpan |]
+            match state, eventSpan with
+            | Start es
+            | Append es -> es
+            | Discard -> () |]
     let decide shouldClose (inputs : Events.StreamSpan seq) = function
         | ({ closed = false; versions = cur } as state : Fold.State) ->
             let closed, ingested, events =

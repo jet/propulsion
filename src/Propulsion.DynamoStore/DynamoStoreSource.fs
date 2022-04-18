@@ -50,10 +50,10 @@ module private Impl =
         let epochs = AppendsEpoch.Reader.Config.create context
         let! state = epochs.Read(tid, eid, offset)
         if not includeBodies then
-            let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c)
+            let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c.Length)
             let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
                 let sn = IndexStreamId.toStreamName span.p
-                let events = Array.init span.c (fun offset -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = null, data = null))
+                let events = span.c |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = c, data = null))
                 seq { for e in events -> { stream = sn; event = e } }
             let buffer = ResizeArray()
             for i, spans in state.changes do
@@ -63,13 +63,6 @@ module private Impl =
                 buffer.AddRange(Seq.collect generateStubs spans)
             yield finalBatch eid state (buffer.ToArray())
          else
-            let load (span : AppendsEpoch.Events.StreamSpan) : Async<StreamEvent array> = async {
-                let sn = IndexStreamId.toStreamName span.p
-                let events =
-                        // FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) |]
-                        unbox ()
-                return [| for e in events -> { stream = sn; event = e } |] }
-
             // let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Seq.map (fun x -> x.p, x) |> dict
             // TODO coalesce spans for reading (within reason) if reading bodies/event types
             yield failwith "E_NOTIMPL"
