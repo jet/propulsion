@@ -2,12 +2,14 @@ module Propulsion.Feed.ReaderCheckpoint
 
 open System
 
-let [<Literal>] Category = "ReaderCheckpoint"
 let streamName (source, tranche, consumerGroupName : string) =
     if consumerGroupName = null then
+        let Category = "ReaderCheckpoint"
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
-    else FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
+    else
+        let (*[<Literal>]*) Category = "$ReaderCheckpoint"
+        FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
@@ -29,10 +31,15 @@ module Events =
         | Updated       of Updated
         | Snapshotted   of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
+#if DYNAMOSTORE
+    open FsCodec.SystemTextJson
+    let codec = Codec.Create<Event>().ToByteArrayCodec()
+#else
 #if !COSMOSV3 && !COSMOSV2
     let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
 #else
     let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
+#endif
 #endif
 
 module Fold =
@@ -121,6 +128,18 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         let decider = resolve (source, tranche, consumerGroupName)
         decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
 
+#if DYNAMOSTORE
+module DynamoStore =
+
+    open Equinox.DynamoStore
+
+    let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
+    let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
+        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
+        let resolveStream = DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy).Resolve
+        let resolve = streamName >> resolveStream >> fun stream -> Decider(log, stream, maxAttempts = 3)
+        Service(resolve, consumerGroupName, defaultCheckpointFrequency)
+#else
 #if !COSMOSV2 && !COSMOSV3
 module CosmosStore =
 
@@ -161,6 +180,7 @@ module CosmosStore =
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log defaultCheckpointFrequency resolveStream
+#endif
 #endif
 #endif
 #endif

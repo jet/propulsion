@@ -8,7 +8,7 @@ module Propulsion.DynamoStore.AppendsEpoch
 open System.Collections.Generic
 open System.Collections.Immutable
 
-let [<Literal>] Category = "AppendsEpoch"
+let [<Literal>] Category = "$AppendsEpoch"
 let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheId.toString tid; AppendsEpochId.toString eid]
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
