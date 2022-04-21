@@ -4,7 +4,6 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <WarningLevel>5</WarningLevel>
     <DefineConstants>EVENTSTORE_LEGACY</DefineConstants>
-    <IsTestProject>false</IsTestProject>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
