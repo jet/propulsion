@@ -2,6 +2,9 @@
 
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
+        <WarningLevel>5</WarningLevel>
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+        <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
         <DefineConstants>DYNAMOSTORE</DefineConstants>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
@@ -12,20 +15,28 @@
         <Compile Include="AppendsIndex.fs" />
         <Compile Include="AppendsEpoch.fs" />
         <Compile Include="DynamoStoreIndexer.fs" />
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+            <Link>PropulsionInfrastructure.fs</Link>
+        </Compile>
         <Compile Include="DynamoStoreSource.fs" />
         <Compile Include="..\Propulsion.Cosmos\ReaderCheckpoint.fs">
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
         <Compile Include="DynamoStreamsLambda.fs" />
     </ItemGroup>
-
     <ItemGroup>
-      <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
-      <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
+      <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
+      <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
+
+      <PackageReference Include="FSharp.Core" Version="4.7.2" />
 
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
-        <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+      <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+    </ItemGroup>
+    <ItemGroup>
+        <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
+        <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
     </ItemGroup>
 
 </Project>
