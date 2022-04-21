@@ -14,7 +14,5 @@ type Function() =
     let cache = Equinox.Cache("indexer", sizeMb = 10)
     let service = DynamoStoreIndexer.Config.create 100_000 (conn.Context, cache)
 
-    member _.FunctionHandler(dynamoEvent : DynamoDBEvent, context : ILambdaContext) = task {
-        do! DynamoStreamsLambda.ingest service dynamoEvent context
-        context.Logger.LogInformation("Stream processing complete.")
-    }
+    member _.FunctionHandler(dynamoEvent : DynamoDBEvent, context : ILambdaContext) =
+        DynamoStreamsLambda.ingest service dynamoEvent context |> Async.StartImmediateAsTask

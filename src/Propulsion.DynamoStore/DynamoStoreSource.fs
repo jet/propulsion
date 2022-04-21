@@ -2,6 +2,7 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
+open Propulsion.Infrastructure // AwaitTaskCorrect
 
 type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
 
@@ -46,21 +47,21 @@ module private Impl =
     let finalBatch epochId (state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochContent epochId state.closed state.changes.Length) (not state.closed) items
 
-    let spansToStreamEvents includeBodies batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (eid, offset)) : AsyncSeq<Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
+    let spansToStreamEvents filter includeBodies batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (eid, offset)) : AsyncSeq<Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create context
         let! state = epochs.Read(tid, eid, offset)
         if not includeBodies then
-            let totalEvents : AppendsEpoch.Events.StreamSpan array -> int = Array.sumBy (fun x -> x.c.Length)
             let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
                 let sn = IndexStreamId.toStreamName span.p
                 let events = span.c |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, eventType = c, data = null))
                 seq { for e in events -> { stream = sn; event = e } }
             let buffer = ResizeArray()
             for i, spans in state.changes do
-                if buffer.Count <> 0 && buffer.Count + totalEvents spans > batchCutoff then
+                let pending = spans |> Seq.collect (generateStubs >> filter) |> Seq.toArray
+                if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
                     yield sliceBatch eid i (buffer.ToArray())
                     buffer.Clear()
-                buffer.AddRange(Seq.collect generateStubs spans)
+                buffer.AddRange(pending)
             yield finalBatch eid state (buffer.ToArray())
          else
             // let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Seq.map (fun x -> x.p, x) |> dict
@@ -70,15 +71,35 @@ module private Impl =
 
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
-        storeClient : DynamoStoreClient, sourceId, batchCutoff, tailSleepInterval,
+        storeClient : DynamoStoreClient, sourceId, eventBatchLimit, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
+        filter : StreamEvent seq -> StreamEvent seq,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?includeBodies) =
     inherit Propulsion.Feed.Internal.TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                       Impl.spansToStreamEvents (includeBodies = Some true) batchCutoff (DynamoStoreContext storeClient),
+                                                       Impl.spansToStreamEvents filter (includeBodies = Some true) eventBatchLimit (DynamoStoreContext storeClient),
                                                        checkpoints, sink)
 
-    member _.Pump() =
+    member internal _.Pump() =
         let context = DynamoStoreContext(storeClient)
         base.Pump(fun () -> Impl.readTranches context)
+
+    member x.Start() =
+        let cts = new System.Threading.CancellationTokenSource()
+        let ct = cts.Token
+        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
+
+        let machine = async {
+            // external cancellation should yield a success result
+            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
+
+            do! x.Pump()
+
+            // aka base.AwaitShutdown()
+            do! Async.AwaitTaskCorrect tcs.Task }
+
+        let task = Async.StartAsTask machine
+
+        new Propulsion.Pipeline(task, cts.Cancel)
+

@@ -40,6 +40,10 @@ module internal IndexStreamId =
     let ofP : string -> IndexStreamId = UMX.tag
     let toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
 
+module FeedSourceId =
+
+    let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamodb"
+
 module internal Config =
 
     open Equinox.DynamoStore
