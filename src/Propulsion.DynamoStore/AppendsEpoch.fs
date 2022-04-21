@@ -35,14 +35,15 @@ let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
         let c = ResizeArray()
         for x in xs do
             if i = -1 then i <- x.i
-            let ei = i + x.c.LongLength
-            let overlap = x.i - ei
-            if overlap < 0 then invalidOp (sprintf "Invalid gap of %d at %d in '%O'" -overlap ei p)
+            let n = i + int64 c.Count
+            let overlap = n - x.i
+            if overlap < 0 then invalidOp (sprintf "Invalid gap of %d at %d in '%O'" -overlap n p)
             c.AddRange(Seq.skip (int overlap) x.c)
         { p = p; i = i; c = c.ToArray() })
 
 module Fold =
 
+    [<NoComparison; NoEquality>]
     type State =
         { versions : ImmutableDictionary<IndexStreamId, int>; closed : bool }
         member state.With(e : Events.Ingested) =
@@ -101,8 +102,12 @@ module Ingest =
 
 type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    member _.Ingest(trancheId, epochId, spans, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
+    member _.Ingest(trancheId, epochId, spans : Events.StreamSpan[], ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (trancheId, epochId)
+        if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
+
+        let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndId |> fst = Category
+        if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         decider.Transact(Ingest.decide shouldClose spans, if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
 module Config =

@@ -62,7 +62,7 @@ module Config =
 module Reader =
 
     let readKnownTranches (state : Fold.State) : AppendsTrancheId[] =
-        state |> Map.keys |> Array.ofSeq
+        state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
     type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
