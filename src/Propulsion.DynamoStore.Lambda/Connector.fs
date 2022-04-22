@@ -30,5 +30,4 @@ type Connector(serviceUrl, accessKey, secretKey, table) =
 
     new (c : Configuration) = Connector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, c.DynamoTable)
 
-    member _.Log(log : Serilog.ILogger, name) = log.Information("DynamoDB Connecting {name} to {endpoint}", name, serviceUrl)
     member _.Context = context

@@ -14,48 +14,42 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
         readActiveEpoch : unit -> Async<int<'id>>,
         markActiveEpoch : int<'id> -> Async<unit>,
         ingest : int<'id> * 'req array -> Async<IngestResult<'req, 'res>>,
-        mapResults : 'res array -> 'outcome seq,
-        linger) =
+        mapResults : 'res array -> 'outcome seq) =
 
     let uninitializedSentinel : int = %Internal.unknown
     let mutable currentEpochId_ = uninitializedSentinel
     let currentEpochId () = if currentEpochId_ <> uninitializedSentinel then Some %currentEpochId_ else None
 
-    let tryIngest (reqs : (int<'id> * 'req) array array) =
-        let rec aux ingestedItems items = async {
-            let epochId = items |> Seq.map fst |> Seq.min
-            let epochItems, futureEpochItems = items |> Array.partition (fun (e, _ : 'req) -> e = epochId)
-            let! res = ingest (epochId, Array.map snd epochItems)
-            let ingestedItemIds = Array.append ingestedItems res.accepted
-            let logLevel =
-                if res.residual.Length <> 0 || futureEpochItems.Length <> 0 || Array.isEmpty res.accepted then Serilog.Events.LogEventLevel.Information
-                else Serilog.Events.LogEventLevel.Debug
-            log.Write(logLevel, "Added {count}/{total} items to {epochId} Residual {residual} Future {future}",
-                      res.accepted.Length, epochItems.Length, epochId, res.residual.Length, futureEpochItems.Length)
-            let nextEpochId = Internal.next epochId
-            let pushedToNextEpoch = res.residual |> Array.map (fun x -> nextEpochId, x)
-            match Array.append pushedToNextEpoch futureEpochItems with
-            | [||] ->
-                // Any writer noticing we've moved to a new Epoch shares the burden of marking it active in the Series
-                let newActiveEpochId = if res.closed then nextEpochId else epochId
-                if currentEpochId_ < %newActiveEpochId then
-                    log.Information("Marking {epochId} active", newActiveEpochId)
-                    do! markActiveEpoch newActiveEpochId
-                    System.Threading.Interlocked.CompareExchange(&currentEpochId_, %newActiveEpochId, currentEpochId_) |> ignore
-                return ingestedItemIds
-            | remaining -> return! aux ingestedItemIds remaining }
-        aux [||] (Array.concat reqs)
-
-    /// Concentrates batches of ingestion requests (e.g. from multiple instances of a DynamoDB Streams Lambda) into a single in flight request at a time
-    /// In order to avoid the writes either causing concurrency conflicts, or denying each other Write Capacity
-    let batchedIngest = Equinox.Core.AsyncBatchingGate(tryIngest, linger)
+    let rec walk ingestedItems (items : (int<'id> * 'req) array) = async {
+        let epochId = items |> Seq.map fst |> Seq.min
+        let epochItems, futureEpochItems = items |> Array.partition (fun (e, _ : 'req) -> e = epochId)
+        let! res = ingest (epochId, Array.map snd epochItems)
+        let ingestedItemIds = Array.append ingestedItems res.accepted
+        let logLevel =
+            if res.residual.Length <> 0 || futureEpochItems.Length <> 0 || (not << Array.isEmpty) res.accepted then Serilog.Events.LogEventLevel.Information
+            else Serilog.Events.LogEventLevel.Debug
+        log.Write(logLevel, "Added {count}/{total} items to {epochId} Residual {residual} Future {future}",
+                  res.accepted.Length, epochItems.Length, epochId, res.residual.Length, futureEpochItems.Length)
+        let nextEpochId = Internal.next epochId
+        let pushedToNextEpoch = res.residual |> Array.map (fun x -> nextEpochId, x)
+        match Array.append pushedToNextEpoch futureEpochItems with
+        | [||] ->
+            // Any writer noticing we've moved to a new Epoch shares the burden of marking it active in the Series
+            let newActiveEpochId = if res.closed then nextEpochId else epochId
+            if currentEpochId_ < %newActiveEpochId then
+                log.Information("Marking {epochId} active", newActiveEpochId)
+                do! markActiveEpoch newActiveEpochId
+                System.Threading.Interlocked.CompareExchange(&currentEpochId_, %newActiveEpochId, currentEpochId_) |> ignore
+            return ingestedItemIds
+        | remaining -> return! walk ingestedItemIds remaining }
+    let walk = walk [||]
 
     /// Run the requests over a chain of epochs.
     /// Returns the subset that actually got handled this time around (exclusive of items that did not trigger events per idempotency rules).
     member _.IngestMany(originEpoch, reqs) : Async<'outcome seq> = async {
         if Array.isEmpty reqs then return Seq.empty else
 
-        let! results = batchedIngest.Execute [| for x in reqs -> originEpoch, x |]
+        let! results = walk [| for x in reqs -> originEpoch, x |]
         return results |> mapResults
     }
 
@@ -68,5 +62,5 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
         | Some currentEpochId -> async { return currentEpochId }
         | None -> readActiveEpoch()
 
-let create log linger (readIngestionEpoch, markIngestionEpoch) (ingest, mapResult) =
-    Service<'id, 'req, 'res, 'outcome>(log, readIngestionEpoch, markIngestionEpoch, ingest, mapResult, linger = linger)
+let create log (readIngestionEpoch, markIngestionEpoch) (ingest, mapResult) =
+    Service<'id, 'req, 'res, 'outcome>(log, readIngestionEpoch, markIngestionEpoch, ingest, mapResult)

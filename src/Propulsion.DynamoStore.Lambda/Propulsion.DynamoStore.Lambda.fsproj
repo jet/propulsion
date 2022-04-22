@@ -9,13 +9,20 @@
         <PublishReadyToRun>true</PublishReadyToRun>
     </PropertyGroup>
     <ItemGroup>
-        <Compile Include="Connector.fs" />
-        <Compile Include="Function.fs" />
-        <Content Include="aws-lambda-tools-defaults.json" />
         <None Include="Readme.md" />
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+            <Link>PropulsionInfrastructure.fs</Link>
+        </Compile>
+        <Content Include="aws-lambda-tools-defaults.json" />
+        <Compile Include="Connector.fs" />
+        <Compile Include="DynamoStreamsLambda.fs" />
+        <Compile Include="Function.fs" />
     </ItemGroup>
     <ItemGroup>
+      <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
+      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
       <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
     </ItemGroup>
 </Project>

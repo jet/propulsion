@@ -8,6 +8,8 @@ module Propulsion.DynamoStore.AppendsEpoch
 open System.Collections.Generic
 open System.Collections.Immutable
 
+/// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
+let [<Literal>] MaxItemsPerEpoch = 1_000_000
 let [<Literal>] Category = "$AppendsEpoch"
 let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheId.toString tid; AppendsEpochId.toString eid]
 
@@ -115,9 +117,9 @@ module Config =
     let private resolveStream (context, cache) =
         let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
         cat.Resolve
-    let create maxItemsPerEpoch store =
+    let create log maxItemsPerEpoch store =
         let shouldClose totalItems = totalItems >= maxItemsPerEpoch
-        let resolve = streamName >> resolveStream store >> Config.createDecider
+        let resolve = streamName >> resolveStream store >> Config.createDecider log
         Service(shouldClose, resolve)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward
@@ -150,6 +152,6 @@ module Reader =
         let private resolveStream context minIndex =
             let cat = Config.createWithOriginIndex codec initial fold context minIndex
             cat.Resolve
-        let create context =
-            let resolve minIndex = streamName >> resolveStream context minIndex >> Config.createDecider
+        let create log context =
+            let resolve minIndex = streamName >> resolveStream context minIndex >> Config.createDecider log
             Service(fun (tid, eid, minIndex) -> resolve minIndex (tid, eid) )
