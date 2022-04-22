@@ -14,9 +14,7 @@ module private Impl =
 
         open FSharp.UMX
 
-        //let initial : Checkpoint = %0L
-        let [<Literal>] private maxItemsPerEpoch = 1_000_000L
-
+        let private maxItemsPerEpoch = int64 AppendsEpoch.MaxItemsPerEpoch
         let private ofPosition : Propulsion.Feed.Position -> Checkpoint = Propulsion.Feed.Position.toInt64 >> UMX.tag
         let toPosition : Checkpoint -> Propulsion.Feed.Position = UMX.untag >> Propulsion.Feed.Position.parse
 
@@ -35,8 +33,8 @@ module private Impl =
 
         let (|Parse|) : Propulsion.Feed.Position -> AppendsEpochId * int = ofPosition >> toEpochAndOffset
 
-    let readTranches context = async {
-        let index = AppendsIndex.Reader.create context
+    let readTranches log context = async {
+        let index = AppendsIndex.Reader.create log context
         let! res = index.ReadKnownTranches()
         return res |> Array.map AppendsTrancheId.toTrancheId }
 
@@ -47,8 +45,8 @@ module private Impl =
     let finalBatch epochId (state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochContent epochId state.closed state.changes.Length) (not state.closed) items
 
-    let spansToStreamEvents filter includeBodies batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (eid, offset)) : AsyncSeq<Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
-        let epochs = AppendsEpoch.Reader.Config.create context
+    let readIndexedSpansAsStreamEvents log filter includeBodies batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (eid, offset)) : AsyncSeq<Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
+        let epochs = AppendsEpoch.Reader.Config.create log context
         let! state = epochs.Read(tid, eid, offset)
         if not includeBodies then
             let generateStubs (span : AppendsEpoch.Events.StreamSpan) : StreamEvent seq =
@@ -76,14 +74,14 @@ type DynamoStoreSource
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         filter : StreamEvent seq -> StreamEvent seq,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
-        ?includeBodies) =
+        ?includeBodies, ?storeLog) =
     inherit Propulsion.Feed.Internal.TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                       Impl.spansToStreamEvents filter (includeBodies = Some true) eventBatchLimit (DynamoStoreContext storeClient),
+                                                       Impl.readIndexedSpansAsStreamEvents (defaultArg storeLog log) filter (includeBodies = Some true) eventBatchLimit (DynamoStoreContext storeClient),
                                                        checkpoints, sink)
 
     member internal _.Pump() =
         let context = DynamoStoreContext(storeClient)
-        base.Pump(fun () -> Impl.readTranches context)
+        base.Pump(fun () -> Impl.readTranches (defaultArg storeLog log) context)
 
     member x.Start() =
         let cts = new System.Threading.CancellationTokenSource()
@@ -102,4 +100,3 @@ type DynamoStoreSource
         let task = Async.StartAsTask machine
 
         new Propulsion.Pipeline(task, cts.Cancel)
-

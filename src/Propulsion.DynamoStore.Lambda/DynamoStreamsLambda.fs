@@ -1,12 +1,11 @@
 module Propulsion.DynamoStore.DynamoStreamsLambda
 
 open Amazon.DynamoDBv2
-open Amazon.Lambda.Core
 open Amazon.Lambda.DynamoDBEvents
 open Propulsion.Infrastructure // Async.Raise
 open System.Text
 
-let ingest (service : DynamoStoreIndexer.Service) (dynamoEvent : DynamoDBEvent) (context : ILambdaContext) : Async<unit> =
+let ingest (log : Serilog.ILogger) (service : DynamoStoreIndexer) (dynamoEvent : DynamoDBEvent) : Async<unit> =
 
     let spans, summary = ResizeArray(), StringBuilder()
     let mutable indexStream, noEvents = 0, 0
@@ -39,11 +38,12 @@ let ingest (service : DynamoStoreIndexer.Service) (dynamoEvent : DynamoDBEvent) 
                             | xs -> sprintf ":%s+%d" xs[0] (xs.Length - 1)
                         summary.Append(p).Append(et).Append(if i = 0 then " " else sprintf "@%d " i) |> ignore
             | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
-        match spans.ToArray() with
-        | [||] -> async { context.Logger.LogInformation(sprintf "Index %d NoEvents %d Spans 0 %O" indexStream noEvents summary) }
-        | spans ->
-            context.Logger.LogInformation(sprintf "Index %d NoEvents %d Spans %d %O" indexStream noEvents spans.Length summary)
-            service.Ingest(AppendsTrancheId.wellKnownId, spans)
+        let spans = spans.ToArray()
+        log.Information("Index {indexCount} NoEvents {noEventCount} Spans {spanCount} {summary}", indexStream, noEvents, spans.Length, summary)
+        match spans with
+        | [||] -> async { () }
+        | spans -> // TODO if there are multiple shards, they should map to individual TrancheIds in order to avoid continual concurrency violations from competing writers
+            service.IngestWithoutConcurrency(AppendsTrancheId.wellKnownId, spans)
     with e -> async {
-        context.Logger.LogWarning(summary.ToString())
+        log.Warning(e, "Failed {summary}", summary.ToString())
         return! Async.Raise e }

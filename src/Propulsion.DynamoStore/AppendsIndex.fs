@@ -55,8 +55,8 @@ module Config =
     let private resolveStream store =
         let cat = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
         cat.Resolve
-    let internal resolveDecider store () = streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider
-    let create (context, cache) = Service(resolveDecider (context, Some cache))
+    let resolveDecider log store () = streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider log
+    let create log (context, cache) = Service(resolveDecider log (context, Some cache))
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
@@ -70,4 +70,4 @@ module Reader =
             let decider = resolve ()
             decider.Query(readKnownTranches)
 
-    let create context = Service(Config.resolveDecider (context, None))
+    let create log context = Service(Config.resolveDecider log (context, None))

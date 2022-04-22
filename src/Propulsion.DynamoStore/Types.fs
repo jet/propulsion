@@ -14,13 +14,13 @@ module internal IndexId =
 /// Multiple tranches within an index are analogous to how the Table's data is split into shards
 type internal AppendsTrancheId = int<appendsTrancheId>
 and [<Measure>] appendsTrancheId
-module internal AppendsTrancheId =
+module AppendsTrancheId =
 
     // Tranches are not yet fully implemented
     let wellKnownId : AppendsTrancheId = UMX.tag 0
-    let toString : AppendsTrancheId -> string = UMX.untag >> string
-    let toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
-    let (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
+    let internal toString : AppendsTrancheId -> string = UMX.untag >> string
+    let internal toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
+    let internal (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
 
 /// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
 type internal AppendsEpochId = int<appendsEpochId>
@@ -35,10 +35,10 @@ module internal AppendsEpochId =
 /// Identifies an Equinox Store Stream; used within an AppendsEpoch
 type IndexStreamId = string<indexStreamId>
 and [<Measure>] indexStreamId
-module internal IndexStreamId =
+module IndexStreamId =
 
     let ofP : string -> IndexStreamId = UMX.tag
-    let toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
+    let internal toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
 
 module FeedSourceId =
 
@@ -48,7 +48,7 @@ module internal Config =
 
     open Equinox.DynamoStore
 
-    let createDecider stream = Equinox.Decider(Serilog.Log.Logger, stream, maxAttempts = 3)
+    let createDecider log stream = Equinox.Decider(log, stream, maxAttempts = 3)
 
     let private create codec initial fold accessStrategy (context, cache) =
         let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
