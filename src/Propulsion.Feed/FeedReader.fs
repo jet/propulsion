@@ -66,10 +66,8 @@ module private Impl =
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
             recentPagesRead <- 0; itemsRead <- 0; recentPagesEmpty <- 0
 
-        member _.RecordReadLatency(latency) =
-            readLatency <- readLatency + latency
-
-        member _.RecordBatch(batch: Batch<_>) =
+        member _.RecordBatch(readTime, batch: Batch<_>) =
+            readLatency <- readLatency + readTime
             batchLastPosition <- batch.checkpoint
             batchCaughtUp <- batch.isTail
             match Array.length batch.items with
@@ -133,11 +131,14 @@ type FeedReader
             log.Warning(exc, "Exception while committing checkpoint {position}", position)
             return! Async.Raise exc }
 
-    let submitPage (batch: Batch<byte[]>) = async {
-        stats.RecordBatch(batch)
+    let submitPage (readLatency, batch : Batch<byte[]>) = async {
+        stats.RecordBatch(readLatency, batch)
         match Array.length batch.items with
-        | 0 -> log.Verbose("Empty page retrieved, nothing to submit")
-        | c -> log.Debug("Submitting {batchSize} events, checkpoint {checkpoint}", c, batch.checkpoint)
+        | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
+        | c -> if log.IsEnabled(Serilog.Events.LogEventLevel.Debug) then
+                   let streamsCount = batch.items |> Seq.distinctBy (fun x -> x.stream) |> Seq.length
+                   log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
+                             readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
         let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq = int64 batch.checkpoint, Seq.ofArray batch.items
         let ingestTimer = System.Diagnostics.Stopwatch.StartNew()
         let! cur, max = submitBatch (epoch, commit batch.checkpoint, streamEvents)
@@ -152,7 +153,6 @@ type FeedReader
         let mutable currentPos, lastWasTail = initialPosition, false
         while not ct.IsCancellationRequested do
             for readLatency, batch in crawl (lastWasTail, currentPos) do
-                stats.RecordReadLatency(readLatency)
-                do! submitPage batch
+                do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail }
