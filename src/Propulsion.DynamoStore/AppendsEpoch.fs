@@ -147,6 +147,10 @@ module Reader =
             let decider = resolve (trancheId, epochId, minIndex)
             decider.QueryEx(fun c -> c.Version, c.State)
 
+        member _.ReadVersion(trancheId, epochId) : Async<int64> =
+            let decider = resolve (trancheId, epochId, System.Int64.MaxValue)
+            decider.QueryEx(fun c -> c.Version)
+
     module Config =
 
         let private resolveStream context minIndex =
