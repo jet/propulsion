@@ -44,7 +44,7 @@ type PeriodicSource
         crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {

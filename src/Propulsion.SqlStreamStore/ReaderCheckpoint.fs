@@ -44,16 +44,14 @@ let commitPosition (conn : IDbConnection) (stream : string) (consumerGroup : str
      |> Async.AwaitTaskCorrect
      |> Async.Ignore<int>
 
-let getPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) = async {
+let tryGetPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) = async {
     let! res =
         conn.QueryAsync<CheckpointEntry>(
             """SELECT * FROM Checkpoints WHERE Stream = @Stream AND ConsumerGroup = @ConsumerGroup""",
             { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable() })
         |> Async.AwaitTaskCorrect
 
-    match Seq.tryHead res with
-    | Some res -> return res.Position
-    | None -> return Nullable() }
+    return Seq.tryHead res |> Option.bind (fun r -> Option.ofNullable r.Position) }
 
 type Service(connString : string, consumerGroupName, defaultCheckpointFrequency) =
 
@@ -68,10 +66,15 @@ type Service(connString : string, consumerGroupName, defaultCheckpointFrequency)
 
     interface IFeedCheckpointStore with
 
-        member _.Start(source, tranche) = async {
+        member _.Start(source, tranche, ?establishOrigin) = async {
             use conn = createConnection connString
-            let! pos = getPosition conn (streamName source tranche) consumerGroupName
-            return defaultCheckpointFrequency, if pos.HasValue then Position.parse pos.Value else Position.initial }
+            let! maybePos = tryGetPosition conn (streamName source tranche) consumerGroupName
+            let! pos =
+                match maybePos, establishOrigin with
+                | Some pos, _ -> async { return Position.parse pos }
+                | None, Some f -> f
+                | None, None -> async { return Position.initial }
+            return defaultCheckpointFrequency, pos }
 
         member _.Commit(source, tranche, pos) = async {
             use conn = createConnection connString

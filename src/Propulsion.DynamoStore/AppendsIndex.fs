@@ -64,10 +64,17 @@ module Reader =
     let readKnownTranches (state : Fold.State) : AppendsTrancheId[] =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
+    let readIngestionEpochId trancheId (state : Fold.State) =
+        state |> Map.tryFind trancheId |> Option.defaultValue AppendsEpochId.initial
+
     type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
         member _.ReadKnownTranches() : Async<AppendsTrancheId[]> =
             let decider = resolve ()
             decider.Query(readKnownTranches)
+
+        member _.ReadIngestionEpochId(trancheId) : Async<AppendsEpochId> =
+            let decider = resolve ()
+            decider.Query(readIngestionEpochId trancheId)
 
     let create log context = Service(Config.resolveDecider log (context, None))

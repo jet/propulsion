@@ -76,12 +76,14 @@ let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config *
 let private configFreq (config : Events.Config) =
     config.checkpointFreqS |> float |> TimeSpan.FromSeconds
 
-let decideStart at freq = function
+let decideStart establishOrigin at freq state = async {
+    match state with
     | Fold.NotStarted ->
-        let config, checkpoint = mk at freq Position.initial
-        (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
+        let! origin = establishOrigin
+        let config, checkpoint = mk at freq origin
+        return (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
     | Fold.Running s ->
-        (configFreq s.config, s.state.pos), []
+        return (configFreq s.config, s.state.pos), [] }
 
 let decideOverride at (freq : TimeSpan) pos = function
     | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> []
@@ -113,9 +115,14 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche) : Async<TimeSpan * Position> =
+        member _.Start(source, tranche, ?establishOrigin) : Async<TimeSpan * Position> =
             let decider = resolve (source, tranche, consumerGroupName)
-            decider.Transact(decideStart DateTimeOffset.UtcNow defaultCheckpointFrequency)
+            let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> f
+#if !COSMOSV2 && !COSMOSV3
+            decider.Transact(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
+#else
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
+#endif
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start

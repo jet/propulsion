@@ -39,6 +39,13 @@ module private Impl =
         let! res = index.ReadKnownTranches()
         return res |> Array.map AppendsTrancheId.toTrancheId }
 
+    let readTailPositionForTranche log context (AppendsTrancheId.Parse trancheId) = async {
+        let index = AppendsIndex.Reader.create log context
+        let! epochId = index.ReadIngestionEpochId(trancheId)
+        let epochs = AppendsEpoch.Reader.Config.create log context
+        let! version = epochs.ReadVersion(trancheId, epochId)
+        return Checkpoint.ofEpochAndOffset epochId version |> Checkpoint.toPosition }
+
     let mkBatch checkpoint isTail items : Propulsion.Feed.Internal.Batch<_> =
         { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
     let sliceBatch epochId offset items =
@@ -121,6 +128,8 @@ type DynamoStoreSource
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance.
         loadMode,
+        // Override default start position to be at the tail of the index (Default: Always replay all events)
+        ?fromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
         ?storeLog) =
     inherit Propulsion.Feed.Internal.TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
@@ -129,7 +138,12 @@ type DynamoStoreSource
                                                             (LoadMode.map (defaultArg storeLog log, storeClient) loadMode)
                                                             eventBatchLimit
                                                             (DynamoStoreContext storeClient),
-                                                       checkpoints, sink)
+                                                       checkpoints,
+                                                       (if fromTail <> Some true then None
+                                                        else Some (Impl.readTailPositionForTranche
+                                                                       (defaultArg storeLog log)
+                                                                       (DynamoStoreContext storeClient))),
+                                                       sink)
 
     member internal _.Pump() =
         let context = DynamoStoreContext(storeClient)
