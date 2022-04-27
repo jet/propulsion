@@ -17,11 +17,11 @@ let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheI
 [<RequireQualifiedAccess>]
 module Events =
 
-    // NOTE while the `i` values in `appended` could be inferred, we redundantly store them to enable optimal tailing
+    // NOTE while the `i` values in `app` could be inferred, we redundantly store them to enable optimal tailing
     //      without having to read and/or process/cache all preceding events
-    type Ingested =             { started : StreamSpan array; appended : StreamSpan array }
+    type Ingested =             { add : StreamSpan array; app : StreamSpan array }
                                 // Structure mapped from DynamoStore.Batch.Schema: p: stream, i: index, c: array of event types
-     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string[] }
+     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string array }
     type Event =
         | Ingested of           Ingested
         | Closed
@@ -49,8 +49,8 @@ module Fold =
     type State =
         { versions : ImmutableDictionary<IndexStreamId, int>; closed : bool }
         member state.With(e : Events.Ingested) =
-            let news = seq { for x in e.started -> KeyValuePair(x.p, next x) }
-            let updates = seq { for x in e.appended -> KeyValuePair(x.p, next x) }
+            let news = seq { for x in e.add -> KeyValuePair(x.p, next x) }
+            let updates = seq { for x in e.app -> KeyValuePair(x.p, next x) }
             { state with versions = state.versions.AddRange(news).SetItems(updates)  }
         member state.WithClosed() = { state with closed = true }
     let initial = { versions = ImmutableDictionary.Create(); closed = false }
@@ -79,7 +79,7 @@ module Ingest =
             | Discard -> ()
         match started.ToArray(), appended.ToArray() with
         | [||], [||] -> None
-        | s, a -> Some { started = s; appended = a }
+        | s, a -> Some { add = s; app = a }
     /// Trims the supplied inputs, removing items that overlap with this Epoch's per-stream max index
     let removeDuplicates state inputs : Events.StreamSpan array =
         [| for eventSpan in flatten inputs do
@@ -93,9 +93,9 @@ module Ingest =
                 match tryToIngested state inputs with
                 | None -> false, Array.empty, []
                 | Some diff ->
-                    let closing = shouldClose (diff.appended.Length + diff.started.Length + cur.Count)
+                    let closing = shouldClose (diff.app.Length + diff.add.Length + cur.Count)
                     let ingestEvent = Events.Ingested diff
-                    let ingested = (seq { for x in diff.started -> x.p }, seq { for x in diff.appended -> x.p }) ||> Seq.append |> Array.ofSeq
+                    let ingested = (seq { for x in diff.add -> x.p }, seq { for x in diff.app -> x.p }) ||> Seq.append |> Array.ofSeq
                     closing, ingested, [ ingestEvent ; if closing then Events.Closed ]
             let res : ExactlyOnceIngester.IngestResult<_, _> = { accepted = ingested; closed = closed; residual = [||] }
             res, events
@@ -138,14 +138,14 @@ module Reader =
         for x in events do
             match x with
             | _, Events.Closed -> closed <- true
-            | i, Events.Ingested e -> changes.Add(int i, Array.append e.started e.appended)
+            | i, Events.Ingested e -> changes.Add(int i, Array.append e.add e.app)
         { changes = changes.ToArray(); closed = closed }
 
     type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<State> =
+        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 * State> =
             let decider = resolve (trancheId, epochId, minIndex)
-            decider.Query(id)
+            decider.QueryEx(fun c -> c.Version, c.State)
 
     module Config =
 

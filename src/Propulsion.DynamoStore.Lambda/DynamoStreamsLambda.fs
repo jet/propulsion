@@ -18,22 +18,22 @@ let ingest (log : Serilog.ILogger) (service : DynamoStoreIndexer) (dynamoEvent :
 
             let updated = record.Dynamodb.NewImage
             match record.EventName with
-            | et when et = OperationType.REMOVE -> ()
-            | et when et = OperationType.INSERT || et = OperationType.MODIFY ->
+            | ot when ot = OperationType.REMOVE -> ()
+            | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
                 let appendedLen = int updated["a"].N
                 if p.StartsWith(AppendsEpoch.Category) || p.StartsWith(AppendsIndex.Category) then indexStream <- indexStream + 1
                 elif appendedLen = 0 then noEvents <- noEvents + 1
                 else
-                    let allBatchEventTypes = updated["c"].L.ToArray() |> Seq.map (fun x -> x.S) |> Array.ofSeq
+                    let allBatchEventTypes = [| for x in updated["c"].L -> x.S |]
                     match allBatchEventTypes |> Array.skip (allBatchEventTypes.Length - appendedLen) with
                     | [||] -> ()
-                    | appendedSpanEventTypes ->
-                        let i = n - allBatchEventTypes.LongLength
-                        spans.Add({ p = sn; i = i; c = appendedSpanEventTypes } : AppendsEpoch.Events.StreamSpan)
+                    | appendedEts ->
+                        let i = n - appendedEts.LongLength
+                        spans.Add({ p = sn; i = i; c = appendedEts } : AppendsEpoch.Events.StreamSpan)
                         let et =
-                            match appendedSpanEventTypes with
+                            match appendedEts with
                             | [| et |] -> ":" + et
                             | xs -> sprintf ":%s+%d" xs[0] (xs.Length - 1)
                         summary.Append(p).Append(et).Append(if i = 0 then " " else sprintf "@%d " i) |> ignore
