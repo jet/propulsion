@@ -12,17 +12,15 @@ type FeedSourceBase internal
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
 
-    let log =
-        log.ForContext("instanceId", let g = Guid.NewGuid() in g.ToString "N")
-           .ForContext("source", sourceId)
+    let log = log.ForContext("source", sourceId)
 
     let pumpPartition crawl partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
         let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
         let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit)
         try let! freq, pos = checkpoints.Start(sourceId, trancheId)
-            log.Information("Reading {sourceId}/{trancheId} @ {pos} checkpointing every {checkpointFreq:n1}m", sourceId, trancheId, pos, freq.TotalMinutes)
-            do! reader.Pump(pos)
+            log.Information("Reading {source:l}/{tranche:l} @ {pos} Checkpointing every {checkpointFreq:n1}m", sourceId, trancheId, pos, freq.TotalMinutes)
+            return! reader.Pump(pos)
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
             return! Async.Raise e
@@ -32,7 +30,7 @@ type FeedSourceBase internal
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<Batch<byte[]>>) = async {
+            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<byte[]>>) = async {
         try let! tranches = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
             return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
@@ -45,15 +43,15 @@ type FeedSourceBase internal
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        readBatches : TrancheId * Position -> AsyncSeq<Batch<_>>,
+        crawl : TrancheId * Position -> AsyncSeq<TimeSpan * Batch<_>>,
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
 
-    let crawl trancheId (wasLast, pos) = asyncSeq {
+    let crawl trancheId (wasLast, startPos) = asyncSeq {
         if wasLast then
             do! Async.Sleep tailSleepInterval
-        try let batches = readBatches (trancheId, pos)
+        try let batches = crawl (trancheId, startPos)
             for batch in batches do
                 yield batch
         with e ->
@@ -73,7 +71,10 @@ type AllFeedSource
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                              (fun (_trancheId, pos) -> asyncSeq { let! b = readBatch pos in yield b } ),
+                              (fun (_trancheId, pos) -> asyncSeq {
+                                                            let sw = System.Diagnostics.Stopwatch.StartNew()
+                                                            let! b = readBatch pos
+                                                            yield sw.Elapsed, b } ),
                               checkpoints, sink)
 
     member _.Pump() =
@@ -107,9 +108,10 @@ type FeedSource
         fun (wasLast, pos) -> asyncSeq {
             if wasLast then
                 do! Async.Sleep tailSleepInterval
+            let sw = System.Diagnostics.Stopwatch.StartNew()
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> { stream = streamName; event = x })
-            yield ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Internal.Batch<_>)
+            yield sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Internal.Batch<_>)
         }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>

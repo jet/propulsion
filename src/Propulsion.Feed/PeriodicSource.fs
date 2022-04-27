@@ -41,13 +41,13 @@ type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         /// The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> AsyncSeq<SourceItem array>, refreshInterval : TimeSpan,
+        crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, sink)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl trancheId (_wasLast, position) : AsyncSeq<Internal.Batch<_>> = asyncSeq {
+    let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -60,7 +60,9 @@ type PeriodicSource
         // guaranteed (assuming the source contains at least one item, that is) non-empty batch
         let buffer = ResizeArray()
         let mutable index = 0L
-        for xs in crawl trancheId do
+        let mutable elapsed = TimeSpan.Zero
+        for ts, xs in crawl trancheId do
+            elapsed <- elapsed + ts
             let streamEvents = seq {
                 for si in xs ->
                     let i = index
@@ -73,13 +75,14 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield ({ items = items; checkpoint = position; isTail = false } : Internal.Batch<_> )
+                yield elapsed, ({ items = items; checkpoint = position; isTail = false } : Internal.Batch<_> )
+                elapsed <- TimeSpan.Zero
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
             | finalItem -> finalItem, (Array.last finalItem).event |> Internal.TimelineEvent.toCheckpointPosition
-        yield ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
+        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
