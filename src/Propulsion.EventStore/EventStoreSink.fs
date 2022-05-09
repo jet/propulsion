@@ -43,6 +43,25 @@ module Internal =
             | stream, Choice2Of2 (_, exn) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
+#if !EVENTSTORE_LEGACY
+        let mapBody (f : 'x -> 'y) (x : FsCodec.ITimelineEvent<'x>) : FsCodec.ITimelineEvent<'y> =
+            { new FsCodec.ITimelineEvent<'y> with
+                member _.EventType = x.EventType
+                member _.Data = f x.Data
+                member _.Meta = f x.Meta
+                member _.EventId = x.EventId
+                member _.CorrelationId = x.CorrelationId
+                member _.CausationId = x.CausationId
+                member _.Timestamp = x.Timestamp
+                member _.Index = x.Index
+                member _.Context = x.Context
+                member _.IsUnfold = x.IsUnfold }
+        let inline mapBodyToRom xs = mapBody (fun (xs : byte[]) -> ReadOnlyMemory xs) xs
+        let inline mapStreamSpanToRom (span : StreamSpan<byte[]>) : StreamSpan<ReadOnlyMemory<byte>> = { index = span.index; events = span.events |> Array.map mapBodyToRom }
+        let inline mapBodyToBytes xs = mapBody (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray()) xs
+        let inline mapStreamSpanToBytes (span : StreamSpan<ReadOnlyMemory<byte>>) : StreamSpan<byte[]> = { index = span.index; events = span.events |> Array.map mapBodyToBytes }
+#endif
+
         let write (log : ILogger) (context : EventStoreContext) stream span = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span.index, span.events.Length)
             let! res = context.Sync(log, stream, span.index - 1L, span.events |> Array.map (fun x -> x :> _))
@@ -58,6 +77,7 @@ module Internal =
 #if EVENTSTORE_LEGACY
                     match pos.pos.streamVersion + 1L with
 #else
+                    let span = mapStreamSpanToBytes span
                     match pos.streamVersion + 1L with
 #endif
                     | actual when actual < span.index -> PrefixMissing (span, actual)
@@ -135,6 +155,9 @@ module Internal =
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
+#if !EVENTSTORE_LEGACY
+                let span' = mapStreamSpanToRom span'
+#endif
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span'
                     return span'.events.Length > 0, Choice1Of2 (met, res)
                 with e -> return false, Choice2Of2 (met, e) }

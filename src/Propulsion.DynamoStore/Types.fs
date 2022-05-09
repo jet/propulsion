@@ -75,12 +75,57 @@ module internal Config =
 module internal EventCodec =
 
     open FsCodec.SystemTextJson
+    open System
+    open System.Text.Json
+    let adapt<'From, 'To, 'Event, 'Context>
+        (   native : FsCodec.IEventCodec<'Event, 'From, 'Context>,
+            up : 'From -> 'To,
+            down : 'To -> 'From) : FsCodec.IEventCodec<'Event, 'To, 'Context> =
+
+        { new FsCodec.IEventCodec<'Event, 'To, 'Context> with
+            member _.Encode(context, event) =
+                let encoded = native.Encode(context, event)
+                { new FsCodec.IEventData<_> with
+                    member _.EventType = encoded.EventType
+                    member _.Data = up encoded.Data
+                    member _.Meta = up encoded.Meta
+                    member _.EventId = encoded.EventId
+                    member _.CorrelationId = encoded.CorrelationId
+                    member _.CausationId = encoded.CausationId
+                    member _.Timestamp = encoded.Timestamp }
+
+            member _.TryDecode encoded =
+                let mapped =
+                    { new FsCodec.ITimelineEvent<_> with
+                        member _.Index = encoded.Index
+                        member _.IsUnfold = encoded.IsUnfold
+                        member _.Context = encoded.Context
+                        member _.EventType = encoded.EventType
+                        member _.Data = down encoded.Data
+                        member _.Meta = down encoded.Meta
+                        member _.EventId = encoded.EventId
+                        member _.CorrelationId = encoded.CorrelationId
+                        member _.CausationId = encoded.CausationId
+                        member _.Timestamp = encoded.Timestamp }
+                native.TryDecode mapped }
+
+    let utf8ToJsonElement(x : ReadOnlyMemory<byte>) : JsonElement =
+        if x.IsEmpty then JsonElement()
+        else JsonSerializer.Deserialize(x.Span)
+    let mapTo(x : JsonElement) : ReadOnlyMemory<byte> =
+        if x.ValueKind = JsonValueKind.Undefined then ReadOnlyMemory.Empty
+        // Avoid introduction of HTML escaping for things like quotes etc (Options.Default uses Options.Create(), which defaults to unsafeRelaxedJsonEscaping=true)
+        else JsonSerializer.SerializeToUtf8Bytes(x, options = Options.Default) |> ReadOnlyMemory
+
+    let toUtf8Codec<'Event, 'Context>(native : FsCodec.IEventCodec<'Event, JsonElement, 'Context>)
+        : FsCodec.IEventCodec<'Event, ReadOnlyMemory<byte>, 'Context> =
+        adapt(native, mapTo, utf8ToJsonElement)
 
     let create<'t when 't :> TypeShape.UnionContract.IUnionContract> () =
-        Codec.Create<'t>().ToByteArrayCodec()
+        Codec.Create<'t>() |> toUtf8Codec
     let private withUpconverter<'c, 'e when 'c :> TypeShape.UnionContract.IUnionContract> up : FsCodec.IEventCodec<'e, _, _> =
         let down (_ : 'e) = failwith "Unexpected"
-        Codec.Create<'e, 'c, _>(up, down).ToByteArrayCodec()
+        Codec.Create<'e, 'c, _>(up, down) |> toUtf8Codec
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<int64 * 'c, _, _> =
         let up (raw : FsCodec.ITimelineEvent<_>, e) = raw.Index, e
         withUpconverter<'c, int64 * 'c> up
