@@ -11,23 +11,23 @@ type Configuration(?tryGet) =
     let [<Literal>] SERVICE_URL =       "EQUINOX_DYNAMO_SERVICE_URL"
     let [<Literal>] ACCESS_KEY =        "EQUINOX_DYNAMO_ACCESS_KEY_ID"
     let [<Literal>] SECRET_KEY =        "EQUINOX_DYNAMO_SECRET_ACCESS_KEY"
-    let [<Literal>] TABLE =             "EQUINOX_DYNAMO_TABLE"
-//  let [<Literal>] ARCHIVE_TABLE =     "EQUINOX_DYNAMO_TABLE_ARCHIVE"
+    let [<Literal>] TABLE_INDEX =       "EQUINOX_DYNAMO_TABLE_INDEX"
 
     member _.DynamoServiceUrl =         get SERVICE_URL
     member _.DynamoAccessKey =          get ACCESS_KEY
     member _.DynamoSecretKey =          get SECRET_KEY
-    member _.DynamoTable =              get TABLE
-//  member _.DynamoArchiveTable =       get ARCHIVE_TABLE
+    member _.DynamoIndexTable =         get TABLE_INDEX
 
 open Equinox.DynamoStore
 
 type Connector(serviceUrl, accessKey, secretKey, table) =
-    let conn = DynamoStoreConnector(serviceUrl, accessKey, secretKey)
+    let retries, timeout, queryMaxItems = 10, System.TimeSpan.FromSeconds 60., 50
+
+    let conn = DynamoStoreConnector(serviceUrl, accessKey, secretKey, retries, timeout)
     let client = conn.CreateClient()
     let storeClient = DynamoStoreClient(client, table)
-    let context = DynamoStoreContext(storeClient)
+    let context = DynamoStoreContext(storeClient, queryMaxItems = queryMaxItems)
 
-    new (c : Configuration) = Connector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, c.DynamoTable)
+    new (c : Configuration) = Connector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, c.DynamoIndexTable)
 
     member _.Context = context

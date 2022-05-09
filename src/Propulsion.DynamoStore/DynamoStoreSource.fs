@@ -54,7 +54,7 @@ module private Impl =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     let readIndexedSpansAsStreamEvents log (maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
+        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create log context
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! version, state = epochs.Read(tid, epochId, offset)
@@ -102,28 +102,48 @@ module private Impl =
 [<NoComparison; NoEquality>]
 type LoadMode =
     | All
-    | Filtered of filter : (FsCodec.StreamName -> bool)
-    | WithBodies of degreeOfParallelism : int * filter : (FsCodec.StreamName -> bool)
+    | Filtered
+        of  filter : (FsCodec.StreamName -> bool)
+    | WithBodies
+        of  filter : (FsCodec.StreamName -> bool)
+        *   degreeOfParallelism : int
+        *   /// Defines the Context to use when loading the bodies
+            storeContext : DynamoStoreContext
 module internal LoadMode =
+    module TimelineEvent =
+        let mapBody (f : 'x -> 'y) (x : FsCodec.ITimelineEvent<'x>) : FsCodec.ITimelineEvent<'y> =
+            { new FsCodec.ITimelineEvent<'y> with
+                member _.EventType = x.EventType
+                member _.Data = f x.Data
+                member _.Meta = f x.Meta
+                member _.EventId = x.EventId
+                member _.CorrelationId = x.CorrelationId
+                member _.CausationId = x.CausationId
+                member _.Timestamp = x.Timestamp
+                member _.Index = x.Index
+                member _.Context = x.Context
+                member _.IsUnfold = x.IsUnfold }
+        let inline mapBodyToBytes xs = mapBody (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray()) xs
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
-        fun sn (i, cs : string []) ->
-            if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length) in return events })
+        fun sn (i, cs : string array) ->
+            if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
+                                            return events |> Array.map TimelineEvent.mapBodyToBytes })
             else None
     let private withoutBodies filter =
         fun sn (i, cs) ->
             let render = async { return cs |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = null)) }
             if filter sn then Some render else None
-    let map (storeLog, storeClient) : LoadMode -> _ = function
+    let map storeLog : LoadMode -> _ = function
         | All -> withoutBodies (fun _ -> true), 1
         | Filtered filter -> withoutBodies filter, 1
-        | WithBodies (dop, filter) ->
-            let context = DynamoStoreContext storeClient
-            let eventsContext = Equinox.DynamoStore.Core.EventsContext(context, storeLog)
+        | WithBodies (filter, dop, storeContext) ->
+            let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
             withBodies eventsContext filter, dop
 
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
-        storeClient : DynamoStoreClient, sourceId, eventBatchLimit, tailSleepInterval,
+        indexClient : DynamoStoreClient,
+        sourceId, eventBatchLimit, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance.
@@ -135,18 +155,18 @@ type DynamoStoreSource
     inherit Propulsion.Feed.Internal.TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
                                                        Impl.readIndexedSpansAsStreamEvents
                                                             (defaultArg storeLog log)
-                                                            (LoadMode.map (defaultArg storeLog log, storeClient) loadMode)
+                                                            (LoadMode.map (defaultArg storeLog log) loadMode)
                                                             eventBatchLimit
-                                                            (DynamoStoreContext storeClient),
+                                                            (DynamoStoreContext indexClient),
                                                        checkpoints,
                                                        (if fromTail <> Some true then None
                                                         else Some (Impl.readTailPositionForTranche
                                                                        (defaultArg storeLog log)
-                                                                       (DynamoStoreContext storeClient))),
+                                                                       (DynamoStoreContext indexClient))),
                                                        sink)
 
     member internal _.Pump() =
-        let context = DynamoStoreContext(storeClient)
+        let context = DynamoStoreContext(indexClient)
         base.Pump(fun () -> Impl.readTranches (defaultArg storeLog log) context)
 
     member x.Start() =
