@@ -8,7 +8,7 @@ let streamName (source, tranche, consumerGroupName : string) =
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
     else
-        let (*[<Literal>]*) Category = "$ReaderCheckpoint"
+        let (*[<Literal>]*) Category = "$ReaderCheckpoint3"
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
@@ -33,7 +33,7 @@ module Events =
         interface TypeShape.UnionContract.IUnionContract
 #if DYNAMOSTORE
     open FsCodec.SystemTextJson
-    let codec = Codec.Create<Event>().ToByteArrayCodec()
+    let codec = Codec.Create<Event>() |> Propulsion.DynamoStore.EventCodec.toUtf8Codec
 #else
 #if !COSMOSV3 && !COSMOSV2
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()

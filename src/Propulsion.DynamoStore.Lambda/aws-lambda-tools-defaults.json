@@ -9,8 +9,8 @@
   "region": "",
   "configuration": "Release",
   "function-runtime": "dotnet6",
-  "function-memory-size": 192,
-  "function-timeout": 300,
+  "function-memory-size": 128,
+  "function-timeout": 120,
   "function-architecture": "arm64",
   "function-handler": "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler"
 }
