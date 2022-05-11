@@ -32,8 +32,7 @@ module Events =
         | Snapshotted   of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
 #if DYNAMOSTORE
-    open FsCodec.SystemTextJson
-    let codec = Codec.Create<Event>() |> Propulsion.DynamoStore.EventCodec.toUtf8Codec
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
 #else
 #if !COSMOSV3 && !COSMOSV2
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()

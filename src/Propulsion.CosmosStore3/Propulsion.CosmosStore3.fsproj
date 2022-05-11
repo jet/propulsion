@@ -41,11 +41,12 @@
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
     <PackageReference Include="Equinox.CosmosStore" Version="[3.0.7, 3.99.0]" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.27.0" />
+    <PackageReference Include="FSharp.Core" Version="4.5.4" />
 	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
 <!--    <PackageReference Include="Equinox.CosmosStore" Version="4.0.0-alpha.1" />-->
     <ProjectReference Include="..\..\..\equinox\src\Equinox.CosmosStore\Equinox.CosmosStore.fsproj" />
-    <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+    <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.2" />
   </ItemGroup>
 
   <ItemGroup>

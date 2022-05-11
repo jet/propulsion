@@ -29,7 +29,7 @@
 
       <PackageReference Include="FSharp.Core" Version="4.7.2" />
 
-      <PackageReference Include="FsCodec.SystemTextJson" Version="2.3.2" />
+      <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.2" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
