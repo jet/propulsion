@@ -110,24 +110,12 @@ type LoadMode =
         *   /// Defines the Context to use when loading the bodies
             storeContext : DynamoStoreContext
 module internal LoadMode =
-    module TimelineEvent =
-        let mapBody (f : 'x -> 'y) (x : FsCodec.ITimelineEvent<'x>) : FsCodec.ITimelineEvent<'y> =
-            { new FsCodec.ITimelineEvent<'y> with
-                member _.EventType = x.EventType
-                member _.Data = f x.Data
-                member _.Meta = f x.Meta
-                member _.EventId = x.EventId
-                member _.CorrelationId = x.CorrelationId
-                member _.CausationId = x.CausationId
-                member _.Timestamp = x.Timestamp
-                member _.Index = x.Index
-                member _.Context = x.Context
-                member _.IsUnfold = x.IsUnfold }
-        let inline mapBodyToBytes xs = mapBody (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray()) xs
+    let private mapBodyToBytes = (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray())
+    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map mapBodyToBytes
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
         fun sn (i, cs : string array) ->
             if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
-                                            return events |> Array.map TimelineEvent.mapBodyToBytes })
+                                            return events |> Array.map mapTimelineEvent })
             else None
     let private withoutBodies filter =
         fun sn (i, cs) ->

@@ -83,7 +83,7 @@ module Helpers =
         override __.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
         override __.Timeout = 60 * 15 * 1000
 
-    let serdes = FsCodec.NewtonsoftJson.Settings.Create() |> NewtonsoftJson.Serdes
+    let serdes = NewtonsoftJson.Serdes NewtonsoftJson.Options.Default
     let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
 
