@@ -10,6 +10,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 ### Changed
+
+- Targeted `net6.0` and `6.0` SDK, `FSharp.Core` >= `4.5.4`
+
 ### Removed
 ### Fixed
 

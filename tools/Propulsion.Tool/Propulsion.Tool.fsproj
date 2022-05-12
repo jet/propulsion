@@ -1,12 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <OutputType>Exe</OutputType>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <WarningLevel>5</WarningLevel>
-    <IsTestProject>false</IsTestProject>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
 
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>propulsion</ToolCommandName>
@@ -27,13 +23,6 @@
 
   <ItemGroup>
     <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
-
-    <PackageReference Include="FSharp.Core" Version="4.7.1" />
-
-<!-- Disambiguate to remove warnings-->
-	<PackageReference Include="System.Configuration.ConfigurationManager" Version="5.0.0" />
-	<PackageReference Include="System.Security.Cryptography.Cng" Version="5.0.0" />
-	<PackageReference Include="System.ValueTuple" Version="4.5.0" />
 
 	<PackageReference Include="Argu" Version="6.1.1" />
     <PackageReference Include="Destructurama.FSharp.NetCore" Version="1.0.14" />

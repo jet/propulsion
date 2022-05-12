@@ -19,6 +19,7 @@ jobs:
     inputs:
       pathtoPublish: 'bin/nupkg'
       artifactName: 'nupkgs'
+      
 - job: Linux
   pool:
     vmImage: 'ubuntu-latest'
@@ -41,9 +42,15 @@ jobs:
       testResultsFormat: 'VSTest'
       testResultsFiles: 'tests/**/*.trx'
     condition: succeededOrFailed()
+    
 - job: MacOS
   pool:
     vmImage: 'macOS-latest'
   steps:
+  - task: UseDotNet@2
+    displayName: 'Install .NET Core sdk'
+    inputs:
+      packageType: sdk
+      version: 6.x
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj

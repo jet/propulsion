@@ -1,9 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>netcoreapp3.1</TargetFramework>
-        <WarningLevel>5</WarningLevel>
-        <IsTestProject>false</IsTestProject>
+        <TargetFramework>net6.0</TargetFramework>
         <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
         <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -20,7 +18,7 @@
     <ItemGroup>
         <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
         <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
-        <PackageReference Include="FSharp.Core" Version="4.7.1" />
+        <PackageReference Include="FSharp.Core" Version="4.7.2" />
 
         <PackageReference Include="Dapper" Version="2.0.30" />
         <PackageReference Include="Microsoft.Data.SqlClient" Version="1.1.3" />

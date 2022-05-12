@@ -14,7 +14,7 @@ open Propulsion.Streams
 /// Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams
 /// <remarks>NOTE No attempt is made to filter out Tip (`id=-1`) batches from the ChangeFeed; Equinox versions >= 3, Tip batches can bear events.</remarks>
 [<RequireQualifiedAccess>]
-#if COSMOSV2 
+#if COSMOSV2
 module EquinoxCosmosParser =
 
     type Document with
