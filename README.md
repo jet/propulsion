@@ -21,28 +21,28 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `2.6.0`.
   
-- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `3.0.6`, `Microsoft.Azure.Cosmos` v `3.22.0`
+- `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.22.0`
   
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
-  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.6`.
-  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.6`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `3.0.6`.
+  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.7`.
+  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.7`.
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `3.0.7`.
 
-- `Propulsion.CosmosStore4` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore4.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore4/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore4) on `Equinox.CosmosStore` v `4.0.0-alpha.1`
+- `Propulsion.CosmosStore4` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore4.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore4/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore4) on `Equinox.CosmosStore` v `4.0.0-beta.1`
 
     1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos`
-    2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `4.0.0-alpha.1`.
-    3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `4.0.0-alpha.1`.
-    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `4.0.0-alpha.1`.
+    2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `4.0.0-beta.1`.
+    3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `4.0.0-beta.1`.
+    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `4.0.0-beta.1`.
 
-- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.6`, `Serilog`
+- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
 
     - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
     - Contains ultra-high throughput striped reader implementation
 
-- `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.6`, `Serilog`
+- `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.ProjectorPipeline` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
-    2. `EventStoreSink`: writing to `Equinox.EventStoreDb` v `4.0.0-alpha.1`.
+    2. `EventStoreSink`: writing to `Equinox.EventStoreDb` v `4.0.0-beta.1`
   
     (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 

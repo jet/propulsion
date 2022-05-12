@@ -10,7 +10,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Propulsion.DynamoStore`: Ported `Cosmos*~~~~` to target `Equinox.DynamoStore` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.DynamoStore`: Ported `Cosmos*` to target `Equinox.DynamoStore` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore4`: Ported `Cosmos*` to target `Equinox.EventStore` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.EventStoreDb`: Ported `EventStoreSink` to target `Equinox.EventStoreDb` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
 

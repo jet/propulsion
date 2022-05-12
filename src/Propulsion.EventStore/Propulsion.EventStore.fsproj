@@ -26,7 +26,7 @@
 
     <PackageReference Include="FSharp.Core" Version="4.5.4" />
 
-    <PackageReference Include="Equinox.EventStore" Version="[3.0.6, 3.99.0]" />
+    <PackageReference Include="Equinox.EventStore" Version="[3.0.7, 3.99.0]" />
     <PackageReference Include="TypeShape" Version="8.0.1" />
   </ItemGroup>
 
