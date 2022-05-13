@@ -13,25 +13,15 @@ open System.Collections.Generic
 module private Impl =
     let inline mb x = float x / 1024. / 1024.
 #if COSMOSV3 || COSMOSV2
+    // The event bodies the store deals with are byte arrays
     let toNativeEvent = id
 #else
-    // From FsCodec.SystemTextJson.Interop
+    // v4 and later use JsonElement, but Propulsion is sticking with byte arrays until 3.x (at which point it'll probably shift to ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies)
     open System.Text.Json
     let toNativeEventBody (x : byte[]) : JsonElement =
         if x = null then JsonElement()
         else JsonSerializer.Deserialize(System.ReadOnlySpan.op_Implicit x)
-    let toNativeEvent (x : ITimelineEvent<_>) : ITimelineEvent<_> =
-        { new ITimelineEvent<JsonElement> with
-            member _.Context = x.Context
-            member _.IsUnfold = x.IsUnfold
-            member _.Index = x.Index
-            member _.EventType = x.EventType
-            member _.Data = toNativeEventBody x.Data
-            member _.Meta = toNativeEventBody x.Meta
-            member _.EventId = x.EventId
-            member _.CorrelationId = x.CorrelationId
-            member _.CausationId = x.CausationId
-            member _.Timestamp = x.Timestamp }
+    let toNativeEvent = FsCodec.Core.TimelineEvent.Map toNativeEventBody
 #endif
 
 module Internal =

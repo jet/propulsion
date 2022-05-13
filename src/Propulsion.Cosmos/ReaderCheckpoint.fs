@@ -8,7 +8,7 @@ let streamName (source, tranche, consumerGroupName : string) =
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
     else
-        let (*[<Literal>]*) Category = "$ReaderCheckpoint3"
+        let (*[<Literal>]*) Category = "$ReaderCheckpoint3" // TODO replace with 2 for final release
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
@@ -130,9 +130,9 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 
     /// Override a checkpointing series with the supplied parameters
-    member _.Override(source, tranche, freq : TimeSpan, pos : Position) =
+    member _.Override(source, tranche, pos : Position) =
         let decider = resolve (source, tranche, consumerGroupName)
-        decider.Transact(decideOverride DateTimeOffset.UtcNow freq pos)
+        decider.Transact(decideOverride DateTimeOffset.UtcNow defaultCheckpointFrequency pos)
 
 #if DYNAMOSTORE
 module DynamoStore =

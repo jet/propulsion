@@ -10,15 +10,17 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- `Propulsion.DynamoStore`: Ported `Cosmos*` to target `Equinox.DynamoStore` [#139](https://github.com/jet/propulsion/pull/139)
-- `Propulsion.CosmosStore4`: Ported `Cosmos*` to target `Equinox.EventStore` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
-- `Propulsion.EventStoreDb`: Ported `EventStoreSink` to target `Equinox.EventStoreDb` v `>= 4.0` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.EventStoreDb`: Ported `EventStore` to target `Equinox.EventStore` >= `4.0.0` (using the gRPC interface)  [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.CosmosStore3`: Special cased version of `Propulsion.CosmosStore` to target `Equinox.CosmosStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.CosmosStore` by updating `Equinox.CosmosStore` dependencies to `4.0.0`** [#139](https://github.com/jet/propulsion/pull/139)
 
 ### Changed
 
 - Targeted `net6.0` with `6.0.200` SDK, `FSharp.Core` >= `4.5.4`
-- `Propulsion.CosmosStore4.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.CosmosStore`: Changed to target `Equinox.CosmosStore` v `4.0.0` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.CosmosStore.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.EventStore`: Pinned to target `Equinox.EventStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.EventStoreDb`** [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.EventStoreDb.EventStoreSource`: Changed API to match`Propulsion.SqlStreamStore` API rather than`Propulsion.EventStore` [#139](https://github.com/jet/propulsion/pull/139)
+- `Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 
 ### Removed
 ### Fixed

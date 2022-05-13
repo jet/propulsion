@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
+        
         <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
         <AWSProjectType>Lambda</AWSProjectType>
         <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
@@ -19,6 +20,10 @@
         <Compile Include="Function.fs" />
     </ItemGroup>
     <ItemGroup>
+      <PackageReference Include="MinVer" Version="3.1.0" PrivateAssets="All" />
+        
+      <PackageReference Include="FSharp.Core" Version="4.7.2" />
+        
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />

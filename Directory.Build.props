@@ -4,28 +4,22 @@
     <Company>Jet.com</Company>
     <Description>Composable high performance event streaming pipelines</Description>
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
-    <PackageTags>fsharp eventsourcing cosmosdb dynamodb changefeedprocessor eventstore kafka</PackageTags>
+    <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor dynamodb equinox eventstoredb kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
     <Copyright>Copyright © 2018-22</Copyright>
 
+    <!-- Global Project config flags -->
     <WarningLevel>5</WarningLevel>
-
-    <ThisDirAbsolute>$([System.IO.Path]::GetFullPath("$(MSBuildThisFileDirectory)"))</ThisDirAbsolute>
-
-    <!-- SourceLink related properties https://github.com/dotnet/SourceLink#using-sourcelink -->
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <EmbedUntrackedSources>true</EmbedUntrackedSources>
-    <AllowedOutputExtensionsInPackageBuildOutputFolder>$(AllowedOutputExtensionsInPackageBuildOutputFolder);.pdb</AllowedOutputExtensionsInPackageBuildOutputFolder>
-
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    
     <!-- suppress false positive warning FS2003 about invalid version of AssemblyInformationalVersionAttribute -->
     <!-- supress NU5105 triggered by trailing dotted elements such as .43 and .2 in e.g.: pr.43-rc1.2: The package version '<X>' uses SemVer 2.0.0 or components of SemVer 1.0.0 that are not supported on legacy clients. Change the package version to a SemVer 1.0.0 string. If the version contains a release label it must start with a letter. This message can be ignored if the package is not intended for older clients. -->
     <NoWarn>$(NoWarn);FS2003;NU5105</NoWarn>
   </PropertyGroup>
-
-  <!-- SourceLink related properties https://github.com/dotnet/SourceLink#using-sourcelink -->
-  <!--https://devblogs.microsoft.com/dotnet/producing-packages-with-source-link/-->
-  <PropertyGroup Condition="'$(TF_BUILD)' == 'true'">
-    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
-  </PropertyGroup>
-
+  <ItemGroup>
+    <!-- SourceLink etc -->
+    <PackageReference Include="DotNet.ReproducibleBuilds" Version="1.1.1" PrivateAssets="All" />
+  </ItemGroup>
 </Project>
