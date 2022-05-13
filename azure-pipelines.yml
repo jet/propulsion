@@ -8,7 +8,7 @@ name: $(Rev:r)
 jobs:
 - job: Windows
   pool:
-    vmImage: 'windows-2022'
+    vmImage: 'windows-latest'
   steps:
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
@@ -17,7 +17,7 @@ jobs:
       BUILD_ID: $(BUILD.BUILDNUMBER)
   - task: PublishBuildArtifacts@1
     inputs:
-      pathtoPublish: 'bin/nupkg'
+      pathtoPublish: 'bin'
       artifactName: 'nupkgs'
       
 - job: Linux

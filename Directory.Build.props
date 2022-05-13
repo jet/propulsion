@@ -4,7 +4,7 @@
     <Company>Jet.com</Company>
     <Description>Composable high performance event streaming pipelines</Description>
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
-    <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor dynamodb equinox eventstoredb kafka</PackageTags>
+    <PackageTags>fsharp eventsourcing cosmosdb dynamodb changefeedprocessor eventstore kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
     <Copyright>Copyright © 2018-22</Copyright>
 

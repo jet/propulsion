@@ -85,7 +85,7 @@ module private Impl =
             currentBatches <- cur
             maxBatches <- max
 
-        member x.Pump = async {
+        member _.Pump = async {
             let! ct = Async.CancellationToken
             while not ct.IsCancellationRequested do
                 report ()
