@@ -10,13 +10,21 @@
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
-    <Compile Include="EquinoxCosmosParser.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStoreParser.fs">
+      <Link>EquinoxCosmosParser.fs</Link>
+    </Compile>
     <Compile Include="ChangeFeedProcessor.fs" />
-    <Compile Include="CosmosSource.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStoreSource.fs">
+      <Link>CosmosSource.fs</Link>
+    </Compile>
     <Compile Include="CosmosSink.fs" />
     <Compile Include="CosmosPruner.fs" />
-    <Compile Include="PropulsionCosmosPrometheus.fs" />
-    <Compile Include="ReaderCheckpoint.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\PropulsionCosmosStorePrometheus.fs">
+      <Link>PropulsionCosmosPrometheus.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
+      <Link>ReaderCheckpoint.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>

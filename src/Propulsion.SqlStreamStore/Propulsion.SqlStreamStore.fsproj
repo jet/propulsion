@@ -2,11 +2,6 @@
 
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
-        <TargetFramework>netcoreapp3.1</TargetFramework>
-        <WarningLevel>5</WarningLevel>
-        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-        <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
-        <GenerateDocumentationFile>true</GenerateDocumentationFile>
     </PropertyGroup>
 
     <ItemGroup>

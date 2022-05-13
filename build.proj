@@ -13,17 +13,19 @@
 
   <Target Name="Pack">
     <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.CosmosStore $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.CosmosStore4 $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.DynamoStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.DynamoStore.Lambda $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStoreDb $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Feed $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
+    
+    <!-- Pack/build deprecated/maintenance mode packages last-->
+    <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.CosmosStore3 $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
   </Target>
 
   <Target Name="VSTest">
