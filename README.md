@@ -21,7 +21,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `2.6.0`.
 
   (Reading and position metrics are exposed via `Propulsion.Cosmos.Prometheus`)
-- 
+
 - `Propulsion.CosmosStore3` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore3.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore3/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore3) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.27.0`
 
   - **Deprecated; Only intended for use in migration from Propulsion.Cosmos and/or Equinox.Cosmos**
@@ -31,7 +31,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.EventStoreDb`/`DynamoStore`/'Feed'/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `3.0.7`.
 
   (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
-- 
+
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
     1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos`
