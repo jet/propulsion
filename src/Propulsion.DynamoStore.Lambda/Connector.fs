@@ -6,7 +6,7 @@ type Configuration(?tryGet) =
     let get key =
         match tryGet key with
         | Some value -> value
-        | None -> failwith $"Missing Argument/Environment Variable %s{key}"
+        | None -> failwithf "Missing Argument/Environment Variable %s" key
 
     let [<Literal>] SERVICE_URL =       "EQUINOX_DYNAMO_SERVICE_URL"
     let [<Literal>] ACCESS_KEY =        "EQUINOX_DYNAMO_ACCESS_KEY_ID"
