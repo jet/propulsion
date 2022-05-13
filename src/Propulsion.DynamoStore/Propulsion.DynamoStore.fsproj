@@ -15,7 +15,7 @@
             <Link>PropulsionInfrastructure.fs</Link>
         </Compile>
         <Compile Include="DynamoStoreSource.fs" />
-        <Compile Include="..\Propulsion.Cosmos\ReaderCheckpoint.fs">
+        <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
     </ItemGroup>
