@@ -53,8 +53,6 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore", "s
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Lambda", "src\Propulsion.DynamoStore.Lambda\Propulsion.DynamoStore.Lambda.fsproj", "{0EE2957C-92FC-4D8D-9783-A48B9BE032B7}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Equinox.EventStoreDb", "..\equinox\src\Equinox.EventStoreDb\Equinox.EventStoreDb.fsproj", "{BF75CA97-4A05-41A6-A448-44A925D42866}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -117,10 +115,6 @@ Global
 		{0EE2957C-92FC-4D8D-9783-A48B9BE032B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0EE2957C-92FC-4D8D-9783-A48B9BE032B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0EE2957C-92FC-4D8D-9783-A48B9BE032B7}.Release|Any CPU.Build.0 = Release|Any CPU
-		{BF75CA97-4A05-41A6-A448-44A925D42866}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{BF75CA97-4A05-41A6-A448-44A925D42866}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{BF75CA97-4A05-41A6-A448-44A925D42866}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{BF75CA97-4A05-41A6-A448-44A925D42866}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -140,7 +134,6 @@ Global
 		{A1964569-C6A9-46D3-8DD9-01E04AF8CC81} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{0B1D505F-FD80-428E-92E5-4367E95E96DF} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 		{0EE2957C-92FC-4D8D-9783-A48B9BE032B7} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
-		{BF75CA97-4A05-41A6-A448-44A925D42866} = {4670F7C4-A4FD-4E3F-B97C-99F9B3FC1898}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}

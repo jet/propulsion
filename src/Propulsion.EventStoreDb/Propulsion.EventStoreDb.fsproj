@@ -20,10 +20,6 @@
     <PackageReference Include="FSharp.Core" Version="4.5.4" />
 
     <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-beta.2" />
-    <PackageReference Include="FSharp.Core" Version="4.7.2" />
-
-    <ProjectReference Include="..\..\..\equinox\src\Equinox.EventStoreDb\Equinox.EventStoreDb.fsproj" />
-<!--    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-alpha.1" />-->
   </ItemGroup>
 
   <ItemGroup>

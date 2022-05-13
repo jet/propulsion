@@ -1,7 +1,8 @@
-module Propulsion.DynamoStore.DynamoStreamsLambda
+module Propulsion.DynamoStore.Lambda.DynamoStreamsLambda
 
 open Amazon.DynamoDBv2
 open Amazon.Lambda.DynamoDBEvents
+open Propulsion.DynamoStore
 open Propulsion.Infrastructure // Async.Raise
 open System.Text
 
