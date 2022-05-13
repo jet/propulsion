@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+        
+        <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+        <AWSProjectType>Lambda</AWSProjectType>
+        <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+        <!-- Generate ready to run images during publishing to improve cold start time. -->
+        <PublishReadyToRun>true</PublishReadyToRun>
+    </PropertyGroup>
+    <ItemGroup>
+        <None Include="Readme.md" />
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+            <Link>PropulsionInfrastructure.fs</Link>
+        </Compile>
+        <Content Include="aws-lambda-tools-defaults.json" />
+        <Compile Include="Connector.fs" />
+        <Compile Include="DynamoStreamsLambda.fs" />
+        <Compile Include="Function.fs" />
+    </ItemGroup>
+    <ItemGroup>
+      <PackageReference Include="MinVer" Version="3.1.0" PrivateAssets="All" />
+        
+      <PackageReference Include="FSharp.Core" Version="4.7.2" />
+        
+      <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
+      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
+      <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
+      <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
+    </ItemGroup>
+</Project>

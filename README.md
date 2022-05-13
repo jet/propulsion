@@ -14,31 +14,56 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Serilog`
 
-  - **Deprecated as reading relies on the legacy EventStoreDB TCP interface**
-
+  - **Deprecated as Equinox.CosmosStore superseded Equinox.Cosmos**
   1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
   2. `CosmosSink`: writing to `Equinox.Cosmos` v `2.6.0`.
   3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `2.6.0`.
-  
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `2.6.0`.
+
+  (Reading and position metrics are exposed via `Propulsion.Cosmos.Prometheus`)
+- 
 - `Propulsion.CosmosStore3` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore3.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore3/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore3) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.27.0`
-  
+
+  - **Deprecated; Only intended for use in migration from Propulsion.Cosmos and/or Equinox.Cosmos**
   1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
   2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.7`.
   3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.7`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `3.0.7`.
+  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.EventStoreDb`/`DynamoStore`/'Feed'/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `3.0.7`.
 
+  (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
+- 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
     1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos`
     2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `4.0.0`.
     3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `4.0.0`.
-    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Equinox.CosmosStore` v `4.0.0`.
+    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.EventStoreDb`/`DynamoStore`/`Feed`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `4.0.0`.
+
+  (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
+
+- `Propulsion.DynamoStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore/) Provides bindings to `Equinox.DynamoStore`. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore) on `Equinox.DynamoStore` v `4.0.0`
+
+    0. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the Index Event Store 
+    1. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Lambda`)
+    2. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Lambda` via `DynamoStoreIndexer`)
+    3. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
+
+  (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
+
+- `Propulsion.DynamoStore.Lambda` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Lambda.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Lambda/) AWS Lambda. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Lambda) on `Propulsion.DynamoStore`, `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`
+
+    1. `DynamoStreamsLambda`: parses Dynamo DB Streams Trigger input, feeds into `Propulsion.DynamoStore.DynamoStoreIndexer`
+    2. `Connector`: Store / environment variables wiring to connect `DynamoStreamsLambda` to the `Equinox.DynamoStore` Index Event Store
+    3. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which it pases to `DynamoStreamsLambda`
+
+  (Diagnostics are exposed via Console to CloudWatch)
 
 - `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
 
     - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
     - Contains ultra-high throughput striped reader implementation
+
+  (Reading and position metrics are emitted to Console / Serilog; no Prometheus support)
 
 - `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.ProjectorPipeline` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
