@@ -3,10 +3,11 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <OutputType>Exe</OutputType>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
 
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>propulsion</ToolCommandName>
-    <!-- Allow to run on SDK >= 5-->
+    <!-- Allow to run on SDK >= 6-->
     <RollForward>Major</RollForward>
 
   </PropertyGroup>
@@ -22,12 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="3.1.0" PrivateAssets="All" />
 
 	<PackageReference Include="Argu" Version="6.1.1" />
     <PackageReference Include="Destructurama.FSharp.NetCore" Version="1.0.14" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="3.1.1" />
-    <PackageReference Include="Serilog.Sinks.Seq" Version="4.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
+    <PackageReference Include="Serilog.Sinks.Seq" Version="5.1.1" />
   </ItemGroup>
 
 </Project>

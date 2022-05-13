@@ -213,7 +213,7 @@ let main argv =
                         let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
                 Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
             let source =
-                let transformOrFilter = Propulsion.CosmosStore.EquinoxNewtonsoftParser.enumStreamEvents
+                let transformOrFilter = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents
                 let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
                 Propulsion.CosmosStore.CosmosStoreSource.Start
                   ( log, monitored, leases, group, observer,

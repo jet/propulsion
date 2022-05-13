@@ -3,9 +3,6 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
     <DefineConstants>COSMOSV2</DefineConstants>
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,23 +10,30 @@
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
-    <Compile Include="EquinoxCosmosParser.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStoreParser.fs">
+      <Link>EquinoxCosmosParser.fs</Link>
+    </Compile>
     <Compile Include="ChangeFeedProcessor.fs" />
-    <Compile Include="CosmosSource.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\CosmosStoreSource.fs">
+      <Link>CosmosSource.fs</Link>
+    </Compile>
     <Compile Include="CosmosSink.fs" />
     <Compile Include="CosmosPruner.fs" />
-    <Compile Include="PropulsionCosmosPrometheus.fs" />
-    <Compile Include="ReaderCheckpoint.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\PropulsionCosmosStorePrometheus.fs">
+      <Link>PropulsionCosmosPrometheus.fs</Link>
+    </Compile>
+    <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
+      <Link>ReaderCheckpoint.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.0.0" PrivateAssets="All" />
-    <PackageReference Include="MinVer" Version="2.5.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="3.1.0" PrivateAssets="All" />
 
     <PackageReference Include="FSharp.Core" Version="4.5.4" />
 
     <PackageReference Include="Equinox.Cosmos" Version="[2.6.0, 2.99.0]" />
-    <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.2.8" />
+    <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.4.0" />
   </ItemGroup>
 
   <ItemGroup>

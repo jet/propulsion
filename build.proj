@@ -6,20 +6,24 @@
     <Cfg>--configuration Release</Cfg>
 
     <PrOption Condition =" '$(BUILD_PR)' != '%24(SYSTEM.PULLREQUEST.PULLREQUESTNUMBER)' ">/p:BUILD_PR=$(BUILD_PR) </PrOption>
-    <PackOptions>/p:BUILD_ID=$(BUILD_ID) $(PrOption) -o $(ThisDirAbsolute)bin/nupkg</PackOptions>
+    <PackOptions>/p:BUILD_ID=$(BUILD_ID) $(PrOption) -o $(MSBuildThisFileDirectory)bin</PackOptions>
 
     <TestOptions>--logger:trx -- RunConfiguration.TestSessionTimeout=3300000 xunit.diagnosticMessages=true</TestOptions>
   </PropertyGroup>
 
   <Target Name="Pack">
     <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.CosmosStore $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.EventStoreDb $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Feed $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
+    
+    <!-- Pack/build deprecated/maintenance mode packages last-->
+    <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.CosmosStore3 $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
   </Target>
 
   <Target Name="VSTest">

@@ -20,7 +20,11 @@ type IChangeFeedObserver =
     /// - ceding control as soon as commencement of the next batch retrieval is desired
     /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
+#if COSMOSV2 || COSMOSV3
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
+#else
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Async<unit>
+#endif
 
 type internal SourcePipeline =
 
@@ -103,25 +107,33 @@ type ChangeFeedProcessor =
         let processor =
             let handler =
                 let aux (context : ChangeFeedProcessorContext)
+#if COSMOSV2 || COSMOSV3
                         (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
-                        (checkpointAsync : Func<System.Threading.Tasks.Task>) = async {
+#else
+                        (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
+#endif
+                        (checkpointAsync : Func<Task>) = async {
                     let checkpoint = async { return! checkpointAsync.Invoke() |> Async.AwaitTaskCorrect }
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
+#if COSMOSV2 || COSMOSV3
                                     timestamp = changes |> Seq.last |> EquinoxNewtonsoftParser.timestamp
+#else
+                                    timestamp = changes |> Seq.last |> EquinoxSystemTextJsonParser.timestamp
+#endif
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
                         return! observer.Ingest(ctx, checkpoint, changes)
                     with e ->
                         log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }
-                fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> System.Threading.Tasks.Task
-            let acquireAsync leaseToken = log.Information("Reader {partitionId} Assigned", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
-            let releaseAsync leaseToken = log.Information("Reader {partitionId} Revoked", leaseTokenToPartitionId leaseToken); System.Threading.Tasks.Task.CompletedTask
+                fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> Task
+            let acquireAsync leaseToken = log.Information("Reader {partitionId} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
+            let releaseAsync leaseToken = log.Information("Reader {partitionId} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let notifyError =
                 notifyError
                 |> Option.defaultValue (fun i ex -> log.Error(ex, "Reader {partitionId} error", i))
-                |> fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; System.Threading.Tasks.Task.CompletedTask
+                |> fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; Task.CompletedTask
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
                 .WithLeaseContainer(leases)

@@ -1,17 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Codec.fs" />
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>Infrastructure.fs</Link>
     </Compile>
-    <Compile Include="Consumers.fs" />
-    <Compile Include="Producers.fs" />
-    <Compile Include="ProducerSinks.fs" />
+    <Compile Include="EventStoreSource.fs" />
+    <Compile Include="..\Propulsion.EventStore\EventStoreSink.fs">
+      <Link>EventStoreSink.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
@@ -19,12 +19,11 @@
 
     <PackageReference Include="FSharp.Core" Version="4.5.4" />
 
-    <PackageReference Include="FsCodec.NewtonsoftJson" Version="3.0.0-rc.2.2" />
-    <PackageReference Include="FsKafka" Version="[1.7.0, 1.9.99)" />
+    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-beta.2" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
   </ItemGroup>
 
 </Project>
