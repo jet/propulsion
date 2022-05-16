@@ -10,14 +10,15 @@ open System
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
+        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        ?logCommitFailure) =
 
     let log = log.ForContext("source", sourceId)
 
     let pumpPartition crawl partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
         let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
-        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit)
+        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit, ?logCommitFailure = logCommitFailure)
         try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (match establishOrigin with None -> None | Some f -> Some (f trancheId)))
             log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m", sourceId, trancheId, pos, freq.TotalMinutes)
             return! reader.Pump(pos)
@@ -45,8 +46,11 @@ type TailingFeedSource
         sourceId, tailSleepInterval : TimeSpan,
         crawl : TrancheId * Position -> AsyncSeq<TimeSpan * Batch<_>>,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink)
+        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        ?logReadFailure,
+        ?readFailureSleepInterval : TimeSpan,
+        ?logCommitFailure) =
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, ?logCommitFailure = logCommitFailure)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
         if wasLast then
@@ -54,9 +58,9 @@ type TailingFeedSource
         try let batches = crawl (trancheId, startPos)
             for batch in batches do
                 yield batch
-        with e ->
-            log.Warning(e, "Read failure")
-            do! Async.Sleep tailSleepInterval }
+        with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
+            match logReadFailure with None -> log.ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
+            match readFailureSleepInterval with None -> () | Some interval -> do! Async.Sleep interval }
 
     member _.Pump(readTranches) =
         base.Pump(readTranches, crawl)

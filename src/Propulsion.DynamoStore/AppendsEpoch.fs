@@ -87,7 +87,7 @@ module Ingest =
             | Start es
             | Append es -> es
             | Discard -> () |]
-    let decide shouldClose (inputs : Events.StreamSpan seq) = function
+    let decide shouldClose (inputs : Events.StreamSpan seq) : _ -> _ * _ = function
         | ({ closed = false; versions = cur } as state : Fold.State) ->
             let closed, ingested, events =
                 match tryToIngested state inputs with
@@ -110,9 +110,7 @@ type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId 
 
         let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndId |> fst = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
-        decider.TransactEx((fun (c : Equinox.ISyncContext<_>) -> async {
-            return Ingest.decide (shouldClose c.Version) spans c.State
-        }), (fun r _c -> r), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
+        decider.TransactEx((fun c -> Ingest.decide (shouldClose c.Version) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
 module Config =
 

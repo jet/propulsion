@@ -46,8 +46,8 @@ module private Impl =
         let mutable batchLastPosition = Position.parse -1L
         let mutable batchCaughtUp = false
 
-        let mutable pagesRead, pagesEmpty = 0, 0
-        let mutable readLatency, recentPagesRead, itemsRead, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
+        let mutable pagesRead, pagesEmpty, events = 0, 0, 0L
+        let mutable readLatency, recentPagesRead, recentEvents, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
 
         let mutable ingestLatency, currentBatches, maxBatches = TimeSpan.Zero, 0, 0
 
@@ -57,14 +57,14 @@ module private Impl =
             let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
             let m = Log.Metric.Read {
                 source = source; tranche = tranche
-                token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = itemsRead
+                token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = recentEvents
                 ingestLatency = ingestLatency; ingestQueued = currentBatches }
             let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
             (log |> Log.metric m).Information(
-                "Reader {source:l}/{tranche:l} Position {readPosition} Tail {caughtUp} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Items {itemsRead} | Wait {pausedS:f1}s Ahead {cur}/{max}",
-                source, tranche, p batchLastPosition, batchCaughtUp, p lastCommittedPosition, pagesRead, pagesEmpty, readS, recentPagesRead, recentPagesEmpty, itemsRead, postS, currentBatches, maxBatches)
+                "Reader {source:l}/{tranche:l} Position {readPosition} Tail {caughtUp} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
+                source, tranche, p batchLastPosition, batchCaughtUp, p lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
-            recentPagesRead <- 0; itemsRead <- 0; recentPagesEmpty <- 0
+            recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
 
         member _.RecordBatch(readTime, batch: Batch<_>) =
             readLatency <- readLatency + readTime
@@ -74,7 +74,8 @@ module private Impl =
             | 0 ->  pagesEmpty <- pagesEmpty + 1
                     recentPagesEmpty <- recentPagesEmpty + 1
             | c ->  pagesRead <- pagesRead + 1
-                    itemsRead <- itemsRead + c
+                    events <- events + int64 c
+                    recentEvents <- recentEvents + c
                     recentPagesRead <- recentPagesRead + 1
 
         member _.UpdateCommittedPosition(pos) =
@@ -118,7 +119,8 @@ type FeedReader
             * TrancheId// identifiers of source and tranche within that; a checkpoint is maintained per such pairing
             * Position // index representing next read position in stream
             // permitted to throw if it fails; failures are counted and/or retried with throttling
-            -> Async<unit>) =
+            -> Async<unit>,
+        ?logCommitFailure) =
 
     let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
     let stats = Stats(log, statsInterval, sourceId, trancheId)
@@ -127,9 +129,9 @@ type FeedReader
         try do! commitCheckpoint (sourceId, trancheId, position)
             stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
-        with exc ->
-            log.Warning(exc, "Exception while committing checkpoint {position}", position)
-            return! Async.Raise exc }
+        with e ->
+            match logCommitFailure with None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position) | Some l -> l e
+            return! Async.Raise e }
 
     let submitPage (readLatency, batch : Batch<byte[]>) = async {
         stats.RecordBatch(readLatency, batch)

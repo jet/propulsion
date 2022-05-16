@@ -117,11 +117,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         member _.Start(source, tranche, ?establishOrigin) : Async<TimeSpan * Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> f
-#if !COSMOSV2 && !COSMOSV3
-            decider.Transact(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
-#else
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
-#endif
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
