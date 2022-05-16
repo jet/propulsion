@@ -24,11 +24,13 @@
 
       <PackageReference Include="FSharp.Core" Version="4.7.2" />
 
-      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.2" />
+<!--      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.4" />-->
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.2.2" />
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
+        <ProjectReference Include="..\..\..\equinox\src\Equinox\Equinox.fsproj" />
+        <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
     </ItemGroup>
 
 </Project>

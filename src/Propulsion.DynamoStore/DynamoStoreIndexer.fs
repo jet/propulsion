@@ -1,13 +1,15 @@
 namespace Propulsion.DynamoStore
 
-type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, ?maxItemsPerEpoch, ?storeLog) =
+type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, ?maxItemsPerEpoch, ?maxVersion, ?storeLog) =
+    let maxVersion = defaultArg maxVersion 2_000
     let maxItemsPerEpoch = defaultArg maxItemsPerEpoch 100_000
+    // TODO implement 2MB size limit (requires store to maintain stream size)
     do if maxItemsPerEpoch > AppendsEpoch.MaxItemsPerEpoch then invalidArg (nameof maxItemsPerEpoch) "Cannot exceed AppendsEpoch.MaxItemsPerEpoch"
     let storeLog = defaultArg storeLog log
     let log = log.ForContext<DynamoStoreIndexer>()
 
     let ingester =
-        let epochs = AppendsEpoch.Config.create storeLog maxItemsPerEpoch (context, cache)
+        let epochs = AppendsEpoch.Config.create storeLog (maxVersion, maxItemsPerEpoch) (context, cache)
         let index = AppendsIndex.Config.create storeLog (context, cache)
         let createIngester trancheId =
             let log = log.ForContext("trancheId", trancheId)

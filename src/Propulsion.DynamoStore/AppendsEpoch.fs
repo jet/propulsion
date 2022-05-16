@@ -110,16 +110,21 @@ type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId 
 
         let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndId |> fst = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
-        decider.Transact(Ingest.decide shouldClose spans, if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
+        decider.TransactEx((fun (c : Equinox.ISyncContext<_>) -> async {
+            return Ingest.decide (shouldClose c.Version) spans c.State
+        }), (fun r _c -> r), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
 module Config =
 
     let private resolveStream (context, cache) =
         let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
         cat.Resolve
-    let create log maxItemsPerEpoch store =
-        let shouldClose totalItems = totalItems >= maxItemsPerEpoch
+    let create log (maxVersion, maxItemsPerEpoch) store =
         let resolve = streamName >> resolveStream store >> Config.createDecider log
+        let shouldClose version totalStreams =
+            let closing = version >= maxVersion || totalStreams >= maxItemsPerEpoch
+            if closing then log.Information("Closing v{version} Streams {streams}", version, totalStreams)
+            closing
         Service(shouldClose, resolve)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward

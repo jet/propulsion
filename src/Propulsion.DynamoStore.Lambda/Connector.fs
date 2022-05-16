@@ -21,7 +21,7 @@ type Configuration(?tryGet) =
 open Equinox.DynamoStore
 
 type Connector(serviceUrl, accessKey, secretKey, table) =
-    let retries, timeout, queryMaxItems, maxBytes = 10, System.TimeSpan.FromSeconds 60., 50, 64*1024
+    let retries, timeout, queryMaxItems, maxBytes = 10, System.TimeSpan.FromSeconds 60., 100, 48*1024
 
     let conn = DynamoStoreConnector(serviceUrl, accessKey, secretKey, retries, timeout)
     let client = conn.CreateClient()
