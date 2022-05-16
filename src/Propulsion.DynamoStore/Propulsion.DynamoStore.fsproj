@@ -29,8 +29,6 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
-        <ProjectReference Include="..\..\..\equinox\src\Equinox\Equinox.fsproj" />
-        <ProjectReference Include="..\..\..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj" />
     </ItemGroup>
 
 </Project>

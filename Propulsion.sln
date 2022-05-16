@@ -53,8 +53,6 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore", "s
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Lambda", "src\Propulsion.DynamoStore.Lambda\Propulsion.DynamoStore.Lambda.fsproj", "{0EE2957C-92FC-4D8D-9783-A48B9BE032B7}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Equinox.DynamoStore", "..\equinox\src\Equinox.DynamoStore\Equinox.DynamoStore.fsproj", "{BC68A82F-B702-4742-97A7-7B04D4293E47}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
