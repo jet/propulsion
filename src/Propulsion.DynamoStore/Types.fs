@@ -85,4 +85,25 @@ module internal EventCodec =
 
 module internal Async =
 
-    let parallelThrottled dop f = Async.Parallel(f, maxDegreeOfParallelism = dop)
+    open Propulsion.Infrastructure // AwaitTaskCorrect
+
+    type Async with
+        static member Throttle degreeOfParallelism =
+            let s = new System.Threading.SemaphoreSlim(degreeOfParallelism)
+            fun computation -> async {
+                let! ct = Async.CancellationToken
+                do! s.WaitAsync ct |> Async.AwaitTaskCorrect
+                try return! computation
+                finally s.Release() |> ignore }
+    let private parallelThrottledUnsafe dop computations = // https://github.com/dotnet/fsharp/issues/13165
+        Async.Parallel(computations, maxDegreeOfParallelism = dop)
+    let parallelThrottled dop computations = async {
+        let throttle = Async.Throttle dop // each batch of 1200 gets the full potential dop - we internally limit what actually gets to run concurrently here
+        let! allResults =
+            computations
+            |> Seq.map throttle
+            |> Seq.chunkBySize 1200
+            |> Seq.map (parallelThrottledUnsafe dop)
+            |> Async.Parallel
+        return Array.concat allResults
+    }

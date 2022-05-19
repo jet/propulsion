@@ -6,14 +6,14 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+          <Link>PropulsionInfrastructure.fs</Link>
+        </Compile>
         <Compile Include="Types.fs" />
         <Compile Include="ExactlyOnceIngester.fs" />
         <Compile Include="AppendsIndex.fs" />
         <Compile Include="AppendsEpoch.fs" />
         <Compile Include="DynamoStoreIndexer.fs" />
-        <Compile Include="..\Propulsion\Infrastructure.fs">
-            <Link>PropulsionInfrastructure.fs</Link>
-        </Compile>
         <Compile Include="DynamoStoreSource.fs" />
         <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
             <Link>ReaderCheckpoint.fs</Link>

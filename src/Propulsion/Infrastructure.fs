@@ -4,7 +4,8 @@ module internal Propulsion.Infrastructure
 open System
 open System.Threading.Tasks
 
-// http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect pending that being officially packaged somewhere or integrated into FSharp.Core
+// http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect
+// pending that being officially packaged somewhere or integrated into FSharp.Core https://github.com/fsharp/fslang-suggestions/issues/840
 type Async with
 
     /// <summary>

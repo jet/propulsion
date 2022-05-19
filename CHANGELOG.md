@@ -27,6 +27,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Fixed
 
 - `Propulsion.SqlStreamStore`: Replaced incorrect/meaningless stream name for `SqlStreamStoreSource` [#139](https://github.com/jet/propulsion/pull/139)
+- Synced [`AwaitTaskCorrect`](http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect) with official version [3c11142](https://github.com/jet/propulsion/commit/3c11142b75bf3b0ef2181fd106a4b17c0b2313ef)
 
 <a name="2.12.2"></a>
 ## [2.12.2] - 2022-03-10
