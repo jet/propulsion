@@ -110,18 +110,19 @@ type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId 
 
         let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndId |> fst = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
-        decider.TransactEx((fun c -> Ingest.decide (shouldClose c.Version) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
+        decider.TransactEx((fun c -> (Ingest.decide (shouldClose (c.StreamEventBytes, c.Version))) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
 module Config =
 
     let private resolveStream (context, cache) =
         let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
         cat.Resolve
-    let create log (maxVersion, maxItemsPerEpoch) store =
+    let create log (maxBytes : int, maxVersion : int64, maxStreams : int) store =
         let resolve = streamName >> resolveStream store >> Config.createDecider log
-        let shouldClose version totalStreams =
-            let closing = version >= maxVersion || totalStreams >= maxItemsPerEpoch
-            if closing then log.Information("Closing v{version} Streams {streams}", version, totalStreams)
+        let shouldClose (totalBytes : int64 option, version) totalStreams =
+            let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
+            if closing then log.Information("Closing v{version}/{maxVersion} {streams:n0}/{maxStreams:n0} streams {bytes:n0}/{maxBytes:n0} KiB",
+                                            version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
         Service(shouldClose, resolve)
 

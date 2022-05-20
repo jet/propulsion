@@ -65,21 +65,31 @@ module private Impl =
     let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
-    let readIndexedSpansAsStreamEvents (log : Serilog.ILogger, sourceId, storeLog) (maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext) (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
+    let readIndexedSpansAsStreamEvents
+            (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
+            (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
         : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! version, state = epochs.Read(tid, epochId, offset)
         let totalChanges = state.changes.Length
-        log.Debug("Loaded {c} ingestion records from {tid} {eid} {off}", totalChanges, tid, epochId, offset)
         sw.Stop()
-        let totalStreams, totalEvents, streamEvents =
+        let totalStreams, chosenEvents, totalEvents, streamEvents =
             let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
             let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
-            all.Length, totalEvents, all |> Seq.choose (fun span -> maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) |> Option.map (fun load -> span.p, load)) |> dict
-        if streamEvents.Count > batchCutoff then
-            log.Information("Loader {sourceId}/{trancheId}/{epochId}@{offset} Changes {totalChanges} {loadingCount}/{totalStreams}s {totalEvents}e",
-                            sourceId, string tid, string epochId, offset, totalChanges, streamEvents.Count, totalStreams, totalEvents)
+            let mutable chosenEvents = 0
+            let chooseStream (span : AppendsEpoch.Events.StreamSpan) =
+                match maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) with
+                | Some f ->
+                    chosenEvents <- chosenEvents + span.c.Length
+                    Some (span.p, f)
+                | None -> None
+            let streamEvents = all |> Seq.choose chooseStream |> dict
+            all.Length, chosenEvents, totalEvents, streamEvents
+        let largeEnough = streamEvents.Count > batchCutoff
+        if largeEnough then
+            log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
+                            sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
         let materializeSpans : Async<StreamEvent array> = async {
@@ -107,13 +117,14 @@ module private Impl =
                         for e in events do ({ stream = IndexStreamId.toStreamName span.p; event = e } : StreamEvent) |] }
         let mutable prevLoaded, batchIndex = 0L, 0
         let report i len =
-            let i = Option.toNullable i
-            match cache.Count  with
-            | loadedNow when prevLoaded <> loadedNow ->
-                prevLoaded <- loadedNow
-                log.Information("Loader {sourceId}/{trancheId}/{epochId}@{offset}/{totalChanges} Batch {batch} {size}e Loaded {streams}/{totalStreams}s {events}/{totalEvents}e",
-                                sourceId, string tid, string epochId, i, version, batchIndex, len, cache.Count, streamEvents.Count, cache.Values |> Seq.sumBy Array.length, totalEvents)
-            | _ -> ()
+            if largeEnough && hydrating then
+                let i = Option.toNullable i
+                match cache.Count with
+                | loadedNow when prevLoaded <> loadedNow ->
+                    prevLoaded <- loadedNow
+                    log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
+                                    sourceId, string tid, string epochId, i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, cache.Values |> Seq.sumBy Array.length, chosenEvents)
+                | _ -> ()
             batchIndex <- batchIndex + 1
         for i, spans in state.changes do
             let pending = spans |> Array.filter (fun (span : AppendsEpoch.Events.StreamSpan) -> streamEvents.ContainsKey(span.p))
@@ -133,7 +144,7 @@ type LoadMode =
     | All
     | Filtered
         of  filter : (FsCodec.StreamName -> bool)
-    | WithBodies
+    | Hydrated
         of  filter : (FsCodec.StreamName -> bool)
         *   degreeOfParallelism : int
         *   /// Defines the Context to use when loading the bodies
@@ -151,11 +162,11 @@ module internal LoadMode =
             let render = async { return cs |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = null)) }
             if filter sn then Some render else None
     let map storeLog : LoadMode -> _ = function
-        | All -> withoutBodies (fun _ -> true), 1
-        | Filtered filter -> withoutBodies filter, 1
-        | WithBodies (filter, dop, storeContext) ->
+        | All -> false, withoutBodies (fun _ -> true), 1
+        | Filtered filter -> false, withoutBodies filter, 1
+        | Hydrated (filter, dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
-            withBodies eventsContext filter, dop
+            true, withBodies eventsContext filter, dop
 
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,

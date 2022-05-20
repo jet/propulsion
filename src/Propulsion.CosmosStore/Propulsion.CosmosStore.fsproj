@@ -28,6 +28,7 @@
   </ItemGroup>
 
   <ItemGroup>
+<!--    <ProjectReference Include="..\..\..\equinox\src\Equinox.CosmosStore\Equinox.CosmosStore.fsproj" />-->
     <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
   </ItemGroup>
 
