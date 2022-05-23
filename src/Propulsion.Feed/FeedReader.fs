@@ -41,7 +41,7 @@ module Log =
 [<AutoOpen>]
 module private Impl =
 
-    type Stats(log : ILogger, statsInterval : TimeSpan, source : SourceId, tranche : TrancheId) =
+    type Stats(log : ILogger, statsInterval : TimeSpan, source : SourceId, tranche : TrancheId, renderPos : Position -> string) =
 
         let mutable batchLastPosition = Position.parse -1L
         let mutable batchCaughtUp = false
@@ -60,9 +60,10 @@ module private Impl =
                 token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = recentEvents
                 ingestLatency = ingestLatency; ingestQueued = currentBatches }
             let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
+            let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
             (log |> Log.metric m).Information(
                 "Reader {source:l}/{tranche:l} Tail {caughtUp} Position {readPosition} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
-                source, tranche, batchCaughtUp, p batchLastPosition, p lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
+                source, tranche, batchCaughtUp, r batchLastPosition, r lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
             recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
 
@@ -120,10 +121,11 @@ type FeedReader
             * Position // index representing next read position in stream
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Async<unit>,
+        renderPos,
         ?logCommitFailure) =
 
     let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
-    let stats = Stats(log, statsInterval, sourceId, trancheId)
+    let stats = Stats(log, statsInterval, sourceId, trancheId, renderPos)
 
     let commit position = async {
         try do! commitCheckpoint (sourceId, trancheId, position)
@@ -147,7 +149,7 @@ type FeedReader
         stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }
 
     member _.Pump(initialPosition : Position) = async {
-        log.Debug("Starting reading stream from position {initialPosition}", initialPosition)
+        log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         // Commence reporting stats until such time as we quit pumping
         let! _ = Async.StartChild stats.Pump

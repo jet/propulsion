@@ -1,7 +1,7 @@
-/// Provides for periodic crawling of a source that can be represented as events grouped into streams
-/// Checkpointing is based on the time of the traversal, rather than intrinsic properties of the underlying data
-/// Each run traverses the entire data set, which is obviously not ideal, if it can be avoided
-/// i.e. this is for sources that do/can not provide a mechanism that one might use to checkpoint within a given traversal
+// Provides for periodic crawling of a source that can be represented as events grouped into streams
+// Checkpointing is based on the time of the traversal, rather than intrinsic properties of the underlying data
+// Each run traverses the entire data set, which is obviously not ideal, if it can be avoided
+// i.e. this is for sources that do/can not provide a mechanism that one might use to checkpoint within a given traversal
 namespace Propulsion.Feed
 
 open FSharp.Control
@@ -20,6 +20,16 @@ module private DateTimeOffsetPosition =
     let ofDateTimeOffset (x : DateTimeOffset) =
         let epochTime = x.ToUnixTimeSeconds()
         epochTime * factor |> Position.parse
+    let private toEpochAndOffset (value : Position) : DateTimeOffset * int =
+        let d, r = Math.DivRem(Position.toInt64 value, factor)
+        DateTimeOffset.FromUnixTimeSeconds d, int r
+
+    let (|Initial|EpochAndOffset|) (pos : Propulsion.Feed.Position) =
+        if pos = Position.initial then Initial
+        else EpochAndOffset (toEpochAndOffset pos)
+    let render = function
+        | Initial -> null
+        | EpochAndOffset (epoch, offset) -> sprintf "%s@%d" (epoch.ToString "u") offset
 
 module private TimelineEvent =
 
@@ -39,12 +49,13 @@ type SourceItem = { streamName : FsCodec.StreamName; eventData : FsCodec.IEventD
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        /// The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
-        /// Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
+        // The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
+        // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
         crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink)
+        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        ?renderPos) =
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {

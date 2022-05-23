@@ -2,7 +2,6 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open System.Collections.Concurrent
 
 type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
@@ -33,6 +32,8 @@ module private Impl =
             (%int %d : AppendsEpochId), int r
 
         let (|Parse|) : Propulsion.Feed.Position -> AppendsEpochId * int = ofPosition >> toEpochAndOffset
+
+    let renderPos (Checkpoint.Parse (epochId, offset)) = sprintf"%s@%d" (AppendsEpochId.toString epochId) offset
 
     let readTranches log context = async {
         let index = AppendsIndex.Reader.create log context
@@ -193,6 +194,7 @@ type DynamoStoreSource
                                                                        (defaultArg storeLog log)
                                                                        (DynamoStoreContext indexClient))),
                                                        sink,
+                                                       Impl.renderPos,
                                                        Impl.logReadFailure (defaultArg storeLog log),
                                                        (defaultArg readFailureSleepInterval (tailSleepInterval*2.)),
                                                        Impl.logCommitFailure (defaultArg storeLog log))
@@ -202,19 +204,4 @@ type DynamoStoreSource
         base.Pump(fun () -> Impl.readTranches (defaultArg storeLog log) context)
 
     member x.Start() =
-        let cts = new System.Threading.CancellationTokenSource()
-        let ct = cts.Token
-        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-
-        let machine = async {
-            // external cancellation should yield a success result
-            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-
-            do! x.Pump()
-
-            // aka base.AwaitShutdown()
-            do! Async.AwaitTaskCorrect tcs.Task }
-
-        let task = Async.StartAsTask machine
-
-        new Propulsion.Pipeline(task, cts.Cancel)
+        base.Start(x.Pump())
