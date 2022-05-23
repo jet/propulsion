@@ -8,7 +8,7 @@ let streamName (source, tranche, consumerGroupName : string) =
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
     else
-        let (*[<Literal>]*) Category = "$ReaderCheckpoint3" // TODO remove 3 for final release
+        let (*[<Literal>]*) Category = "$ReaderCheckpoint" // TODO remove 5 for final release
         FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care

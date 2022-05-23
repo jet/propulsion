@@ -10,7 +10,7 @@ open System.Collections.Immutable
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
 let [<Literal>] MaxItemsPerEpoch = 1_000_000
-let [<Literal>] Category = "$AppendsEpoch2" // TODO remove 2
+let [<Literal>] Category = "$AppendsEpoch"
 let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheId.toString tid; AppendsEpochId.toString eid]
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care

@@ -81,9 +81,27 @@ type AllFeedSource
                                                             yield sw.Elapsed, b } ),
                               checkpoints, None, sink)
 
-    member _.Pump() =
+    member internal _.Pump() =
         let readTranches () = async { return [| TrancheId.parse "0" |] }
         base.Pump(readTranches)
+
+    member x.Start() =
+        let cts = new System.Threading.CancellationTokenSource()
+        let ct = cts.Token
+        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
+
+        let machine = async {
+            // external cancellation should yield a success result
+            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
+
+            do! x.Pump()
+
+            // aka base.AwaitShutdown()
+            do! Async.AwaitTaskCorrect tcs.Task }
+
+        let task = Async.StartAsTask machine
+
+        new Propulsion.Pipeline(task, cts.Cancel)
 
 namespace Propulsion.Feed
 
