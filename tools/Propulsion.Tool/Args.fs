@@ -74,28 +74,16 @@ module Cosmos =
             x.CreateUninitialized().GetDatabase(databaseId).GetContainer(containerId)
 
         /// Creates a CosmosClient suitable for running a CFP via CosmosStoreSource
-        member x.CreateClient(log, databaseId, containerId, ?connectionName) =
-            x.LogConfiguration(log, defaultArg connectionName "Source", databaseId, containerId)
+        member x.CreateClient(databaseId, containerId, ?connectionName) =
+            x.LogConfiguration(Log.Logger, defaultArg connectionName "Source", databaseId, containerId)
             x.CreateUninitialized(databaseId, containerId)
 
         /// Connect a CosmosStoreClient, including warming up
-        member x.ConnectStore(log, connectionName, databaseId, containerId) =
-            x.LogConfiguration(log, connectionName, databaseId, containerId)
+        member x.ConnectStore(connectionName, databaseId, containerId) =
+            x.LogConfiguration(Log.Logger, connectionName, databaseId, containerId)
             Equinox.CosmosStore.CosmosStoreClient.Connect(x.CreateAndInitialize, databaseId, containerId)
 
-//        /// Creates a CosmosClient suitable for running a CFP via CosmosStoreSource
-//        member x.ConnectMonitored(databaseId, containerId, ?connectionName) =
-//            x.LogConfiguration(defaultArg connectionName "Source", databaseId, containerId)
-//            x.CreateUninitialized(databaseId, containerId)
-//
-//        /// Connects to a Store as both a ChangeFeedProcessor Monitored Container and a CosmosStoreClient
-//        member x.ConnectStoreAndMonitored(databaseId, containerId) =
-//            let monitored = x.ConnectMonitored(databaseId, containerId, "Main")
-//            let storeClient = Equinox.CosmosStore.CosmosStoreClient(monitored.Database.Client, databaseId, containerId)
-//            storeClient, monitored
-
     type [<NoEquality; NoComparison>] Parameters =
-//        | [<AltCommandLine "-V"; Unique>]   Verbose
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
         | [<AltCommandLine "-s">]           Connection of string
         | [<AltCommandLine "-d">]           Database of string
@@ -105,9 +93,10 @@ module Cosmos =
         | [<AltCommandLine "-rt">]          RetriesWaitTime of float
         | [<AltCommandLine("-a"); Unique>]  LeaseContainer of string
         | [<AltCommandLine("-as"); Unique>] Suffix of string
+
+        | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
         interface IArgParserTemplate with
             member a.Usage = a |> function
-//                | Verbose ->                "Include low level Store logging."
                 | ConnectionMode _ ->       "override the connection mode. Default: Direct."
                 | Connection _ ->           "specify a connection string for a Cosmos account. (optional if environment variable " + CONNECTION + " specified)"
                 | Database _ ->             "specify a database name for Cosmos store. (optional if environment variable " + DATABASE + " specified)"
@@ -117,6 +106,7 @@ module Cosmos =
                 | RetriesWaitTime _ ->      "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
                 | LeaseContainer _ ->       "Specify full Lease Container Name (default: Container + Suffix)."
                 | Suffix _ ->               "Specify Container Name suffix (default: `-aux`, if LeaseContainer not specified)."
+                | LagFreqM _ ->             "Specify frequency to dump lag stats. Default: off"
 
     type Arguments(c : Configuration, a : ParseResults<Parameters>) =
         let connection =                    a.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
@@ -129,16 +119,16 @@ module Cosmos =
         let database =                      a.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
         let checkpointInterval =            TimeSpan.FromHours 1.
         member val ContainerId =            a.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
-        member x.MonitoredContainer(log) =  connector.CreateClient(log, database, x.ContainerId)
-//        member val Verbose =                a.Contains Verbose
+        member x.MonitoredContainer() =     connector.CreateClient(database, x.ContainerId)
         member val LeaseContainerId =       a.TryGetResult LeaseContainer
         member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + a.GetResult(Suffix, "-aux")
-        member x.ConnectLeases(log) =       connector.CreateClient(log, database, x.LeasesContainerName, "Leases")
+        member x.ConnectLeases() =          connector.CreateClient(database, x.LeasesContainerName, "Leases")
+        member _.MaybeLogLagInterval =      a.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
-        member x.CreateCheckpointStore(log, group, cache) = async {
-            let! store = connector.ConnectStore(log, "Checkpoints", database, x.ContainerId)
+        member x.CreateCheckpointStore(group, cache, storeLog) = async {
+            let! store = connector.ConnectStore("Checkpoints", database, x.ContainerId)
             let context = CosmosStoreContext.create store
-            return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create log (group, checkpointInterval) (context, cache) }
+            return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
 module Dynamo =
 
@@ -146,21 +136,21 @@ module Dynamo =
 
     type Equinox.DynamoStore.DynamoStoreConnector with
 
-        member x.LogConfiguration(log : ILogger) =
-            log.Information("DynamoStore {endpoint} Timeout {timeoutS}s Retries {retries}",
+        member x.LogConfiguration() =
+            Log.Information("DynamoStore {endpoint} Timeout {timeoutS}s Retries {retries}",
                             x.Endpoint, (let t = x.Timeout in t.TotalSeconds), x.Retries)
 
     type Equinox.DynamoStore.DynamoStoreClient with
 
-        member internal x.LogConfiguration(log : ILogger, role) =
-            log.Information("DynamoStore {role:l} Table {table}", role, x.TableName)
+        member internal x.LogConfiguration(role) =
+            Log.Information("DynamoStore {role:l} Table {table}", role, x.TableName)
 
     type Amazon.DynamoDBv2.IAmazonDynamoDB with
 
         /// Connects to a Store as both a ChangeFeedProcessor Monitored Container and a CosmosStoreClient
-        member x.ConnectStore(log, role, table) =
+        member x.ConnectStore(role, table) =
             let storeClient = Equinox.DynamoStore.DynamoStoreClient(x, table)
-            storeClient.LogConfiguration(log, role)
+            storeClient.LogConfiguration(role)
             storeClient
 
     module DynamoStoreContext =
@@ -169,7 +159,6 @@ module Dynamo =
             Equinox.DynamoStore.DynamoStoreContext(storeClient)
 
     type [<NoEquality; NoComparison>] Parameters =
-//        | [<AltCommandLine "-V">]           Verbose
         | [<AltCommandLine "-s">]           ServiceUrl of string
         | [<AltCommandLine "-sa">]          AccessKey of string
         | [<AltCommandLine "-ss">]          SecretKey of string
@@ -178,40 +167,48 @@ module Dynamo =
         | [<AltCommandLine "-rt">]          RetriesTimeoutS of float
         | [<AltCommandLine "-i">]           IndexTable of string
         | [<AltCommandLine "-is">]          IndexSuffix of string
+        | [<AltCommandLine "-d">]           StreamsDop of int
         interface IArgParserTemplate with
             member a.Usage = a |> function
-//                | Verbose ->                "Include low level Store logging."
                 | ServiceUrl _ ->           "specify a server endpoint for a Dynamo account. (optional if environment variable " + SERVICE_URL + " specified)"
                 | AccessKey _ ->            "specify an access key id for a Dynamo account. (optional if environment variable " + ACCESS_KEY + " specified)"
                 | SecretKey _ ->            "specify a secret access key for a Dynamo account. (optional if environment variable " + SECRET_KEY + " specified)"
                 | Table _ ->                "specify a table name for the primary store. (optional if environment variable " + TABLE + ", or `IndexTable` specified)"
                 | Retries _ ->              "specify operation retries (default: 1)."
-                | RetriesTimeoutS _ ->      "specify max wait-time including retries in seconds (default: 5)"
+                | RetriesTimeoutS _ ->      "specify max wait-time including retries in seconds (default: 10)"
                 | IndexTable _ ->           "specify a table name for the index store. (optional if environment variable " + INDEX_TABLE + " specified. default: `Table`+`IndexSuffix`)"
                 | IndexSuffix _ ->          "specify a suffix for the index store. (not relevant if `Table` or `IndexTable` specified. default: \"-index\")"
+                | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
 
     type Arguments(c : Configuration, a : ParseResults<Parameters>) =
         let serviceUrl =                    a.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
         let accessKey =                     a.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
         let secretKey =                     a.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
-//        let table =                         a.TryGetResult Table      |> Option.orElseWith  (fun () -> c.DynamoTable)
         let indexSuffix =                   a.GetResult(IndexSuffix, "-index")
         let retries =                       a.GetResult(Retries, 1)
-        let timeout =                       a.GetResult(RetriesTimeoutS, 5.) |> TimeSpan.FromSeconds
+        let timeout =                       a.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
         let connector =                     Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let client =                        connector.CreateClient()
+        let streamsDop =                    a.TryGetResult StreamsDop
         let checkpointInterval =            TimeSpan.FromHours 1.
-//        member val Verbose =                a.Contains Verbose
-        member val IndexTable =             a.TryGetResult IndexTable
+        let indexTable =                    a.TryGetResult IndexTable
                                             |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
                                             |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
-//        member _.Connect() =                connector.LogConfiguration()
-//                                            client.ConnectStore("Main", table) |> DynamoStoreContext.create
-        member x.CreateCheckpointStore(log, group, cache) =
-            connector.LogConfiguration(log)
-            let context = client.ConnectStore(log, "Index", x.IndexTable) |> DynamoStoreContext.create
-            Propulsion.Feed.ReaderCheckpoint.DynamoStore.create log (group, checkpointInterval) (context, cache)
-//        member _.MonitoringParams(log : ILogger) =
-//            log.Information("DynamoStoreSource MaxItems {maxItems} Hydrater parallelism {streamsDop}", maxItems, streamsDop)
-//            if fromTail then log.Warning("(If new projector group) Skipping projection of all existing events.")
-//            indexStoreClient.Value, fromTail, maxItems, streamsDop
+        let indexClient =                   lazy
+                                                connector.LogConfiguration()
+                                                client.ConnectStore("Index", indexTable)
+        member val IndexTable =             indexTable
+        member x.MonitoringParams() =
+            let indexClient = indexClient.Value
+            match streamsDop with
+            | None ->
+                Log.Information("DynamoStoreSource NOT Hydrating events"); indexClient, None
+            | Some streamsDop ->
+                Log.Information("DynamoStoreSource Hydrater parallelism {streamsDop}", streamsDop)
+                let table = a.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
+                let context = client.ConnectStore("Store", table) |> DynamoStoreContext.create
+                indexClient, Some (context, streamsDop)
+
+        member x.CreateCheckpointStore(group, cache, storeLog) =
+            let context = DynamoStoreContext.create indexClient.Value
+            Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (context, cache)
