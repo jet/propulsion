@@ -43,7 +43,7 @@ let ingest (log : Serilog.ILogger) (service : DynamoStoreIndexer) (dynamoEvent :
         log.Information("Index {indexCount} NoEvents {noEventCount} Spans {spanCount} {summary}", indexStream, noEvents, spans.Length, summary)
         match spans with
         | [||] -> async { () }
-        | spans -> // TODO if there are multiple shards, they should map to individual TrancheIds in order to avoid continual concurrency violations from competing writers
+        | spans -> // TOCONSIDER if there are multiple shards, they should map to individual TrancheIds in order to avoid continual concurrency violations from competing writers
             service.IngestWithoutConcurrency(AppendsTrancheId.wellKnownId, spans)
     with e -> async {
         log.Warning(e, "Failed {summary}", summary.ToString())

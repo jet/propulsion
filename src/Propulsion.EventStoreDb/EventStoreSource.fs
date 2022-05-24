@@ -15,23 +15,25 @@ module private Impl =
         let Len0ToNull d, Len0ToNull m = d.ToArray(), m.ToArray()
         {   stream = Propulsion.Streams.StreamName.internalParseSafe x.Event.EventStreamId
             event = FsCodec.Core.TimelineEvent.Create(n.ToInt64(), e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts) }
-    let readBatch includeBodies maxBatchSize (store : EventStore.Client.EventStoreClient) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readBatch hydrateBodies batchSize (store : EventStore.Client.EventStoreClient) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in EventStore.Client.Position(p, p)
-        let res = store.ReadAllAsync(EventStore.Client.Direction.Forwards, pos, maxBatchSize, includeBodies, cancellationToken = ct)
+        let res = store.ReadAllAsync(EventStore.Client.Direction.Forwards, pos, batchSize, hydrateBodies, cancellationToken = ct)
         let! events =
             AsyncSeq.ofAsyncEnum res
             |> AsyncSeq.map (fun x -> struct (x, toStreamEvent x))
             |> AsyncSeq.toArrayAsync
         let p = match Array.tryLast events with Some (r, _) -> int64 r.Event.Position.CommitPosition | None -> -1L
-        return { checkpoint = Propulsion.Feed.Position.parse p; items = Array.map (fun struct (_, e) -> e) events; isTail = events.LongLength = maxBatchSize } }
+        return { checkpoint = Propulsion.Feed.Position.parse p; items = Array.map (fun struct (_, e) -> e) events; isTail = events.LongLength = batchSize } }
 
 type EventStoreSource
     (   log : Serilog.ILogger, statsInterval,
-        store : EventStore.Client.EventStoreClient, sourceId, maxBatchSize, tailSleepInterval,
+        store : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
-        ?includeBodies) =
-    inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                   Impl.readBatch (includeBodies = Some true) maxBatchSize store, checkpoints, sink)
+        ?hydrateBodies,
+        ?sourceId) =
+    inherit Propulsion.Feed.Internal.AllFeedSource
+        (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
+            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)

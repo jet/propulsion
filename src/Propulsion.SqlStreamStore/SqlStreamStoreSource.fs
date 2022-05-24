@@ -19,20 +19,21 @@ module private Impl =
     let readWithDataAsStreamEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
         let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
         return toStreamEvent json msg }
-    let readPage includeBodies maxBatchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readPage hydrateBodies batchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
         let! ct = Async.CancellationToken
-        let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, maxBatchSize, includeBodies, ct) |> Async.AwaitTaskCorrect
+        let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, hydrateBodies, ct) |> Async.AwaitTaskCorrect
         let! items =
-            if includeBodies then page.Messages |> Seq.map readWithDataAsStreamEvent |> Async.Sequential
+            if hydrateBodies then page.Messages |> Seq.map readWithDataAsStreamEvent |> Async.Sequential
             else async { return page.Messages |> Array.map (toStreamEvent null) }
         return { checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } }
 
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
-        store : SqlStreamStore.IStreamStore, sourceId, maxBatchSize, tailSleepInterval,
+        store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not require the bodies of the events, we can save significant Read Capacity by not having to load them. Default: false
-        ?includeBodies) =
-    inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                                                   Impl.readPage (includeBodies = Some true) maxBatchSize store, checkpoints, sink)
+        ?hydrateBodies,
+        ?sourceId) =
+    inherit Propulsion.Feed.Internal.AllFeedSource(log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
+                                                   Impl.readPage (hydrateBodies = Some true) batchSize store, checkpoints, sink)

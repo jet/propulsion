@@ -40,9 +40,9 @@ module IndexStreamId =
     let ofP : string -> IndexStreamId = UMX.tag
     let internal toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
 
-module FeedSourceId =
+module internal FeedSourceId =
 
-    let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamodb"
+    let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamoStore"
 
 module internal Config =
 

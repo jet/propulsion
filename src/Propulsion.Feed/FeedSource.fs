@@ -97,20 +97,20 @@ type AllFeedSource
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
         // Custom checkpoint rendering logic
         ?renderPos) =
-    inherit TailingFeedSource(log, statsInterval, sourceId, tailSleepInterval,
-                              (fun (_trancheId, pos) -> asyncSeq {
-                                                            let sw = System.Diagnostics.Stopwatch.StartNew()
-                                                            let! b = readBatch pos
-                                                            yield sw.Elapsed, b } ),
-                              checkpoints, None, sink,
-                              renderPos = defaultArg renderPos string)
+    inherit TailingFeedSource
+        (   log, statsInterval, sourceId, tailSleepInterval,
+            (fun (_trancheId, pos) -> asyncSeq {
+                  let sw = System.Diagnostics.Stopwatch.StartNew()
+                  let! b = readBatch pos
+                  yield sw.Elapsed, b } ),
+            checkpoints, None, sink,
+            renderPos = defaultArg renderPos string)
 
     member _.Pump() =
         let readTranches () = async { return [| TrancheId.parse "0" |] }
         base.Pump(readTranches)
 
-    member x.Start() =
-        base.Start(x.Pump())
+    member x.Start() = base.Start(x.Pump())
 
 namespace Propulsion.Feed
 
