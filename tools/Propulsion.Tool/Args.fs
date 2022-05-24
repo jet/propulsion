@@ -194,20 +194,20 @@ module Dynamo =
         let secretKey =                     a.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
 //        let table =                         a.TryGetResult Table      |> Option.orElseWith  (fun () -> c.DynamoTable)
         let indexSuffix =                   a.GetResult(IndexSuffix, "-index")
-        let indexTable =                    a.TryGetResult IndexTable
-                                            |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
-                                            |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
         let retries =                       a.GetResult(Retries, 1)
         let timeout =                       a.GetResult(RetriesTimeoutS, 5.) |> TimeSpan.FromSeconds
         let connector =                     Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let client =                        connector.CreateClient()
         let checkpointInterval =            TimeSpan.FromHours 1.
-        member val Verbose =                a.Contains Verbose
+//        member val Verbose =                a.Contains Verbose
+        member val IndexTable =             a.TryGetResult IndexTable
+                                            |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
+                                            |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
 //        member _.Connect() =                connector.LogConfiguration()
 //                                            client.ConnectStore("Main", table) |> DynamoStoreContext.create
-        member _.CreateCheckpointStore(log, group, cache) =
+        member x.CreateCheckpointStore(log, group, cache) =
             connector.LogConfiguration(log)
-            let context = client.ConnectStore(log, "Index", indexTable) |> DynamoStoreContext.create
+            let context = client.ConnectStore(log, "Index", x.IndexTable) |> DynamoStoreContext.create
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create log (group, checkpointInterval) (context, cache)
 //        member _.MonitoringParams(log : ILogger) =
 //            log.Information("DynamoStoreSource MaxItems {maxItems} Hydrater parallelism {streamsDop}", maxItems, streamsDop)

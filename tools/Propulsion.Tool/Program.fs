@@ -121,22 +121,25 @@ module Checkpoints =
         let source, tranche, group = a.GetResult Source, a.GetResult Tranche, a.GetResult Group
         Log.Information("Checkpoint Target Source {source} Tranche {tranche} for {group}", source, tranche, group)
 
-        let! store, overridePos = async {
+        let! store, sa, overridePos = async {
+            let cache = Equinox.Cache (appName, sizeMb = 1)
             match args.StoreArgs with
-            | Choice1Of2 cosmos ->
-                let! store = cosmos.CreateCheckpointStore(log, group, Equinox.Cache (appName, sizeMb = 1))
-                return (store : Propulsion.Feed.IFeedCheckpointStore), fun pos -> store.Override(source, tranche, pos)
-            | Choice2Of2 dynamo ->
-                let store = dynamo.CreateCheckpointStore(log, group, Equinox.Cache (appName, sizeMb = 1))
-                return store, fun pos -> store.Override(source, tranche, pos) }
+            | Choice1Of2 p ->
+                let! store = p.CreateCheckpointStore(log, group, cache)
+                return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos)
+            | Choice2Of2 p ->
+                let store = p.CreateCheckpointStore(log, group, cache)
+                return store, $"dynamo -t {p.IndexTable}", fun pos -> store.Override(source, tranche, pos) }
         match a.TryGetResult OverridePosition with
         | None ->
             let! interval, pos = store.Start(source, tranche)
             log.Information("Checkpoint position {pos}; Checkpoint event frequency {checkpointEventIntervalM:f0}m", pos, interval.TotalMinutes)
         | Some pos ->
             log.Warning("Resetting Checkpoint position to {pos}", pos)
-            do! overridePos pos }
-
+            do! overridePos pos
+        let sn = Propulsion.Feed.ReaderCheckpoint.streamName (source, tranche, group)
+        let cmd = $"eqx dump -s '{sn}' {sa}"
+        log.Information("Inspect: {cmd}", cmd) }
 
 type Stats(log, statsInterval, statesInterval) =
     inherit Propulsion.Streams.Stats<unit>(log, statsInterval = statsInterval, statesInterval = statesInterval)
