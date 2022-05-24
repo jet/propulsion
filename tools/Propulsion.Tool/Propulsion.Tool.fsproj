@@ -13,7 +13,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Infrastructure\Infrastructure.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
