@@ -115,10 +115,10 @@ module Checkpoints =
             let cache = Equinox.Cache (appName, sizeMb = 1)
             match args.StoreArgs with
             | Choice1Of2 a ->
-                let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics())
+                let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
                 return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos)
             | Choice2Of2 a ->
-                let store = a.CreateCheckpointStore(group, cache, Log.forMetrics())
+                let store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
                 return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos) }
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
         match a.TryGetResult OverridePosition with
@@ -210,7 +210,7 @@ module Project =
                 let indexStore, maybeHydrate = sa.MonitoringParams()
                 let checkpoints =
                     let cache = Equinox.Cache (appName, sizeMb = 1)
-                    sa.CreateCheckpointStore(group, cache, Log.forMetrics())
+                    sa.CreateCheckpointStore(group, cache, Log.forMetrics)
                 let loadMode =
                     match maybeHydrate with
                     | Some (context, streamsDop) ->
@@ -220,7 +220,7 @@ module Project =
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics()
+                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics
                 ).Start()
         let work = [
             Async.AwaitKeyboardInterruptAsTaskCancelledException()

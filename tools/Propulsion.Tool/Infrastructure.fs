@@ -5,9 +5,7 @@ open Serilog
 
 module Log =
 
-    let private l = Log.ForContext("isMetric", true)
-    // NB this needs to lazy-init after the Log.Logger is assigned in app startup...
-    let forMetrics () = l
+    let forMetrics = Log.ForContext("isMetric", true)
 
     let isStoreMetrics x = Serilog.Filters.Matching.WithProperty("isMetric").Invoke x
 
