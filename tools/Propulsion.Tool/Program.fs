@@ -55,6 +55,7 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine("-Z"); Unique>]      FromTail
     | [<AltCommandLine("-m"); Unique>]      MaxItems of int
     | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
+
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsTarget>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaTarget>
     interface IArgParserTemplate with
@@ -77,9 +78,11 @@ and [<NoComparison; NoEquality>] KafkaTarget =
             | Cosmos _ ->                   "Cosmos Connection parameters."
 and [<NoComparison; NoEquality>] StatsTarget =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Cosmos _ ->                   "Cosmos Connection parameters."
+            | Cosmos _ ->                   "Specify CosmosDB parameters."
+            | Dynamo _ ->                   "Specify DynamoDB parameters."
 
 let createLog verbose verboseConsole maybeSeqEndpoint =
     let c = LoggerConfiguration().Destructure.FSharpTypes().Enrich.FromLogContext()
@@ -96,10 +99,10 @@ let [<Literal>] appName = "propulsion-tool"
 
 module CosmosInit =
 
-    let aux (log : ILogger) (a : ParseResults<InitAuxParameters>) = async {
+    let aux (log : ILogger) (c, a : ParseResults<InitAuxParameters>) = async {
         match a.TryGetSubCommand() with
         | Some (InitAuxParameters.Cosmos sa) ->
-            let args = Cosmos.Arguments(sa)
+            let args = Args.Cosmos.Arguments(c, sa)
             let client = args.ConnectLeases(log)
             let rus = a.GetResult(InitAuxParameters.Rus)
             log.Information("Provisioning Leases Container for {rus:n0} RU/s", rus)
@@ -119,9 +122,9 @@ module Checkpoints =
     let readOrOverride (log : ILogger) (c, a : ParseResults<CheckpointParameters>) = async {
         let args = CheckpointArguments(c, a)
         let source, tranche, group = a.GetResult Source, a.GetResult Tranche, a.GetResult Group
-        Log.Information("Checkpoint Target Source {source} Tranche {tranche} for {group}", source, tranche, group)
+        log.Information("Checkpoint Target Source {source} Tranche {tranche} for {group}", source, tranche, group)
 
-        let! store, sa, overridePos = async {
+        let! store, storeSpecFragment, overridePosition = async {
             let cache = Equinox.Cache (appName, sizeMb = 1)
             match args.StoreArgs with
             | Choice1Of2 p ->
@@ -136,76 +139,82 @@ module Checkpoints =
             log.Information("Checkpoint position {pos}; Checkpoint event frequency {checkpointEventIntervalM:f0}m", pos, interval.TotalMinutes)
         | Some pos ->
             log.Warning("Resetting Checkpoint position to {pos}", pos)
-            do! overridePos pos
+            do! overridePosition pos
         let sn = Propulsion.Feed.ReaderCheckpoint.streamName (source, tranche, group)
-        let cmd = $"eqx dump -s '{sn}' {sa}"
+        let cmd = $"eqx dump -s '{sn}' {storeSpecFragment}"
         log.Information("Inspect: {cmd}", cmd) }
 
-type Stats(log, statsInterval, statesInterval) =
-    inherit Propulsion.Streams.Stats<unit>(log, statsInterval = statsInterval, statesInterval = statesInterval)
-    member val StatsInterval = statsInterval
-    override _.HandleOk(_log) = ()
-    override _.HandleExn(_log, _exn) = ()
+module Project =
+
+    type Stats(log, statsInterval, statesInterval) =
+        inherit Propulsion.Streams.Stats<unit>(log, statsInterval = statsInterval, statesInterval = statesInterval)
+        member val StatsInterval = statsInterval
+        override _.HandleOk(_log) = ()
+        override _.HandleExn(_log, _exn) = ()
+
+    let run (log : ILogger) (c : Args.Configuration, a : ParseResults<ProjectParameters>) = async {
+        let group, startFromTail, maxItems = a.GetResult ConsumerGroupName, a.Contains FromTail, a.TryGetResult MaxItems
+        maxItems |> Option.iter (fun bs -> log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs))
+        if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
+        let maybeLogLagInterval = a.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
+        let broker, topic, storeArgs =
+            match a.GetSubCommand() with
+            | Kafka kargs -> Some c.KafkaBroker, Some c.KafkaTopic, kargs.GetResult KafkaTarget.Cosmos
+            | Stats sargs -> None, None, sargs.GetResult StatsTarget.Cosmos
+            | x -> failwithf "Invalid subcommand %A" x
+        let args = Args.Cosmos.Arguments(c, storeArgs)
+        let monitored = args.MonitoredContainer(log)
+        let leases = args.ConnectLeases(log)
+
+        let producer =
+            match broker, topic with
+            | Some b, Some t ->
+                let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 100.)
+                let cfg = FsKafka.KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
+                let p = FsKafka.KafkaProducer.Create(log, cfg, t)
+                Some p
+            | _ -> None
+        let sink =
+            let stats = Stats(log, TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5.)
+            let maxReadAhead, maxConcurrentStreams = 2, 16
+            let handle (stream : FsCodec.StreamName, span : Propulsion.Streams.StreamSpan<_>) = async {
+                match producer with
+                | None -> ()
+                | Some producer ->
+                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
+                    let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
+            Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
+        let source =
+            let transformOrFilter = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents
+            let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
+            Propulsion.CosmosStore.CosmosStoreSource.Start
+              ( log, monitored, leases, group, observer,
+                startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+        let work = [
+            Async.AwaitKeyboardInterruptAsTaskCancelledException()
+            sink.AwaitWithStopOnCancellation()
+            source.AwaitWithStopOnCancellation() ]
+        return! work |> Async.Parallel |> Async.Ignore<unit[]> }
 
 [<EntryPoint>]
 let main argv =
     let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
     let parser = ArgumentParser.Create<Parameters>(programName = programName)
-    try
-        let args = parser.ParseCommandLine argv
+    try let args = parser.ParseCommandLine argv
         let verboseConsole = args.Contains VerboseConsole
         let maybeSeq = if args.Contains LocalSeq then Some "http://localhost:5341" else None
         let verbose = args.Contains Verbose
-        let log = createLog verbose verboseConsole maybeSeq
-        let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
-        match args.GetSubCommand() with
-        | Init a -> CosmosInit.aux log a |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-        | Project pargs ->
-            let group, startFromTail, maxItems = pargs.GetResult ConsumerGroupName, pargs.Contains FromTail, pargs.TryGetResult MaxItems
-            maxItems |> Option.iter (fun bs -> log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs))
-            if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
-            let maybeLogLagInterval = pargs.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
-            let broker, topic, storeArgs =
-                match pargs.GetSubCommand() with
-                | Kafka kargs -> Some c.KafkaBroker, Some c.KafkaTopic, kargs.GetResult KafkaTarget.Cosmos
-                | Stats sargs -> None, None, sargs.GetResult StatsTarget.Cosmos
-                | x -> failwithf "Invalid subcommand %A" x
-            let args = Args.Cosmos.Arguments(c, storeArgs)
-            let monitored = args.MonitoredContainer(log)
-            let leases = args.ConnectLeases(log)
-
-            let producer =
-                match broker, topic with
-                | Some b, Some t ->
-                    let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 100.)
-                    let cfg = FsKafka.KafkaProducerConfig.Create(appName, b, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
-                    let p = FsKafka.KafkaProducer.Create(log, cfg, t)
-                    Some p
-                | _ -> None
-            let sink =
-                let stats = Stats(log, TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5.)
-                let maxReadAhead, maxConcurrentStreams = 2, 16
-                let handle (stream : FsCodec.StreamName, span : Propulsion.Streams.StreamSpan<_>) = async {
-                    match producer with
-                    | None -> ()
-                    | Some producer ->
-                        let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
-                        let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
-                Propulsion.Streams.StreamsProjector.Start(log, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval)
-            let source =
-                let transformOrFilter = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents
-                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(log, sink.StartIngester, Seq.collect transformOrFilter)
-                Propulsion.CosmosStore.CosmosStoreSource.Start
-                  ( log, monitored, leases, group, observer,
-                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
-            [   Async.AwaitKeyboardInterruptAsTaskCancelledException()
-                sink.AwaitWithStopOnCancellation()
-                source.AwaitWithStopOnCancellation() ]
-            |> Async.Parallel
-            |> Async.Ignore<unit[]>
-            |> Async.RunSynchronously
-        | _ -> failwith "Please specify a valid subcommand :- init, checkpoint or project"
-        0
-    with :? ArguParseException as e -> eprintfn "%s" e.Message; 1
-        | Args.MissingArg msg -> eprintfn "%s" msg; 1
-        | e -> eprintfn "%s" e.Message; 1
+        Log.Logger <- createLog verbose verboseConsole maybeSeq
+        let log = Log.Logger
+        try let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
+            try match args.GetSubCommand() with
+                | Init a -> CosmosInit.aux log (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
+                | Checkpoint a -> Checkpoints.readOrOverride log (c, a) |> Async.RunSynchronously
+                | Project a -> Project.run log (c, a) |> Async.RunSynchronously
+                | _ -> Args.missingArg "Please specify a valid subcommand :- init, checkpoint or project"
+                0
+            with e when not (e :? Args.MissingArg) -> Log.Fatal(e, "Exiting"); 2
+        finally Log.CloseAndFlush()
+    with Args.MissingArg msg -> eprintfn $"%s{msg}"; 1
+        | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
+        | e -> eprintfn $"Exception %s{e.Message}"; 1

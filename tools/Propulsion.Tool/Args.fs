@@ -31,7 +31,9 @@ module Configuration =
 type Configuration(tryGet : string -> string option) =
 
     member val tryGet =                             tryGet
-    member _.get key =                              match tryGet key with Some value -> value | None -> missingArg $"Missing Argument/Environment Variable %s{key}"
+    member _.get key =                              match tryGet key with
+                                                    | Some value -> value
+                                                    | None -> missingArg $"Missing Argument/Environment Variable %s{key}"
 
     member x.CosmosConnection =                     x.get Configuration.Cosmos.CONNECTION
     member x.CosmosDatabase =                       x.get Configuration.Cosmos.DATABASE
@@ -93,7 +95,7 @@ module Cosmos =
 //            storeClient, monitored
 
     type [<NoEquality; NoComparison>] Parameters =
-        | [<AltCommandLine "-V"; Unique>]   Verbose
+//        | [<AltCommandLine "-V"; Unique>]   Verbose
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
         | [<AltCommandLine "-s">]           Connection of string
         | [<AltCommandLine "-d">]           Database of string
@@ -105,7 +107,7 @@ module Cosmos =
         | [<AltCommandLine("-as"); Unique>] Suffix of string
         interface IArgParserTemplate with
             member a.Usage = a |> function
-                | Verbose ->                "Include low level Store logging."
+//                | Verbose ->                "Include low level Store logging."
                 | ConnectionMode _ ->       "override the connection mode. Default: Direct."
                 | Connection _ ->           "specify a connection string for a Cosmos account. (optional if environment variable " + CONNECTION + " specified)"
                 | Database _ ->             "specify a database name for Cosmos store. (optional if environment variable " + DATABASE + " specified)"
@@ -128,7 +130,7 @@ module Cosmos =
         let checkpointInterval =            TimeSpan.FromHours 1.
         member val ContainerId =            a.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
         member x.MonitoredContainer(log) =  connector.CreateClient(log, database, x.ContainerId)
-        member val Verbose =                a.Contains Verbose
+//        member val Verbose =                a.Contains Verbose
         member val LeaseContainerId =       a.TryGetResult LeaseContainer
         member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + a.GetResult(Suffix, "-aux")
         member x.ConnectLeases(log) =       connector.CreateClient(log, database, x.LeasesContainerName, "Leases")
@@ -167,7 +169,7 @@ module Dynamo =
             Equinox.DynamoStore.DynamoStoreContext(storeClient)
 
     type [<NoEquality; NoComparison>] Parameters =
-        | [<AltCommandLine "-V">]           Verbose
+//        | [<AltCommandLine "-V">]           Verbose
         | [<AltCommandLine "-s">]           ServiceUrl of string
         | [<AltCommandLine "-sa">]          AccessKey of string
         | [<AltCommandLine "-ss">]          SecretKey of string
@@ -178,7 +180,7 @@ module Dynamo =
         | [<AltCommandLine "-is">]          IndexSuffix of string
         interface IArgParserTemplate with
             member a.Usage = a |> function
-                | Verbose ->                "Include low level Store logging."
+//                | Verbose ->                "Include low level Store logging."
                 | ServiceUrl _ ->           "specify a server endpoint for a Dynamo account. (optional if environment variable " + SERVICE_URL + " specified)"
                 | AccessKey _ ->            "specify an access key id for a Dynamo account. (optional if environment variable " + ACCESS_KEY + " specified)"
                 | SecretKey _ ->            "specify a secret access key for a Dynamo account. (optional if environment variable " + SECRET_KEY + " specified)"
