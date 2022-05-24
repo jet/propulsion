@@ -142,10 +142,10 @@ let [<Literal>] appName = "propulsion-tool"
 
 module CosmosInit =
 
-    let aux (log : ILogger) (c, a : ParseResults<InitAuxParameters>) = async {
+    let aux (log : ILogger) (a : ParseResults<InitAuxParameters>) = async {
         match a.TryGetSubCommand() with
         | Some (InitAuxParameters.Cosmos sa) ->
-            let args = Args.Cosmos.Arguments(c, sa)
+            let args = Cosmos.Arguments(sa)
             let client = args.ConnectLeases(log)
             let rus = a.GetResult(InitAuxParameters.Rus)
             log.Information("Provisioning Leases Container for {rus:n0} RU/s", rus)
@@ -169,8 +169,7 @@ let main argv =
         let verbose = args.Contains Verbose
         let log = createLog verbose verboseConsole maybeSeq
         match args.GetSubCommand() with
-        | Init a -> CosmosInit.aux log (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-        | Checkpoint a -> Checkpoints.readOrOverride log (c, a) |> Async.RunSynchronously
+        | Init a -> CosmosInit.aux log a |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
         | Project pargs ->
             let group, startFromTail, maxItems = pargs.GetResult ConsumerGroupName, pargs.Contains FromTail, pargs.TryGetResult MaxItems
             maxItems |> Option.iter (fun bs -> log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs))
