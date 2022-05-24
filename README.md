@@ -147,7 +147,7 @@ The relevant pieces of the above break down as follows, when we emphasize the [C
 
 ## QuickStart
 
-### 1. Use `propulsion` tool to run a CosmosDb ChangeFeedProcessor
+### 1. Use `propulsion` tool to run a CosmosDb ChangeFeedProcessor or DynamoStoreSource projector
 
 ```powershell
 dotnet tool uninstall Propulsion.Tool -g
@@ -159,9 +159,12 @@ propulsion init -ru 400 cosmos # generates a -aux container for the ChangeFeedPr
 # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
 # cosmos specifies source overrides (using defaults in step 1 in this instance)
 propulsion -V project -g projector1 stats cosmos
+
+# load events with 2 parallel readers, detailed store logging and a read timeout of 20s
+propulsion -VS project -g projector1 stats dynamo -rt 20 -d 2
 ```
 
-### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor, emitting to a Kafka topic
+### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor or DynamoStoreSource projector, emitting to a Kafka topic 
 
 ```powershell
 $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
