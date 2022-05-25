@@ -36,7 +36,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MinVer" Version="3.1.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
     <PackageReference Include="FSharp.Core" Version="4.3.4" />
     <PackageReference Include="Equinox.CosmosStore" Version="[3.0.7, 3.99.0]" />
