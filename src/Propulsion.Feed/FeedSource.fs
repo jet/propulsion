@@ -96,14 +96,17 @@ type AllFeedSource
         checkpoints : IFeedCheckpointStore,
         sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
         // Custom checkpoint rendering logic
-        ?renderPos) =
+        ?renderPos,
+        // Custom logic to derive an origin position if the checkpoint store doesn't have one
+        // facilitates implementing a 'startFromTail' behavior
+        ?establishOrigin) =
     inherit TailingFeedSource
         (   log, statsInterval, sourceId, tailSleepInterval,
             (fun (_trancheId, pos) -> asyncSeq {
                   let sw = System.Diagnostics.Stopwatch.StartNew()
                   let! b = readBatch pos
                   yield sw.Elapsed, b } ),
-            checkpoints, None, sink,
+            checkpoints, establishOrigin, sink,
             renderPos = defaultArg renderPos string)
 
     member _.Pump() =

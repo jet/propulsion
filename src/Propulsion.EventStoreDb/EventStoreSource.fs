@@ -33,6 +33,8 @@ type EventStoreSource
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?hydrateBodies,
+        // TODO borrow impl of determining tail from Propulsion.EventStore, pass that to base as ?establishOrigin
+        // ?fromTail,
         ?sourceId) =
     inherit Propulsion.Feed.Internal.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
