@@ -15,7 +15,6 @@
             <Link>PropulsionInfrastructure.fs</Link>
         </Compile>
         <Content Include="aws-lambda-tools-defaults.json" />
-        <Compile Include="Connector.fs" />
         <Compile Include="DynamoStreamsLambda.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>

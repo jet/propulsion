@@ -129,7 +129,7 @@ module Checkpoints =
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
             do! overridePosition pos
         let sn = Propulsion.Feed.ReaderCheckpoint.streamName (source, tranche, group)
-        let cmd = $"eqx dump -s '{sn}' {storeSpecFragment}"
+        let cmd = $"eqx dump '{sn}' {storeSpecFragment}"
         Log.Information("Inspect via 👉 {cmd}", cmd) }
 
 module Project =

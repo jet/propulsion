@@ -51,13 +51,13 @@ module private Impl =
         let force = storeLog.IsEnabled Serilog.Events.LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
-        | e -> storeLog.Warning(e, "DynamoDb read failure")
+        | e -> storeLog.Warning(e, "DynamoStoreSource read failure")
 
     let logCommitFailure (storeLog : Serilog.ILogger) =
         let force = storeLog.IsEnabled Serilog.Events.LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
-        | e -> storeLog.Warning(e, "DynamoDb commit failure")
+        | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
     let mkBatch checkpoint isTail items : Propulsion.Feed.Internal.Batch<_> =
         { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
