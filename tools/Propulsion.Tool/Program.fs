@@ -24,14 +24,30 @@ type Parameters =
 
 and [<NoComparison; NoEquality>] InitAuxParameters =
     | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
+    | [<AltCommandLine "-A">]               Autoscale
+    | [<AltCommandLine "-m">]               Mode of CosmosModeType
     | [<AltCommandLine("-s")>]              Suffix of string
     | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Args.Cosmos.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
+            | Autoscale ->                  "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
+            | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
             | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
 
+and CosmosInitInfo(args : ParseResults<InitAuxParameters>) =
+    member _.ProvisioningMode =
+        let throughput () =
+            if args.Contains Autoscale
+            then Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale (args.GetResult(Rus, 4000))
+            else Equinox.CosmosStore.Core.Initialization.Throughput.Manual (args.GetResult(Rus, 400))
+        match args.GetResult(Mode, CosmosModeType.Container) with
+        | CosmosModeType.Container ->       Equinox.CosmosStore.Core.Initialization.Provisioning.Container (throughput ())
+        | CosmosModeType.Db ->              Equinox.CosmosStore.Core.Initialization.Provisioning.Database (throughput ())
+        | CosmosModeType.Serverless ->
+            if args.Contains Rus || args.Contains Autoscale then raise (failwith "Cannot specify RU/s or Autoscale in Serverless mode")
+            Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless
 and [<NoEquality; NoComparison>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
     | [<AltCommandLine "-t"; Mandatory>]    Tranche of Propulsion.Feed.TrancheId
@@ -83,6 +99,7 @@ and [<NoComparison; NoEquality>] StatsParameters =
         member a.Usage = a |> function
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
+and CosmosModeType = Container | Db | Serverless
 
 let [<Literal>] appName = "propulsion-tool"
 
@@ -92,10 +109,20 @@ module CosmosInit =
         match a.TryGetSubCommand() with
         | Some (InitAuxParameters.Cosmos sa) ->
             let args = Args.Cosmos.Arguments(c, sa)
+            let mode = (CosmosInitInfo a).ProvisioningMode
             let client = args.ConnectLeases()
             let rus = a.GetResult(InitAuxParameters.Rus)
-            Log.Information("Provisioning Leases Container for {rus:n0} RU/s", rus)
-            return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) rus
+            match mode with
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Container ru ->
+                let modeStr = "Container"
+                Log.Information("Provisioning Leases Container for {rus:n0} RU/s", modeStr, ru)
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Database ru ->
+                let modeStr = "Database"
+                Log.Information("Provisioning Leases Container at {mode:l} level for {rus:n0} RU/s", modeStr, ru)
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
+                let modeStr = "Serverless"
+                Log.Information("Provisioning Leases Container in {mode:l} mode with automatic RU/s as configured in account", modeStr)
+            return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
         | _ -> return failwith "please specify a `cosmos` endpoint" }
 
 module Checkpoints =
