@@ -2,6 +2,7 @@
 
 open Argu
 open Propulsion.CosmosStore.Infrastructure // AwaitKeyboardInterruptAsTaskCancelledException
+open Propulsion.Tool.Args
 open Serilog
 open System
 
@@ -23,15 +24,33 @@ type Parameters =
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 
 and [<NoComparison; NoEquality>] InitAuxParameters =
-    | [<AltCommandLine("-ru"); Mandatory>]  Rus of int
-    | [<AltCommandLine("-s")>]              Suffix of string
-    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Args.Cosmos.Parameters>
+    | [<AltCommandLine("-ru"); Unique>]  Rus of int
+    | [<AltCommandLine "-A"; Unique>]    Autoscale
+    | [<AltCommandLine "-m"; Unique>]    Mode of CosmosModeType
+    | [<AltCommandLine("-s")>]           Suffix of string
+    | [<CliPrefix(CliPrefix.None)>]      Cosmos of ParseResults<Args.Cosmos.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Rus _ ->                      "Specify RU/s level to provision for the Aux Container."
+            | Rus _ ->                      "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
+            | Autoscale ->                  "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
+            | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
             | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
 
+and CosmosInitInfo(args : ParseResults<InitAuxParameters>) =
+
+    let throughputSpec =
+        match args.Contains Autoscale with
+        | true -> Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale (args.GetResult(Rus, 4000))
+        | false -> Equinox.CosmosStore.Core.Initialization.Throughput.Manual (args.GetResult(Rus, 400))
+
+    member _.ProvisioningMode =
+        match args.GetResult(Mode, CosmosModeType.Container) with
+        | CosmosModeType.Container ->       Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughputSpec
+        | CosmosModeType.Db ->              Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughputSpec
+        | CosmosModeType.Serverless ->
+            if args.Contains Rus || args.Contains Autoscale then missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
+            Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless
 and [<NoEquality; NoComparison>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
     | [<AltCommandLine "-t"; Mandatory>]    Tranche of Propulsion.Feed.TrancheId
@@ -83,6 +102,7 @@ and [<NoComparison; NoEquality>] StatsParameters =
         member a.Usage = a |> function
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
+and CosmosModeType = Container | Db | Serverless
 
 let [<Literal>] appName = "propulsion-tool"
 
@@ -92,10 +112,27 @@ module CosmosInit =
         match a.TryGetSubCommand() with
         | Some (InitAuxParameters.Cosmos sa) ->
             let args = Args.Cosmos.Arguments(c, sa)
+            let mode = (CosmosInitInfo a).ProvisioningMode
             let client = args.ConnectLeases()
-            let rus = a.GetResult(InitAuxParameters.Rus)
-            Log.Information("Provisioning Leases Container for {rus:n0} RU/s", rus)
-            return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) rus
+            match mode with
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->
+                let modeStr = "Container"
+                match throughput with
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container having autoscale throughput of max {rus:n0} RU/s", rus)
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container having manual throughput of {rus:n0} RU/s", rus)
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughput ->
+                let modeStr = "Database"
+                match throughput with
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level having autoscale throughput of max {rus:n0} RU/s", modeStr, rus)
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level having manual mode with {rus:n0} RU/s", modeStr, rus)
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
+                let modeStr = "Serverless"
+                Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
+            return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
         | _ -> return failwith "please specify a `cosmos` endpoint" }
 
 module Checkpoints =
