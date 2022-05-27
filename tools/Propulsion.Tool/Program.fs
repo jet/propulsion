@@ -248,8 +248,8 @@ let main argv =
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
                 | _ ->              Args.missingArg "Please specify a valid subcommand :- init, checkpoint or project"
                 0
-            with e when not (e :? Args.MissingArg) -> Log.Fatal(e, "Exiting"); 2
+            with e when not (e :? Args.MissingArg || e :? ArguParseException) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
-    with Args.MissingArg msg -> eprintfn $"%s{msg}"; 1
+    with Args.MissingArg msg -> eprintfn $"ERROR: %s{msg}"; 1
         | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | e -> eprintfn $"Exception %s{e.Message}"; 1
