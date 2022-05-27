@@ -115,15 +115,23 @@ module CosmosInit =
             let mode = (CosmosInitInfo a).ProvisioningMode
             let client = args.ConnectLeases()
             match mode with
-            | Equinox.CosmosStore.Core.Initialization.Provisioning.Container ru ->
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->
                 let modeStr = "Container"
-                Log.Information("Provisioning Leases Container for {rus:n0} RU/s", modeStr, ru)
-            | Equinox.CosmosStore.Core.Initialization.Provisioning.Database ru ->
+                match throughput with
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container having autoscale throughput of max {rus:n0} RU/s", rus)
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container having manual throughput of {rus:n0} RU/s", rus)
+            | Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughput ->
                 let modeStr = "Database"
-                Log.Information("Provisioning Leases Container at {mode:l} level for {rus:n0} RU/s", modeStr, ru)
+                match throughput with
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level having autoscale throughput of max {rus:n0} RU/s", modeStr, rus)
+                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level having manual mode with {rus:n0} RU/s", modeStr, rus)
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
                 let modeStr = "Serverless"
-                Log.Information("Provisioning Leases Container in {mode:l} mode with automatic RU/s as configured in account", modeStr)
+                Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
             return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
         | _ -> return failwith "please specify a `cosmos` endpoint" }
 
