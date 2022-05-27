@@ -49,7 +49,7 @@ and CosmosInitInfo(args : ParseResults<InitAuxParameters>) =
         | CosmosModeType.Container ->       Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughputSpec
         | CosmosModeType.Db ->              Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughputSpec
         | CosmosModeType.Serverless ->
-            if args.Contains Rus || args.Contains Autoscale then raise (MissingArg "Cannot specify RU/s or Autoscale in Serverless mode")
+            if args.Contains Rus || args.Contains Autoscale then missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
             Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless
 and [<NoEquality; NoComparison>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
