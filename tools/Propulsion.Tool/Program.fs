@@ -114,7 +114,6 @@ module CosmosInit =
             let args = Args.Cosmos.Arguments(c, sa)
             let mode = (CosmosInitInfo a).ProvisioningMode
             let client = args.ConnectLeases()
-            let rus = a.GetResult(InitAuxParameters.Rus)
             match mode with
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Container ru ->
                 let modeStr = "Container"
