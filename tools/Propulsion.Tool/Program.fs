@@ -37,19 +37,16 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
             | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
 
-and CosmosInitInfo(args : ParseResults<InitAuxParameters>) =
-
+and CosmosInitInfo(p : ParseResults<InitAuxParameters>) =
     let throughputSpec =
-        match args.Contains Autoscale with
-        | true -> Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale (args.GetResult(Rus, 4000))
-        | false -> Equinox.CosmosStore.Core.Initialization.Throughput.Manual (args.GetResult(Rus, 400))
-
-    member _.ProvisioningMode =
-        match args.GetResult(Mode, CosmosModeType.Container) with
+        if p.Contains Autoscale then Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale (p.GetResult(Rus, 4000))
+        else Equinox.CosmosStore.Core.Initialization.Throughput.Manual (p.GetResult(Rus, 400))
+    member val ProvisioningMode =
+        match p.GetResult(Mode, CosmosModeType.Container) with
         | CosmosModeType.Container ->       Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughputSpec
         | CosmosModeType.Db ->              Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughputSpec
         | CosmosModeType.Serverless ->
-            if args.Contains Rus || args.Contains Autoscale then missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
+            if p.Contains Rus || p.Contains Autoscale then missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
             Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless
 and [<NoEquality; NoComparison>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
@@ -108,49 +105,47 @@ let [<Literal>] appName = "propulsion-tool"
 
 module CosmosInit =
 
-    let aux (c, a : ParseResults<InitAuxParameters>) = async {
-        match a.TryGetSubCommand() with
-        | Some (InitAuxParameters.Cosmos sa) ->
-            let args = Args.Cosmos.Arguments(c, sa)
-            let mode = (CosmosInitInfo a).ProvisioningMode
-            let client = args.ConnectLeases()
+    let aux (c, p : ParseResults<InitAuxParameters>) =
+        match p.GetSubCommand() with
+        | InitAuxParameters.Cosmos sa ->
+            let a = Args.Cosmos.Arguments(c, sa)
+            let mode = (CosmosInitInfo p).ProvisioningMode
+            let client = a.ConnectLeases()
             match mode with
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->
-                let modeStr = "Container"
                 match throughput with
                 | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container having autoscale throughput of max {rus:n0} RU/s", rus)
+                    Log.Information("Provisioning Leases Container with Autoscale throughput of up to {rus:n0} RU/s", rus)
                 | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container having manual throughput of {rus:n0} RU/s", rus)
+                    Log.Information("Provisioning Leases Container with {rus:n0} RU/s", rus)
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughput ->
                 let modeStr = "Database"
                 match throughput with
                 | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level having autoscale throughput of max {rus:n0} RU/s", modeStr, rus)
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level with Autoscale throughput of up to {rus:n0} RU/s", modeStr, rus)
                 | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level having manual mode with {rus:n0} RU/s", modeStr, rus)
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
                 let modeStr = "Serverless"
                 Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
-            return! Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
-        | _ -> return failwith "please specify a `cosmos` endpoint" }
+            Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
+        | x -> missingArg $"unexpected subcommand %A{x}"
 
 module Checkpoints =
 
-    type Arguments(c, a : ParseResults<CheckpointParameters>) =
-
+    type Arguments(c, p : ParseResults<CheckpointParameters>) =
         member val StoreArgs =
-            match a.GetSubCommand() with
+            match p.GetSubCommand() with
             | CheckpointParameters.Cosmos p -> Choice1Of2 (Args.Cosmos.Arguments (c, p))
             | CheckpointParameters.Dynamo p -> Choice2Of2 (Args.Dynamo.Arguments (c, p))
-            | _ -> Args.missingArg "Must specify `cosmos` or `dynamo` store"
+            | _ -> missingArg "Must specify `cosmos` or `dynamo` store"
 
-    let readOrOverride (c, a : ParseResults<CheckpointParameters>) = async {
-        let args = Arguments(c, a)
-        let source, tranche, group = a.GetResult Source, a.GetResult Tranche, a.GetResult Group
+    let readOrOverride (c, p : ParseResults<CheckpointParameters>) = async {
+        let a = Arguments(c, p)
+        let source, tranche, group = p.GetResult Source, p.GetResult Tranche, p.GetResult Group
         let! store, storeSpecFragment, overridePosition = async {
             let cache = Equinox.Cache (appName, sizeMb = 1)
-            match args.StoreArgs with
+            match a.StoreArgs with
             | Choice1Of2 a ->
                 let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
                 return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos)
@@ -158,7 +153,7 @@ module Checkpoints =
                 let store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
                 return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos) }
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
-        match a.TryGetResult OverridePosition with
+        match p.TryGetResult OverridePosition with
         | None ->
             let! interval, pos = store.Start(source, tranche)
             Log.Information("Checkpoint position {pos}; Checkpoint event frequency {checkpointEventIntervalM:f0}m", pos, interval.TotalMinutes)
@@ -171,28 +166,28 @@ module Checkpoints =
 
 module Project =
 
-    type KafkaArguments(c, a : ParseResults<KafkaParameters>) =
-        member _.Broker =                   a.TryGetResult Broker |> Option.defaultWith (fun () -> c.KafkaBroker)
-        member _.Topic =                    a.TryGetResult Topic |> Option.defaultWith (fun () -> c.KafkaTopic)
+    type KafkaArguments(c, p : ParseResults<KafkaParameters>) =
+        member _.Broker =                   p.TryGetResult Broker |> Option.defaultWith (fun () -> c.KafkaBroker)
+        member _.Topic =                    p.TryGetResult Topic |> Option.defaultWith (fun () -> c.KafkaTopic)
         member val StoreArgs =
-            match a.GetSubCommand() with
+            match p.GetSubCommand() with
             | KafkaParameters.Cosmos p -> Choice1Of2 (Args.Cosmos.Arguments (c, p))
             | KafkaParameters.Dynamo p -> Choice2Of2 (Args.Dynamo.Arguments (c, p))
-            | _ -> Args.missingArg "Must specify `cosmos` or `dynamo` store"
+            | x -> missingArg $"unexpected subcommand %A{x}"
 
-    type StatsArguments(c, a : ParseResults<StatsParameters>) =
+    type StatsArguments(c, p : ParseResults<StatsParameters>) =
         member val StoreArgs =
-            match a.GetSubCommand() with
+            match p.GetSubCommand() with
             | StatsParameters.Cosmos p -> Choice1Of2 (Args.Cosmos.Arguments (c, p))
             | StatsParameters.Dynamo p -> Choice2Of2 (Args.Dynamo.Arguments (c, p))
 
-    type Arguments(c, a : ParseResults<ProjectParameters>) =
+    type Arguments(c, p : ParseResults<ProjectParameters>) =
         member val IdleDelay =              TimeSpan.FromMilliseconds 10.
         member val StoreArgs =
-            match a.GetSubCommand() with
+            match p.GetSubCommand() with
             | Kafka a -> KafkaArguments(c, a).StoreArgs
             | Stats a -> StatsArguments(c, a).StoreArgs
-            | x -> Args.missingArg $"Invalid subcommand %A{x}"
+            | x -> missingArg $"unexpected subcommand %A{x}"
 
     type Stats(statsInterval, statesInterval, logExternalStats) =
         inherit Propulsion.Streams.Stats<unit>(Log.Logger, statsInterval = statsInterval, statesInterval = statesInterval)
@@ -203,17 +198,17 @@ module Project =
             base.DumpStats()
             logExternalStats Log.Logger
 
-    let run (c : Args.Configuration, a : ParseResults<ProjectParameters>) = async {
-        let args = Arguments(c, a)
+    let run (c : Args.Configuration, p : ParseResults<ProjectParameters>) = async {
+        let a = Arguments(c, p)
         let storeArgs, dumpStoreStats =
-            match args.StoreArgs with
+            match a.StoreArgs with
             | Choice1Of2 sa -> Choice1Of2 sa, Equinox.CosmosStore.Core.Log.InternalMetrics.dump
             | Choice2Of2 sa -> Choice2Of2 sa, Equinox.DynamoStore.Core.Log.InternalMetrics.dump
-        let group, startFromTail, maxItems = a.GetResult ConsumerGroupName, a.Contains FromTail, a.TryGetResult MaxItems
+        let group, startFromTail, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.TryGetResult MaxItems
         match maxItems with None -> () | Some bs -> Log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs)
         if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
         let producer =
-            match a.GetSubCommand() with
+            match p.GetSubCommand() with
             | Kafka a ->
                 let a = KafkaArguments(c, a)
                 let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.FromMilliseconds 100.)
@@ -221,7 +216,7 @@ module Project =
                 let p = FsKafka.KafkaProducer.Create(Log.Logger, cfg, a.Topic)
                 Some p
             | Stats _ -> None
-            | x -> Args.missingArg $"Invalid subcommand %A{x}"
+            | x -> missingArg $"unexpected subcommand %A{x}"
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
@@ -231,7 +226,7 @@ module Project =
                 | Some producer ->
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
                     let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
-            Propulsion.Streams.StreamsProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = args.IdleDelay)
+            Propulsion.Streams.StreamsProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = a.IdleDelay)
         let source =
             match storeArgs with
             | Choice1Of2 sa ->
@@ -273,20 +268,19 @@ let parseCommandLine argv =
 
 [<EntryPoint>]
 let main argv =
-    let args = parseCommandLine argv
-    let verbose, verboseConsole, verboseStore = args.Contains Verbose, args.Contains VerboseConsole, args.Contains VerboseStore
-    let metrics = Sinks.equinoxMetricsOnly
-    Log.Logger <- LoggerConfiguration().Configure(verbose).Sinks(metrics, verboseConsole, verboseStore).CreateLogger()
-
-    try try let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
-            try match args.GetSubCommand() with
+    try let a = parseCommandLine argv
+        let verbose, verboseConsole, verboseStore = a.Contains Verbose, a.Contains VerboseConsole, a.Contains VerboseStore
+        let metrics = Sinks.equinoxMetricsOnly
+        try Log.Logger <- LoggerConfiguration().Configure(verbose).Sinks(metrics, verboseConsole, verboseStore).CreateLogger()
+            let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
+            try match a.GetSubCommand() with
                 | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
                 | Checkpoint a ->   Checkpoints.readOrOverride (c, a) |> Async.RunSynchronously
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
-                | _ ->              Args.missingArg "Please specify a valid subcommand :- init, checkpoint or project"
+                | x ->              missingArg $"unexpected subcommand %A{x}"
                 0
-            with e when not (e :? Args.MissingArg || e :? ArguParseException) -> Log.Fatal(e, "Exiting"); 2
+            with e when not (e :? MissingArg || e :? ArguParseException) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
-    with Args.MissingArg msg -> eprintfn $"ERROR: %s{msg}"; 1
-        | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
-        | e -> eprintfn $"Exception %s{e.Message}"; 1
+    with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
+        | MissingArg msg -> eprintfn $"ERROR: %s{msg}"; 1
+        | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1
