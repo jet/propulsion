@@ -23,8 +23,10 @@
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
         
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
-      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.0" />
+      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
+      <PackageReference Include="Amazon.Lambda.RuntimeSupport" Version="1.8.1" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
+      <PackageReference Include="Serilog.Formatting.Compact" Version="1.1.0" />
       <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
       <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
     </ItemGroup>
