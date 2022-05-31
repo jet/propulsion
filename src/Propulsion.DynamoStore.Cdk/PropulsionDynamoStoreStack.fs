@@ -27,15 +27,15 @@ type PropulsionDynamoStoreStack(streamArn, scope, id, props, ?fromTail) as stack
             role.AddToPolicy(streamLevel) |> ignore
         role
 
-    // let code =
-    //     let bucket, key = unbox ()
-    //     Code.FromBucket(bucket, key)
-    let code = Unchecked.defaultof<_>
+    //  dotnet publish -c Release -r linux-arm64 --self-contained false
+    let code = Code.FromAsset("../Propulsion.DynamoStore.Lambda/bin/Release/net6.0/linux-arm64/publish/")
     let fn : Function = Function(stack, "PropulsionDynamoStore", FunctionProps(
         Role = role,
-        Code = code, Architecture = Architecture.ARM_64,
+        Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
+        Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler",
         Timeout = Duration.Minutes 3.))
     do fn.AddEventSourceMapping("esm", EventSourceMappingOptions(
+        EventSourceArn = streamArn,
         StartingPosition = (if fromTail = Some true then StartingPosition.LATEST else StartingPosition.TRIM_HORIZON),
         // >1000 has proven not to work well in 128 MB memory
-        BatchSize = 1000)) |> ignore
+        BatchSize = 1000.)) |> ignore
