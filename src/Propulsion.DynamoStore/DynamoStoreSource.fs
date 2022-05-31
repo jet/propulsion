@@ -117,15 +117,14 @@ module private Impl =
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
                         for e in events do ({ stream = IndexStreamId.toStreamName span.p; event = e } : StreamEvent) |] }
         let mutable prevLoaded, batchIndex = 0L, 0
-        let report i len =
+        let report (i : int option) len =
             if largeEnough && hydrating then
-                let i = Option.toNullable i
                 match cache.Count with
                 | loadedNow when prevLoaded <> loadedNow ->
                     prevLoaded <- loadedNow
                     let eventsLoaded = cache.Values |> Seq.sumBy Array.length
                     log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
-                                    sourceId, string tid, string epochId, i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, eventsLoaded, chosenEvents)
+                                    sourceId, string tid, string epochId, Option.toNullable i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, eventsLoaded, chosenEvents)
                 | _ -> ()
             batchIndex <- batchIndex + 1
         for i, spans in state.changes do

@@ -6,6 +6,8 @@ open Propulsion.Tool.Args
 open Serilog
 open System
 
+module CosmosInit = Equinox.CosmosStore.Core.Initialization
+
 [<NoEquality; NoComparison>]
 type Parameters =
     | [<AltCommandLine("-V")>]              Verbose
@@ -36,18 +38,17 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
             | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
             | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
-
-and CosmosInitInfo(p : ParseResults<InitAuxParameters>) =
-    let throughputSpec =
-        if p.Contains Autoscale then Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale (p.GetResult(Rus, 4000))
-        else Equinox.CosmosStore.Core.Initialization.Throughput.Manual (p.GetResult(Rus, 400))
+and CosmosModeType = Container | Db | Serverless
+and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
+    let rusOrDefault value = p.GetResult(Rus, value)
+    let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000) else CosmosInit.Throughput.Manual (rusOrDefault 400)
     member val ProvisioningMode =
-        match p.GetResult(Mode, CosmosModeType.Container) with
-        | CosmosModeType.Container ->       Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughputSpec
-        | CosmosModeType.Db ->              Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughputSpec
-        | CosmosModeType.Serverless ->
-            if p.Contains Rus || p.Contains Autoscale then missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
-            Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless
+        match p.GetResult(Mode, CosmosModeType.Container), p.Contains Autoscale with
+        | CosmosModeType.Container, auto -> CosmosInit.Provisioning.Container (throughput auto)
+        | CosmosModeType.Db, auto ->        CosmosInit.Provisioning.Database (throughput auto)
+        | CosmosModeType.Serverless, auto when auto || p.Contains Rus -> missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
+        | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
+
 and [<NoEquality; NoComparison>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
     | [<AltCommandLine "-t"; Mandatory>]    Tranche of Propulsion.Feed.TrancheId
@@ -99,7 +100,6 @@ and [<NoComparison; NoEquality>] StatsParameters =
         member a.Usage = a |> function
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
-and CosmosModeType = Container | Db | Serverless
 
 let [<Literal>] appName = "propulsion-tool"
 
@@ -108,8 +108,7 @@ module CosmosInit =
     let aux (c, p : ParseResults<InitAuxParameters>) =
         match p.GetSubCommand() with
         | InitAuxParameters.Cosmos sa ->
-            let a = Args.Cosmos.Arguments(c, sa)
-            let mode = (CosmosInitInfo p).ProvisioningMode
+            let mode, a = (CosmosInitArguments p).ProvisioningMode, Args.Cosmos.Arguments(c, sa)
             let client = a.ConnectLeases()
             match mode with
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->

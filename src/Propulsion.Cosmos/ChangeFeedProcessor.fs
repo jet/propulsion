@@ -132,7 +132,7 @@ type ChangeFeedProcessor =
             // NB for lag reporting to work correctly, it is of course still important that the writing take place, and that it be written via the CFP lib
             feedProcessorOptions.CheckpointFrequency.ExplicitCheckpoint <- true
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size
-            maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- Nullable mi)
+            maxDocuments |> Option.iter (fun mi -> feedProcessorOptions.MaxItemCount <- mi)
             let mkD cid (dc : DocumentClient) =
                 DocumentCollectionInfo(Uri=dc.ServiceEndpoint,ConnectionPolicy=dc.ConnectionPolicy,DatabaseName=cid.database,CollectionName=cid.container)
             ChangeFeedProcessorBuilder()

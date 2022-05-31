@@ -27,5 +27,5 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
     /// NOTE regardless of concurrency within a process, it's critical to avoid having >1 writer hitting the same trancheId as this will result on continual conflicts
     member _.IngestWithoutConcurrency(trancheId, spans) = async {
         let ingester = ingester trancheId
-        let! originTranche = ingester.ActiveIngestionEpochId()
-        return! ingester.IngestMany(originTranche, spans) |> Async.Ignore }
+        let! originEpoch = ingester.ActiveIngestionEpochId()
+        return! ingester.IngestMany(originEpoch, spans) |> Async.Ignore }
