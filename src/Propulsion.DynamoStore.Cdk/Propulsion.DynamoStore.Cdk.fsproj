@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <!-- Opt into Roll forward to future major versions as needed -->
+    <RollForward>Major</RollForward>
+    <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="PropulsionDynamoStoreStack.fs" />
+    <Compile Include="Program.fs" />
+    <Content Include="cdk.json" />
+    <Content Include="README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- CDK Construct Library dependencies -->
+<!--    <PackageReference Include="Amazon.CDK.AWS.DynamoDB" Version="1.157.0" />-->
+    <PackageReference Include="Amazon.CDK.Lib" Version="2.26.0" />
+<!--    <PackageReference Include="Constructs" Version="10.1.19" />-->
+
+    <!-- jsii Roslyn analyzers (un-comment to obtain compile-time checks for missing required props
+    <PackageReference Include="Amazon.Jsii.Analyzers" Version="*" PrivateAssets="all" />
+    -->
+  </ItemGroup>
+
+</Project>
