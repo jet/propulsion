@@ -34,6 +34,8 @@ type FeedSourceBase internal
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
             crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<byte[]>>) = async {
+        // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
+        // TODO when that's done, remove workaround in readTranches
         try let! tranches = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
             return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
