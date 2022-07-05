@@ -75,10 +75,10 @@ module internal Config =
 module internal EventCodec =
 
     let create<'t when 't :> TypeShape.UnionContract.IUnionContract> () =
-        FsCodec.SystemTextJson.Codec.Create<'t>()
+        FsCodec.SystemTextJson.Codec.Create<'t>() |> FsCodec.Deflate.EncodeTryDeflate
     let private withUpconverter<'c, 'e when 'c :> TypeShape.UnionContract.IUnionContract> up : FsCodec.IEventCodec<'e, _, _> =
         let down (_ : 'e) = failwith "Unexpected"
-        FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down)
+        FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Deflate.EncodeTryDeflate
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<int64 * 'c, _, _> =
         let up (raw : FsCodec.ITimelineEvent<_>, e) = raw.Index, e
         withUpconverter<'c, int64 * 'c> up

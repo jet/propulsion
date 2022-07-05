@@ -151,8 +151,9 @@ type LoadMode =
                   * /// Defines the Context to use when loading the bodies
                     storeContext : DynamoStoreContext
 module internal LoadMode =
-    let private mapBodyToBytes = (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray())
-    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map mapBodyToBytes
+    let private mapTimelineEvent =
+        let mapBodyToBytes = (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray())
+        FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
         fun sn (i, cs : string array) ->
             if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
@@ -160,7 +161,7 @@ module internal LoadMode =
             else None
     let private withoutBodies filter =
         fun sn (i, cs) ->
-            let render = async { return cs |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = null)) }
+            let render = async { return cs |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)) }
             if filter sn then Some render else None
     let map storeLog : LoadMode -> _ = function
         | All -> false, withoutBodies (fun _ -> true), 1
