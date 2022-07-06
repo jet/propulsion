@@ -1,7 +1,8 @@
-﻿namespace Propulsion.DynamoStore.Lambda
+﻿module Propulsion.DynamoStore.Lambda.Program
 
 open Amazon.Lambda.Core
 open Amazon.Lambda.DynamoDBEvents
+open Amazon.Lambda.RuntimeSupport
 open Equinox.DynamoStore
 open Propulsion.DynamoStore
 open Serilog
@@ -67,5 +68,28 @@ type Function() =
             .CreateLogger()
     let service = DynamoStoreIndexer(log, conn.Context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024) //
 
-    member _.FunctionHandler(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) =
-        DynamoStreamsLambda.ingest log service dynamoEvent |> Async.StartImmediateAsTask
+    // Warm up (pending https://github.com/aws/aws-lambda-dotnet/pull/1091)
+    member _.InitAsync() =
+        service.IngestWithoutConcurrency(AppendsTrancheId.wellKnownId, Array.empty)
+
+    member _.Handle(dynamoEvent : DynamoDBEvent) =
+        DynamoStreamsLambda.ingest log service dynamoEvent
+
+let adaptInit f () =
+    async {
+        do! f ()
+        return true
+    } |> Async.StartImmediateAsTask
+let adaptHandler h x =
+    h x
+    |> Async.StartImmediateAsTask
+    :> System.Threading.Tasks.Task
+
+[<EntryPoint>]
+let main _ =
+    let f = Function()
+    let serializer = Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer()
+    let t = LambdaBootstrapBuilder.Create<_>(adaptHandler f.Handle, serializer)
+                .UseBootstrapHandler(adaptInit f.InitAsync)
+                .Build().RunAsync().GetAwaiter()
+    let () = t.GetResult() in 0

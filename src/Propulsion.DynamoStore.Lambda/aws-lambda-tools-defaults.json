@@ -12,5 +12,5 @@
   "function-memory-size": 128,
   "function-timeout": 180,
   "function-architecture": "arm64",
-  "function-handler": "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler"
+  "function-handler": "Propulsion.DynamoStore.Lambda"
 }
