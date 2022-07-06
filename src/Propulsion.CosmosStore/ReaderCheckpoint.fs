@@ -32,7 +32,7 @@ module Events =
         | Snapshotted   of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
 #if DYNAMOSTORE
-    let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Deflate.EncodeTryDeflate
 #else
 #if !COSMOSV3 && !COSMOSV2
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()
