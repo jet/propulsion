@@ -6,7 +6,7 @@ open Amazon.CDK
 let main _ =
     let app = App(null)
     let streamArn = ""
-    PropulsionDynamoStoreStack(streamArn, app, "PropulsionDynamoStoreCdkStack", StackProps()) |> ignore
+    PropulsionDynamoStoreStack(streamArn, app, "PropulsionDynamoStoreStack", StackProps()) |> ignore
 
     app.Synth() |> ignore
     0
