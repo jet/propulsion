@@ -6,13 +6,21 @@ Uses the CDK Toolkit to manage configuration/deployment of:
 
 ## Prerequisites
 
-1. A source Table
+0. CDK Toolkit installed
+
+       npm install -g aws-cdk
+   
+   See https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install for more details/context
+
+2. A source Table, with DDB Streams configured
 
        eqx initaws -rru 10 -wru 10 dynamo -t equinox-test
 
-2. An index table
+   TODO: `eqx initaws` should emit the streams ARN (for use in the deploy step below)
 
-       eqx initaws -rru 5 -wru 5 dynamo -t equinox-test-index
+3. An index table
+
+       eqx initaws -rru 5 -wru 5 -S off dynamo -t equinox-test-index
 
 4. Build/publish the Lambda package (TODO to be automated)
 

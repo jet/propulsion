@@ -1,14 +1,14 @@
 namespace PropulsionDynamoStoreCdk
 
 open Amazon.CDK
-open Amazon.CDK.AWS.DynamoDB
 open Amazon.CDK.AWS.IAM
 open Amazon.CDK.AWS.Lambda
 
 type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
     inherit Stack(scope, id, props)
 
-    let streamArn = CfnParameter(stack, "streamsArn", CfnParameterProps(Type="String",
+    let streamArn = CfnParameter(stack, "streamsArn", CfnParameterProps(
+        Type = "String",
         Description = "DynamoDB Streams ARN for source"))
     // let table = Amazon.CDK.AWS.DynamoDB.Table.FromTableAttributes(stack, "et", TableAttributes(TableArn = tableArn))
 
