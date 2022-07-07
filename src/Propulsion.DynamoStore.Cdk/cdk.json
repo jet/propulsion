@@ -1,5 +1,5 @@
 {
-  "app": "dotnet run --project Propulsion.DynamoStore.Cdk.fsproj",
+  "app": "dotnet run -c Release --project Propulsion.DynamoStore.Cdk.fsproj",
   "watch": {
     "include": [
       "**"
