@@ -5,9 +5,11 @@ open Amazon.CDK.AWS.DynamoDB
 open Amazon.CDK.AWS.IAM
 open Amazon.CDK.AWS.Lambda
 
-type PropulsionDynamoStoreStack(streamArn, scope, id, props, ?fromTail) as stack =
+type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
     inherit Stack(scope, id, props)
 
+    let streamArn = CfnParameter(stack, "streamsArn", CfnParameterProps(Type="String",
+        Description = "DynamoDB Streams ARN for source"))
     // let table = Amazon.CDK.AWS.DynamoDB.Table.FromTableAttributes(stack, "et", TableAttributes(TableArn = tableArn))
 
     let role =
@@ -23,7 +25,7 @@ type PropulsionDynamoStoreStack(streamArn, scope, id, props, ?fromTail) as stack
         // For the specific stream being indexed, enable access to walk the DDB Streams Data
         do  let streamLevel = PolicyStatement()
             streamLevel.AddActions("dynamodb:DescribeStream", "dynamodb:GetShardIterator", "dynamodb:GetRecords")
-            streamLevel.AddResources([|streamArn|])
+            streamLevel.AddResources([| streamArn.ValueAsString |])
             role.AddToPolicy(streamLevel) |> ignore
         role
 
@@ -35,7 +37,7 @@ type PropulsionDynamoStoreStack(streamArn, scope, id, props, ?fromTail) as stack
         Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler",
         Timeout = Duration.Minutes 3.))
     do fn.AddEventSourceMapping("esm", EventSourceMappingOptions(
-        EventSourceArn = streamArn,
+        EventSourceArn = streamArn.ValueAsString,
         StartingPosition = (if fromTail = Some true then StartingPosition.LATEST else StartingPosition.TRIM_HORIZON),
         // >1000 has proven not to work well in 128 MB memory
         BatchSize = 1000.)) |> ignore
