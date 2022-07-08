@@ -36,7 +36,7 @@ type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
         Role = role,
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler",
-        Timeout = Duration.Minutes 3.))
+        MemorySize = 128., Timeout = Duration.Minutes 3.))
     do fn.AddEventSourceMapping("EquinoxSource", EventSourceMappingOptions(
         EventSourceArn = streamArn.ValueAsString,
         StartingPosition = (if fromTail = Some true then StartingPosition.LATEST else StartingPosition.TRIM_HORIZON),
