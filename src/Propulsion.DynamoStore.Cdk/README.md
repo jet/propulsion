@@ -39,15 +39,9 @@ This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.
 
 ## To deploy
 
-    cdk deploy --parameters streamsArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013
-
-## Post deploy
-
-(Manually for the moment) Add environment vars for `EQUINOX_DYNAMO_ACCESS_KEY_ID`, `EQUINOX_DYNAMO_SECRET_ACCESS_KEY`, `EQUINOX_DYNAMO_SERVICE_URL`
-
-TODO: Add support for provisioning access via the role rather than the credentials
-
-(Manually for the moment) Add environment var for `EQUINOX_DYNAMO_TABLE_INDEX`
+    cdk deploy`
+        --parameters streamArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013`
+        --parameters tableName=equinox-test-index
 
 ## To redeploy
 
