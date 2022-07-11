@@ -49,6 +49,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Lamb
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Cdk", "src\Propulsion.DynamoStore.Cdk\Propulsion.DynamoStore.Cdk.fsproj", "{2CCCD57F-5DA0-4EE5-B04F-285D3A0F61EC}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Constructs", "src\Propulsion.DynamoStore.Constructs\Propulsion.DynamoStore.Constructs.fsproj", "{6D82146A-98D9-4959-98C9-D16A98C31952}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -119,6 +121,10 @@ Global
 		{2CCCD57F-5DA0-4EE5-B04F-285D3A0F61EC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2CCCD57F-5DA0-4EE5-B04F-285D3A0F61EC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{2CCCD57F-5DA0-4EE5-B04F-285D3A0F61EC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6D82146A-98D9-4959-98C9-D16A98C31952}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6D82146A-98D9-4959-98C9-D16A98C31952}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6D82146A-98D9-4959-98C9-D16A98C31952}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6D82146A-98D9-4959-98C9-D16A98C31952}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

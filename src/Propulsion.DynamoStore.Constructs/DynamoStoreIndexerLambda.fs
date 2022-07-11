@@ -1,23 +1,30 @@
-namespace PropulsionDynamoStoreCdk
+namespace Propulsion.DynamoStore.Constructs
 
-open Amazon.CDK
 open Amazon.CDK.AWS.IAM
 open Amazon.CDK.AWS.Lambda
+open System
 
-type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
-    inherit Stack(scope, id, props)
+type DynamoStoreIndexerLambdaProps =
+    {   /// DynamoDB Streams Source ARN
+        streamArn : string
 
-    let streamArnParam = CfnParameter(stack, "streamArn", CfnParameterProps(
-        Type = "String",
-        Description = "DynamoDB Streams ARN for source"))
-    let indexTableNameToken =
-        let tableNameParam = CfnParameter(stack, "tableName", CfnParameterProps(
-            Type = "String",
-            Description = "DynamoDB Table Name for index"))
-        tableNameParam.ValueAsString
+        /// DynamoDB Region for Index Table
+        regionName : string
+        /// DynamoDB Index Table Name
+        tableName : string
+
+        /// Lambda memory allocation
+        memorySize : int
+        /// Lambda max batch size
+        batchSize : int
+        /// Lambda max batch size
+        timeout : TimeSpan }
+
+type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) as stack =
+    inherit Constructs.Construct(scope, id)
 
     let role =
-        let role = Role(stack, "DynamoStoreIndexerLambda", RoleProps(
+        let role = Role(stack, "LambdaRole", RoleProps(
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,
             // Basic required permissions, chiefly CloudWatch access
             ManagedPolicies = [| ManagedPolicy.FromAwsManagedPolicyName "service-role/AWSLambdaBasicExecutionRole" |]))
@@ -29,9 +36,9 @@ type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
         // For the specific stream being indexed, enable access to walk the DDB Streams Data
         do  let streamLevel = PolicyStatement()
             streamLevel.AddActions("dynamodb:DescribeStream", "dynamodb:GetShardIterator", "dynamodb:GetRecords")
-            streamLevel.AddResources([| streamArnParam.ValueAsString |])
+            streamLevel.AddResources(props.streamArn)
             role.AddToPolicy(streamLevel) |> ignore
-        let indexTable = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, "indexTable", indexTableNameToken)
+        let indexTable = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, "indexTable", props.tableName)
         do  let indexTableLevel = PolicyStatement()
             indexTableLevel.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
             indexTableLevel.AddResources([| indexTable.TableArn |])
@@ -41,19 +48,19 @@ type PropulsionDynamoStoreStack(scope, id, props, ?fromTail) as stack =
     // NOTE: see README.md; must be built before using this via
     //       dotnet publish ../Propulsion.DynamoStore.Lambda -c Release -r linux-arm64 --self-contained true
     let code = Code.FromAsset("../Propulsion.DynamoStore.Lambda/bin/Release/net6.0/linux-arm64/publish/")
-    let fn : Function = Function(stack, "PropulsionDynamoStoreLambda", FunctionProps(
+    let fn : Function = Function(stack, "Indexer", FunctionProps(
         Role = role,
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler",
-        MemorySize = 128., Timeout = Duration.Minutes 3.,
+        MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,
         Environment = dict [
-            "EQUINOX_DYNAMO_SYSTEM_NAME", stack.Region
-            "EQUINOX_DYNAMO_TABLE_INDEX", indexTableNameToken ]))
+            "EQUINOX_DYNAMO_SYSTEM_NAME", props.regionName
+            "EQUINOX_DYNAMO_TABLE_INDEX", props.tableName ]))
     do fn.AddEventSourceMapping("EquinoxSource", EventSourceMappingOptions(
-        EventSourceArn = streamArnParam.ValueAsString,
-        StartingPosition = (if fromTail = Some true then StartingPosition.LATEST else StartingPosition.TRIM_HORIZON),
+        EventSourceArn = props.streamArn,
+        StartingPosition = StartingPosition.TRIM_HORIZON,
         // >1000 has proven not to work well in 128 MB memory
         // Anything up to 9999 is viable and tends to provide the best packing density and throughput under load. The key cons are:
         // - granularity of checkpointing is increased (so killing a projector may result in more re-processing than it would with a lower batch size)
         // - while aggregate write (and read) costs will go down, individual requests will be larger which may affect latency and/or required RC provisioning
-        BatchSize = 1000.)) |> ignore
+        BatchSize = float props.batchSize)) |> ignore

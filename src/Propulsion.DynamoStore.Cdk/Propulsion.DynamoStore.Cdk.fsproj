@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="PropulsionDynamoStoreStack.fs" />
+    <Compile Include="IndexerStack.fs" />
     <Compile Include="Program.fs" />
     <Content Include="README.md" />
     <Content Include=".gitignore" />
@@ -26,6 +26,10 @@
     <!-- jsii Roslyn analyzers (un-comment to obtain compile-time checks for missing required props
     <PackageReference Include="Amazon.Jsii.Analyzers" Version="*" PrivateAssets="all" />
     -->
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Propulsion.DynamoStore.Constructs\Propulsion.DynamoStore.Constructs.fsproj" />
   </ItemGroup>
 
 </Project>

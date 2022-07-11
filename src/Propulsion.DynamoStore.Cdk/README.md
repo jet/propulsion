@@ -39,15 +39,7 @@ This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.
 
 ## To deploy
 
-    cdk deploy`
-        --parameters streamArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013`
-        --parameters tableName=equinox-test-index
-
-## To redeploy
-
-Subsequent deploys may omit the `--parameters`, as they'll be retained. i.e.
-
-    dotnet publish ../Propulsion.DynamoStore.Lambda -c Release -r linux-arm64 --self-contained true && cdk deploy
+    cdk deploy -c streamArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013 -c indexTableName=equinox-test-index
 
 ## Useful commands
 
