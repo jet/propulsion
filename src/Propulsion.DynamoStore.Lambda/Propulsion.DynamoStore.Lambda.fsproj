@@ -9,6 +9,8 @@
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <!-- Generate ready to run images during publishing to improve cold start time -->
         <PublishReadyToRun>true</PublishReadyToRun>
+        <RuntimeIdentifier>linux-arm64</RuntimeIdentifier>
+        <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludePublished</TargetsForTfmSpecificBuildOutput>
     </PropertyGroup>
     <ItemGroup>
         <None Include="Readme.md" />
@@ -29,4 +31,10 @@
       <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
       <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
     </ItemGroup>
+    <Target Name="IncludePublished" DependsOnTargets="Publish">
+        <ItemGroup>
+            <PublishedFiles Include="$(PublishDir)\**\*.*"/>
+            <TfmSpecificPackageFile Include="@(PublishedFiles)" PackagePath="tools/pub/$(TargetFramework)/$(RuntimeIdentifier)/%(RecursiveDir)%(FileName)%(Extension)" />
+        </ItemGroup>
+    </Target>
 </Project>
