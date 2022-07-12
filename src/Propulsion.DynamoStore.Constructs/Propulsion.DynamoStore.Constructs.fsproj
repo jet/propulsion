@@ -9,10 +9,9 @@
   </ItemGroup>
 
   <ItemGroup>
-<!--    <PackageReference Include="Amazon.CDK.AWS.DynamoDB" Version="1.157.0" />-->
-    <PackageReference Include="Amazon.CDK.Lib" Version="2.26.0" />
-<!--    <PackageReference Include="Constructs" Version="10.1.19" />-->
+    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
+    <PackageReference Include="Amazon.CDK.Lib" Version="2.26.0" />
   </ItemGroup>
 
 </Project>

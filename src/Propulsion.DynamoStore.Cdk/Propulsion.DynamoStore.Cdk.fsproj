@@ -18,13 +18,32 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- jsii Roslyn analyzers (un-comment to obtain compile-time checks for missing required props
-    <PackageReference Include="Amazon.Jsii.Analyzers" Version="*" PrivateAssets="all" />
-    -->
+    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
+    
+    <!-- jsii Roslyn analyzers (un-comment to obtain compile-time checks for missing required props-->
+    <!-- <PackageReference Include="Amazon.Jsii.Analyzers" Version="*" PrivateAssets="all" />-->
+    
+    <!-- NOTE this needs to be a PackageReference as-->
+    <!-- a) the `dotnet pack`'d version includes the `dotnet publish`d binaries-->
+    <!-- b) the PkgPropulsion_DynamoStore_Lambda path mechanism does not apply to Project References-->
+    <!-- <ProjectReference Include="..\Propulsion.DynamoStore.Lambda\Propulsion.DynamoStore.Lambda.fsproj" />-->
+    <PackageReference Include="Propulsion.DynamoStore.Lambda" Version="*-*" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Propulsion.DynamoStore.Constructs\Propulsion.DynamoStore.Constructs.fsproj" />
   </ItemGroup>
+  
+  <Target Name="_ExtractPropulsionDynamoStoreLambdaToolsContentToObjFolder" AfterTargets="Build">
+    <PropertyGroup>
+      <_SrcFolder>$(PkgPropulsion_DynamoStore_Lambda)\tools\pub</_SrcFolder>
+      <_DstFolder>$(BaseIntermediateOutputPath)pub</_DstFolder>
+    </PropertyGroup>
+    <ItemGroup>
+      <PublishedFiles Include="$(_SrcFolder)\**\*.*"/>
+    </ItemGroup>
+    <Message Importance="high" Text="Copying Propulsion.DynamoStore.Lambda publish Content from $(_SrcFolder) to holding folder $(_DstFolder)" />
+    <Copy SourceFiles="@(PublishedFiles)" DestinationFolder="$(_DstFolder)\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>

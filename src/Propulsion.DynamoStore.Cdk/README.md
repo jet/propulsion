@@ -1,3 +1,5 @@
+## NOTE: This project will eventually move to dotnet-templates - applications include the logic herein as part of their source 
+
 ## Propulsion.DynamoStore.Cdk
 
 Given a pair of DynamoDB Tables (provisioned using the `eqx` tool; see below)
@@ -12,8 +14,8 @@ Given a pair of DynamoDB Tables (provisioned using the `eqx` tool; see below)
 
 This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.com/cdk/v2/guide/home.html) to reliably manage configuration/deployment of:
 
-1. The indexing logic in `Propulsion.DynamoStore.Lambda` (which gets `dotnet publish`ed into an AWS Lambda package, which the Stack references)
-2. Associated role and triggers that route from the DynamoDB Stream to the Lambda
+1. The indexing logic in `Propulsion.DynamoStore.Lambda`
+2. Associated role and triggers that route from the Dyn~~~~amoDB Stream to the Lambda
 
 ## Prerequisites
 
@@ -32,10 +34,6 @@ This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.
        npm install -g aws-cdk
 
    See https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html#getting_started_install for more details/context
-
-4. (re) Build/publish the Lambda package (TODO to be automated)
-
-       dotnet publish ../Propulsion.DynamoStore.Lambda -c Release -r linux-arm64 --self-contained true
 
 ## To deploy
 

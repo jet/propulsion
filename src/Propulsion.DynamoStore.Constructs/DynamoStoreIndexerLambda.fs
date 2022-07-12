@@ -18,7 +18,10 @@ type DynamoStoreIndexerLambdaProps =
         /// Lambda max batch size
         batchSize : int
         /// Lambda max batch size
-        timeout : TimeSpan }
+        timeout : TimeSpan
+
+        /// Folder path for linux-arm64 publish output (can also be a link to a .zip file)
+        codePath : string }
 
 type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) as stack =
     inherit Constructs.Construct(scope, id)
@@ -45,9 +48,8 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
             role.AddToPolicy(indexTableLevel) |> ignore
         role
 
-    // NOTE: see README.md; must be built before using this via
-    //       dotnet publish ../Propulsion.DynamoStore.Lambda -c Release -r linux-arm64 --self-contained true
-    let code = Code.FromAsset("../Propulsion.DynamoStore.Lambda/bin/Release/net6.0/linux-arm64/publish/")
+    // See .Cdk project file for logic to extract content from tools section of .Lambda nupgk file
+    let code = Code.FromAsset(props.codePath)
     let fn : Function = Function(stack, "Indexer", FunctionProps(
         Role = role,
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,

@@ -5,17 +5,20 @@ open Amazon.CDK
 open System
 
 type IndexerStackProps
-    (   /// DynamoDB Streams Source ARN
+    (   // DynamoDB Streams Source ARN
         streamArn : string,
 
-        /// DynamoDB Index Table Name
+        // DynamoDB Index Table Name
         tableName : string,
 
-        /// Lambda memory allocation - default 128 MB
+        // Path for published binaries for Propulsion.DynamoStore.Lambda
+        lambdaCodePath : string,
+
+        // Lambda memory allocation - default 128 MB
         ?memorySize : int,
-        /// Lambda max batch size - default 1000
+        // Lambda max batch size - default 1000
         ?batchSize : int,
-        /// Lambda max batch size - default 180s
+        // Lambda max batch size - default 180s
         ?timeout : TimeSpan) =
     inherit StackProps()
     member val StreamArn = streamArn
@@ -23,6 +26,7 @@ type IndexerStackProps
     member val MemorySize = defaultArg memorySize 128
     member val BatchSize = defaultArg batchSize 1000
     member val Timeout = defaultArg timeout (TimeSpan.FromSeconds 180)
+    member val LambdaCodePath = lambdaCodePath
 
 type IndexerStack(scope, id, props : IndexerStackProps) as stack =
     inherit Stack(scope, id, props)
@@ -30,5 +34,6 @@ type IndexerStack(scope, id, props : IndexerStackProps) as stack =
     let props : DynamoStoreIndexerLambdaProps =
         {   streamArn = props.StreamArn
             regionName = stack.Region; tableName = props.TableName
-            memorySize = props.MemorySize; batchSize = props.BatchSize; timeout = props.Timeout }
+            memorySize = props.MemorySize; batchSize = props.BatchSize; timeout = props.Timeout
+            codePath = props.LambdaCodePath }
     let _ = DynamoStoreIndexerLambda(stack, "Indexer", props = props)
