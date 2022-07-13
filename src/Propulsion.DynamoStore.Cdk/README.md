@@ -15,7 +15,7 @@ Given a pair of DynamoDB Tables (provisioned using the `eqx` tool; see below)
 This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.com/cdk/v2/guide/home.html) to reliably manage configuration/deployment of:
 
 1. The indexing logic in `Propulsion.DynamoStore.Lambda`
-2. Associated role and triggers that route from the Dyn~~~~amoDB Stream to the Lambda
+2. Associated role and triggers that route from the DynamoDB Stream to the Lambda
 
 ## Prerequisites
 
@@ -38,6 +38,11 @@ This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.
 ## To deploy
 
     cdk deploy -c streamArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013 -c indexTableName=equinox-test-index
+
+## To deploy local build of the Lambda (vs the latest nuget package)
+
+    dotnet publish ../Propulsion.DynamoStore.Lambda &&
+    cdk deploy -c code=../Propulsion.DynamoStore.Lambda/bin/Debug/net6.0/linux-arm64/publish -c dev/streamArn=arn:aws:dynamodb:us-east-1:111111111111:table/equinox-test/stream/2022-07-05T11:49:13.013 -c dev/indexTableName=equinox-test-index
 
 ## Useful commands
 
