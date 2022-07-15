@@ -21,13 +21,11 @@ This project Uses the [AWS Cloud Development Kit (CDK)](https://docs.aws.amazon.
 
 1. A source Table, with DDB Streams configured
 
-       eqx initaws -rru 10 -wru 10 dynamo -t equinox-test
-
-   TODO: `eqx initaws` should emit the streams ARN (for use in the deploy step below)
+       eqx initaws -r 10 -w 10 dynamo -t equinox-test
 
 2. An index table
 
-       eqx initaws -rru 5 -wru 5 -S off dynamo -t equinox-test-index
+       eqx initaws -r 5 -w 5 -s off dynamo -t equinox-test-index
 
 3. CDK Toolkit installed
 
