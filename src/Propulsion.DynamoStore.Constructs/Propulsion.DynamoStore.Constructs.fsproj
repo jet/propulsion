@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="DynamoStoreIndexerLambda.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
+
+    <PackageReference Include="Amazon.CDK.Lib" Version="2.26.0" />
+  </ItemGroup>
+
+</Project>
