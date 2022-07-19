@@ -14,26 +14,31 @@ type Configuration(?tryGet) =
     let tryGet = defaultArg tryGet envVarTryGet
     let get key = match tryGet key with Some value -> value | None -> failwithf "Missing Argument/Environment Variable %s" key
 
+    let [<Literal>] SYSTEM_NAME =       "EQUINOX_DYNAMO_SYSTEM_NAME"
     let [<Literal>] SERVICE_URL =       "EQUINOX_DYNAMO_SERVICE_URL"
     let [<Literal>] ACCESS_KEY =        "EQUINOX_DYNAMO_ACCESS_KEY_ID"
     let [<Literal>] SECRET_KEY =        "EQUINOX_DYNAMO_SECRET_ACCESS_KEY"
     let [<Literal>] TABLE_INDEX =       "EQUINOX_DYNAMO_TABLE_INDEX"
 
+    member _.DynamoSystemName =         tryGet SYSTEM_NAME
     member _.DynamoServiceUrl =         get SERVICE_URL
     member _.DynamoAccessKey =          get ACCESS_KEY
     member _.DynamoSecretKey =          get SECRET_KEY
     member _.DynamoIndexTable =         get TABLE_INDEX
 
-type Connector(serviceUrl, accessKey, secretKey, table, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
+type Store(connector : DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
     let queryMaxItems = 100
 
-    let conn = DynamoStoreConnector(serviceUrl, accessKey, secretKey, requestTimeout, retries)
-    let client = conn.CreateClient()
+    let client = connector.CreateClient()
     let storeClient = DynamoStoreClient(client, table)
     let context = DynamoStoreContext(storeClient, maxBytes = dynamoItemSizeCutoffBytes, queryMaxItems = queryMaxItems)
 
     new (c : Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
-        Connector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, c.DynamoIndexTable, requestTimeout, retries, dynamoItemSizeCutoffBytes)
+        let conn =
+            match c.DynamoSystemName with
+            | Some r -> DynamoStoreConnector(r, requestTimeout, retries)
+            | None -> DynamoStoreConnector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, requestTimeout, retries)
+        Store(conn, c.DynamoIndexTable, dynamoItemSizeCutoffBytes)
 
     member _.Context = context
 
@@ -51,8 +56,8 @@ type Function() =
     // Note the backing memory is not preallocated, so the effects of this being too large will not be immediately apparent
     // (Overusage will hasten the Lambda being killed due to excess memory usage)
     let maxCacheMiB = 5
-    let cfg = Configuration()
-    let conn = Connector(cfg, requestTimeout = (System.TimeSpan.FromSeconds 120.), retries = 10, dynamoItemSizeCutoffBytes = itemCutoffKiB * 1024)
+    let config = Configuration()
+    let store = Store(config, requestTimeout = System.TimeSpan.FromSeconds 120., retries = 10, dynamoItemSizeCutoffBytes = itemCutoffKiB * 1024)
     let cache = Equinox.Cache("indexer", sizeMb = maxCacheMiB)
     // TOCONSIDER surface metrics from write activities to prometheus by wiring up Metrics Sink (for now we log them instead)
     let removeMetrics (e : Serilog.Events.LogEvent) = e.RemovePropertyIfPresent(Equinox.DynamoStore.Core.Log.PropertyTag)
@@ -62,7 +67,7 @@ type Function() =
             .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = removeMetrics evt })
             .WriteTo.Console(outputTemplate = template)
             .CreateLogger()
-    let service = DynamoStoreIndexer(log, conn.Context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
+    let service = DynamoStoreIndexer(log, store.Context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
     member _.FunctionHandler(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) =
         DynamoStreamsLambda.ingest log service dynamoEvent |> Async.StartImmediateAsTask
