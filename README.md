@@ -58,6 +58,8 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
   (Diagnostics are exposed via Console to CloudWatch)
 
+- `Propulsion.DynamoStore.Constructs` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Constructs.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Constructs/) AWS Lambda CDK deploy logic. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Constructs) on `Amazon.CDK.Lib` (and, indirectly, on the binary assets included as content in `Propulsion.DynamoStore.Lambda`)
+
 - `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
 
     - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
