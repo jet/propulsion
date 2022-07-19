@@ -11,7 +11,6 @@
     <!-- Global Project config flags -->
     <WarningLevel>5</WarningLevel>
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-    <DisableImplicitSystemValueTupleReference>true</DisableImplicitSystemValueTupleReference>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     
     <!-- suppress false positive warning FS2003 about invalid version of AssemblyInformationalVersionAttribute -->

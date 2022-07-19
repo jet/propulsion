@@ -19,14 +19,14 @@
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
     </ItemGroup>
+    
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
-      <PackageReference Include="FSharp.Core" Version="4.7.2" />
-
-      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.9" />
+      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.10" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.4" />
     </ItemGroup>
+    
     <ItemGroup>
         <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
     </ItemGroup>

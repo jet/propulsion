@@ -10,9 +10,9 @@ module CosmosInit = Equinox.CosmosStore.Core.Initialization
 
 [<NoEquality; NoComparison>]
 type Parameters =
-    | [<AltCommandLine("-V")>]              Verbose
-    | [<AltCommandLine("-C")>]              VerboseConsole
-    | [<AltCommandLine("-S")>]              VerboseStore
+    | [<AltCommandLine "-V">]               Verbose
+    | [<AltCommandLine "-C">]               VerboseConsole
+    | [<AltCommandLine "-S">]               VerboseStore
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectParameters>
@@ -21,16 +21,16 @@ type Parameters =
             | Verbose ->                    "Include low level logging regarding specific test runs."
             | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
             | VerboseStore ->               "Include low level Store logging"
-            | Init _ ->                     "Initialize auxiliary store (presently only relevant for `cosmos`, when you intend to run the Projector)."
+            | Init _ ->                     "Initialize auxiliary store (Supported for `cosmos` Only)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 
 and [<NoComparison; NoEquality>] InitAuxParameters =
-    | [<AltCommandLine("-ru"); Unique>]  Rus of int
-    | [<AltCommandLine "-A"; Unique>]    Autoscale
-    | [<AltCommandLine "-m"; Unique>]    Mode of CosmosModeType
-    | [<AltCommandLine("-s")>]           Suffix of string
-    | [<CliPrefix(CliPrefix.None)>]      Cosmos of ParseResults<Args.Cosmos.Parameters>
+    | [<AltCommandLine "-ru"; Unique>]      Rus of int
+    | [<AltCommandLine "-A"; Unique>]       Autoscale
+    | [<AltCommandLine "-m"; Unique>]       Mode of CosmosModeType
+    | [<AltCommandLine "-s">]               Suffix of string
+    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Args.Cosmos.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Rus _ ->                      "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
@@ -69,8 +69,8 @@ and [<NoEquality; NoComparison>] CheckpointParameters =
 
 and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
-    | [<AltCommandLine("-Z"); Unique>]      FromTail
-    | [<AltCommandLine("-m"); Unique>]      MaxItems of int
+    | [<AltCommandLine "-Z"; Unique>]       FromTail
+    | [<AltCommandLine "-m"; Unique>]       MaxItems of int
 
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsParameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
@@ -83,8 +83,8 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
             | Stats _ ->                    "Do not emit events, only stats."
             | Kafka _ ->                    "Project to Kafka."
 and [<NoComparison; NoEquality>] KafkaParameters =
-    | [<AltCommandLine("-t"); Unique; MainCommand>] Topic of string
-    | [<AltCommandLine("-b"); Unique>]      Broker of string
+    | [<AltCommandLine "-t"; Unique; MainCommand>] Topic of string
+    | [<AltCommandLine "-b"; Unique>]       Broker of string
     | [<CliPrefix(CliPrefix.None); Last>]   Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with

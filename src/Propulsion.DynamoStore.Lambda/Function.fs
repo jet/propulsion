@@ -12,10 +12,7 @@ open Serilog
 type Configuration(?tryGet) =
     let envVarTryGet = System.Environment.GetEnvironmentVariable >> Option.ofObj
     let tryGet = defaultArg tryGet envVarTryGet
-    let get key =
-        match tryGet key with
-        | Some value -> value
-        | None -> failwithf "Missing Argument/Environment Variable %s" key
+    let get key = match tryGet key with Some value -> value | None -> failwithf "Missing Argument/Environment Variable %s" key
 
     let [<Literal>] SERVICE_URL =       "EQUINOX_DYNAMO_SERVICE_URL"
     let [<Literal>] ACCESS_KEY =        "EQUINOX_DYNAMO_ACCESS_KEY_ID"
@@ -65,7 +62,7 @@ type Function() =
             .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = removeMetrics evt })
             .WriteTo.Console(outputTemplate = template)
             .CreateLogger()
-    let service = DynamoStoreIndexer(log, conn.Context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024) //
+    let service = DynamoStoreIndexer(log, conn.Context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
     member _.FunctionHandler(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) =
         DynamoStreamsLambda.ingest log service dynamoEvent |> Async.StartImmediateAsTask

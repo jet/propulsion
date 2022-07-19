@@ -91,10 +91,10 @@ module Cosmos =
         | [<AltCommandLine "-o">]           Timeout of float
         | [<AltCommandLine "-r">]           Retries of int
         | [<AltCommandLine "-rt">]          RetriesWaitTime of float
-        | [<AltCommandLine("-a"); Unique>]  LeaseContainer of string
-        | [<AltCommandLine("-as"); Unique>] Suffix of string
+        | [<AltCommandLine "-a"; Unique>]   LeaseContainer of string
+        | [<AltCommandLine "-as"; Unique>]  Suffix of string
 
-        | [<AltCommandLine("-l"); Unique>]      LagFreqM of float
+        | [<AltCommandLine "-l"; Unique>]   LagFreqM of float
         interface IArgParserTemplate with
             member a.Usage = a |> function
                 | ConnectionMode _ ->       "override the connection mode. Default: Direct."
@@ -108,22 +108,22 @@ module Cosmos =
                 | Suffix _ ->               "Specify Container Name suffix (default: `-aux`, if LeaseContainer not specified)."
                 | LagFreqM _ ->             "Specify frequency to dump lag stats. Default: off"
 
-    type Arguments(c : Configuration, a : ParseResults<Parameters>) =
-        let connection =                    a.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
+    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+        let connection =                    p.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
         let discovery =                     Equinox.CosmosStore.Discovery.ConnectionString connection
-        let mode =                          a.TryGetResult ConnectionMode
-        let timeout =                       a.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
-        let retries =                       a.GetResult(Retries, 1)
-        let maxRetryWaitTime =              a.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
+        let mode =                          p.TryGetResult ConnectionMode
+        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
+        let retries =                       p.GetResult(Retries, 1)
+        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
         let connector =                     Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
-        let database =                      a.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
+        let database =                      p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
         let checkpointInterval =            TimeSpan.FromHours 1.
-        member val ContainerId =            a.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
+        member val ContainerId =            p.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
         member x.MonitoredContainer() =     connector.CreateClient(database, x.ContainerId)
-        member val LeaseContainerId =       a.TryGetResult LeaseContainer
-        member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + a.GetResult(Suffix, "-aux")
+        member val LeaseContainerId =       p.TryGetResult LeaseContainer
+        member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + p.GetResult(Suffix, "-aux")
         member x.ConnectLeases() =          connector.CreateClient(database, x.LeasesContainerName, "Leases")
-        member _.MaybeLogLagInterval =      a.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
+        member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
             let! store = connector.ConnectStore("Checkpoints", database, x.ContainerId)
@@ -147,7 +147,6 @@ module Dynamo =
 
     type Amazon.DynamoDBv2.IAmazonDynamoDB with
 
-        /// Connects to a Store as both a ChangeFeedProcessor Monitored Container and a CosmosStoreClient
         member x.ConnectStore(role, table) =
             let storeClient = Equinox.DynamoStore.DynamoStoreClient(x, table)
             storeClient.LogConfiguration(role)
@@ -180,18 +179,18 @@ module Dynamo =
                 | IndexSuffix _ ->          "specify a suffix for the index store. (not relevant if `Table` or `IndexTable` specified. default: \"-index\")"
                 | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
 
-    type Arguments(c : Configuration, a : ParseResults<Parameters>) =
-        let serviceUrl =                    a.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
-        let accessKey =                     a.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
-        let secretKey =                     a.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
-        let indexSuffix =                   a.GetResult(IndexSuffix, "-index")
-        let retries =                       a.GetResult(Retries, 1)
-        let timeout =                       a.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
+    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+        let serviceUrl =                    p.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
+        let accessKey =                     p.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
+        let secretKey =                     p.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
+        let indexSuffix =                   p.GetResult(IndexSuffix, "-index")
+        let retries =                       p.GetResult(Retries, 1)
+        let timeout =                       p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
         let connector =                     Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let client =                        connector.CreateClient()
-        let streamsDop =                    a.TryGetResult StreamsDop
+        let streamsDop =                    p.TryGetResult StreamsDop
         let checkpointInterval =            TimeSpan.FromHours 1.
-        let indexTable =                    a.TryGetResult IndexTable
+        let indexTable =                    p.TryGetResult IndexTable
                                             |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
                                             |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
         let indexClient =                   lazy
@@ -205,7 +204,7 @@ module Dynamo =
                 Log.Information("DynamoStoreSource NOT Hydrating events"); indexClient, None
             | Some streamsDop ->
                 Log.Information("DynamoStoreSource Hydrater parallelism {streamsDop}", streamsDop)
-                let table = a.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
+                let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
                 let context = client.ConnectStore("Store", table) |> DynamoStoreContext.create
                 indexClient, Some (context, streamsDop)
 
