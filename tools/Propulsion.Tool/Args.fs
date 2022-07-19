@@ -17,6 +17,7 @@ module Configuration =
 
     module Dynamo =
 
+        let [<Literal>] REGION =                    "EQUINOX_DYNAMO_REGION"
         let [<Literal>] SERVICE_URL =               "EQUINOX_DYNAMO_SERVICE_URL"
         let [<Literal>] ACCESS_KEY =                "EQUINOX_DYNAMO_ACCESS_KEY_ID"
         let [<Literal>] SECRET_KEY =                "EQUINOX_DYNAMO_SECRET_ACCESS_KEY"
@@ -39,6 +40,7 @@ type Configuration(tryGet : string -> string option) =
     member x.CosmosDatabase =                       x.get Configuration.Cosmos.DATABASE
     member x.CosmosContainer =                      x.get Configuration.Cosmos.CONTAINER
 
+    member x.DynamoRegion =                         tryGet Configuration.Dynamo.REGION
     member x.DynamoServiceUrl =                     x.get Configuration.Dynamo.SERVICE_URL
     member x.DynamoAccessKey =                      x.get Configuration.Dynamo.ACCESS_KEY
     member x.DynamoSecretKey =                      x.get Configuration.Dynamo.SECRET_KEY
@@ -158,7 +160,8 @@ module Dynamo =
             Equinox.DynamoStore.DynamoStoreContext(storeClient)
 
     type [<NoEquality; NoComparison>] Parameters =
-        | [<AltCommandLine "-s">]           ServiceUrl of string
+        | [<AltCommandLine "-sr">]          RegionProfile of string
+        | [<AltCommandLine "-su">]          ServiceUrl of string
         | [<AltCommandLine "-sa">]          AccessKey of string
         | [<AltCommandLine "-ss">]          SecretKey of string
         | [<AltCommandLine "-t">]           Table of string
@@ -169,9 +172,13 @@ module Dynamo =
         | [<AltCommandLine "-d">]           StreamsDop of int
         interface IArgParserTemplate with
             member a.Usage = a |> function
-                | ServiceUrl _ ->           "specify a server endpoint for a Dynamo account. (optional if environment variable " + SERVICE_URL + " specified)"
-                | AccessKey _ ->            "specify an access key id for a Dynamo account. (optional if environment variable " + ACCESS_KEY + " specified)"
-                | SecretKey _ ->            "specify a secret access key for a Dynamo account. (optional if environment variable " + SECRET_KEY + " specified)"
+                | RegionProfile _ ->        "specify an AWS Region (aka System Name, e.g. \"us-east-1\") to connect to using the implicit AWS SDK/tooling config and/or environment variables etc. Optional if:\n" +
+                                            "1) $" + REGION + " specified OR\n" +
+                                            "2) Explicit `ServiceUrl`/$" + SERVICE_URL + "+`AccessKey`/$" + ACCESS_KEY + "+`Secret Key`/$" + SECRET_KEY + " specified.\n" +
+                                            "See https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html for details"
+                | ServiceUrl _ ->           "specify a server endpoint for a Dynamo account. (Not applicable if `ServiceRegion`/$" + REGION + " specified; Optional if $" + SERVICE_URL + " specified)"
+                | AccessKey _ ->            "specify an access key id for a Dynamo account. (Not applicable if `ServiceRegion`/$" + REGION + " specified; Optional if $" + ACCESS_KEY + " specified)"
+                | SecretKey _ ->            "specify a secret access key for a Dynamo account. (Not applicable if `ServiceRegion`/$" + REGION + " specified; Optional if $" + SECRET_KEY + " specified)"
                 | Table _ ->                "specify a table name for the primary store. (optional if environment variable " + TABLE + ", or `IndexTable` specified)"
                 | Retries _ ->              "specify operation retries (default: 1)."
                 | RetriesTimeoutS _ ->      "specify max wait-time including retries in seconds (default: 10)"
@@ -180,34 +187,44 @@ module Dynamo =
                 | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
 
     type Arguments(c : Configuration, p : ParseResults<Parameters>) =
-        let serviceUrl =                    p.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
-        let accessKey =                     p.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
-        let secretKey =                     p.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
+        let conn =                          match p.TryGetResult RegionProfile |> Option.orElseWith (fun () -> c.DynamoRegion) with
+                                            | Some systemName ->
+                                                Choice1Of2 systemName
+                                            | None ->
+                                                let serviceUrl =   p.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
+                                                let accessKey =    p.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
+                                                let secretKey =    p.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
+                                                Choice2Of2 (serviceUrl, accessKey, secretKey)
+        let connector timeout retries =     match conn with
+                                            | Choice1Of2 systemName -> Equinox.DynamoStore.DynamoStoreConnector(systemName, timeout, retries)
+                                            | Choice2Of2 (serviceUrl, accessKey, secretKey) -> Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let indexSuffix =                   p.GetResult(IndexSuffix, "-index")
-        let retries =                       p.GetResult(Retries, 1)
-        let timeout =                       p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
-        let connector =                     Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
-        let client =                        connector.CreateClient()
-        let streamsDop =                    p.TryGetResult StreamsDop
-        let checkpointInterval =            TimeSpan.FromHours 1.
         let indexTable =                    p.TryGetResult IndexTable
                                             |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
                                             |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
-        let indexClient =                   lazy
-                                                connector.LogConfiguration()
-                                                client.ConnectStore("Index", indexTable)
+
+        let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
+                                            let retries = p.GetResult(Retries, 1)
+                                            connector timeout retries
+        let readClient =                    readConnector.CreateClient()
+        let indexReadClient =               lazy
+                                                 readConnector.LogConfiguration()
+                                                 readClient.ConnectStore("Index", indexTable)
+        let streamsDop =                    p.TryGetResult StreamsDop
+
+        let checkpointInterval =            TimeSpan.FromHours 1.
         member val IndexTable =             indexTable
-        member x.MonitoringParams() =
-            let indexClient = indexClient.Value
+        member _.MonitoringParams() =
+            let indexClient = indexReadClient.Value
             match streamsDop with
             | None ->
                 Log.Information("DynamoStoreSource NOT Hydrating events"); indexClient, None
             | Some streamsDop ->
                 Log.Information("DynamoStoreSource Hydrater parallelism {streamsDop}", streamsDop)
                 let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
-                let context = client.ConnectStore("Store", table) |> DynamoStoreContext.create
+                let context = readClient.ConnectStore("Store", table) |> DynamoStoreContext.create
                 indexClient, Some (context, streamsDop)
 
         member x.CreateCheckpointStore(group, cache, storeLog) =
-            let context = DynamoStoreContext.create indexClient.Value
+            let context = DynamoStoreContext.create indexReadClient.Value
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (context, cache)
