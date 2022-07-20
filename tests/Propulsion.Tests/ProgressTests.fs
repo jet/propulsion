@@ -1,4 +1,4 @@
-﻿module ProgressTests
+﻿module Propulsion.Tests.ProgressTests
 
 open FsCodec
 open Propulsion.Streams

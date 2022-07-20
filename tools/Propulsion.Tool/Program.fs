@@ -240,7 +240,7 @@ module Indexer =
             sink.AwaitWithStopOnCancellation()
             source.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> *)
-        let indexer = DynamoExportIngester.Importer (Log.Logger, ctx)
+        let indexer = DynamoExportIngester.Importer(Log.Logger, ctx)
         return! indexer.ImportDynamoDbJsonFile(a.TrancheId, a.SourcePath, a.EventsPerBatch) }
 
 module Project =
