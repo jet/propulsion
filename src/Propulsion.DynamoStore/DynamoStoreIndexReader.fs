@@ -1,6 +1,69 @@
 module Propulsion.DynamoStore.DynamoStoreIndexReader
 
-open Propulsion.Streams
+[<Struct>]
+type EventSpan = { i : int; c : string array }
+
+module EventSpan =
+
+    let choose index (x : EventSpan) =
+        let x1, x2 = x.i, x.i + x.c.Length
+        if index <= x1 then Some x
+        elif index > x2 then None
+        else // Split required
+            Some { i = index; c = Array.skip (index-x1) x.c }
+
+module EventsQueue =
+
+    open System.Collections.Generic
+
+    let mk i xs = { i = i; c = xs }
+
+    let merge (y : EventSpan) (xs : EventSpan array) =
+        if y.c.Length = 0 then invalidArg "y" "Can't be zero length"
+        let acc = ResizeArray(xs.Length + 1)
+        let mutable y = y
+
+        let mutable i = 0
+        while i < xs.Length do
+            let x = xs[i]
+            let x1, x2 = x.i, x.i + x.c.Length
+            let y1, y2 = y.i, y.i + y.c.Length
+
+            if x2 < y1 then acc.Add x; i <- i + 1 // x goes before, no overlap
+            elif y2 < x1 then acc.Add y; acc.AddRange xs[i..]; i <- xs.Length + 1 // y goes before, no overlap -> copy rest as a block
+            else // there's an overlap
+                y <- if x1 < y1 then mk x1 (Array.append x.c (Array.skip (min y.c.Length (x2-y1)) y.c)) // x goes first
+                     else            mk y1 (Array.append y.c (Array.skip (min x.c.Length (y2-x1)) x.c)) // y goes first
+                i <- i + 1 // consumed x
+        if i = xs.Length then acc.Add y
+        acc.ToArray()
+
+    type StreamState = { syncedPos : int; backlog : EventSpan array }
+
+    type State() =
+
+        let streams = Dictionary<string, StreamState>()
+
+        member _.TryAdd(stream, span, ?removeReady) =
+            let removeReady = removeReady = Some true
+            match streams.TryGetValue stream with
+            | false, _ ->
+                let ss = if span.i = 0 && removeReady then { syncedPos = span.c.Length; backlog = Array.empty }
+                         else { syncedPos = 0; backlog = Array.singleton span }
+                streams.Add(stream, ss)
+                true
+            | true, v ->
+                match EventSpan.choose v.syncedPos span with
+                | None -> false
+                | Some trimmed ->
+                    let merged = { v with backlog = merge trimmed v.backlog }
+                    let updated =
+                        let head = merged.backlog[0]
+                        if removeReady && v.syncedPos = head.i then { syncedPos = head.i + head.c.Length; backlog = Array.tail merged.backlog }
+                        else merged
+                    streams[stream] <- updated
+                    true
+
 #if false
 type IndexReader
     (   log : ILogger, sourceId, trancheId, statsInterval : TimeSpan,

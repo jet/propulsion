@@ -32,16 +32,6 @@ let private read maxEventsCutoff (path : string) : AsyncSeq<StreamSpan array> = 
         more <- not r.EndOfStream
     if buffer.Count > 0 then yield buffer.ToArray() }
 
-[<Struct; NoComparison; NoEquality>]
-type StreamState = { syncedPos : int; backlog : Queue<EventSpan> }
-and EventSpan = { i : int; c : string array }
-
-type ImportQueue() =
-
-    let streams = ConcurrentDictionary<string, StreamState>()
-
-
-
 type Importer(log, context) =
 
     // Values up to 5 work reasonably, but side effects are:
