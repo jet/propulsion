@@ -88,9 +88,9 @@ module EventsQueue =
                 totalE <- totalE + int64 v.writePos
                 if v.spans.Length > 0 && lim >= 0 then
                     if lim = 0 then
-                        log.Warning("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+                        log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
                     else
-                        log.Information("{stream} @{wp} Gap {g} Events {qi}", stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
+                        log.Warning("{stream} @{wp} Gap {g} Events {qi}", stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
                     lim <- lim - 1
                 if v.spans.Length > 0 then incomplete <- incomplete + 1
             log.Information("Index State {streams:n0}s {events:n0}e Gapped Streams {incomplete:n0}", totalS, totalE, incomplete)
