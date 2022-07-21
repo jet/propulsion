@@ -80,9 +80,10 @@ module private Impl =
             let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
             let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
             all.Length, totalEvents
-        log.Information("DynamoStoreIndex Tranche {trancheId} Epoch {epochId} {totalChanges} changes {totalS} streams {totalE} events {epochLoadS:n1}s",
-                        string trancheId, string epochId, totalChanges, totalStreams, totalEvents, t.TotalSeconds)
         let items = state.changes |> Array.collect (fun struct (i, spans) -> spans)
+        let totalSpans = items.Length
+        log.Information("DynamoStoreIndex Tranche {trancheId} Epoch {epochId} {spans} spans {totalChanges} batches {totalS} streams {totalE} events {epochLoadS:n1}s",
+                        string trancheId, string epochId, totalSpans, totalChanges, totalStreams, totalEvents, t.TotalSeconds)
         return state.closed, items }
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)

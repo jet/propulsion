@@ -81,7 +81,7 @@ module EventsQueue =
         member _.TryGetWritePos(stream) =
             tryGet stream |> ValueOption.map (fun x -> x.writePos)
 
-        member _.Dump(log : Serilog.ILogger, gapsLimit) =
+        member _.Dump(log : Serilog.ILogger, totalSpans, gapsLimit) =
             let mutable totalS, totalE, incomplete, lim = 0, 0L, 0, gapsLimit
             for KeyValue (stream, v) in streams do
                 totalS <- totalS + 1
@@ -93,19 +93,20 @@ module EventsQueue =
                         log.Warning("{stream} @{wp} Gap {g} Events {qi}", stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
                     lim <- lim - 1
                 if v.spans.Length > 0 then incomplete <- incomplete + 1
-            log.Information("Index State {streams:n0}s {events:n0}e Gapped Streams {incomplete:n0}", totalS, totalE, incomplete)
+            let level = if incomplete > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
+            log.Write(level, "Index State {streams:n0} streams {events:n0} events {spans:n0} spans Gapped Streams {incomplete:n0}", totalS, totalE, totalSpans, incomplete)
 
 module Reader =
 
     let walk (log : Serilog.ILogger, storeLog, context) trancheId = async {
         let state = EventsQueue.State()
-        let mutable more, epochId = true, AppendsEpochId.initial
+        let mutable totalSpans, more, epochId = 0L, true, AppendsEpochId.initial
         while more do
             let! closed, spans = Impl.loadIndexEpochSpans (log, storeLog) context trancheId epochId
             for x in spans do
                 let stream = x.p |> IndexStreamId.toStreamName |> FsCodec.StreamName.toString
-                if x.c.Length = 0 then log.Information("Stream {stream} contains zero length span", stream)
+                if x.c.Length = 0 then log.Warning("Stream {stream} contains zero length span", stream)
                 else state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
             more <- closed
             epochId <- AppendsEpochId.next epochId
-        return state }
+        return totalSpans, state }

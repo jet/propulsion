@@ -46,8 +46,8 @@ type Importer(log, storeLog, context) =
     let service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
     member _.VerifyAndOrImportDynamoDbJsonFile(trancheId, maxEventsCutoff, gapsLimit, path) = async {
-        let! state = DynamoStoreIndex.Reader.walk (log, storeLog, context) trancheId
-        state.Dump(log, gapsLimit)
+        let! totalSpans, state = DynamoStoreIndex.Reader.walk (log, storeLog, context) trancheId
+        state.Dump(log, totalSpans, gapsLimit)
         match path with
         | None -> ()
         | Some path ->
