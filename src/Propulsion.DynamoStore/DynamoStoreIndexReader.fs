@@ -9,12 +9,11 @@ type EventSpan =
 
 module EventSpan =
 
-    let choose index (x : EventSpan) =
-        let x1, x2 = x.i, x.i + x.c.Length
-        if index <= x1 then Some x
-        elif index > x2 then None
+    let choose writePos (x : EventSpan) =
+        if writePos <= x.Index then Some x
+        elif writePos > x.Version then None
         else // Split required
-            Some { i = index; c = Array.skip (index-x1) x.c }
+            Some { i = writePos; c = Array.skip (writePos-x.Index) x.c }
 
 module EventsQueue =
 
@@ -37,38 +36,47 @@ module EventsQueue =
                 acc.Add y
                 acc.AddRange xs[i..] // trust the rest to already be minimal and not require coalescing
                 i <- xs.Length + 1 // trigger exit without y being added twice
-            else // there's an overlap
+            else // there's an overlap - merge the existing span with the incoming one. Then wait for any successors that might also coalesce
                 y <- if x.Index < y.Index then mk x.Index (Array.append x.c (Array.skip (min y.Length (x.Version - y.Index)) y.c)) // x goes first
                      else                      mk y.Index (Array.append y.c (Array.skip (min x.Length (y.Version - x.Index)) x.c)) // y goes first
                 i <- i + 1 // mark x as consumed; shift to next
         if i = xs.Length then acc.Add y
         acc.ToArray()
 
-    type StreamState = { writePos : int; backlog : EventSpan array }
+    type StreamState = { writePos : int; spans : EventSpan array }
 
     type State() =
 
         let streams = Dictionary<string, StreamState>()
 
-        member _.TryAdd(stream, span, ?removeReady) =
-            let removeReady = removeReady = Some true
+        let add removeReady stream span =
             match streams.TryGetValue stream with
             | false, _ ->
-                let ss = if span.i = 0 && removeReady then { writePos = span.c.Length; backlog = Array.empty }
-                         else { writePos = 0; backlog = Array.singleton span }
-                streams.Add(stream, ss)
-                true
+                let updated = if span.i = 0 && removeReady then { writePos = span.c.Length; spans = Array.empty }
+                              else { writePos = 0; spans = Array.singleton span }
+                streams.Add(stream, updated)
+                Some updated
             | true, v ->
                 match EventSpan.choose v.writePos span with
-                | None -> false
+                | None -> None // we've already written beyond the position of this span so nothing new to write
                 | Some trimmed ->
-                    let merged = { v with backlog = insert trimmed v.backlog }
+                    let pass1 = { v with spans = insert trimmed v.spans }
                     let updated =
-                        let head = merged.backlog[0]
-                        if removeReady && v.writePos = head.i then { writePos = head.i + head.c.Length; backlog = Array.tail merged.backlog }
-                        else merged
+                        let head = Array.head pass1.spans
+                        if removeReady && v.writePos = head.Index then { writePos = head.Version; spans = Array.tail pass1.spans }
+                        else pass1
                     streams[stream] <- updated
-                    true
+                    if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated
+                    else None
+
+        member _.LogIndexed(stream, span) =
+            add true stream span |> ignore
+
+        // Returns Span due to be written (if applicable)
+        member _.IngestData(stream, span) =
+            add false stream span
+
+        member _.TryGetWritePos(stream) = match streams.TryGetValue stream with true, x -> Some x.writePos | false, _ -> None
 
 #if false
 type IndexReader
