@@ -1,7 +1,11 @@
 module Propulsion.DynamoStore.DynamoStoreIndexReader
 
 [<Struct>]
-type EventSpan = { i : int; c : string array }
+type EventSpan =
+    { i : int; c : string array }
+    member x.Index = x.i
+    member x.Length = x.c.Length
+    member x.Version = x.Index + x.Length
 
 module EventSpan =
 
@@ -18,27 +22,29 @@ module EventsQueue =
 
     let mk i xs = { i = i; c = xs }
 
-    let merge (y : EventSpan) (xs : EventSpan array) =
-        if y.c.Length = 0 then invalidArg "y" "Can't be zero length"
+    /// Responsible for coalescing overlapping and/or adjacent spans
+    /// Assumes, and upholds guarantee that input queue is ordered correctly
+    let insert (y : EventSpan) (xs : EventSpan array) =
+        if y.Length = 0 then invalidArg "y" "Can't be zero length"
         let acc = ResizeArray(xs.Length + 1)
-        let mutable y = y
-
-        let mutable i = 0
+        let mutable y, i = y, 0
         while i < xs.Length do
             let x = xs[i]
-            let x1, x2 = x.i, x.i + x.c.Length
-            let y1, y2 = y.i, y.i + y.c.Length
-
-            if x2 < y1 then acc.Add x; i <- i + 1 // x goes before, no overlap
-            elif y2 < x1 then acc.Add y; acc.AddRange xs[i..]; i <- xs.Length + 1 // y goes before, no overlap -> copy rest as a block
+            if x.Version < y.Index then // x goes before, no overlap (bias to keep existing)
+                acc.Add x
+                i <- i + 1
+            elif y.Version < x.Index then // y has new info => goes before, no overlap -> copy rest as a block
+                acc.Add y
+                acc.AddRange xs[i..]
+                i <- xs.Length + 1 // trigger exit without y being added twice
             else // there's an overlap
-                y <- if x1 < y1 then mk x1 (Array.append x.c (Array.skip (min y.c.Length (x2-y1)) y.c)) // x goes first
-                     else            mk y1 (Array.append y.c (Array.skip (min x.c.Length (y2-x1)) x.c)) // y goes first
-                i <- i + 1 // consumed x
+                y <- if x.Index < y.Index then mk x.Index (Array.append x.c (Array.skip (min y.Length (x.Version - y.Index)) y.c)) // x goes first
+                     else                      mk y.Index (Array.append y.c (Array.skip (min x.Length (y.Version - x.Index)) x.c)) // y goes first
+                i <- i + 1 // mark x as consumed; shift to next
         if i = xs.Length then acc.Add y
         acc.ToArray()
 
-    type StreamState = { syncedPos : int; backlog : EventSpan array }
+    type StreamState = { writePos : int; backlog : EventSpan array }
 
     type State() =
 
@@ -48,18 +54,18 @@ module EventsQueue =
             let removeReady = removeReady = Some true
             match streams.TryGetValue stream with
             | false, _ ->
-                let ss = if span.i = 0 && removeReady then { syncedPos = span.c.Length; backlog = Array.empty }
-                         else { syncedPos = 0; backlog = Array.singleton span }
+                let ss = if span.i = 0 && removeReady then { writePos = span.c.Length; backlog = Array.empty }
+                         else { writePos = 0; backlog = Array.singleton span }
                 streams.Add(stream, ss)
                 true
             | true, v ->
-                match EventSpan.choose v.syncedPos span with
+                match EventSpan.choose v.writePos span with
                 | None -> false
                 | Some trimmed ->
-                    let merged = { v with backlog = merge trimmed v.backlog }
+                    let merged = { v with backlog = insert trimmed v.backlog }
                     let updated =
                         let head = merged.backlog[0]
-                        if removeReady && v.syncedPos = head.i then { syncedPos = head.i + head.c.Length; backlog = Array.tail merged.backlog }
+                        if removeReady && v.writePos = head.i then { writePos = head.i + head.c.Length; backlog = Array.tail merged.backlog }
                         else merged
                     streams[stream] <- updated
                     true

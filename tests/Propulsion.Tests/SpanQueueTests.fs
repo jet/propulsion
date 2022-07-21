@@ -8,8 +8,8 @@ open Propulsion.DynamoStore.DynamoStoreIndexReader
 
 module Span =
 
-    let mks i c = EventsQueue.mk i [| for i in i..i+c-1 -> string i |]
-    let merge = EventsQueue.merge
+    let mks i c = EventsQueue.mk i [| for i in i..i + c - 1 -> string i |]
+    let merge = EventsQueue.insert
 
     let [<Fact>] ``empty Adds Are Invalid`` () =
         raises<System.ArgumentException> <@ merge (mks 0 0) [||] @>
@@ -48,9 +48,8 @@ module Span =
             merge xs[sel] xs
 
         let includesSpanAdded (x : EventSpan) =
-            let x1, x2 = x.i, x.i + x.c.Length
-            pos >= x1 && pos+len <= x2
-            && adding.c = Array.take adding.c.Length (Array.skip (pos-x1) x.c)
+            pos >= x.Index && pos + len <= x.Version
+            && adding.c = Array.take adding.c.Length (Array.skip (pos - x.Index) x.c)
 
         result.Length > 0 // We're always adding at least one item, so there has to be a result
         && result = reMergeRandomElement result retry // re-merging should not yield a different result
