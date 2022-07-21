@@ -6,7 +6,7 @@ open Xunit
 
 open Propulsion.DynamoStore.DynamoStoreIndexReader
 
-let mks i c = EventsQueue.mk i [| for i in i..i + c - 1 -> string i |]
+let mks i c = EventSpan.Create(i, [| for i in i..i + c - 1 -> string i |])
 
 module Span =
 
@@ -83,7 +83,7 @@ module Queue =
         let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
         test <@ res.writePos = 0
                 && res.spans.Length = 1
-                && res.spans.[0].Length = 2 @>
+                && res.spans[0].Length = 2 @>
 
     // TOCONSIDER should it?
     let [<Fact>] ``Tolerates out of order index writes`` () =

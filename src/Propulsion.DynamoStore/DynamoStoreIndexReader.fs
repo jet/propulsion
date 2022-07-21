@@ -3,6 +3,7 @@ module Propulsion.DynamoStore.DynamoStoreIndexReader
 [<Struct>]
 type EventSpan =
     { i : int; c : string array }
+    static member Create(index, eventTypes) = { i = index; c = eventTypes }
     member x.Index = x.i
     member x.Length = x.c.Length
     member x.Version = x.Index + x.Length
@@ -18,8 +19,6 @@ module EventSpan =
 module EventsQueue =
 
     open System.Collections.Generic
-
-    let mk i xs = { i = i; c = xs }
 
     /// Responsible for coalescing overlapping and/or adjacent spans
     /// Assumes, and upholds guarantee that input queue is ordered correctly
@@ -37,8 +36,10 @@ module EventsQueue =
                 acc.AddRange xs[i..] // trust the rest to already be minimal and not require coalescing
                 i <- xs.Length + 1 // trigger exit without y being added twice
             else // there's an overlap - merge the existing span with the incoming one. Then wait for any successors that might also coalesce
-                y <- if x.Index < y.Index then mk x.Index (Array.append x.c (Array.skip (min y.Length (x.Version - y.Index)) y.c)) // x goes first
-                     else                      mk y.Index (Array.append y.c (Array.skip (min x.Length (y.Version - x.Index)) x.c)) // y goes first
+                y <- if x.Index < y.Index then
+                         EventSpan.Create(x.Index, Array.append x.c (Array.skip (min y.Length (x.Version - y.Index)) y.c)) // x goes first
+                     else
+                         EventSpan.Create(y.Index, Array.append y.c (Array.skip (min x.Length (y.Version - x.Index)) x.c)) // y goes first
                 i <- i + 1 // mark x as consumed; shift to next
         if i = xs.Length then acc.Add y
         acc.ToArray()
