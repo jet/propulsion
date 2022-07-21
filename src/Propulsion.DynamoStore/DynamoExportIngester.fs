@@ -1,7 +1,5 @@
 module Propulsion.DynamoStore.DynamoExportIngester
 
-open System.Collections.Generic
-open System.Collections.Concurrent
 open FSharp.Control
 open System.IO
 open System.Text.Json
@@ -9,7 +7,7 @@ open System.Text.Json
 type StreamSpan = AppendsEpoch.Events.StreamSpan
 
 type [<Struct>] Line =  { Item : Item }
- and [<Struct>] Item = { p : StringVal; i : NumVal; c : ListVal<StringVal> }
+ and [<Struct>] Item = { p : StringVal; n : NumVal; c : ListVal<StringVal> }
  and [<Struct>] StringVal = { S : string }
  and [<Struct>] NumVal = { N : string }
  and ListVal<'t> = { L : 't[] }
@@ -22,7 +20,8 @@ let private read maxEventsCutoff (path : string) : AsyncSeq<StreamSpan array> = 
         let l = r.ReadLine()
         let i = JsonSerializer.Deserialize<Line>(l).Item
         let cs = if obj.ReferenceEquals(null, i.c) then Array.empty else [| for s in i.c.L -> s.S |]
-        let span : StreamSpan = { p = IndexStreamId.ofP i.p.S; i = int i.i.N; c = cs }
+        let index = int i.n.N - cs.Length
+        let span : StreamSpan = { p = IndexStreamId.ofP i.p.S; i = index; c = cs }
         c <- c + span.c.Length
         if c > maxEventsCutoff && buffer.Count > 0 then
             yield buffer.ToArray()
@@ -32,7 +31,7 @@ let private read maxEventsCutoff (path : string) : AsyncSeq<StreamSpan array> = 
         more <- not r.EndOfStream
     if buffer.Count > 0 then yield buffer.ToArray() }
 
-type Importer(log, context) =
+type Importer(log, storeLog, context) =
 
     // Values up to 5 work reasonably, but side effects are:
     // - read usage is more 'lumpy'
@@ -46,7 +45,14 @@ type Importer(log, context) =
     let cache = Equinox.Cache("indexer", sizeMb = maxCacheMiB)
     let service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
-    member _.ImportDynamoDbJsonFile(trancheId, path, maxEventsCutoff) =
-        let ingest spans = service.IngestWithoutConcurrency(trancheId, spans)
-        read maxEventsCutoff path
-        |> AsyncSeq.iterAsync ingest
+    member _.VerifyAndOrImportDynamoDbJsonFile(trancheId, maxEventsCutoff, gapsLimit, path) = async {
+        let! state = DynamoStoreIndex.Reader.walk (log, storeLog, context) trancheId
+        state.Dump(log, gapsLimit)
+        match path with
+        | None -> ()
+        | Some path ->
+            let ingest spans = service.IngestWithoutConcurrency(trancheId, spans)
+            return!
+                read maxEventsCutoff path
+                |> AsyncSeq.iterAsync ingest
+    }

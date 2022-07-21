@@ -68,7 +68,25 @@ module private Impl =
     let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
-    let readIndexedSpansAsStreamEvents
+    // Returns flattened list of all spans, and flag indicating whether tail reached
+    let loadIndexEpochSpans (log : Serilog.ILogger, storeLog) (context : DynamoStoreContext) trancheId epochId
+        : Async<bool * AppendsEpoch.Events.StreamSpan array> = async {
+        let epochs = AppendsEpoch.Reader.Config.create storeLog context
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let! _version, state = epochs.Read(trancheId, epochId, 0)
+        let totalChanges = state.changes.Length
+        let t = sw.Elapsed
+        let totalStreams, totalEvents =
+            let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
+            let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
+            all.Length, totalEvents
+        log.Information("DynamoStoreIndex Tranche {trancheId} Epoch {epochId} {totalChanges} changes {totalS} streams {totalE} events {epochLoadS:n1}s",
+                        string trancheId, string epochId, totalChanges, totalStreams, totalEvents, t.TotalSeconds)
+        let items = state.changes |> Array.collect (fun struct (i, spans) -> spans)
+        return state.closed, items }
+
+    // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
+    let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
         : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
@@ -185,7 +203,7 @@ type DynamoStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Internal.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readIndexedSpansAsStreamEvents (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
+            Impl.materializeIndexEpochAsBatchesOfStreamEvents (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                                                 (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
             (if fromTail = Some true then Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient)) else None),

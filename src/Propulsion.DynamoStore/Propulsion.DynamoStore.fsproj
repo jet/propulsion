@@ -18,7 +18,7 @@
         <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
-        <Compile Include="DynamoStoreIndexReader.fs" />
+        <Compile Include="DynamoStoreIndex.fs" />
         <Compile Include="DynamoExportIngester.fs" />
     </ItemGroup>
     

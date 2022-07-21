@@ -4,7 +4,7 @@ open FsCheck.Xunit
 open Swensen.Unquote
 open Xunit
 
-open Propulsion.DynamoStore.DynamoStoreIndexReader
+open Propulsion.DynamoStore.DynamoStoreIndex
 
 let mks i c = EventSpan.Create(i, [| for i in i..i + c - 1 -> string i |])
 
@@ -65,22 +65,23 @@ module Queue =
     let [<Fact>] ``Indexing happy path`` () =
         let state = EventsQueue.State()
         state.LogIndexed("stream", mks 0 2)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
+        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
         state.LogIndexed("stream", mks 2 1)
-        test <@ Some 3 = state.TryGetWritePos("stream") @>
+        test <@ ValueSome 3 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Indexing overlaps`` () =
         let state = EventsQueue.State()
         state.LogIndexed("stream", mks 0 1)
         state.LogIndexed("stream", mks 0 2)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
+        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Handles missing writes due to gaps in index with redundant write`` () =
         let state = EventsQueue.State()
         state.LogIndexed("stream", mks 1 1)
-        test <@ Some 0 = state.TryGetWritePos("stream") @>
+        test <@ ValueSome 0 = state.TryGetWritePos("stream") @>
 
         let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
+        let res = res
         test <@ res.writePos = 0
                 && res.spans.Length = 1
                 && res.spans[0].Length = 2 @>
@@ -90,7 +91,7 @@ module Queue =
         let state = EventsQueue.State()
         state.LogIndexed("stream", mks 1 1)
         state.LogIndexed("stream", mks 0 1)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
+        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Drops Ingests that are already indexed`` () =
         let state = EventsQueue.State()

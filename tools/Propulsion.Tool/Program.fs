@@ -52,10 +52,11 @@ and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
         | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 
 and [<NoEquality; NoComparison>] IndexParameters =
-    | [<AltCommandLine "-j"; MainCommand; Mandatory>] Source of string
+    | [<AltCommandLine "-j"; MainCommand>]  Source of string
     | [<AltCommandLine "-t"; Unique>]       TrancheId of int
     | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
     | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
+    | [<AltCommandLine "-g"; Unique>]       GapsLimit of int
 
     | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with
@@ -64,6 +65,7 @@ and [<NoEquality; NoComparison>] IndexParameters =
             | TrancheId _ ->                "Specify destination TrancheId. Default 0"
             | MinSizeK _ ->                 "Specify Index Minimum Item size in KiB. Default 48"
             | EventsPerBatch _ ->           "Specify Maximum Events to Ingest as a single batch. Default 10000"
+            | GapsLimit _ ->                "Max Number of gaps to dump to console. Default 10"
 
             | Dynamo _ ->                   "Specify DynamoDB parameters."
 
@@ -187,7 +189,8 @@ module Indexer =
 
     type Arguments(c, p : ParseResults<IndexParameters>) =
 //        member val IdleDelay =              TimeSpan.FromMilliseconds 10.
-        member val SourcePath =             p.GetResult IndexParameters.Source
+        member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
+        member val SourcePath =             p.TryGetResult IndexParameters.Source
         member val TrancheId =              p.TryGetResult IndexParameters.TrancheId
                                             |> Option.map AppendsTrancheId.parse
                                             |> Option.defaultValue AppendsTrancheId.wellKnownId
@@ -240,8 +243,8 @@ module Indexer =
             sink.AwaitWithStopOnCancellation()
             source.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> *)
-        let indexer = DynamoExportIngester.Importer(Log.Logger, ctx)
-        return! indexer.ImportDynamoDbJsonFile(a.TrancheId, a.SourcePath, a.EventsPerBatch) }
+        let indexer = DynamoExportIngester.Importer(Log.Logger, Log.forMetrics, ctx)
+        return! indexer.VerifyAndOrImportDynamoDbJsonFile(a.TrancheId, a.EventsPerBatch, a.GapsLimit, a.SourcePath) }
 
 module Project =
 
