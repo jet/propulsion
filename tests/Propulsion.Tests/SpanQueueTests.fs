@@ -29,7 +29,11 @@ module Span =
     let [<Fact>] k () = test <@ [| mks 0 5 |]           = merge (mks 1 4) [| mks 0 1 |] @>
     let [<Fact>] l () = test <@ [| mks 0 1; mks 2 1 |]  = merge (mks 2 1) [| mks 0 1 |] @>
     let [<Fact>] m () = test <@ [| mks 0 1; mks 2 2 |]  = merge (mks 2 1) [| mks 0 1; mks 3 1 |] @>
+
+    (* ...Ones that the Properties found for me which I didnt think of *)
+
     let [<Fact>] n () = test <@ [| mks 0 3 |]           = merge (mks 1 1) [| mks 0 3 |] @>
+    let [<Fact>] o () = test <@ [| mks 0 1 |]           = merge (mks 0 1) [||] @>
 
     (* Generalized form of the above with some additional stipulations *)
 

@@ -35,7 +35,7 @@ module EventsQueue =
                 i <- i + 1
             elif y.Version < x.Index then // y has new info => goes before, no overlap -> copy rest as a block
                 acc.Add y
-                acc.AddRange xs[i..]
+                acc.AddRange xs[i..] // trust the rest to already be minimal and not require coalescing
                 i <- xs.Length + 1 // trigger exit without y being added twice
             else // there's an overlap
                 y <- if x.Index < y.Index then mk x.Index (Array.append x.c (Array.skip (min y.Length (x.Version - y.Index)) y.c)) // x goes first
