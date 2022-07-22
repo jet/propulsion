@@ -10,7 +10,7 @@ let mks i c = EventSpan.Create(i, [| for i in i..i + c - 1 -> string i |])
 
 module Span =
 
-    let ins = Buffer.insert
+    let ins = StreamQueue.insert
 
     let [<Fact>] ``empty Adds Are Invalid`` () =
         raises<System.ArgumentException> <@ ins (mks 0 0) [||] @>
@@ -63,45 +63,77 @@ module Span =
 module Queue =
 
     let [<Fact>] ``Indexing happy path`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 0 2)
         test <@ Some 2 = state.TryGetWritePos("stream") @>
         state.LogIndexed("stream", mks 2 1)
         test <@ Some 3 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Indexing overlaps`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 0 1)
         state.LogIndexed("stream", mks 0 2)
         test <@ Some 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Handles missing writes due to gaps in index with redundant write`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 1 1)
         test <@ Some 0 = state.TryGetWritePos("stream") @>
 
         let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
-        let res = res
-        test <@ res.writePos = 0
-                && res.spans.Length = 1
-                && res.spans[0].Length = 2 @>
+        let i, l = res.Index, res.Length
+        test <@ i = 0 && l = 2 @>
 
     // TOCONSIDER should it?
     let [<Fact>] ``Tolerates out of order index writes`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 1 1)
         state.LogIndexed("stream", mks 0 1)
         test <@ Some 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Drops Ingests that are already indexed`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 0 2)
         test <@ None = state.IngestData("stream", mks 0 1) @>
 
+    let [<Fact>] ``Drops identical Ingests`` () =
+        let state = Buffer()
+        state.LogIndexed("stream", mks 0 2)
+        test <@ None = state.IngestData("stream", mks 0 2) @>
+
+    let [<Fact>] ``Handles Ingests that prepend but are not ready`` () =
+        let state = Buffer()
+        state.LogIndexed("stream", mks 2 2)
+        test <@ None = state.IngestData("stream", mks 1 1) @>
+
+    let [<Fact>] ``Handles Ingests that require trim and become ready`` () =
+        let state = Buffer()
+        state.LogIndexed("stream", mks 1 2)
+        let res = trap <@ state.IngestData("stream", mks 0 4).Value @>
+        let i, l = res.Index, res.Length
+        test <@ i = 0 && l = 4 @>
+
+    let [<Fact>] ``Handles Ingests that prepend and become ready`` () =
+        let state = Buffer()
+        state.LogIndexed("stream", mks 2 2)
+        let res = trap <@  state.IngestData("stream", mks 0 2).Value @>
+        let i, l = res.Index, res.Length
+        test <@ i = 0 && l = 4 @>
+
+    let [<Fact>] ``Handles Ingests that fill gaps and become ready`` () =
+        let state = Buffer()
+        state.LogIndexed("stream", mks 0 1)
+        state.LogIndexed("stream", mks 3 1)
+        let res = trap <@  state.IngestData("stream", mks 0 2).Value @>
+        let i, l = res.Index, res.Length
+        test <@ i = 1 && l = 1 @>
+        let res = trap <@  state.IngestData("stream", mks 2 3).Value @>
+        let i, l = res.Index, res.Length
+        test <@ i = 1 && l = 4 @>
+
     let [<Fact>] ``Trims Ingests with redundancy`` () =
-        let state = Buffer.State()
+        let state = Buffer()
         state.LogIndexed("stream", mks 0 2)
         let res = trap <@ state.IngestData("stream", mks 0 4).Value @>
-        test <@ res.writePos = 2
-                && res.spans.Length = 1
-                && res.spans[0].Length = 2 @>
+        let i, l = res.Index, res.Length
+        test <@ i = 2 && l = 2 @>

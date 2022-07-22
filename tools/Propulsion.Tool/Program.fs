@@ -188,14 +188,13 @@ module Indexer =
     open Propulsion.DynamoStore
 
     type Arguments(c, p : ParseResults<IndexParameters>) =
-//        member val IdleDelay =              TimeSpan.FromMilliseconds 10.
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val SourcePath =             p.TryGetResult IndexParameters.Source
         member val TrancheId =              p.TryGetResult IndexParameters.TrancheId
                                             |> Option.map AppendsTrancheId.parse
                                             |> Option.defaultValue AppendsTrancheId.wellKnownId
         // Larger optimizes for not needing to use TransactWriteItems as frequently
-        // Smaller will trigger more items and reduce read costs for Sources reading fro the tail
+        // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
         member val EventsPerBatch =         p.GetResult(IndexParameters.EventsPerBatch, 10000)
         member val StoreArgs =
@@ -204,45 +203,10 @@ module Indexer =
             | x -> missingArg $"unexpected subcommand %A{x}"
 
         member x.WriterParams() =           x.StoreArgs.WriterParams x.MinItemSize
-(*
-    type Stats(statsInterval, statesInterval, logExternalStats) =
-        inherit Propulsion.Streams.Stats<unit>(Log.Logger, statsInterval = statsInterval, statesInterval = statesInterval)
-        member val StatsInterval = statsInterval
-        override _.HandleOk(_log) = ()
-        override _.HandleExn(_log, _exn) = ()
-        override _.DumpStats() =
-            base.DumpStats()
-            logExternalStats Log.Logger
-*)
+
     let run (c : Args.Configuration, p : ParseResults<IndexParameters>) = async {
         let a = Arguments(c, p)
         let ctx = a.WriterParams()
-        (*
-        let sa, dumpStoreStats = a.StoreArgs, Equinox.DynamoStore.Core.Log.InternalMetrics.dump
-        let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
-        let sink =
-            let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle (stream : FsCodec.StreamName, span : Propulsion.Streams.StreamSpan<_>) = async {
-                // TODO
-                let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
-                let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
-            Propulsion.Streams.StreamsProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = a.IdleDelay)
-        let source =
-            let indexStore, maybeHydrate = sa.MonitoringParams()
-            let checkpoints =
-                let cache = Equinox.Cache (appName, sizeMb = 1)
-                sa.CreateCheckpointStore(group, cache, Log.forMetrics)
-            let loadMode = Propulsion.DynamoStore.LoadMode.All
-            Propulsion.DynamoStore.DynamoStoreSource(
-                Log.Logger, stats.StatsInterval,
-                indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics
-            ).Start()
-        let work = [
-            Async.AwaitKeyboardInterruptAsTaskCancelledException()
-            sink.AwaitWithStopOnCancellation()
-            source.AwaitWithStopOnCancellation() ]
-        return! work |> Async.Parallel |> Async.Ignore<unit[]> *)
         let indexer = DynamoDbExport.Importer(Log.Logger, Log.forMetrics, ctx)
         return! indexer.VerifyAndOrImportDynamoDbJsonFile(a.TrancheId, a.EventsPerBatch, a.GapsLimit, a.SourcePath) }
 

@@ -9,13 +9,13 @@ type EventSpan =
     member x.Length = x.c.Length
     member x.Version = x.Index + x.Length
 
-module Buffer =
+module StreamQueue =
 
     /// Given a span of events, select portion that's not already ingested (i.e. falls beyond our write Position)
-    let inline private chooseUnwritten writePos (x : EventSpan) =
+    let inline internal chooseUnwritten writePos (x : EventSpan) =
         if writePos <= x.Index then Some x
-        elif writePos > x.Version then None
-        else Some { i = writePos; c = Array.skip (x.Index - writePos) x.c }
+        elif writePos >= x.Version then None
+        else Some { i = writePos; c = Array.skip (writePos - x.Index) x.c }
 
     /// Responsible for coalescing overlapping and/or adjacent spans
     /// Requires, and ensures, that queue is ordered correctly before and afterwards
@@ -41,57 +41,64 @@ module Buffer =
         if i = xs.Length then acc.Add y // Add residual (iff we didn't already do so within the loop)
         acc.ToArray()
 
-    type StreamState = { writePos : int; spans : EventSpan array }
+type BufferStreamState = { writePos : int; spans : EventSpan array }
 
-    type State() =
+type Buffer() =
 
-        let streams = System.Collections.Generic.Dictionary<string, StreamState>()
-        let tryGet stream = match streams.TryGetValue stream with true, x -> Some x | false, _ -> None
+    let streams = System.Collections.Generic.Dictionary<string, BufferStreamState>()
+    let tryGet stream = match streams.TryGetValue stream with true, x -> Some x | false, _ -> None
 
-        let add removeReady stream span =
-            match tryGet stream with
-            | None ->
-                let updated = if removeReady && span.i = 0 then { writePos = span.Version; spans = Array.empty }
-                              else { writePos = 0; spans = Array.singleton span }
-                streams.Add(stream, updated)
-                Some updated
-            | Some v ->
-                match chooseUnwritten v.writePos span with
-                | None -> None // we've already written beyond the position of this span so nothing new to write
-                | Some trimmed ->
-                    let pass1 = { v with spans = insert trimmed v.spans }
-                    let updated =
+    let add removeReady stream span =
+        match tryGet stream with
+        | None ->
+            let wp, spans = if removeReady && span.i = 0 then span.Version,  Array.empty
+                                                         else 0,             Array.singleton span
+            let updated = { writePos = wp; spans = spans }
+            streams.Add(stream, updated)
+            Some updated
+        | Some v ->
+            match StreamQueue.chooseUnwritten v.writePos span with
+            | None -> None // we've already written beyond the position of this span so nothing new to write
+            | Some trimmed ->
+                let updated =
+                    let pass1 = { v with spans = StreamQueue.insert trimmed v.spans }
+                    if removeReady then
                         let head = Array.head pass1.spans
-                        if removeReady && v.writePos = head.Index then { writePos = head.Version; spans = Array.tail pass1.spans }
+                        if v.writePos = head.Index then { writePos = head.Version; spans = Array.tail pass1.spans }
                         else pass1
-                    streams[stream] <- updated
-                    if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated
-                    else None
+                    else pass1
+                streams[stream] <- updated
+                Some updated
 
-        member _.LogIndexed(stream, span) =
-            add true stream span |> ignore
+    member _.LogIndexed(stream, span) =
+        add true stream span |> ignore
 
-        // Returns Span ready to be written (if applicable)
-        member _.IngestData(stream, span) =
-            add false stream span
+    // Returns Span ready to be written (if applicable)
+    member _.IngestData(stream, span) =
+        match add false stream span with
+        | None -> None
+        | Some updated ->
+            if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated.spans[0]
+            else None
 
-        member _.TryGetWritePos(stream) =
-            tryGet stream |> Option.map (fun x -> x.writePos)
+    member _.TryGetWritePos(stream) =
+        tryGet stream |> Option.map (fun x -> x.writePos)
 
-        member _.Dump(log : Serilog.ILogger, totalSizeB : int64, totalSpans, gapsLimit) =
-            let mutable totalS, totalE, incomplete, lim = 0, 0L, 0, gapsLimit
-            for KeyValue (stream, v) in streams do
-                totalS <- totalS + 1
-                totalE <- totalE + int64 v.writePos
-                if v.spans.Length > 0 && lim >= 0 then
-                    if lim = 0 then log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
-                    else log.Warning("Stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
-                                     stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
-                    lim <- lim - 1
-                if v.spans.Length > 0 then incomplete <- incomplete + 1
-            let level = if incomplete > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
-            log.Write(level, "TOTAL {events:n0} events {streams:n0} streams ({spans:n0} spans, {mib:n0} MiB) Gapped Streams {incomplete:n0}",
-                      totalE, totalS, totalSizeB, totalSpans, float totalSizeB / 1024. / 1024., incomplete)
+    member _.Dump(log : Serilog.ILogger, totalSizeB : int64 option, totalSpans, gapsLimit) =
+        let mutable totalS, totalE, incomplete, lim = 0, 0L, 0, gapsLimit
+        for KeyValue (stream, v) in streams do
+            totalS <- totalS + 1
+            totalE <- totalE + int64 v.writePos
+            if v.spans.Length > 0 && lim >= 0 then
+                if lim = 0 then log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+                else log.Warning("Stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
+                                 stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
+                lim <- lim - 1
+            if v.spans.Length > 0 then incomplete <- incomplete + 1
+        let level = if incomplete > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
+        let totalMib = totalSizeB |> Option.map (fun b -> float b / 1024. / 1024.) |> Option.toNullable
+        log.Write(level, "TOTAL {events:n0} events {streams:n0} streams ({spans:n0} spans, {mib:n1} MiB) Gapped Streams {incomplete:n0}",
+                  totalE, totalS, totalSpans, totalMib, incomplete)
 
 module Reader =
 
@@ -104,14 +111,14 @@ module Reader =
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length
-        log.Information("Tranche {trancheId} Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k} KiB) {loadS:n1}s",
-                        string trancheId, string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, sizeB / 1024L, t.TotalSeconds)
+        log.Information("Tranche {trancheId} Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
+                        string trancheId, string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, float sizeB / 1024. / 1024., t.TotalSeconds)
         return spans, state.closed, sizeB }
 
-    let loadIndex (log, storeLog, context) trancheId : Async<Buffer.State * (int64 * int64)> = async {
+    let loadIndex (log, storeLog, context) trancheId : Async<Buffer * (int64 * int64)> = async {
         let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
-        let state = Buffer.State()
+        let state = Buffer()
         while more do
             let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs trancheId epochId
             totalB <- totalB + streamBytes; totalSpans <- totalSpans + spans.LongLength

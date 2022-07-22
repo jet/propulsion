@@ -1,35 +1,29 @@
 module Propulsion.DynamoStore.DynamoDbExport
 
+open System.Collections.Generic
 open FSharp.Control
 open System.IO
 open System.Text.Json
 
-type StreamSpan = AppendsEpoch.Events.StreamSpan
+module DynamoDbJsonParser =
 
-type [<Struct>] Line =  { Item : Item }
- and [<Struct>] Item = { p : StringVal; n : NumVal; c : ListVal<StringVal> }
- and [<Struct>] StringVal = { S : string }
- and [<Struct>] NumVal = { N : string }
- and ListVal<'t> = { L : 't[] }
+    type [<Struct>] Line =  { Item : Item }
+     and [<Struct>] Item = { p : StringVal; n : NumVal; c : ListVal<StringVal> }
+     and [<Struct>] StringVal = { S : string }
+     and [<Struct>] NumVal = { N : string }
+     and ListVal<'t> = { L : 't[] }
 
-let private read maxEventsCutoff (path : string) : AsyncSeq<StreamSpan array> = asyncSeq {
-    use r = new StreamReader(path)
-    let mutable more = true
-    let mutable buffer, c = ResizeArray(), 0
-    while more do
-        let l = r.ReadLine()
-        let i = JsonSerializer.Deserialize<Line>(l).Item
-        let cs = if obj.ReferenceEquals(null, i.c) then Array.empty else [| for s in i.c.L -> s.S |]
-        let index = int i.n.N - cs.Length
-        let span : StreamSpan = { p = IndexStreamId.ofP i.p.S; i = index; c = cs }
-        c <- c + span.c.Length
-        if c > maxEventsCutoff && buffer.Count > 0 then
-            yield buffer.ToArray()
-            buffer.Clear()
-            c <- 0
-        buffer.Add(span)
-        more <- not r.EndOfStream
-    if buffer.Count > 0 then yield buffer.ToArray() }
+    let read (path : string) : seq<string * DynamoStoreIndex.EventSpan> = seq {
+        use r = new StreamReader(path)
+        let mutable more = true
+        while more do
+            let line = r.ReadLine()
+            let item = JsonSerializer.Deserialize<Line>(line).Item
+            let eventTypes = if obj.ReferenceEquals(null, item.c) then Array.empty
+                             else [| for s in item.c.L -> s.S |]
+            let index = int item.n.N - eventTypes.Length
+            yield item.p.S, { i = index; c = eventTypes }
+            more <- not r.EndOfStream }
 
 type Importer(log, storeLog, context) =
 
@@ -46,13 +40,49 @@ type Importer(log, storeLog, context) =
     let service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
     member _.VerifyAndOrImportDynamoDbJsonFile(trancheId, maxEventsCutoff, gapsLimit, path) = async {
-        let! state, (totalB, totalSpans) = DynamoStoreIndex.Reader.loadIndex (log, storeLog, context) trancheId
-        state.Dump(log, totalB, totalSpans, gapsLimit)
+        let! buffer, (totalB, totalSpans) = DynamoStoreIndex.Reader.loadIndex (log, storeLog, context) trancheId
+        buffer.Dump(log, Some totalB, totalSpans, gapsLimit)
+
         match path with
-        | None -> ()
+        | None -> () // no further work; exit
         | Some path ->
-            let ingest spans = service.IngestWithoutConcurrency(trancheId, spans)
-            return!
-                read maxEventsCutoff path
-                |> AsyncSeq.iterAsync ingest
-    }
+
+        let pending = Dictionary<string, DynamoStoreIndex.EventSpan>()
+        let mutable emittedSpans = 0L
+        let emit limit = async {
+            let batch =
+                let gen : seq<AppendsEpoch.Events.StreamSpan> = seq {
+                    for KeyValue (stream, span) in pending ->
+                        { p = IndexStreamId.ofP stream; i = span.Index; c = span.c }  }
+                let mutable t = 0
+                let fits (x : AppendsEpoch.Events.StreamSpan) =
+                    t <- t + x.c.Length
+                    t < limit
+                gen |> Seq.takeWhile fits |> Seq.toArray
+            do! service.IngestWithoutConcurrency(trancheId, batch)
+            for ss in batch do
+                buffer.LogIndexed(string ss.p, { i = int ss.i; c = ss.c })
+                pending.Remove(string ss.p) |> ignore
+            emittedSpans <- emittedSpans + batch.LongLength
+            return pending.Values |> Seq.sumBy (fun x -> x.c.Length) }
+
+        let mutable readyEvents = 0
+        for stream, eventSpan in DynamoDbJsonParser.read path do
+            match buffer.IngestData(stream, eventSpan) with
+            | None -> ()
+            | Some readySpan ->
+                match pending.TryGetValue stream with
+                | false, _ ->
+                    pending.Add(stream, readySpan)
+                | true, existing ->
+                    readyEvents <- readyEvents - existing.Length
+                    pending[stream] <- readySpan
+                readyEvents <- readyEvents + readySpan.Length
+
+                if readyEvents > maxEventsCutoff then
+                    let! bufferedEvents = emit maxEventsCutoff
+                    readyEvents <- bufferedEvents
+
+        // Force emission of remainder, even if it's over the cutoff
+        let! _ = emit System.Int32.MaxValue
+        buffer.Dump(log, None, totalSpans + emittedSpans, gapsLimit) }
