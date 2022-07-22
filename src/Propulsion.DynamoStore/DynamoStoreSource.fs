@@ -68,24 +68,6 @@ module private Impl =
     let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
-    // Returns flattened list of all spans, and flag indicating whether tail reached
-    let loadIndexEpochSpans (log : Serilog.ILogger, storeLog) (context : DynamoStoreContext) trancheId epochId
-        : Async<bool * AppendsEpoch.Events.StreamSpan array> = async {
-        let epochs = AppendsEpoch.Reader.Config.create storeLog context
-        let sw = System.Diagnostics.Stopwatch.StartNew()
-        let! _version, state = epochs.Read(trancheId, epochId, 0)
-        let totalChanges = state.changes.Length
-        let t = sw.Elapsed
-        let totalStreams, totalEvents =
-            let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
-            let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
-            all.Length, totalEvents
-        let items = state.changes |> Array.collect (fun struct (i, spans) -> spans)
-        let totalSpans = items.Length
-        log.Information("DynamoStoreIndex Tranche {trancheId} Epoch {epochId} {spans} spans {totalChanges} batches {totalS} streams {totalE} events {epochLoadS:n1}s",
-                        string trancheId, string epochId, totalSpans, totalChanges, totalStreams, totalEvents, t.TotalSeconds)
-        return state.closed, items }
-
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
@@ -93,7 +75,7 @@ module private Impl =
         : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        let! version, state = epochs.Read(tid, epochId, offset)
+        let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =

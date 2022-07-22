@@ -236,7 +236,7 @@ module Dynamo =
         member _.WriterParams(minItemSizeK) =
             let client = indexWriteClient.Value
             let queryMaxItems = 100
-            Log.Information("DynamoStoreIndex Writer QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
+            Log.Information("DynamoStoreIndex QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
             Equinox.DynamoStore.DynamoStoreContext(client, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
 
         member x.CreateCheckpointStore(group, cache, storeLog) =

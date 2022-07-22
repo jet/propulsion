@@ -19,7 +19,7 @@
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
         <Compile Include="DynamoStoreIndex.fs" />
-        <Compile Include="DynamoExportIngester.fs" />
+        <Compile Include="DynamoDbExport.fs" />
     </ItemGroup>
     
     <ItemGroup>

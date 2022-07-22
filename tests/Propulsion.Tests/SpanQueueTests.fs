@@ -10,7 +10,7 @@ let mks i c = EventSpan.Create(i, [| for i in i..i + c - 1 -> string i |])
 
 module Span =
 
-    let ins = EventsQueue.insert
+    let ins = Buffer.insert
 
     let [<Fact>] ``empty Adds Are Invalid`` () =
         raises<System.ArgumentException> <@ ins (mks 0 0) [||] @>
@@ -63,22 +63,22 @@ module Span =
 module Queue =
 
     let [<Fact>] ``Indexing happy path`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 0 2)
-        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
+        test <@ Some 2 = state.TryGetWritePos("stream") @>
         state.LogIndexed("stream", mks 2 1)
-        test <@ ValueSome 3 = state.TryGetWritePos("stream") @>
+        test <@ Some 3 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Indexing overlaps`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 0 1)
         state.LogIndexed("stream", mks 0 2)
-        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
+        test <@ Some 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Handles missing writes due to gaps in index with redundant write`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 1 1)
-        test <@ ValueSome 0 = state.TryGetWritePos("stream") @>
+        test <@ Some 0 = state.TryGetWritePos("stream") @>
 
         let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
         let res = res
@@ -88,18 +88,18 @@ module Queue =
 
     // TOCONSIDER should it?
     let [<Fact>] ``Tolerates out of order index writes`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 1 1)
         state.LogIndexed("stream", mks 0 1)
-        test <@ ValueSome 2 = state.TryGetWritePos("stream") @>
+        test <@ Some 2 = state.TryGetWritePos("stream") @>
 
     let [<Fact>] ``Drops Ingests that are already indexed`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 0 2)
         test <@ None = state.IngestData("stream", mks 0 1) @>
 
     let [<Fact>] ``Trims Ingests with redundancy`` () =
-        let state = EventsQueue.State()
+        let state = Buffer.State()
         state.LogIndexed("stream", mks 0 2)
         let res = trap <@ state.IngestData("stream", mks 0 4).Value @>
         test <@ res.writePos = 2

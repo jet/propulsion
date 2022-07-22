@@ -147,9 +147,9 @@ module Reader =
 
     type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 * State> =
+        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 option * int64 * State> =
             let decider = resolve (trancheId, epochId, minIndex)
-            decider.QueryEx(fun c -> c.Version, c.State)
+            decider.QueryEx(fun c -> c.StreamEventBytes, c.Version, c.State)
 
         member _.ReadVersion(trancheId, epochId) : Async<int64> =
             let decider = resolve (trancheId, epochId, System.Int64.MaxValue)

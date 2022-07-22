@@ -1,4 +1,4 @@
-module Propulsion.DynamoStore.DynamoExportIngester
+module Propulsion.DynamoStore.DynamoDbExport
 
 open FSharp.Control
 open System.IO
@@ -46,8 +46,8 @@ type Importer(log, storeLog, context) =
     let service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
 
     member _.VerifyAndOrImportDynamoDbJsonFile(trancheId, maxEventsCutoff, gapsLimit, path) = async {
-        let! totalSpans, state = DynamoStoreIndex.Reader.walk (log, storeLog, context) trancheId
-        state.Dump(log, totalSpans, gapsLimit)
+        let! state, (totalB, totalSpans) = DynamoStoreIndex.Reader.loadIndex (log, storeLog, context) trancheId
+        state.Dump(log, totalB, totalSpans, gapsLimit)
         match path with
         | None -> ()
         | Some path ->
