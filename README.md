@@ -92,7 +92,12 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
 
 ### `dotnet tool` provisioning / projections test tool
 
-- `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. (Install via: `dotnet tool install Propulsion.Tool -g`)
+- `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. See [quickstart](#quickstart).
+
+  - CosmosDB: Initialize `-aux` Container for ChangeFeedProcessor
+  - CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints
+  - CosmosDB/DynamoStore/EventStoreDB: walk change feeds/indexes and/or project to Kafka
+  - DynamoStore: validate and/or reindex DynamoStore Index
 
 ## Related repos
 
@@ -179,6 +184,22 @@ $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 # `cosmos` specifies source overrides (using defaults in step 1 in this instance)
 propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 ```
+
+### 3. Use `propulsion` tool to validate DynamoStoreSource Index  
+
+Validate `Propulsion.DynamoStore.Lambda` has not missed any events (normally you guarantee this by having alerting on Lambda failures) 
+ 
+    propulsion index -t 0 dynamo -t equinox-test
+
+### 4. Use `propulsion` tool to reindex and/or add missing notifications
+
+In addition to being able to validate the index (see preceding step), the tool facilitates ingestion of missing events from a complete [DynamoDB JSON Export](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DataExport.html). Steps are as follows:
+
+0. Enable Point in Time Restores in DynamoDB
+1. Export data to S3, download and extract JSON from `.json.gz` files
+2. Run ingestion job    
+
+       propulsion index -t 0 $HOME/Downloads/DynamoDbS3Export/*.json dynamo -t equinox-test
 
 ## CONTRIBUTING
 
