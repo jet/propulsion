@@ -18,12 +18,14 @@
         <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
             <Link>ReaderCheckpoint.fs</Link>
         </Compile>
+        <Compile Include="DynamoStoreIndex.fs" />
+        <Compile Include="DynamoDbExport.fs" />
     </ItemGroup>
     
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
-      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.10" />
+      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.10.3" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.4" />
     </ItemGroup>
     

@@ -195,7 +195,7 @@ module Dynamo =
                                                 let accessKey =    p.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
                                                 let secretKey =    p.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
                                                 Choice2Of2 (serviceUrl, accessKey, secretKey)
-        let connector timeout retries =     match conn with
+        let connect timeout retries =       match conn with
                                             | Choice1Of2 systemName -> Equinox.DynamoStore.DynamoStoreConnector(systemName, timeout, retries)
                                             | Choice2Of2 (serviceUrl, accessKey, secretKey) -> Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let indexSuffix =                   p.GetResult(IndexSuffix, "-index")
@@ -203,9 +203,17 @@ module Dynamo =
                                             |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
                                             |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
 
+        let writeConnector =                let timeout = p.GetResult(RetriesTimeoutS, 120.) |> TimeSpan.FromSeconds
+                                            let retries = p.GetResult(Retries, 10)
+                                            connect timeout retries
+        let writeClient =                   writeConnector.CreateClient()
+        let indexWriteClient =              lazy
+                                                 writeConnector.LogConfiguration()
+                                                 writeClient.ConnectStore("Index", indexTable)
+
         let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
                                             let retries = p.GetResult(Retries, 1)
-                                            connector timeout retries
+                                            connect timeout retries
         let readClient =                    readConnector.CreateClient()
         let indexReadClient =               lazy
                                                  readConnector.LogConfiguration()
@@ -224,6 +232,12 @@ module Dynamo =
                 let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
                 let context = readClient.ConnectStore("Store", table) |> DynamoStoreContext.create
                 indexClient, Some (context, streamsDop)
+
+        member _.CreateContext(minItemSizeK) =
+            let client = indexWriteClient.Value
+            let queryMaxItems = 100
+            Log.Information("DynamoStore QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
+            Equinox.DynamoStore.DynamoStoreContext(client, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
 
         member x.CreateCheckpointStore(group, cache, storeLog) =
             let context = DynamoStoreContext.create indexReadClient.Value

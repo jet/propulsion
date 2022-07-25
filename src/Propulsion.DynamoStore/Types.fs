@@ -20,6 +20,7 @@ module AppendsTrancheId =
     let wellKnownId : AppendsTrancheId = UMX.tag 0
     let internal toString : AppendsTrancheId -> string = UMX.untag >> string
     let internal toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
+    let parse : int -> AppendsTrancheId = int >> UMX.tag
     let internal (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
 
 /// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche

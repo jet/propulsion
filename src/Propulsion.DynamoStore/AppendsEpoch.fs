@@ -121,7 +121,7 @@ module Config =
         let resolve = streamName >> resolveStream store >> Config.createDecider log
         let shouldClose (totalBytes : int64 option, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
-            if closing then log.Information("Closing v{version}/{maxVersion} {streams:n0}/{maxStreams:n0} streams {bytes:n0}/{maxBytes:n0} KiB",
+            if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
         Service(shouldClose, resolve)
@@ -147,9 +147,9 @@ module Reader =
 
     type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 * State> =
+        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 option * int64 * State> =
             let decider = resolve (trancheId, epochId, minIndex)
-            decider.QueryEx(fun c -> c.Version, c.State)
+            decider.QueryEx(fun c -> c.StreamEventBytes, c.Version, c.State)
 
         member _.ReadVersion(trancheId, epochId) : Async<int64> =
             let decider = resolve (trancheId, epochId, System.Int64.MaxValue)

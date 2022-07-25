@@ -68,13 +68,14 @@ module private Impl =
     let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
-    let readIndexedSpansAsStreamEvents
+    // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
+    let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
         : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        let! version, state = epochs.Read(tid, epochId, offset)
+        let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
@@ -185,7 +186,7 @@ type DynamoStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Internal.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readIndexedSpansAsStreamEvents (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
+            Impl.materializeIndexEpochAsBatchesOfStreamEvents (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                                                 (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
             (if fromTail = Some true then Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient)) else None),
