@@ -28,8 +28,8 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
         let logLevel =
             if res.residual.Length <> 0 || futureEpochItems.Length <> 0 || (not << Array.isEmpty) res.accepted then Serilog.Events.LogEventLevel.Information
             else Serilog.Events.LogEventLevel.Debug
-        log.Write(logLevel, "Added {count}/{total} items to {epochId} Residual {residual} Future {future}",
-                  res.accepted.Length, epochItems.Length, epochId, res.residual.Length, futureEpochItems.Length)
+        log.Write(logLevel, "Epoch {epochId} Added {count}/{total} items Residual {residual} Future {future}",
+                  string epochId, res.accepted.Length, epochItems.Length, res.residual.Length, futureEpochItems.Length)
         let nextEpochId = Internal.next epochId
         let pushedToNextEpoch = res.residual |> Array.map (fun x -> nextEpochId, x)
         match Array.append pushedToNextEpoch futureEpochItems with
@@ -37,7 +37,7 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
             // Any writer noticing we've moved to a new Epoch shares the burden of marking it active in the Series
             let newActiveEpochId = if res.closed then nextEpochId else epochId
             if currentEpochId_ < %newActiveEpochId then
-                log.Information("Marking {epochId} active", newActiveEpochId)
+                log.Information("Epoch {epochId} activated", string newActiveEpochId)
                 do! markActiveEpoch newActiveEpochId
                 System.Threading.Interlocked.CompareExchange(&currentEpochId_, %newActiveEpochId, currentEpochId_) |> ignore
             return ingestedItemIds

@@ -233,10 +233,10 @@ module Dynamo =
                 let context = readClient.ConnectStore("Store", table) |> DynamoStoreContext.create
                 indexClient, Some (context, streamsDop)
 
-        member _.WriterParams(minItemSizeK) =
+        member _.CreateContext(minItemSizeK) =
             let client = indexWriteClient.Value
             let queryMaxItems = 100
-            Log.Information("DynamoStoreIndex QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
+            Log.Information("DynamoStore QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
             Equinox.DynamoStore.DynamoStoreContext(client, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
 
         member x.CreateCheckpointStore(group, cache, storeLog) =

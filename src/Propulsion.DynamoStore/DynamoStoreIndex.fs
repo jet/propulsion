@@ -83,22 +83,7 @@ type Buffer() =
 
     member _.TryGetWritePos(stream) =
         tryGet stream |> Option.map (fun x -> x.writePos)
-
-    member _.Dump(log : Serilog.ILogger, totalSizeB : int64 option, totalSpans, gapsLimit) =
-        let mutable totalS, totalE, incomplete, lim = 0, 0L, 0, gapsLimit
-        for KeyValue (stream, v) in streams do
-            totalS <- totalS + 1
-            totalE <- totalE + int64 v.writePos
-            if v.spans.Length > 0 && lim >= 0 then
-                if lim = 0 then log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
-                else log.Warning("Stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
-                                 stream, v.writePos, v.spans[0].Index - v.writePos, v.spans[0].c)
-                lim <- lim - 1
-            if v.spans.Length > 0 then incomplete <- incomplete + 1
-        let level = if incomplete > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
-        let totalMib = totalSizeB |> Option.map (fun b -> float b / 1024. / 1024.) |> Option.toNullable
-        log.Write(level, "TOTAL {events:n0} events {streams:n0} streams ({spans:n0} spans, {mib:n1} MiB) Gapped Streams {incomplete:n0}",
-                  totalE, totalS, totalSpans, totalMib, incomplete)
+    member val Streams = streams
 
 module Reader =
 
@@ -111,21 +96,23 @@ module Reader =
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length
-        log.Information("Tranche {trancheId} Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
-                        string trancheId, string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, float sizeB / 1024. / 1024., t.TotalSeconds)
+        log.Information("Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
+                        string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, float sizeB / 1024. / 1024., t.TotalSeconds)
         return spans, state.closed, sizeB }
 
-    let loadIndex (log, storeLog, context) trancheId : Async<Buffer * (int64 * int64)> = async {
+    let loadIndex (log, storeLog, context) trancheId : Async<Buffer * int64> = async {
         let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
         let state = Buffer()
         while more do
             let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs trancheId epochId
-            totalB <- totalB + streamBytes; totalSpans <- totalSpans + spans.LongLength
+            totalB <- totalB + streamBytes
             for x in spans do
                 let stream = x.p |> IndexStreamId.toStreamName |> FsCodec.StreamName.toString
                 if x.c.Length = 0 then log.Warning("Stream {stream} contains zero length span", stream)
                 else state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
             more <- closed
             epochId <- AppendsEpochId.next epochId
-        return state, (totalB, totalSpans) }
+        let totalMib = float totalB / 1024. / 1024.
+        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB", string trancheId, totalMib)
+        return state, totalSpans }

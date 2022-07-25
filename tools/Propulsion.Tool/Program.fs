@@ -52,7 +52,7 @@ and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
         | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 
 and [<NoEquality; NoComparison>] IndexParameters =
-    | [<AltCommandLine "-j"; MainCommand>]  Source of string
+    | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
     | [<AltCommandLine "-t"; Unique>]       TrancheId of int
     | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
     | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
@@ -61,7 +61,7 @@ and [<NoEquality; NoComparison>] IndexParameters =
     | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Source _ ->                   "Specify source DynamoDB JSON filename"
+            | DynamoDbJson _ ->             "Specify source DynamoDB JSON filename(s)"
             | TrancheId _ ->                "Specify destination TrancheId. Default 0"
             | MinSizeK _ ->                 "Specify Index Minimum Item size in KiB. Default 48"
             | EventsPerBatch _ ->           "Specify Maximum Events to Ingest as a single batch. Default 10000"
@@ -189,7 +189,7 @@ module Indexer =
 
     type Arguments(c, p : ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
-        member val SourcePath =             p.TryGetResult IndexParameters.Source
+        member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
         member val TrancheId =              p.TryGetResult IndexParameters.TrancheId
                                             |> Option.map AppendsTrancheId.parse
                                             |> Option.defaultValue AppendsTrancheId.wellKnownId
@@ -197,18 +197,55 @@ module Indexer =
         // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
         member val EventsPerBatch =         p.GetResult(IndexParameters.EventsPerBatch, 10000)
+
         member val StoreArgs =
             match p.GetSubCommand() with
             | IndexParameters.Dynamo p -> Args.Dynamo.Arguments (c, p)
             | x -> missingArg $"unexpected subcommand %A{x}"
+        member x.CreateContext() =          x.StoreArgs.CreateContext x.MinItemSize
 
-        member x.WriterParams() =           x.StoreArgs.WriterParams x.MinItemSize
+    let dumpSummary gapsLimit streams spanCount =
+        let mutable totalS, totalE, queuing, buffered, gapped = 0, 0L, 0, 0, 0
+        for KeyValue (stream, v : DynamoStoreIndex.BufferStreamState) in streams do
+            totalS <- totalS + 1
+            totalE <- totalE + int64 v.writePos
+            if v.spans.Length > 0 then
+                match v.spans[0].Index - v.writePos with
+                | 0 ->
+                    if v.spans.Length > 1 then queuing <- queuing + 1 // There's a gap within the queue
+                    else buffered <- buffered + 1 // Everything is fine, just not written yet
+                | gap ->
+                    gapped <- gapped + 1
+                    if gapped < gapsLimit then
+                        Log.Warning("Gapped stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}", stream, v.writePos, gap, v.spans[0].c)
+                    elif gapped = gapsLimit then
+                        Log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+        let level = if gapped > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
+        Log.Write(level, "Index {events:n0} events {streams:n0} streams ({spans:n0} spans) Buffered {buffered} Queueing {queuing} Gapped {gapped:n0}",
+                  totalE, totalS, spanCount, buffered, queuing, gapped)
 
     let run (c : Args.Configuration, p : ParseResults<IndexParameters>) = async {
         let a = Arguments(c, p)
-        let ctx = a.WriterParams()
-        let indexer = DynamoDbExport.Importer(Log.Logger, Log.forMetrics, ctx)
-        return! indexer.VerifyAndOrImportDynamoDbJsonFile(a.TrancheId, a.EventsPerBatch, a.GapsLimit, a.SourcePath) }
+        let context = a.CreateContext()
+
+        let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) a.TrancheId
+        let dump ingestedCount = dumpSummary a.GapsLimit buffer.Streams (indexedSpans + ingestedCount)
+        dump 0
+
+        match a.ImportJsonFiles with
+        | [] -> ()
+        | files ->
+
+        Log.Information("Ingesting {files}...", files)
+
+        let ingest =
+            let ingester = DynamoStoreIngester(Log.Logger, context)
+            fun batch -> ingester.Service.IngestWithoutConcurrency(a.TrancheId, batch)
+        let import = DynamoDbExport.Importer(buffer, ingest, dump)
+        for file in files do
+            let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
+            Log.Information("Merged {file}: {items:n0} items, {events:n0} events", file, stats.items, stats.events)
+        do! import.Flush() }
 
 module Project =
 
