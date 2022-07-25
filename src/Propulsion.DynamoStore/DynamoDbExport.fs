@@ -49,12 +49,12 @@ type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
         totalIngestedSpans <- totalIngestedSpans + batch.LongLength
         return pending.Values |> Seq.sumBy (fun x -> x.c.Length) }
 
-    // Ingest a file worth of data, flushing whenever we've accumulated enough pending data to be written
+    /// Ingest a file worth of data, flushing whenever we've accumulated enough pending data to be written
     member _.IngestDynamoDbJsonFile(file, bufferedEventsFlushThreshold) = async {
         let mutable readyEvents = 0
         let mutable items, events = 0L, 0L
         for stream, eventSpan in DynamoDbJsonParser.read file do
-            items <- items + 1L; events <- events + 1L
+            items <- items + 1L; events <- events + int64 eventSpan.Length
             match buffer.IngestData(stream, eventSpan) with
             | None -> ()
             | Some readySpan ->
@@ -72,7 +72,7 @@ type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
         dump ()
         return {| items = items; events = events |} }
 
-    // Force emission of remainder, even if it's over the cutoff
+    /// Attempt emission of remaining buffered items
     member _.Flush() = async {
         let! _ = flush System.Int32.MaxValue
         dump () }
