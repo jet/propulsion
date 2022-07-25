@@ -23,7 +23,7 @@
 
     <PackageReference Include="FSharp.Core" Version="4.5.4" />
 
-    <PackageReference Include="Equinox.CosmosStore" Version="4.0.0-beta.10" />
+    <PackageReference Include="Equinox.CosmosStore" Version="4.0.0-beta.10.3" />
     <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.4" />
   </ItemGroup>
 
