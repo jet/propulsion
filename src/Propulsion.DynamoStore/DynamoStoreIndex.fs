@@ -46,44 +46,42 @@ type BufferStreamState = { writePos : int; spans : EventSpan array }
 type Buffer() =
 
     let streams = System.Collections.Generic.Dictionary<string, BufferStreamState>()
-    let tryGet stream = match streams.TryGetValue stream with true, x -> Some x | false, _ -> None
 
-    let add removeReady stream span =
-        match tryGet stream with
-        | None ->
-            let wp, spans = if removeReady && span.i = 0 then span.Version,  Array.empty
-                                                         else 0,             Array.singleton span
-            let updated = { writePos = wp; spans = spans }
-            streams.Add(stream, updated)
-            Some updated
-        | Some v ->
+    let add isIndex stream span =
+        match streams.TryGetValue stream with
+        | false, _ ->
+            if isIndex && span.i <> 0 then
+                false, { writePos = 0; spans = Array.empty }  // Flag notification missing predecessor events
+            else
+                let wp, spans = if span.i = 0 && isIndex then span.Version,    Array.empty
+                                                         else 0,               Array.singleton span
+                let updated = { writePos = wp; spans = spans }
+                streams.Add(stream, updated)
+                true, updated
+        | true, v ->
             match StreamQueue.chooseUnwritten v.writePos span with
-            | None -> None // we've already written beyond the position of this span so nothing new to write
+            | None -> true, v // we've already written beyond the position of this span so nothing new to write
             | Some trimmed ->
-                let updated =
+                if isIndex && trimmed.i <> v.writePos then false, v
+                else
                     let pass1 = { v with spans = StreamQueue.insert trimmed v.spans }
-                    if removeReady then
-                        let head = Array.head pass1.spans
-                        if v.writePos = head.Index then { writePos = head.Version; spans = Array.tail pass1.spans }
-                        else pass1
-                    else pass1
-                streams[stream] <- updated
-                Some updated
+                    let updated =
+                        if not isIndex || v.writePos <> pass1.spans[0].i then pass1
+                        else { writePos = pass1.spans[0].Version; spans = Array.tail pass1.spans }
+                    streams[stream] <- updated
+                    true, updated
 
     member _.LogIndexed(stream, span) =
-        add true stream span |> ignore
+        let ok, v = add true stream span
+        ok, v.writePos
 
     // Returns Span ready to be written (if applicable)
     member _.IngestData(stream, span) =
-        match add false stream span with
-        | None -> None
-        | Some updated ->
-            if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated.spans[0]
-            else None
+        let _ok, updated = add false stream span
+        if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated.spans[0]
+        else None
 
-    member _.TryGetWritePos(stream) =
-        tryGet stream |> Option.map (fun x -> x.writePos)
-    member val Streams = streams
+    member val Streams : System.Collections.Generic.IReadOnlyDictionary<_, _> = streams
 
 module Reader =
 
@@ -100,19 +98,26 @@ module Reader =
                         string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, float sizeB / 1024. / 1024., t.TotalSeconds)
         return spans, state.closed, sizeB }
 
-    let loadIndex (log, storeLog, context) trancheId : Async<Buffer * int64> = async {
+    let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<Buffer * int64> = async {
         let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
         let state = Buffer()
+        let mutable invalidSpans = 0
         while more do
             let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs trancheId epochId
             totalB <- totalB + streamBytes
             for x in spans do
                 let stream = x.p |> IndexStreamId.toStreamName |> FsCodec.StreamName.toString
-                if x.c.Length = 0 then log.Warning("Stream {stream} contains zero length span", stream)
-                else state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
+                if x.c.Length = 0 then log.Warning("Stream {stream} contains zero length span", stream) else
+                let ok, writePos = state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
+                if not ok then
+                    invalidSpans <- invalidSpans + 1
+                    if invalidSpans = gapsLimit then log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+                    elif invalidSpans < gapsLimit then log.Warning("Gapped Span in {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
+                                                                   stream, writePos, x.i - int64 writePos, x.c)
+                 else totalSpans <- totalSpans + 1L
             more <- closed
             epochId <- AppendsEpochId.next epochId
         let totalMib = float totalB / 1024. / 1024.
-        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB", string trancheId, totalMib)
+        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans", string trancheId, totalMib, invalidSpans)
         return state, totalSpans }

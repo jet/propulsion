@@ -25,6 +25,7 @@ module DynamoDbJsonParser =
             yield item.p.S, { i = index; c = eventTypes }
             more <- not r.EndOfStream }
 
+/// Manages import of DynamoDB JSON files (extracted from data/*.json.gz in a DyanmoDB S3 export)
 type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
 
     let pending = Dictionary<string, DynamoStoreIndex.EventSpan>()
@@ -44,7 +45,7 @@ type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
             gen |> Seq.takeWhile fits |> Seq.toArray
         do! emit batch
         for streamSpan in batch do
-            buffer.LogIndexed(string streamSpan.p, { i = int streamSpan.i; c = streamSpan.c })
+            let _ok, _ = buffer.LogIndexed(string streamSpan.p, { i = int streamSpan.i; c = streamSpan.c })
             pending.Remove(string streamSpan.p) |> ignore
         totalIngestedSpans <- totalIngestedSpans + batch.LongLength
         return pending.Values |> Seq.sumBy (fun x -> x.c.Length) }

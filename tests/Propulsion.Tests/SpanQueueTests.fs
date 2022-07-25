@@ -64,76 +64,79 @@ module Queue =
 
     let [<Fact>] ``Indexing happy path`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 2)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
-        state.LogIndexed("stream", mks 2 1)
-        test <@ Some 3 = state.TryGetWritePos("stream") @>
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
+        (true, 3) =! state.LogIndexed("stream", mks 2 1)
 
     let [<Fact>] ``Indexing overlaps`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 1)
-        state.LogIndexed("stream", mks 0 2)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
+        (true, 1) =! state.LogIndexed("stream", mks 0 1)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
 
-    let [<Fact>] ``Handles missing writes due to gaps in index with redundant write`` () =
+    let [<Fact>] ``Handles missing writes due to gaps in index with redundant invalid write`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 1 1)
-        test <@ Some 0 = state.TryGetWritePos("stream") @>
+        (false, 0) =! state.LogIndexed("stream", mks 1 1)
 
         let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 0 && l = 2 @>
+        (0, 1) =! (res.Index, res.Length)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
 
-    // TOCONSIDER should it?
-    let [<Fact>] ``Tolerates out of order index writes`` () =
+    let [<Fact>] ``Handles out of order index writes, ignoring gapped spans`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 1 1)
-        state.LogIndexed("stream", mks 0 1)
-        test <@ Some 2 = state.TryGetWritePos("stream") @>
+        (false, 0) =! state.LogIndexed("stream", mks 1 1)
+        (true, 1) =! state.LogIndexed("stream", mks 0 1)
+        let res = trap <@ state.IngestData("stream", mks 0 2).Value @>
+        (1, 1) =! (res.Index, res.Length)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
 
     let [<Fact>] ``Drops Ingests that are already indexed`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 2)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
         test <@ None = state.IngestData("stream", mks 0 1) @>
 
     let [<Fact>] ``Drops identical Ingests`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 2)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
         test <@ None = state.IngestData("stream", mks 0 2) @>
+
+    let [<Fact>] ``Handles overlapping Ingests`` () =
+        let state = Buffer()
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
+        let res = trap <@ state.IngestData("stream", mks 0 3).Value @>
+        (2, 1) =! (res.Index, res.Length)
 
     let [<Fact>] ``Handles Ingests that prepend but are not ready`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 2 2)
+        (false, 0) =! state.LogIndexed("stream", mks 2 2)
         test <@ None = state.IngestData("stream", mks 1 1) @>
+        let res = trap <@ state.IngestData("stream", mks 0 1).Value @>
+        (0, 2) =! (res.Index, res.Length)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
 
     let [<Fact>] ``Handles Ingests that require trim and become ready`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 1 2)
+        (false, 0) =! state.LogIndexed("stream", mks 1 2)
         let res = trap <@ state.IngestData("stream", mks 0 4).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 0 && l = 4 @>
+        (0, 4) =! (res.Index, res.Length)
 
     let [<Fact>] ``Handles Ingests that prepend and become ready`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 2 2)
-        let res = trap <@  state.IngestData("stream", mks 0 2).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 0 && l = 4 @>
+        (false, 0) =! state.LogIndexed("stream", mks 2 2)
+        let res = trap <@ state.IngestData("stream", mks 0 2).Value @>
+        (0, 2) =! (res.Index, res.Length)
 
     let [<Fact>] ``Handles Ingests that fill gaps and become ready`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 1)
-        state.LogIndexed("stream", mks 3 1)
+        (true, 1) =! state.LogIndexed("stream", mks 0 1)
+        (false, 1) =! state.LogIndexed("stream", mks 3 1)
         let res = trap <@  state.IngestData("stream", mks 0 2).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 1 && l = 1 @>
-        let res = trap <@  state.IngestData("stream", mks 2 3).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 1 && l = 4 @>
+        (1, 1) =! (res.Index, res.Length)
+        let res = trap <@ state.IngestData("stream", mks 2 3).Value @>
+        (1,4) =! (res.Index, res.Length)
+        (true, 5) =! state.LogIndexed("stream", mks 1 4)
 
     let [<Fact>] ``Trims Ingests with redundancy`` () =
         let state = Buffer()
-        state.LogIndexed("stream", mks 0 2)
+        (true, 2) =! state.LogIndexed("stream", mks 0 2)
         let res = trap <@ state.IngestData("stream", mks 0 4).Value @>
-        let i, l = res.Index, res.Length
-        test <@ i = 2 && l = 2 @>
+        (2, 2) =! (res.Index, res.Length)
+        (true, 4) =! state.LogIndexed("stream", mks 2 2)

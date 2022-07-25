@@ -23,7 +23,7 @@ type Parameters =
             | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
             | VerboseStore ->               "Include low level Store logging"
             | Init _ ->                     "Initialize auxiliary store (Supported for `cosmos` Only)."
-            | Index _ ->                    "Walk a DynamoDB S3 export, ingesting events not already present in the index."
+            | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
 
@@ -228,7 +228,7 @@ module Indexer =
         let a = Arguments(c, p)
         let context = a.CreateContext()
 
-        let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) a.TrancheId
+        let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) a.TrancheId a.GapsLimit
         let dump ingestedCount = dumpSummary a.GapsLimit buffer.Streams (indexedSpans + ingestedCount)
         dump 0
 
@@ -244,7 +244,7 @@ module Indexer =
         let import = DynamoDbExport.Importer(buffer, ingest, dump)
         for file in files do
             let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
-            Log.Information("Merged {file}: {items:n0} items, {events:n0} events", file, stats.items, stats.events)
+            Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
         do! import.Flush() }
 
 module Project =
