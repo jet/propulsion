@@ -28,6 +28,8 @@
     <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
 	<PackageReference Include="Argu" Version="6.1.1" />
+    <!-- Required or there'll be an exception at runtime re missing support DLLs when using RBAC -->
+    <PackageReference Include="AWSSDK.SecurityToken" Version="3.7.1.177" />
     <PackageReference Include="Destructurama.FSharp.NetCore" Version="1.0.14" />
     <PackageReference Include="Serilog.Sinks.Async" Version="1.5.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
