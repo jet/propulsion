@@ -30,7 +30,7 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
         let! originEpoch = ingester.ActiveIngestionEpochId()
         return! ingester.IngestMany(originEpoch, spans) |> Async.Ignore }
 
-type DynamoStoreIngester(log, context) =
+type DynamoStoreIngester(log, context, ?storeLog) =
 
     // Values up to 5 work reasonably, but side effects are:
     // - read usage is more 'lumpy'
@@ -42,4 +42,4 @@ type DynamoStoreIngester(log, context) =
     // (Overusage will hasten the Lambda being killed due to excess memory usage)
     let maxCacheMiB = 5
     let cache = Equinox.Cache(nameof DynamoStoreIngester, sizeMb = maxCacheMiB)
-    member val Service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024)
+    member val Service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024, ?storeLog = storeLog)

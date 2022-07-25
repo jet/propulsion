@@ -239,13 +239,14 @@ module Indexer =
         Log.Information("Ingesting {files}...", files)
 
         let ingest =
-            let ingester = DynamoStoreIngester(Log.Logger, context)
+            let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Log.forMetrics)
             fun batch -> ingester.Service.IngestWithoutConcurrency(a.TrancheId, batch)
         let import = DynamoDbExport.Importer(buffer, ingest, dump)
         for file in files do
             let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
             Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
-        do! import.Flush() }
+        do! import.Flush()
+        Equinox.DynamoStore.Core.Log.InternalMetrics.dump Log.Logger }
 
 module Project =
 
