@@ -193,6 +193,9 @@ module Progress =
             while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
                 let batch = pending.Dequeue()
                 batch.markCompleted()
+        // We use this many thousands of times per second, so we want to reuse it
+        let sortBuffer = ResizeArray(1024)
+        let streamsBuffer = HashSet()
 
         // We potentially traverse the pending streams thousands of times per second
         // so we reuse `InScheduledOrder`'s temps: sortBuffer and streamsBuffer for better L2 caching properties
@@ -400,6 +403,7 @@ module Scheduling =
 
     type [<Struct; NoComparison; NoEquality>] DispatchItem<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : StreamSpan<'Format> }
 
+    let inline toVo x = match x with Some x -> ValueSome x | None -> ValueNone
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
 
@@ -432,13 +436,13 @@ module Scheduling =
                 match states.TryGetValue s with
                 | true, ss when ss.HasValid && not (busy.Contains s) ->
                     proposed.Add s |> ignore // should always be true
-                    yield { writePos = ss.Write; stream = s; span = Array.head ss.Queue }
+                    yield { writePos = toVo ss.Write; stream = s; span = Array.head ss.Queue }
                 | _ -> ()
             if trySlipstreamed then
                 // [lazily] slipstream in further events that are not yet referenced by in-scope batches
                 for KeyValue(s, v) in states do
                     if v.HasValid && not (busy.Contains s) && proposed.Add s then
-                        yield { writePos = v.Write; stream = s; span = Array.head v.Queue } }
+                        yield { writePos = toVo v.Write; stream = s; span = Array.head v.Queue } }
 
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
