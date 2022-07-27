@@ -13,14 +13,14 @@ module Internal =
     type PartitionStats<'S when 'S : equality>() =
         let partitions = Dictionary<'S, int64>()
 
-        member __.Record(partitionId, ?weight) =
+        member _.Record(partitionId, ?weight) =
             let weight = defaultArg weight 1L
             match partitions.TryGetValue partitionId with
-            | true, catCount -> partitions.[partitionId] <- catCount + weight
-            | false, _ -> partitions.[partitionId] <- weight
+            | true, catCount -> partitions[partitionId] <- catCount + weight
+            | false, _ -> partitions[partitionId] <- weight
 
-        member __.Clear() = partitions.Clear()
-        member __.StatsDescending = partitions |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
+        member _.Clear() = partitions.Clear()
+        member _.StatsDescending = partitions |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
 
     /// Maintains a Stopwatch such that invoking will yield true at intervals defined by `period`
     let intervalCheck (period : TimeSpan) =
@@ -32,11 +32,11 @@ module Internal =
 
     type Sem(max) =
         let inner = new SemaphoreSlim(max)
-        member __.HasCapacity = inner.CurrentCount <> 0
-        member __.State = max-inner.CurrentCount,max
-        member __.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
-        member __.Release() = inner.Release() |> ignore
-        member __.TryTake() = inner.Wait 0
+        member _.HasCapacity = inner.CurrentCount <> 0
+        member _.State = max-inner.CurrentCount,max
+        member _.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
+        member _.Release() = inner.Release() |> ignore
+        member _.TryTake() = inner.Wait 0
 
 open Internal
 
@@ -50,7 +50,7 @@ module Submission =
     /// Holds the queue for a given partition, together with a semaphore we use to ensure the number of in-flight batches per partition is constrained
     [<NoComparison>]
     type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
-        member __.Append(batch) = __.queue.Enqueue batch
+        member x.Append(batch) = x.queue.Enqueue batch
         static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits) }
 
     /// Holds the stream of incoming batches, grouping by partition
@@ -84,7 +84,7 @@ module Submission =
             let mutable more, worked = true, false
             while more do
                 more <- false
-                for KeyValue(pi, pq) in buffer do
+                for KeyValue (pi, pq) in buffer do
                     if pq.queue.Count <> 0 then
                         if pq.submissions.TryTake() then
                             worked <- true
@@ -100,7 +100,7 @@ module Submission =
             for { source = pid } as batch in partitionBatches do
                 let pq =
                     match buffer.TryGetValue pid with
-                    | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer.[pid] <- t; t
+                    | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer[pid] <- t; t
                     | true, pq -> pq
                 let markCompleted () =
                     Interlocked.Increment(&completed) |> ignore
@@ -119,7 +119,7 @@ module Submission =
             else false
 
         /// Processing loop, continuously splitting `Submit`ted items into per-partition queues and ensuring enough items are provided to the Scheduler
-        member __.Pump() = async {
+        member _.Pump() = async {
             let! ct = Async.CancellationToken
             while not ct.IsCancellationRequested do
                 let mutable items = Unchecked.defaultof<_>
@@ -128,7 +128,7 @@ module Submission =
                     propagated <- ingest items
                     while incoming.TryTake(&items) do
                         if ingest items then propagated <- true
-                else propagated <- propagate()
+                else propagated <- propagate ()
                 match propagated, tryCompactQueue with
                 | false, None -> Thread.Sleep 2
                 | false, Some f when not (compact f) -> Thread.Sleep 2
@@ -137,10 +137,10 @@ module Submission =
                 maybeLogStats () }
 
         /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
-        member __.Ingest(items : SubmissionBatch<'S, 'M>[]) =
+        member _.Ingest(items : SubmissionBatch<'S, 'M>[]) =
             Interlocked.Increment(&ingested) |> ignore
             incoming.Add items
 
         /// Supplies an incoming Batch for holding and forwarding to scheduler at the right time
-        member __.Ingest(batch : SubmissionBatch<'S, 'M>) =
-            __.Ingest [| batch |]
+        member x.Ingest(batch : SubmissionBatch<'S, 'M>) =
+            x.Ingest [| batch |]

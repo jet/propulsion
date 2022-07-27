@@ -45,26 +45,26 @@ type private InternalMessage =
 
 type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
-    let progCommitFails, progCommits = ref 0, ref 0
-    let cycles, batchesPended, streamsPended, eventsPended = ref 0, ref 0, ref 0, ref 0
+    let mutable commitFails, commits = 0, 0
+    let mutable cycles, batchesPended, streamsPended, eventsPended = 0, 0, 0, 0
     let statsDue = intervalCheck statsInterval
 
     let dumpStats (activeReads, maxReads) =
         log.Information("Reader {partitionId} Cycles {cycles} Ingested {batches} ({streams:n0}s {events:n0}e)",
-               partitionId, !cycles, !batchesPended, !streamsPended, !eventsPended)
-        cycles := 0; batchesPended := 0; streamsPended := 0; eventsPended := 0
-        if !progCommitFails <> 0 || !progCommits <> 0 then
+               partitionId, cycles, batchesPended, streamsPended, eventsPended)
+        cycles <- 0; batchesPended <- 0; streamsPended <- 0; eventsPended <- 0
+        if commitFails <> 0 || commits <> 0 then
             match committedEpoch with
             | None ->
                 log.Error("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated}; writing failing: {failures} failures ({commits} successful commits)",
-                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, !progCommitFails, !progCommits)
-            | Some committed when !progCommitFails <> 0 ->
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, commitFails, commits)
+            | Some committed when commitFails <> 0 ->
                 log.Warning("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits, {failures} failures)",
-                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits, !progCommitFails)
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, commits, commitFails)
             | Some committed ->
                 log.Information("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits)",
-                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, !progCommits)
-            progCommits := 0; progCommitFails := 0
+                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, committed, commits)
+            commits <- 0; commitFails <- 0
         else
             log.Information("Reader {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed})",
                     partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch)
@@ -73,17 +73,17 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
         | Validated epoch ->
             validatedEpoch <- Some epoch
         | ProgressResult (Choice1Of2 epoch) ->
-            incr progCommits
+            commits <- commits + 1
             committedEpoch <- Some epoch
         | ProgressResult (Choice2Of2 (_exn : exn)) ->
-            incr progCommitFails
+            commitFails <- commitFails + 1
         | Added (streams, events) ->
-            incr batchesPended
-            streamsPended := !streamsPended + streams
-            eventsPended := !eventsPended + events
+            batchesPended <- batchesPended + 1
+            streamsPended <- streamsPended + streams
+            eventsPended <- eventsPended + events
 
     member _.TryDump(readState) =
-        incr cycles
+        cycles <- cycles + 1
         let due = statsDue ()
         if due then dumpStats readState
         due

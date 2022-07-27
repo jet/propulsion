@@ -77,7 +77,7 @@ type StreamEvent<'Format> = { stream : FsCodec.StreamName; event : FsCodec.ITime
 [<NoComparison; NoEquality>]
 type StreamSpan<'Format> =
     { index : int64; events : FsCodec.ITimelineEvent<'Format>[] }
-    member x.Version = x.events.[x.events.Length - 1].Index + 1L
+    member x.Version = x.events[x.events.Length - 1].Index + 1L
 
 module Internal =
 
@@ -88,8 +88,8 @@ module Internal =
         member _.Ingest(cat, ?weight) =
             let weight = defaultArg weight 1L
             match cats.TryGetValue cat with
-            | true, catCount -> cats.[cat] <- catCount + weight
-            | false, _ -> cats.[cat] <- weight
+            | true, catCount -> cats[cat] <- catCount + weight
+            | false, _ -> cats[cat] <- weight
 
         member _.Count = cats.Count
         member _.Any = (not << Seq.isEmpty) cats
@@ -352,7 +352,7 @@ module Buffering =
                 states.Add(stream, state)
             | true, current ->
                 let updated = StreamState.combine current state
-                states.[stream] <- updated
+                states[stream] <- updated
 
         member _.Merge(item : StreamEvent<'Format>) =
             merge item.stream (StreamState<'Format>.Create(None, [| { index = item.event.Index; events = [| item.event |] } |]))
@@ -373,7 +373,7 @@ module Buffering =
                 waitingCats.Ingest(categorize stream)
                 if sz <> 0L then
                     let sn, wp = FsCodec.StreamName.toString stream, defaultArg state.Write 0L
-                    waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue.[0].events.Length, (sz + 512L) / 1024L)
+                    waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].events.Length, (sz + 512L) / 1024L)
                 waiting <- waiting + 1
                 waitingE <- waitingE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
                 waitingB <- waitingB + sz
@@ -404,7 +404,7 @@ module Scheduling =
                 stream, state
             | Some current ->
                 let updated = StreamState.combine current state
-                states.[stream] <- updated
+                states[stream] <- updated
                 stream, updated
         let updateWritePos stream isMalformed pos span = update stream (StreamState<'Format>.Create(pos, span, isMalformed))
         let markCompleted stream index = updateWritePos stream false (Some index) null |> ignore
@@ -416,7 +416,7 @@ module Scheduling =
         let pending trySlipstreamed (requestedOrder : FsCodec.StreamName seq) : seq<DispatchItem<'Format>> = seq {
             let proposed = HashSet()
             for s in requestedOrder do
-                let state = states.[s]
+                let state = states[s]
                 if state.HasValid && not (busy.Contains s) then
                     proposed.Add s |> ignore
                     yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
@@ -442,7 +442,7 @@ module Scheduling =
             updateWritePos stream isMalformed None [| { index = 0L; events = null } |]
 
         member _.Item(stream) =
-            states.[stream]
+            states[stream]
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
@@ -491,7 +491,7 @@ module Scheduling =
                     unprefixedE <- unprefixedE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz ->
                     readyCats.Ingest(StreamName.categorize stream)
-                    readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultArg state.Write 0L) state.Queue.[0].events.Length, kb sz)
+                    readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultArg state.Write 0L) state.Queue[0].events.Length, kb sz)
                     ready <- ready + 1
                     readyB <- readyB + sz
                     readyE <- readyE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
@@ -544,7 +544,7 @@ module Scheduling =
             let state = Dictionary<FsCodec.StreamName, StreamState>()
             member _.HandleStarted(sn, ts) = state.Add(sn, { ts = ts; count = 1 })
             member _.TakeFinished(sn) =
-                let res = state.[sn]
+                let res = state[sn]
                 state.Remove sn |> ignore
                 res.ts
             member _.State = walkAges state |> renderState
@@ -666,8 +666,8 @@ module Scheduling =
         let work = new BlockingCollection<_>(ConcurrentQueue<_>())
         let result = Event<'R>()
         let dop = Sem maxDop
-        let dispatch work = async {
-            let! res = work
+        let dispatch computation = async {
+            let! res = computation
             result.Trigger res
             dop.Release() }
 
@@ -810,8 +810,8 @@ module Scheduling =
                 itemCount <- itemCount + 1
                 buffer.Merge(item)
                 match reqs.TryGetValue(item.stream), item.event.Index + 1L with
-                | (false, _), required -> reqs.[item.stream] <- required
-                | (true, actual), required when actual < required -> reqs.[item.stream] <- required
+                | (false, _), required -> reqs[item.stream] <- required
+                | (true, actual), required when actual < required -> reqs[item.stream] <- required
                 | (true, _), _ -> () // replayed same or earlier item
             let batch = StreamsBatch(onCompletion, buffer, reqs)
             batch, (batch.RemainingStreamsCount, itemCount)
@@ -833,13 +833,13 @@ module Scheduling =
     /// d) periodically reports state (with hooks for ingestion engines to report same)
     type StreamSchedulingEngine<'P, 'R, 'E>
         (   dispatcher : IDispatcher<'P, 'R, 'E>,
-            /// Tune number of batches to ingest at a time. Default 5.
+            // Tune number of batches to ingest at a time. Default 5.
             ?maxBatches,
-            /// Tune the max number of check/dispatch cycles. Default 16.
+            // Tune the max number of check/dispatch cycles. Default 16.
             ?maxCycles,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
+            // Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 1.)
         let sleepIntervalMs = int idleDelay.TotalMilliseconds
@@ -895,7 +895,7 @@ module Scheduling =
                     skipCount <- skipCount + 1
                 else
                     count <- count + 1
-                    reqs.[item.Key] <- item.Value
+                    reqs[item.Key] <- item.Value
             progressState.AppendBatch(markCompleted, reqs)
             feedStats <| Added (reqs.Count, skipCount, count)
 
@@ -1042,10 +1042,10 @@ module Projector =
 
         static member Start
             (   log : ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval,
-                /// Limits number of batches passed to the scheduler.
-                /// Holding items back makes scheduler processing more efficient as less state needs to be traversed.
-                /// Holding items back is also key to the submitter's compaction mechanism working best.
-                /// Defaults to holding back 20% of maxReadAhead per partition
+                // Limits number of batches passed to the scheduler.
+                // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
+                // Holding items back is also key to the submitter's compaction mechanism working best.
+                // Defaults to holding back 20% of maxReadAhead per partition
                 ?maxSubmissionsPerPartition,
                 ?ingesterStatsInterval, ?pumpInterval) =
             let mapBatch onCompletion (x : Submission.SubmissionBatch<_, StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
@@ -1091,7 +1091,9 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
             stats, statsInterval,
-            ?maxSubmissionsPerPartition, ?pumpInterval, ?idleDelay)
+            ?maxSubmissionsPerPartition, ?pumpInterval,
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            ?idleDelay)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -1109,13 +1111,13 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : FsCodec.StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
             stats, statsInterval,
-            /// Limits number of batches passed to the scheduler.
-            /// Holding items back makes scheduler processing more efficient as less state needs to be traversed.
-            /// Holding items back is also key to the compaction mechanism working best.
-            /// Defaults to holding back 20% of maxReadAhead per partition
+            // Limits number of batches passed to the scheduler.
+            // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
+            // Holding items back is also key to the compaction mechanism working best.
+            // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
             ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
@@ -1130,12 +1132,12 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : FsCodec.StreamName * StreamSpan<_> -> Async<'Outcome>,
             stats, statsInterval,
-            /// Limits number of batches passed to the scheduler.
-            /// Holding items back makes scheduler processing more efficient as less state needs to be traversed.
-            /// Holding items back is also key to the compaction mechanism working best.
-            /// Defaults to holding back 20% of maxReadAhead per partition
+            // Limits number of batches passed to the scheduler.
+            // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
+            // Holding items back is also key to the compaction mechanism working best.
+            // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
@@ -1186,17 +1188,17 @@ module Sync =
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
                 handle : FsCodec.StreamName * StreamSpan<_> -> Async<SpanResult * 'Outcome>,
                 stats : Stats<'Outcome>, statsInterval,
-                /// Default 1 ms
+                // Default 1 ms
                 ?idleDelay,
-                /// Default 1 MiB
+                // Default 1 MiB
                 ?maxBytes,
-                /// Default 16384
+                // Default 16384
                 ?maxEvents,
-                /// Max scheduling readahead. Default 128.
+                // Max scheduling readahead. Default 128.
                 ?maxBatches, ?pumpInterval,
-                /// Max inner cycles per loop. Default 128.
+                // Max inner cycles per loop. Default 128.
                 ?maxCycles,
-                /// Hook to wire in external stats
+                // Hook to wire in external stats
                 ?dumpExternalStats)
             : ProjectorPipeline<_> =
 

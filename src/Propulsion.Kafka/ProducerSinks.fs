@@ -21,16 +21,16 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName * StreamSpan<_> -> Async<(string*string) option * 'Outcome>,
             producer : Producer,
-            stats : Streams.Sync.Stats<'Outcome>, statsInterval,
-            /// Default 1 ms
+            stats : Sync.Stats<'Outcome>, statsInterval,
+            // Default 1 ms
             ?idleDelay,
-            /// Default 1 MiB
+            // Default 1 MiB
             ?maxBytes,
-            /// Default 16384
+            // Default 16384
             ?maxEvents,
-            /// Max scheduling readahead. Default 128.
+            // Max scheduling readahead. Default 128.
             ?maxBatches,
-            /// Max inner cycles per loop. Default 128.
+            // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : ProjectorPipeline<_> =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
@@ -55,16 +55,16 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName * StreamSpan<_> -> Async<string*string>,
             producer : Producer,
-            stats : Streams.Sync.Stats<unit>, statsInterval,
-            /// Default 1 ms
+            stats : Sync.Stats<unit>, statsInterval,
+            // Default 1 ms
             ?idleDelay,
-            /// Default 1 MiB
+            // Default 1 MiB
             ?maxBytes,
-            /// Default 16384
+            // Default 16384
             ?maxEvents,
-            /// Max scheduling readahead. Default 128.
+            // Max scheduling readahead. Default 128.
             ?maxBatches,
-            /// Max inner cycles per loop. Default 128.
+            // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : ProjectorPipeline<_> =
             let prepare (stream, span) = async {

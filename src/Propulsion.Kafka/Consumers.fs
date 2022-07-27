@@ -1,5 +1,5 @@
-﻿/// Manages efficiently and continuously reading from the Confluent.Kafka consumer, offloading the pushing of those batches onward to the Submitter
-/// Responsible for ensuring we don't over-read, which would cause the rdkafka buffers to overload the system in terms of memory usage
+﻿// Manages efficiently and continuously reading from the Confluent.Kafka consumer, offloading the pushing of those batches onward to the Submitter
+// Responsible for ensuring we don't over-read, which would cause the rdkafka buffers to overload the system in terms of memory usage
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
@@ -33,10 +33,10 @@ module private Impl =
         {   mutable reservation : int64 // accumulate reserved in flight bytes so we can reverse the reservation when it completes
             mutable highWaterMark : ConsumeResult<string, string> // hang on to it so we can generate a checkpointing lambda
             messages : ResizeArray<'M> }
-        member __.Enqueue(sz, message, mapMessage) =
-            __.highWaterMark <- message
-            __.reservation <- __.reservation + sz // size we need to unreserve upon completion
-            __.messages.Add(mapMessage message)
+        member x.Enqueue(sz, message, mapMessage) =
+            x.highWaterMark <- message
+            x.reservation <- x.reservation + sz // size we need to unreserve upon completion
+            x.messages.Add(mapMessage message)
         static member Create(sz, message, mapMessage) =
             let x = { reservation = 0L; highWaterMark = null; messages = ResizeArray(256) }
             x.Enqueue(sz, message, mapMessage)
@@ -104,7 +104,7 @@ type KafkaIngestionEngine<'Info>
                 tmp.Add(mkSubmission tp span)
             acc.Clear()
             emit <| tmp.ToArray()
-    member __.Pump() = async {
+    member _.Pump() = async {
         let! ct = Async.CancellationToken
         use _ = consumer // Dispose it at the end (NB but one has to Close first or risk AccessViolations etc)
         try while not ct.IsCancellationRequested do
@@ -134,7 +134,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
     inherit Pipeline(task, triggerStop)
 
     /// Provides access to the Confluent.Kafka interface directly
-    member __.Inner = inner
+    member _.Inner = inner
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
@@ -193,9 +193,9 @@ type ParallelConsumer private () =
         (   log : ILogger, config : KafkaConsumerConfig, maxDop,
             mapResult : ConsumeResult<string, string> -> 'Msg,
             handle : 'Msg -> Async<Choice<unit, exn>>,
-            /// Default 5
+            // Default 5
             ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Default 5m
+            // Default 5m
             ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
 
@@ -215,9 +215,9 @@ type ParallelConsumer private () =
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
-            /// Default 5
+            // Default 5
             ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Default 5m
+            // Default 5m
             ?statsInterval, ?logExternalStats) =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
@@ -277,7 +277,7 @@ module Core =
         /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
-                /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
+                // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
                 prepare, handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
                 maxDop,
@@ -295,7 +295,7 @@ module Core =
         /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
-                /// often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
+                // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
@@ -342,11 +342,11 @@ type StreamNameSequenceGenerator() =
     let indices = System.Collections.Generic.Dictionary()
 
     /// Generates an index for the specified StreamName. Sequence starts at 0, incrementing per call.
-    member __.GenerateIndex(streamName : StreamName) =
+    member _.GenerateIndex(streamName : StreamName) =
         let streamName = FsCodec.StreamName.toString streamName
         match indices.TryGetValue streamName with
-        | true, v -> let x = v + 1L in indices.[streamName] <- x; x
-        | false, _ -> let x = 0L in indices.[streamName] <- x; x
+        | true, v -> let x = v + 1L in indices[streamName] <- x; x
+        | false, _ -> let x = 0L in indices[streamName] <- x; x
 
     /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
     member __.ConsumeResultToStreamEvent
@@ -387,16 +387,16 @@ type StreamNameSequenceGenerator() =
     /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
     /// - Replaces missing categories within keys with the (optional) <c>defaultCategory</c> (or <c>""</c>)<br/>
     /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member __.ConsumeResultToStreamEvent
-        (   /// Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
+    member x.ConsumeResultToStreamEvent(
+            // Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
             ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
         let defaultCategory = defaultArg defaultCategory ""
-        __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
+        x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
     /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
-    member __.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
+    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
-        let e = FsCodec.Core.TimelineEvent.Create(__.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
+        let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
         Seq.singleton { stream = sn; event = e }
 
 type StreamsConsumer =
@@ -410,24 +410,24 @@ type StreamsConsumer =
     /// Processor will run perpetually in a background until `Stop()` is requested.
     static member Start<'Outcome>
         (   log : ILogger, config : KafkaConsumerConfig,
-            /// often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
+            // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
             consumeResultToStreamEvents : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<_> seq,
-            /// Handler responses:
-            /// - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-            /// - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
-            /// - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
-            ///   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
+            // Handler responses:
+            // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+            // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
+            // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
+            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
-            /// The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
-            /// The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
-            /// The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
+            // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
+            // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
+            // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
             maxDop,
-            /// The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
+            // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
             stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
-            /// Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
+            // Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
             ?maximizeOffsetWriting,
             ?maxSubmissionsPerPartition, ?pumpInterval, ?logExternalState,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             ?maxBatches) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
@@ -454,25 +454,25 @@ type BatchesConsumer =
     static member Start<'Info>
         (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
             select,
-            /// Handler responses:
-            /// - the result seq is expected to match the ordering of the input <c>DispatchItem</c>s
-            /// - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-            /// - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
-            ///   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
+            // Handler responses:
+            // - the result seq is expected to match the ordering of the input <c>DispatchItem</c>s
+            // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+            // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
+            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle : Streams.Scheduling.DispatchItem<_>[] -> Async<seq<Choice<int64, exn>>>,
-            /// The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
+            // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>, statsInterval,
-            /// Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
-            /// NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
+            // Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
+            // NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
             ?schedulerIngestionBatchCount,
-            /// Limits number of batches passed to the scheduler.
-            /// Holding items back makes scheduler processing more efficient as less state needs to be traversed.
-            /// Default 5
+            // Limits number of batches passed to the scheduler.
+            // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
+            // Default 5
             ?maxSubmissionsPerPartition,
-            /// Default 5ms
+            // Default 5ms
             ?pumpInterval,
             ?logExternalState,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =

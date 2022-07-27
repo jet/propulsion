@@ -28,15 +28,15 @@ module Internal =
             | PrefixMissing of batch : StreamSpan<byte[]> * writePos : int64
         let logTo (log : ILogger) malformed (res : StreamName * Choice<EventMetrics * Result, EventMetrics * exn>) =
             match res with
-            | stream, (Choice1Of2 (_, Ok pos)) ->
+            | stream, Choice1Of2 (_, Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, (Choice1Of2 (_, Duplicate updatedPos)) ->
+            | stream, Choice1Of2 (_, Duplicate updatedPos) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, (Choice1Of2 (_, PartialDuplicate overage)) ->
+            | stream, Choice1Of2 (_, PartialDuplicate overage) ->
                 log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage.index, overage.events.Length)
-            | stream, (Choice1Of2 (_, PrefixMissing (batch, pos))) ->
+            | stream, Choice1Of2 (_, PrefixMissing (batch, pos)) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch.index-pos, batch.events.Length, batch.index)
-            | stream, (Choice2Of2 (_, exn)) ->
+            | stream, Choice2Of2 (_, exn) ->
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
@@ -78,25 +78,25 @@ module Internal =
 
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<EventMetrics * Writer.Result, EventMetrics * exn>(log, statsInterval, stateInterval)
-        let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
-        let badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), ref 0, ref 0, ref 0, ref 0
+        let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
+        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
         override _.DumpStats() =
-            let results = !resultOk + !resultDup + !resultPartialDup + !resultPrefix
+            let results = resultOk + resultDup + resultPartialDup + resultPrefix
             log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
-                mb okBytes, results, okStreams.Count, okEvents, !resultOk, !resultDup, !resultPartialDup, !resultPrefix)
-            okStreams.Clear(); resultOk := 0; resultDup := 0; resultPartialDup := 0; resultPrefix := 0; okEvents <- 0; okBytes <- 0L
-            if !rateLimited <> 0 || !timedOut <> 0 || !tooLarge <> 0 || !malformed <> 0 || badCats.Any then
-                let fails = !rateLimited + !timedOut + !tooLarge + !malformed + !resultExnOther
+                mb okBytes, results, okStreams.Count, okEvents, resultOk, resultDup, resultPartialDup, resultPrefix)
+            okStreams.Clear(); resultOk <- 0; resultDup <- 0; resultPartialDup <- 0; resultPrefix <- 0; okEvents <- 0; okBytes <- 0L
+            if rateLimited <> 0 || timedOut <> 0 || tooLarge <> 0 || malformed <> 0 || badCats.Any then
+                let fails = rateLimited + timedOut + tooLarge + malformed + resultExnOther
                 log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e Rate-limited {rateLimited:n0}r {rlStreams:n0}s Timed out {toCount:n0}r {toStreams:n0}s",
-                    mb exnBytes, fails, failStreams.Count, exnEvents, !rateLimited, rlStreams.Count, !timedOut, toStreams.Count)
-                rateLimited := 0; timedOut := 0; resultExnOther := 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
+                    mb exnBytes, fails, failStreams.Count, exnEvents, rateLimited, rlStreams.Count, timedOut, toStreams.Count)
+                rateLimited <- 0; timedOut <- 0; resultExnOther <- 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
             if badCats.Any then
                 log.Warning(" Affected cats {@badCats} Too large {tooLarge:n0}r {@tlStreams} Malformed {malformed:n0}r {@mfStreams} Other {other:n0}r {@oStreams}",
-                    badCats.StatsDescending |> Seq.truncate 50, !tooLarge, tlStreams |> Seq.truncate 100, !malformed, mfStreams |> Seq.truncate 100, !resultExnOther, oStreams |> Seq.truncate 100)
-                badCats.Clear(); tooLarge := 0; malformed := 0;  resultExnOther := 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
+                    badCats.StatsDescending |> Seq.truncate 50, tooLarge, tlStreams |> Seq.truncate 100, malformed, mfStreams |> Seq.truncate 100, resultExnOther, oStreams |> Seq.truncate 100)
+                badCats.Clear(); tooLarge <- 0; malformed <- 0;  resultExnOther <- 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
 
         override this.Handle message =
@@ -110,21 +110,21 @@ module Internal =
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 match res with
-                | Writer.Result.Ok _ -> incr resultOk
-                | Writer.Result.Duplicate _ -> incr resultDup
-                | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
-                | Writer.Result.PrefixMissing _ -> incr resultPrefix
+                | Writer.Result.Ok _ -> resultOk <- resultOk + 1
+                | Writer.Result.Duplicate _ -> resultDup <- resultDup + 1
+                | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
+                | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 this.HandleOk res
             | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 match Writer.classify exn with
-                | ResultKind.RateLimited -> adds stream rlStreams; incr rateLimited
-                | ResultKind.TimedOut -> adds stream toStreams; incr timedOut
-                | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
-                | ResultKind.Malformed -> bads stream mfStreams; incr malformed
-                | ResultKind.Other -> bads stream oStreams; incr resultExnOther
+                | ResultKind.RateLimited -> adds stream rlStreams; rateLimited <- rateLimited + 1
+                | ResultKind.TimedOut -> adds stream toStreams; timedOut <- timedOut + 1
+                | ResultKind.TooLarge -> bads stream tlStreams; tooLarge <- tooLarge + 1
+                | ResultKind.Malformed -> bads stream mfStreams; malformed <- malformed + 1
+                | ResultKind.Other -> bads stream oStreams; resultExnOther <- resultExnOther + 1
                 this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : Result -> unit
         default _.HandleOk _ : unit = ()
@@ -140,7 +140,7 @@ module Internal =
             let mutable robin = 0
             let attemptWrite (stream, span) = async {
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
-                let selectedConnection = cosmosContexts.[index]
+                let selectedConnection = cosmosContexts[index]
                 let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 try let! res = Writer.write log selectedConnection (StreamName.toString stream) span'
                     return span'.events.Length > 0, Choice1Of2 (met, res)
@@ -165,16 +165,16 @@ type CosmosSink =
     /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
         (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams,
-            /// Default 5m
+            // Default 5m
             ?statsInterval,
-            /// Default 5m
+            // Default 5m
             ?stateInterval,
             ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            /// Default: 16384
+            // Default: 16384
             ?maxEvents,
-            /// Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
+            // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)

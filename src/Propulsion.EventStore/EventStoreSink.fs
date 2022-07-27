@@ -169,11 +169,11 @@ type EventStoreSink =
     /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>connections</c>
     static member Start
         (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams,
-            /// Default 5m
+            // Default 5m
             ?statsInterval,
-            /// Default 5m
+            // Default 5m
             ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
