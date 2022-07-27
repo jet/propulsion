@@ -9,6 +9,10 @@ open System.Threading
 
 module Internal =
 
+    let sortByVsndDescending (xs : seq<struct (_ * _)>) = xs |> Seq.sortByDescending (fun struct (_k, v) -> v)
+    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map (fun x -> struct (x.Key, x.Value)) |> sortByVsndDescending
+    let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy (fun struct (_k, v) -> v)
+
     /// Gathers stats relating to how many items of a given partition have been observed
     type PartitionStats<'S when 'S : equality>() =
         let partitions = Dictionary<'S, int64>()
@@ -20,7 +24,7 @@ module Internal =
             | false, _ -> partitions[partitionId] <- weight
 
         member _.Clear() = partitions.Clear()
-        member _.StatsDescending = partitions |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
+        member _.StatsDescending = statsDescending partitions
 
     /// Maintains a Stopwatch such that invoking will yield true at intervals defined by `period`
     let intervalCheck (period : TimeSpan) =
@@ -66,7 +70,7 @@ module Submission =
         let submittedBatches,submittedMessages = PartitionStats(), PartitionStats()
 
         let dumpStats () =
-            let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then yield x.Key, x.Value.queue.Count } |> Seq.sortBy (fun (_, snd) -> -snd)
+            let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then yield struct (x.Key, x.Value.queue.Count) } |> sortByVsndDescending
             log.Information("Submitter {cycles} cycles {ingested} accepted {compactions} compactions Holding {@waiting}", cycles, ingested, compacted, waiting)
             log.Information(" Submitted {@batches} Completed {completed} Messages {@messages}", submittedBatches.StatsDescending, completed, submittedMessages.StatsDescending)
             cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
