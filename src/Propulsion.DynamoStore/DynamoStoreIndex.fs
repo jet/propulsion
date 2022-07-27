@@ -1,8 +1,7 @@
 module Propulsion.DynamoStore.DynamoStoreIndex
 
 /// Represents a (potentially coalesced) span of events as loaded from either the Index or a DynamoDB Export
-[<Struct>]
-type EventSpan =
+type [<Struct>] EventSpan =
     { i : int; c : string array }
     static member Create(index, eventTypes) = { i = index; c = eventTypes }
     member x.Index = x.i
@@ -13,19 +12,23 @@ module StreamQueue =
 
     /// Given a span of events, select portion that's not already ingested (i.e. falls beyond our write Position)
     let inline internal chooseUnwritten writePos (x : EventSpan) =
-        if writePos <= x.Index then Some x
-        elif writePos >= x.Version then None
-        else Some { i = writePos; c = Array.skip (writePos - x.Index) x.c }
+        if writePos <= x.Index then ValueSome x
+        elif writePos >= x.Version then ValueNone
+        else ValueSome { i = writePos; c = Array.skip (writePos - x.Index) x.c }
 
     /// Responsible for coalescing overlapping and/or adjacent spans
     /// Requires, and ensures, that queue is ordered correctly before and afterwards
     let insert (y : EventSpan) (xs : EventSpan array) =
-        if y.Length = 0 then invalidArg "y" "Can't be zero length"
-        let acc = ResizeArray(xs.Length + 1)
+        if y.Length = 0 then invalidArg (nameof y) "Can't be zero length"
+        if xs = null then nullArg (nameof xs)
+        if Array.isEmpty xs then Array.singleton y else
+
+        let mutable acc = null
         let mutable y, i = y, 0
         while i < xs.Length do
             let x = xs[i]
             if x.Version < y.Index then // x goes before, no overlap
+                if acc = null then acc <- ResizeArray(xs.Length + 1) // assume we'll be making it longer
                 acc.Add x
                 i <- i + 1
             elif y.Version >= x.Index then // there's an overlap - merge existing with incoming, await successors that might also coalesce
@@ -35,13 +38,16 @@ module StreamQueue =
                          EventSpan.Create(y.Index, Array.append y.c (Array.skip (min x.Length (y.Version - x.Index)) x.c)) // y goes first
                 i <- i + 1 // mark x as consumed; shift to next
             else // y has new info => goes before, no overlap -> copy rest as a block
+                if acc = null then acc <- ResizeArray(xs.Length - i + 1)
                 acc.Add y
                 acc.AddRange(Seq.skip i xs) // trust the rest to already be minimal and not require coalescing
                 i <- xs.Length + 1 // trigger exit without y being added twice
-        if i = xs.Length then acc.Add y // Add residual (iff we didn't already do so within the loop)
-        acc.ToArray()
+        if i <> xs.Length then acc.ToArray()
+        // Add residual (iff we didn't already do so within the loop)
+        elif acc = null then Array.singleton y
+        else acc.Add y; acc.ToArray()
 
-type BufferStreamState = { writePos : int; spans : EventSpan array }
+type [<Struct>] BufferStreamState = { writePos : int; spans : EventSpan array }
 
 type Buffer() =
 
@@ -60,14 +66,15 @@ type Buffer() =
                 true, updated
         | true, v ->
             match StreamQueue.chooseUnwritten v.writePos span with
-            | None -> true, v // we've already written beyond the position of this span so nothing new to write
-            | Some trimmed ->
+            | ValueNone -> true, v // we've already written beyond the position of this span so nothing new to write
+            | ValueSome trimmed ->
                 if isIndex && trimmed.i <> v.writePos then false, v
                 else
                     let pass1 = { v with spans = StreamQueue.insert trimmed v.spans }
                     let updated =
-                        if not isIndex || v.writePos <> pass1.spans[0].i then pass1
-                        else { writePos = pass1.spans[0].Version; spans = Array.tail pass1.spans }
+                        let s = pass1.spans
+                        if not isIndex || v.writePos <> s[0].i then pass1
+                        else { writePos = s[0].Version; spans = if s.Length = 1 then Array.empty else Array.tail s }
                     streams[stream] <- updated
                     true, updated
 
@@ -77,11 +84,10 @@ type Buffer() =
 
     // Returns Span ready to be written (if applicable)
     member _.IngestData(stream, span) =
-        let _ok, updated = add false stream span
-        if updated.spans.Length > 0 && updated.writePos = updated.spans[0].Index then Some updated.spans[0]
-        else None
+        let _ok, u = add false stream span
+        u.spans |> Array.tryHead |> Option.filter (fun h -> h.Index = u.writePos)
 
-    member val Streams : System.Collections.Generic.IReadOnlyDictionary<_, _> = streams
+    member val Items : System.Collections.Generic.IReadOnlyDictionary<_, _> = streams
 
 module Reader =
 

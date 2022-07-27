@@ -229,7 +229,7 @@ module Indexer =
         let context = a.CreateContext()
 
         let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) a.TrancheId a.GapsLimit
-        let dump ingestedCount = dumpSummary a.GapsLimit buffer.Streams (indexedSpans + ingestedCount)
+        let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
         dump 0
 
         match a.ImportJsonFiles with

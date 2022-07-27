@@ -14,6 +14,8 @@ module Span =
 
     let [<Fact>] ``empty Adds Are Invalid`` () =
         raises<System.ArgumentException> <@ ins (mks 0 0) [||] @>
+    let [<Fact>] ``empty Spans Should not be null`` () =
+        raises<System.ArgumentException> <@ ins (mks 1 0) null @>
 
     (* Examples *)
 
@@ -45,6 +47,7 @@ module Span =
                 let span = mks p len
                 p <- p + len + gap
                 span |]
+
         let adding = mks pos len
         let result = ins adding existing
 
