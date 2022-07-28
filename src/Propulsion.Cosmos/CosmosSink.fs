@@ -172,7 +172,6 @@ type CosmosSink =
             ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            // Default: 16384
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
