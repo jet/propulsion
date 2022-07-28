@@ -312,6 +312,7 @@ module Buffering =
                 | Some w -> w
             { write = effWrite; queue = queue }
         member x.IsEmpty = obj.ReferenceEquals(null, x.queue)
+        member x.IsPurgeable = x.IsEmpty && not x.IsMalformed
         member x.IsMalformed = not x.IsEmpty && -3L = x.write
         member x.HasValid = not x.IsEmpty && not x.IsMalformed
         member x.Write = match x.write with -2L -> None | x -> Some x
@@ -411,15 +412,23 @@ module Scheduling =
         let merge (buffer : Streams<'Format>) =
             for x in buffer.Items do
                 update x.Key x.Value |> ignore
+        let purge () =
+            let mutable purged = 0
+            for x in states do
+                if x.Value.IsPurgeable then
+                    states.Remove x.Key |> ignore // Safe to do while iterating
+                    purged <- purged + 1
+            states.Count, purged
 
         let busy = HashSet<FsCodec.StreamName>()
         let pending trySlipstreamed (requestedOrder : FsCodec.StreamName seq) : seq<DispatchItem<'Format>> = seq {
             let proposed = HashSet()
             for s in requestedOrder do
-                let state = states[s]
-                if state.HasValid && not (busy.Contains s) then
-                    proposed.Add s |> ignore
-                    yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
+                match tryGetItem s with
+                | Some ss when ss.HasValid && not (busy.Contains s) ->
+                    proposed.Add s |> ignore // should always be true
+                    yield { writePos = ss.Write; stream = s; span = Array.head ss.Queue }
+                | _ -> ()
             if trySlipstreamed then
                 // [lazily] slipstream in further events that are not yet referenced by in-scope batches
                 for KeyValue(s, v) in states do
@@ -430,7 +439,8 @@ module Scheduling =
         let markNotBusy stream = busy.Remove stream |> ignore
 
         member _.InternalMerge buffer = merge buffer
-        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos,queue))
+        member _.Purge() = purge ()
+        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos, queue))
 
         member _.Add(stream, index, event, ?isMalformed) =
             updateWritePos stream (defaultArg isMalformed false) None [| { index = index; events = [| event |] } |]
@@ -441,8 +451,8 @@ module Scheduling =
         member _.SetMalformed(stream, isMalformed) =
             updateWritePos stream isMalformed None [| { index = 0L; events = null } |]
 
-        member _.Item(stream) =
-            states[stream]
+        member _.TryGetItem(stream) =
+            tryGetItem stream
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
@@ -839,6 +849,9 @@ module Scheduling =
             ?maxCycles,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval,
             // Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 1.)
@@ -848,13 +861,17 @@ module Scheduling =
         let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
         let streams = StreamStates<byte[]>()
         let progressState = Progress.ProgressState()
+        let mutable totalPurged = 0
+        let purgeDue = purgeInterval |> Option.map intervalCheck
 
         let weight stream =
-            let state = streams.Item stream
-            let firstSpan = Array.head state.Queue
-            let mutable acc = 0
-            for x in firstSpan.events do acc <- acc + eventSize x
-            int64 acc
+            match streams.TryGetItem stream with
+            | Some state when not state.IsEmpty ->
+                let firstSpan = Array.head state.Queue
+                let mutable acc = 0
+                for x in firstSpan.events do acc <- acc + eventSize x
+                int64 acc
+            | _ -> 0L
 
         // ingest information to be gleaned from processing the results into `streams`
         let workLocalBuffer = Array.zeroCreate 1024
@@ -865,7 +882,7 @@ module Scheduling =
                 if c = 0 then more <- false
                 else worked <- true
                 for i in 0..c-1 do
-                    let x = workLocalBuffer.[i]
+                    let x = workLocalBuffer[i]
                     let res' : InternalMessage<Choice<'R, 'E>> =
                         match x with
                         | Added (streams, skipped, events) ->
@@ -947,7 +964,16 @@ module Scheduling =
                     // This loop can take a long time; attempt logging of stats per iteration
                     (fun () -> dispatcher.DumpStats pending.Count) |> accStopwatch <| fun t -> st <- st + t
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                if not (dispatcher.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st))) && idle then
+                if dispatcher.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st)) then
+                    // After we've dumped the state, it may also be due for pruning
+                    match purgeDue with
+                    | Some dueNow when dueNow () ->
+                        let remaining, purged = streams.Purge()
+                        totalPurged <- totalPurged + purged
+                        let l = if purged = 0 then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+                        Log.Write(l, "Streams buffered {buffered:n0} Purged now {count:n0} Purged total {total:n0}", remaining, purged, totalPurged)
+                    | _ -> ()
+                elif idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
 
@@ -962,15 +988,15 @@ module Scheduling =
                 prepare : FsCodec.StreamName * StreamSpan<_> -> 'Metrics * (FsCodec.StreamName * StreamSpan<_>),
                 handle : FsCodec.StreamName * StreamSpan<_> -> Async<'Progress * 'Outcome>,
                 toIndex : FsCodec.StreamName * StreamSpan<_> -> 'Progress -> int64,
-                dumpStreams, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
+                dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn> =
 
             let dispatcher = MultiDispatcher<_, _, _>.Create(itemDispatcher, handle, prepare, toIndex, stats, dumpStreams)
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?enableSlipstreaming=enableSlipstreaming)
 
-        static member Create(dispatcher, ?maxBatches, ?idleDelay, ?enableSlipstreaming)
+        static member Create(dispatcher, ?maxBatches, ?idleDelay, ?purgeInterval, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn> =
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?enableSlipstreaming=enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?enableSlipstreaming=enableSlipstreaming)
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
@@ -1093,7 +1119,10 @@ type StreamsProjector =
             stats, statsInterval,
             ?maxSubmissionsPerPartition, ?pumpInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay)
+            ?idleDelay,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -1101,7 +1130,7 @@ type StreamsProjector =
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
                     (fun s l -> s.Dump(l, Buffering.StreamState.eventsSize)),
-                    ?idleDelay=idleDelay)
+                    ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
@@ -1118,14 +1147,17 @@ type StreamsProjector =
             ?maxSubmissionsPerPartition,
             ?pumpInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay)
+            ?idleDelay,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
         StreamsProjector.StartEx<SpanResult, 'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
+            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>
@@ -1138,14 +1170,17 @@ type StreamsProjector =
             // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition, ?pumpInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay)
+            ?idleDelay,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
         StreamsProjector.Start<'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-            ?pumpInterval=pumpInterval, ?idleDelay=idleDelay)
+            ?pumpInterval=pumpInterval, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
 module Sync =
 
@@ -1199,7 +1234,10 @@ module Sync =
                 // Max inner cycles per loop. Default 128.
                 ?maxCycles,
                 // Hook to wire in external stats
-                ?dumpExternalStats)
+                ?dumpExternalStats,
+                // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+                // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+                ?purgeInterval)
             : ProjectorPipeline<_> =
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
@@ -1229,7 +1267,7 @@ module Sync =
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
-                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay)
+                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
             Projector.StreamsProjectorPipeline.Start(
                 log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches, ?pumpInterval=pumpInterval)
