@@ -971,7 +971,7 @@ module Scheduling =
                         let remaining, purged = streams.Purge()
                         totalPurged <- totalPurged + purged
                         let l = if purged = 0 then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-                        Log.Write(l, "Streams buffered {buffered} Purged now {count} Purged total {total}", remaining, purged, totalPurged)
+                        Log.Write(l, "Streams buffered {buffered:n0} Purged now {count:n0} Purged total {total:n0}", remaining, purged, totalPurged)
                     | _ -> ()
                 elif idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
