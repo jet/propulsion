@@ -27,8 +27,6 @@
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
         
-      <PackageReference Include="FSharp.Core" Version="6.0.5" />
-        
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
