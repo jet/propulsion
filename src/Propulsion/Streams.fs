@@ -413,18 +413,21 @@ module Scheduling =
             for x in buffer.Items do
                 update x.Key x.Value |> ignore
         let purge () =
+            let mutable purged = 0
             for x in states do
                 if x.Value.IsPurgeable then
-                    states.Remove x.Key |> ignore
+                    states.Remove x.Key |> ignore // Safe to do while iterating
+                    purged <- purged + 1
+            states.Count, purged
 
         let busy = HashSet<FsCodec.StreamName>()
         let pending trySlipstreamed (requestedOrder : FsCodec.StreamName seq) : seq<DispatchItem<'Format>> = seq {
             let proposed = HashSet()
             for s in requestedOrder do
                 match tryGetItem s with
-                | Some state when state.HasValid && not (busy.Contains s) ->
-                    proposed.Add s |> ignore
-                    yield { writePos = state.Write; stream = s; span = Array.head state.Queue }
+                | Some ss when ss.HasValid && not (busy.Contains s) ->
+                    proposed.Add s |> ignore // should always be true
+                    yield { writePos = ss.Write; stream = s; span = Array.head ss.Queue }
                 | _ -> ()
             if trySlipstreamed then
                 // [lazily] slipstream in further events that are not yet referenced by in-scope batches
@@ -436,8 +439,8 @@ module Scheduling =
         let markNotBusy stream = busy.Remove stream |> ignore
 
         member _.InternalMerge buffer = merge buffer
-        member x.Purge() = purge ()
-        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos,queue))
+        member _.Purge() = purge ()
+        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos, queue))
 
         member _.Add(stream, index, event, ?isMalformed) =
             updateWritePos stream (defaultArg isMalformed false) None [| { index = index; events = [| event |] } |]
@@ -448,7 +451,8 @@ module Scheduling =
         member _.SetMalformed(stream, isMalformed) =
             updateWritePos stream isMalformed None [| { index = 0L; events = null } |]
 
-        member _.TryGetItem(stream) = tryGetItem stream
+        member _.TryGetItem(stream) =
+            tryGetItem stream
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
@@ -857,6 +861,7 @@ module Scheduling =
         let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
         let streams = StreamStates<byte[]>()
         let progressState = Progress.ProgressState()
+        let mutable totalPurged = 0
         let purgeDue = purgeInterval |> Option.map intervalCheck
 
         let weight stream =
@@ -961,7 +966,13 @@ module Scheduling =
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
                 if dispatcher.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st)) then
                     // After we've dumped the state, it may also be due for pruning
-                    match purgeDue with Some dueNow when dueNow () -> streams.Purge() | _ -> ()
+                    match purgeDue with
+                    | Some dueNow when dueNow () ->
+                        let remaining, purged = streams.Purge()
+                        totalPurged <- totalPurged + purged
+                        let l = if purged = 0 then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+                        Log.Write(l, "Streams buffered {buffered} Purged now {count} Purged total {total}", remaining, purged, totalPurged)
+                    | _ -> ()
                 elif idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
