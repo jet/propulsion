@@ -61,37 +61,37 @@ type ChangeFeedProcessor =
 
     static member Start
         (   log : ILogger, monitored : Container,
-            /// The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
+            // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
             // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
             leases : Container,
-            /// Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
+            // Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             processorName : string,
-            /// Observers to forward documents to (Disposal is tied to stopping of the Source)
+            // Observers to forward documents to (Disposal is tied to stopping of the Source)
             observer : IChangeFeedObserver,
             ?leaseOwnerId : string,
-            /// (NB Only applies if this is the first time this leasePrefix is presented)
-            /// Specify `true` to request starting of projection from the present write position.
-            /// Default: false (projecting all events from start beforehand)
+            // (NB Only applies if this is the first time this leasePrefix is presented)
+            // Specify `true` to request starting of projection from the present write position.
+            // Default: false (projecting all events from start beforehand)
             ?startFromTail : bool,
-            /// Frequency to check for partitions without a processor. Default 1s
+            // Frequency to check for partitions without a processor. Default 1s
             ?leaseAcquireInterval : TimeSpan,
-            /// Frequency to renew leases held by processors under our control. Default 3s
+            // Frequency to renew leases held by processors under our control. Default 3s
             ?leaseRenewInterval : TimeSpan,
-            /// Duration to take lease when acquired/renewed. Default 10s
+            // Duration to take lease when acquired/renewed. Default 10s
             ?leaseTtl : TimeSpan,
-            /// Delay before re-polling a partition after backlog has been drained
+            // Delay before re-polling a partition after backlog has been drained
             ?feedPollDelay : TimeSpan,
-            /// Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
-            /// Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
+            // Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
+            // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
             ?maxItems : int,
-            /// Continuously fed per-partition lag information until parent Async completes
-            /// callback should Async.Sleep until next update is desired
+            // Continuously fed per-partition lag information until parent Async completes
+            // callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation,
-            /// Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
+            // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
             ?notifyError : int -> exn -> unit,
-            /// Admits customizations in the ChangeFeedProcessorBuilder chain
+            // Admits customizations in the ChangeFeedProcessorBuilder chain
             ?customize) =
         let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
         let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
@@ -154,7 +154,7 @@ type ChangeFeedProcessor =
                 let rec emitLagMetrics () = async {
                     let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
                         let rec loop () : AsyncSeq<'u> = asyncSeq {
-                            if not query.HasMoreResults then return None else
+                            if not query.HasMoreResults then () else
                             let! ct = Async.CancellationToken
                             let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
                             for x in res do yield map x

@@ -16,8 +16,6 @@
     <ItemGroup>
         <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
         
-        <PackageReference Include="FSharp.Core" Version="4.7.2" />
-
         <PackageReference Include="Dapper" Version="2.0.30" />
         <PackageReference Include="Microsoft.Data.SqlClient" Version="1.1.3" />
         <PackageReference Include="SqlStreamStore" Version="1.2.0-beta.8" />

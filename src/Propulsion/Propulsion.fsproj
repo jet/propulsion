@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,14 +18,15 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
-    <PackageReference Include="FSharp.Core" Version="4.3.4" />
+    <PackageReference Include="FSharp.Core" Version="6.0.0" />
 
     <!-- We only depend on the ITimelineEvent contracts, so going to v3 is not useful/necessary -->
     <PackageReference Include="FsCodec" Version="2.0.0" />
-    <PackageReference Include="MathNet.Numerics" Version="4.7.0" />
+    <PackageReference Include="MathNet.Numerics" Version="4.15.0" />
     <!--    NB TEMP; needs to be shipped out-->
     <PackageReference Include="prometheus-net" Version="3.6.0" />
     <PackageReference Include="Serilog" Version="2.7.1" />
+    <PackageReference Include="System.Threading.Channels" Version="6.0.0" />
   </ItemGroup>
 
 </Project>

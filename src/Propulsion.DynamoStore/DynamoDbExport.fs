@@ -1,6 +1,5 @@
 module Propulsion.DynamoStore.DynamoDbExport
 
-open FSharp.Control
 open System.Collections.Generic
 open System.IO
 open System.Text.Json
@@ -25,7 +24,7 @@ module DynamoDbJsonParser =
             yield item.p.S, { i = index; c = eventTypes }
             more <- not r.EndOfStream }
 
-/// Manages import of DynamoDB JSON files (extracted from data/*.json.gz in a DyanmoDB S3 export)
+/// Manages import of DynamoDB JSON files (extracted from data/*.json.gz in a DynamoDB S3 export)
 type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
 
     let pending = Dictionary<string, DynamoStoreIndex.EventSpan>()

@@ -6,7 +6,7 @@ If you're looking for a good discussion forum on these kinds of topics, look no 
 
 ## Components
 
-The components within this repository are delivered as a multi-targeted Nuget package targeting `netstandard2.0`/`1` (internally it targets FSharp.Core >= 4.5.4, which works with SDKs back to F# 4.5+)
+The components within this repository are delivered as a multi-targeted Nuget package targeting `net6.0`
 
 - `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion including `ParallelProjector`, `StreamsProjector`. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
 
