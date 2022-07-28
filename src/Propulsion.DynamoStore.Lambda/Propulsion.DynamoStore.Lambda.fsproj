@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
+        <!-- Ordinarily we'd let the base Targets pick the FSharp.Core,
+             but that clashes with Propulsion.DynamoStore's need for FSharp.Core 6.0.5 and errors out on publish -->
+        <!-- <DisableImplicitFSharpCoreReference>false</DisableImplicitFSharpCoreReference>-->
         
         <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
         <AWSProjectType>Lambda</AWSProjectType>
@@ -23,6 +26,8 @@
     
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
+        
+      <PackageReference Include="FSharp.Core" Version="6.0.5" />
         
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
