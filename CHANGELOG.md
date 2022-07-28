@@ -19,7 +19,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Control.AsyncSeq` v `3.2.1`, `MathNet.Numerics` v `4.15.0`
+- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.5`, `FSharp.Control.AsyncSeq` v `3.2.1`, `MathNet.Numerics` v `4.15.0`
 - `Propulsion.CosmosStore`: Changed to target `Equinox.CosmosStore` v `4.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.EventStore`: Pinned to target `Equinox.EventStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.EventStoreDb`** [#139](https://github.com/jet/propulsion/pull/139)
