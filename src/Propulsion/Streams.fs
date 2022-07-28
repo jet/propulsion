@@ -1,11 +1,13 @@
 ﻿namespace Propulsion.Streams
 
+open FSharp.Control
 open Propulsion
 open Serilog
 open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Threading
+open System.Threading.Channels
 
 module Log =
 
@@ -671,9 +673,8 @@ module Scheduling =
         default _.DumpStats () = ()
 
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
-    type private DopDispatcher<'R>(maxDop) =
-        // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let work = new BlockingCollection<_>(ConcurrentQueue<_>())
+    type private DopDispatcher<'R>(maxDop : int) =
+        let work = Channel.CreateUnbounded<Async<'R>>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
         let result = Event<'R>()
         let dop = Sem maxDop
         // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
@@ -687,15 +688,11 @@ module Scheduling =
         member _.State = dop.State
 
         member _.TryAdd(item) =
-            if dop.TryTake() then
-                work.Add(item)
-                true
-            else false
+            dop.TryTake() && work.Writer.TryWrite(item)
 
         member _.Pump () = async {
             let! ct = Async.CancellationToken
-            for item in work.GetConsumingEnumerable ct do
-                Async.Start(dispatch item) }
+            return! work.Reader.ReadAllAsync(ct) |> AsyncSeq.ofAsyncEnum |> AsyncSeq.iterAsyncParallel dispatch }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R>(maxDop) =
