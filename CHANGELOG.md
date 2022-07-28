@@ -26,6 +26,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 
 ### Removed
+
+- `Destructurama.FSharp` dependency [#152](https://github.com/jet/propulsion/pull/152)
+
 ### Fixed
 
 - `Propulsion.SqlStreamStore`: Replaced incorrect/meaningless stream name for `SqlStreamStoreSource` [#139](https://github.com/jet/propulsion/pull/139)

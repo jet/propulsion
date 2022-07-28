@@ -94,7 +94,7 @@ module Internal =
         member _.Count = cats.Count
         member _.Any = (not << Seq.isEmpty) cats
         member _.Clear() = cats.Clear()
-        member _.StatsDescending = cats |> Seq.sortBy (fun x -> -x.Value) |> Seq.map (|KeyValue|)
+        member _.StatsDescending = Internal.statsDescending cats
 
     type private Data =
         {   min    : TimeSpan
