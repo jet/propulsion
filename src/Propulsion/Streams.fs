@@ -1044,7 +1044,7 @@ module Projector =
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
                 batch, (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<_, StreamEvent<_>>>.Start(log, partitionId, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
+            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<_, StreamEvent<_>>>.Start(log, partitionId, maxRead, makeBatch, submit, ?statsInterval=statsInterval)
 
     type StreamsSubmitter =
 

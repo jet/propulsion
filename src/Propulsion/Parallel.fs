@@ -184,12 +184,12 @@ module Scheduling =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
-    static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
+    static member Start(log, partitionId, maxRead, submit, ?statsInterval) =
         let makeBatch onCompletion (items : 'Item seq) =
             let items = Array.ofSeq items
             let batch : Submission.SubmissionBatch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
             batch,(items.Length,items.Length)
-        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, partitionId, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
+        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, partitionId, maxRead, makeBatch, submit, ?statsInterval=statsInterval)
 
 type ParallelProjector =
     static member Start

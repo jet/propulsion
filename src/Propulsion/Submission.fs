@@ -33,6 +33,41 @@ module Internal =
             let due = timer.ElapsedMilliseconds > max
             if due then timer.Restart()
             due
+    let timeRemaining (period : TimeSpan) =
+        let timer, max = Stopwatch.StartNew(), int64 period.TotalMilliseconds
+        fun () ->
+            match max - timer.ElapsedMilliseconds |> int with
+            | rem when rem <= 0 -> timer.Restart(); true, max
+            | rem -> false, rem
+    let atTimedIntervals (period : TimeSpan) =
+        let timer, max = Stopwatch.StartNew(), int64 period.TotalMilliseconds
+        let remNow () = max - timer.ElapsedMilliseconds |> int
+        fun f ->
+            match remNow () with
+            | rem when rem <= 0 -> f (); timer.Restart(); remNow ()
+            | rem -> rem
+
+    module Channel =
+
+        open System.Threading.Channels
+
+        let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
+        let unboundedSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleReader = true))
+        let write (c : Channel<_>) = c.Writer.TryWrite >> ignore
+        let awaitRead (c : Channel<_>) () = let vt = c.Reader.WaitToReadAsync() in vt.AsTask()
+        let apply (c : Channel<_>) f =
+            let mutable worked, msg = false, Unchecked.defaultof<_>
+            while c.Reader.TryRead(&msg) do
+                worked <- true
+                f msg
+            worked
+
+    module Task =
+
+        open System.Threading.Tasks
+
+        let start t = Task.Run(Action(fun () -> t |> ignore<Task>)) |> ignore
+        let sleep (ts : TimeSpan) ct = Task.Delay(int ts.TotalMilliseconds, cancellationToken = ct)
 
     type Sem(max) =
         let inner = new SemaphoreSlim(max)
