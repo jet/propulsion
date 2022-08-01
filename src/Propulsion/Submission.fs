@@ -119,7 +119,7 @@ module Submission =
         // Loop, submitting 0 or 1 item per partition per iteration to ensure
         // - each partition has a controlled maximum number of entrants in the scheduler queue
         // - a fair ordering of batch submissions
-        let tryPropagate (waiting : ResizeArray<Task>) =
+        let tryPropagate (waiting : ResizeArray<Sem>) =
             waiting.Clear()
             let mutable worked = false
             for KeyValue (pi, pq) in buffer do
@@ -129,7 +129,7 @@ module Submission =
                         let count = submitBatch <| pq.queue.Dequeue()
                         submittedBatches.Record(pi)
                         submittedMessages.Record(pi, int64 count)
-                    else waiting.Add(pq.submissions.AwaitButRelease())
+                    else waiting.Add(pq.submissions)
             worked
 
         let ingest (partitionBatches : SubmissionBatch<'S, 'M>[]) =
@@ -160,12 +160,13 @@ module Submission =
 
         /// Processing loop, continuously splitting `Submit`ted items into per-partition queues and ensuring enough items are provided to the Scheduler
         member _.Pump(ct : CancellationToken) = task {
-            // Holds a Task per partition that's reached its submission limit; if capacity becomes available, we want to wake to submit
-            let waitingSubmissions = ResizeArray<Task>()
+            // Semaphores for partitions that have reached their submit limit; if capacity becomes available, we want to wake to submit
+            let waitingSubmissions = ResizeArray<Sem>()
+            let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
             while not ct.IsCancellationRequested do
                 while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
                 let nextStatsIntervalMs = maybeDumpStats ()
-                let! _ = Task.WhenAny[| awaitIncoming () :> Task; yield! waitingSubmissions; Task.Delay(nextStatsIntervalMs, ct) |] in () }
+                let! _ = Task.WhenAny[| awaitIncoming () :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs, ct) |] in () }
 
         /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
         member _.Ingest(items : SubmissionBatch<'S, 'M>[]) =
