@@ -39,6 +39,7 @@ module private Impl =
         let index = AppendsIndex.Reader.create log context
         let! res = index.ReadKnownTranches()
         // TODO remove this hard-coding if/when FeedSourceBase.Pump starts to periodically pick up new tranches
+        let res = [||]
         let appendsTrancheIds = match res with [||] -> [| AppendsTrancheId.wellKnownId |] | ids -> ids
         return appendsTrancheIds |> Array.map AppendsTrancheId.toTrancheId }
 

@@ -91,7 +91,8 @@ module private Impl =
             let! ct = Async.CancellationToken
             while not ct.IsCancellationRequested do
                 report ()
-                do! Async.Sleep statsInterval }
+                do! Async.Sleep statsInterval
+            log.Information("... Stats Stopped") }
 
 type FeedReader
     (   log : ILogger, sourceId, trancheId, statsInterval : TimeSpan,
@@ -152,8 +153,8 @@ type FeedReader
         log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         // Commence reporting stats until such time as we quit pumping
-        let! _ = Async.StartChild stats.Pump
         let! ct = Async.CancellationToken
+        Async.Start(stats.Pump, ct)
         let mutable currentPos, lastWasTail = initialPosition, false
         while not ct.IsCancellationRequested do
             for readLatency, batch in crawl (lastWasTail, currentPos) do
