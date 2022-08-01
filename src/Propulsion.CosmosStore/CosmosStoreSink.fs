@@ -174,7 +174,7 @@ type CosmosStoreSink =
             ?statsInterval,
             /// Default 5m
             ?stateInterval,
-            ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
+            ?ingesterStatsInterval, ?maxSubmissionsPerPartition,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             /// Default: 16384
@@ -189,4 +189,4 @@ type CosmosStoreSink =
         let streamScheduler = Internal.StreamSchedulingEngine.Create(log, eventsContext, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay, ?maxEvents=maxEvents, ?maxBytes=maxBytes)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)

@@ -60,7 +60,7 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             start "dispatcher" <| pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" <| pumpScheduler abend
-            start "submitter" <| pumpSubmitter
+            start "submitter" <| Async.AwaitTaskCorrect(pumpSubmitter ct)
 
             // await for either handler-driven abend or external cancellation via Stop()
             do! Async.AwaitTaskCorrect tcs.Task

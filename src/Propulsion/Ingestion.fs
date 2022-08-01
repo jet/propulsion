@@ -121,8 +121,7 @@ type Ingester<'Items, 'Batch> private
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Item>(log, partitionId, maxRead, makeBatch, submit, ?statsInterval) =
-        let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
+    static member Start<'Item>(log, partitionId, maxRead, makeBatch, submit, statsInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<_, _>(stats, maxRead, makeBatch, submit, cts)
