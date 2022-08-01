@@ -91,7 +91,8 @@ module private Impl =
             let! ct = Async.CancellationToken
             while not ct.IsCancellationRequested do
                 report ()
-                do! Async.Sleep statsInterval }
+                do! Async.Sleep statsInterval
+            log.Information("... Stats Stopped") }
 
 type FeedReader
     (   log : ILogger, sourceId, trancheId, statsInterval : TimeSpan,

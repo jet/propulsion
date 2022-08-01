@@ -17,32 +17,28 @@ type FeedSourceBase internal
 
     let log = log.ForContext("source", sourceId)
 
-    let pumpPartition crawl partitionId trancheId = async {
-        let log = log.ForContext("tranche", trancheId)
-        let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
-        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
-        try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (match establishOrigin with None -> None | Some f -> Some (f trancheId)))
+    let pumpPartition crawl partitionId trancheId =
+        Async.LogWarnOnThrow(log, "Exception encountered while running reader, exiting loop") <| async {
+            let log = log.ForContext("tranche", trancheId)
+            let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
+            let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
+            let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (match establishOrigin with None -> None | Some f -> Some (f trancheId)))
             log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                             sourceId, trancheId, renderPos pos, freq.TotalMinutes)
-            return! reader.Pump(pos)
-        with e ->
-            log.Warning(e, "Exception encountered while running reader, exiting loop")
-            return! Async.Raise e
-    }
+            try return! reader.Pump(pos)
+            finally log.Information("Ingester stopping ..."); ingester.Stop(); log.Information("... Ingester stopped") }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<byte[]>>) = async {
-        // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
-        // TODO when that's done, remove workaround in readTranches
-        try let! tranches = readTranches ()
+            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<byte[]>>) =
+        Async.LogWarnOnThrow(log, "Exception encountered while running source, exiting loop") <| async {
+            // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
+            // TODO when that's done, remove workaround in readTranches
+            let! tranches = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
-            return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
-        with e ->
-            log.Warning(e, "Exception encountered while running source, exiting loop")
-            return! Async.Raise e }
+            return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]> }
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
 /// it may have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc

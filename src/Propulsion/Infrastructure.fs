@@ -4,6 +4,11 @@ module internal Propulsion.Infrastructure
 open System
 open System.Threading.Tasks
 
+module Filter =
+
+    let (|LogAnyExn|_|) (log : Serilog.ILogger, msg) = function
+        | (e : exn) -> log.Warning(e, msg); None
+
 // http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect
 // pending that being officially packaged somewhere or integrated into FSharp.Core https://github.com/fsharp/fslang-suggestions/issues/840
 type Async with
@@ -50,3 +55,7 @@ type Async with
 
     /// Re-raise an exception so that the current stacktrace is preserved
     static member Raise(e : #exn) : Async<'T> = Async.FromContinuations (fun (_,ec,_) -> ec e)
+
+    static member LogWarnOnThrow(log, msg) computation = async {
+        try return! computation
+        with Filter.LogAnyExn (log, msg) _exn -> () }
