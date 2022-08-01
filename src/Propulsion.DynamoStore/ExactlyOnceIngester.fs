@@ -26,7 +26,7 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
         let! res = ingest (epochId, Array.map snd epochItems)
         let ingestedItemIds = Array.append ingestedItems res.accepted
         let logLevel =
-            if res.residual.Length <> 0 || futureEpochItems.Length <> 0 || (not << Array.isEmpty) res.accepted then Serilog.Events.LogEventLevel.Information
+            if (not << Array.isEmpty) res.residual || (not << Array.isEmpty) futureEpochItems || (not << Array.isEmpty) res.accepted then Serilog.Events.LogEventLevel.Information
             else Serilog.Events.LogEventLevel.Debug
         log.Write(logLevel, "Epoch {epochId} Added {count}/{total} items Residual {residual} Future {future}",
                   string epochId, res.accepted.Length, epochItems.Length, res.residual.Length, futureEpochItems.Length)
