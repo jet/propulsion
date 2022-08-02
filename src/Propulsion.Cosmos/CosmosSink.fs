@@ -187,6 +187,6 @@ type CosmosSink =
         let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.StreamSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxEvents=maxEvents, ?maxBytes=maxBytes)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
-            log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+            log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

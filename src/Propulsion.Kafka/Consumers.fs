@@ -173,7 +173,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let machine = async {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-            start "dispatcher" <| pumpDispatcher
+            start "dispatcher" <| Async.AwaitTaskCorrect(pumpDispatcher ct)
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" <| pumpScheduler abend
             start "submitter" <| Async.AwaitTaskCorrect(pumpSubmitter ct)
@@ -209,7 +209,7 @@ type ParallelConsumer private () =
             scheduler.Submit x
             x.messages.Length
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
-        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump, scheduler.Pump, dispatcher.Pump(), statsInterval)
+        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump, scheduler.Pump, dispatcher.Pump, statsInterval)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
@@ -249,7 +249,7 @@ module Core =
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
                         ?disableCompaction=maximizeOffsetWriting)
-            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
+            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
@@ -510,4 +510,4 @@ type BatchesConsumer =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter = Streams.Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
-        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
+        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)
