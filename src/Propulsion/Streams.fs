@@ -702,10 +702,9 @@ module Scheduling =
         let inner = DopDispatcher<TimeSpan * FsCodec.StreamName * bool * 'R>(maxDop)
 
         // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
-        let tryFillDispatcher (pending, markStarted) project markBusy =
+        let tryFillDispatcher (potential : seq<DispatchItem<byte[]>>, markStarted) project markBusy =
             let mutable hasCapacity, dispatched = inner.HasCapacity, false
             if hasCapacity then
-                let potential : seq<DispatchItem<byte[]>> = pending ()
                 let xs = potential.GetEnumerator()
                 let ts = System.Diagnostics.Stopwatch.GetTimestamp()
                 while xs.MoveNext() && hasCapacity do
@@ -721,12 +720,12 @@ module Scheduling =
         member _.Pump ct = inner.Pump ct
         [<CLIEvent>] member _.Result = inner.Result
         member _.State = inner.State
-        member _.TryReplenish (pending, markStarted) project markStreamBusy =
-            tryFillDispatcher (pending, markStarted) project markStreamBusy
+        member _.TryReplenish (potential, markStarted) project markStreamBusy =
+            tryFillDispatcher (potential, markStarted) project markStreamBusy
 
     /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
     type IDispatcher<'P, 'R, 'E> =
-        abstract member TryReplenish : pending : (unit -> seq<DispatchItem<byte[]>>) -> markStreamBusy : (FsCodec.StreamName -> unit) -> bool * bool
+        abstract member TryReplenish : potential : seq<DispatchItem<byte[]>> -> markStreamBusy : (FsCodec.StreamName -> unit) -> bool * bool
         [<CLIEvent>] abstract member Result : IEvent<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>
         abstract member InterpretProgress : StreamStates<byte[]> * FsCodec.StreamName * Choice<'P, 'E> -> int64 option * Choice<'R, 'E>
         abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
@@ -759,8 +758,8 @@ module Scheduling =
             MultiDispatcher<_, _, _>.Create(inner, project, interpretProgress, stats, dumpStreams)
 
         interface IDispatcher<'P, 'R, 'E> with
-            override _.TryReplenish pending markStreamBusy =
-                inner.TryReplenish (pending, stats.MarkStarted) project markStreamBusy
+            override _.TryReplenish potential markStreamBusy =
+                inner.TryReplenish (potential, stats.MarkStarted) project markStreamBusy
             [<CLIEvent>] override _.Result = inner.Result
             override _.InterpretProgress(streams : StreamStates<_>, stream : FsCodec.StreamName, res : Choice<'P, 'E>) =
                 interpretProgress streams stream res
@@ -780,10 +779,9 @@ module Scheduling =
 
         // On each iteration, we offer the ordered work queue to the selector
         // we propagate the selected streams to the handler
-        let trySelect pending markBusy =
+        let trySelect (potential : seq<DispatchItem<byte[]>>) markBusy =
             let mutable hasCapacity, dispatched = dop.HasCapacity, false
             if hasCapacity then
-                let potential : seq<DispatchItem<byte[]>> = pending ()
                 let streams : DispatchItem<byte[]>[] = select potential
                 let succeeded = (not << Array.isEmpty) streams
                 if succeeded then
@@ -800,7 +798,7 @@ module Scheduling =
             return! dop.Pump ct }
 
         interface IDispatcher<int64 * (EventMetrics * unit), EventMetrics * unit, EventMetrics * exn> with
-            override _.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
+            override _.TryReplenish potential markStreamBusy = trySelect potential markStreamBusy
             [<CLIEvent>] override _.Result = result.Publish
             override _.InterpretProgress(_streams : StreamStates<_>, _stream : FsCodec.StreamName, res : Choice<_, _>) =
                 match res with
@@ -873,36 +871,38 @@ module Scheduling =
                 for x in firstSpan.events do acc <- acc + eventSize x
                 int64 acc
             | _ -> 0L
+        let tryDispatch isSlipStreaming () =
+            let potential : seq<DispatchItem<_>> = streams.Pending(isSlipStreaming, progressState.InScheduledOrder weight)
+            dispatcher.TryReplenish potential streams.MarkBusy
 
         // ingest information to be gleaned from processing the results into `streams`
+        let mapResult : InternalMessage<_> -> InternalMessage<Choice<'R, 'E>> = function
+            | Added (streams, skipped, events) ->
+                // Only processed in Stats (and actually never enters this queue)
+                Added (streams, skipped, events)
+            | Result (duration, stream : FsCodec.StreamName, progressed : bool, res : Choice<'P, 'E>) ->
+                match dispatcher.InterpretProgress(streams, stream, res) with
+                | None, Choice1Of2 (r : 'R) ->
+                    streams.MarkFailed(stream)
+                    Result (duration, stream, progressed, Choice1Of2 r)
+                | Some index, Choice1Of2 (r : 'R) ->
+                    progressState.MarkStreamProgress(stream, index)
+                    streams.MarkCompleted(stream, index)
+                    Result (duration, stream, progressed, Choice1Of2 r)
+                | _, Choice2Of2 exn ->
+                    streams.MarkFailed(stream)
+                    Result (duration, stream, progressed, Choice2Of2 exn)
         let workLocalBuffer = Array.zeroCreate 1024
-        let tryDrainResults feedStats =
+        let tryApplyResults handle =
             let mutable worked, more = false, true
             while more do
                 let c = work.TryPopRange(workLocalBuffer)
                 if c = 0 then more <- false
                 else worked <- true
                 for i in 0..c-1 do
-                    let x = workLocalBuffer[i]
-                    let res' : InternalMessage<Choice<'R, 'E>> =
-                        match x with
-                        | Added (streams, skipped, events) ->
-                            // Only processed in Stats (and actually never enters this queue)
-                            Added (streams, skipped, events)
-                        | Result (duration, stream : FsCodec.StreamName, progressed : bool, res : Choice<'P, 'E>) ->
-                            match dispatcher.InterpretProgress(streams, stream, res) with
-                            | None, Choice1Of2 (r : 'R) ->
-                                streams.MarkFailed(stream)
-                                Result (duration, stream, progressed, Choice1Of2 r)
-                            | Some index, Choice1Of2 (r : 'R) ->
-                                progressState.MarkStreamProgress(stream, index)
-                                streams.MarkCompleted(stream, index)
-                                Result (duration, stream, progressed, Choice1Of2 r)
-                            | _, Choice2Of2 exn ->
-                                streams.MarkFailed(stream)
-                                Result (duration, stream, progressed, Choice2Of2 exn)
-                    feedStats res'
+                    handle (workLocalBuffer[i])
             worked
+        let tryHandleResults () = tryApplyResults (mapResult >> dispatcher.RecordResultStats)
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingestPendingBatch feedStats (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
@@ -916,6 +916,7 @@ module Scheduling =
                     reqs[item.Key] <- item.Value
             progressState.AppendBatch(markCompleted, reqs)
             feedStats <| Added (reqs.Count, skipCount, count)
+        let ingestBatch (batch : StreamsBatch<_>) () = ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
 
         member _.Pump _abend = async {
             use _ = dispatcher.Result.Subscribe(Result >> work.Push)
@@ -926,12 +927,11 @@ module Scheduling =
                 while remaining <> 0 do
                     remaining <- remaining - 1
                     // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                    let processedResults = (fun () -> tryDrainResults dispatcher.RecordResultStats) |> accStopwatch <| fun x -> dt <- dt + x
+                    let processedResults = tryHandleResults |> accStopwatch <| fun x -> dt <- dt + x
                     // 2. top up provisioning of writers queue
                     // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
                     let isSlipStreaming = dispatcherState = Slipstreaming
-                    let potential () : seq<DispatchItem<_>> = streams.Pending(isSlipStreaming, progressState.InScheduledOrder weight)
-                    let hasCapacity, dispatched = (fun () -> dispatcher.TryReplenish potential streams.MarkBusy) |> accStopwatch <| fun x -> ft <- ft + x
+                    let hasCapacity, dispatched = tryDispatch isSlipStreaming |> accStopwatch <| fun x -> ft <- ft + x
                     idle <- idle && not processedResults && not dispatched
                     match dispatcherState with
                     | Idle when not hasCapacity ->
@@ -945,20 +945,17 @@ module Scheduling =
                         // If we're going to bring in lots of batches, that's more efficient when the stream-wise merges are carried out first
                         let mutable more, batchesTaken = true, 0
                         while more do
-                            match pending.TryDequeue() with
-                            | true, batch ->
+                            let ok, batch = pending.TryDequeue()
+                            if ok then
                                 match batch.TryTakeStreams() with None -> () | Some s -> (fun () -> streams.InternalMerge(s)) |> accStopwatch <| fun t -> mt <- mt + t
-                                (fun () -> ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)) |> accStopwatch <| fun t -> it <- it + t
+                                ingestBatch batch |> accStopwatch <| fun t -> it <- it + t
                                 batchesTaken <- batchesTaken + 1
                                 more <- batchesTaken < maxBatches
-                            | false, _ when batchesTaken <> 0  ->
+                            else
                                 more <- false
-                            | false, _ when (*batchesTaken = 0 &&*) slipstreamingEnabled ->
-                                dispatcherState <- Slipstreaming
-                                more <- false
-                            | false, _  ->
-                                remaining <- 0
-                                more <- false
+                                if batchesTaken <> 0 then ()
+                                elif slipstreamingEnabled then dispatcherState <- Slipstreaming
+                                else remaining <- 0
                     | Slipstreaming -> // only do one round of slipstreaming
                         remaining <- 0
                     | Busy | Full -> failwith "Not handled here"
