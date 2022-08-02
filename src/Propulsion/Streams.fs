@@ -185,7 +185,7 @@ module StreamName =
 
 module Progress =
 
-    type [<NoComparison; NoEquality>] internal BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
+    type [<Struct; NoComparison; NoEquality>] internal BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
 
     type ProgressState<'Pos>() =
         let pending = Queue<_>()
@@ -193,6 +193,11 @@ module Progress =
             while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
                 let batch = pending.Dequeue()
                 batch.markCompleted()
+
+        // We potentially traverse the pending streams thousands of times per second
+        // so we reuse `InScheduledOrder`'s temps: sortBuffer and streamsBuffer for better L2 caching properties
+        let sortBuffer = ResizeArray()
+        let streamsBuffer = HashSet()
 
         member _.AppendBatch(markCompleted, reqs : Dictionary<FsCodec.StreamName, int64>) =
             pending.Enqueue { markCompleted = markCompleted; streamToRequiredIndex = reqs }
@@ -205,19 +210,22 @@ module Progress =
                 | _, _ -> ()
             trim ()
 
-        member _.InScheduledOrder getStreamWeight =
+        // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
+        member _.InScheduledOrder getStreamWeight : seq<FsCodec.StreamName> =
             trim ()
-            let streams = HashSet()
-            let tmp = ResizeArray(16384)
+            // sortBuffer is used once per invocation, but the result is lazy so we can only clear it on entry
+            sortBuffer.Clear()
             let mutable batch = 0
             for x in pending do
                 batch <- batch + 1
                 for s in x.streamToRequiredIndex.Keys do
-                    if streams.Add s then
-                        tmp.Add((s, (batch, -getStreamWeight s)))
+                    if streamsBuffer.Add s then
+                        sortBuffer.Add((s, struct (batch, -getStreamWeight s)))
+            // We reuse this buffer next time around, but clear it now as it has no further use
+            streamsBuffer.Clear()
             let c = Comparer<_>.Default
-            tmp.Sort(fun (_, _a) (_, _b) -> c.Compare(_a, _b))
-            tmp |> Seq.map (fun (s, _) -> s)
+            sortBuffer.Sort(fun (_, _a) (_, _b) -> c.Compare(_a, _b))
+            sortBuffer |> Seq.map fst
 
 module Buffering =
 
@@ -309,21 +317,21 @@ module Buffering =
             let effWrite =
                 match write with
                 | _ when malformed = Some true -> -3L
-                | None -> -2L
-                | Some w -> w
+                | ValueNone -> -2L
+                | ValueSome w -> w
             { write = effWrite; queue = queue }
         member x.IsEmpty = obj.ReferenceEquals(null, x.queue)
         member x.IsPurgeable = x.IsEmpty && not x.IsMalformed
         member x.IsMalformed = not x.IsEmpty && -3L = x.write
         member x.HasValid = not x.IsEmpty && not x.IsMalformed
-        member x.Write = match x.write with -2L -> None | x -> Some x
+        member x.Write = match x.write with -2L -> ValueNone | x -> ValueSome x
         member x.Queue : StreamSpan<'Format>[] = x.queue
         member x.IsReady =
             if not x.HasValid then false else
 
             match x.Write, Array.head x.queue with
-            | Some w, { index = i } -> i = w
-            | None, _ -> true
+            | ValueSome w, { index = i } -> i = w
+            | ValueNone, _ -> true
 
     module StreamState =
         let eventsSize (x : StreamState<byte[]>) =
@@ -335,16 +343,16 @@ module Buffering =
                     acc <- acc + eventSize x
             int64 acc
 
-        let inline private optionCombine f (r1 : 'a option) (r2 : 'a option) =
+        let inline private optionCombine f (r1 : 'a ValueOption) (r2 : 'a ValueOption) =
             match r1, r2 with
-            | Some x, Some y -> f x y |> Some
-            | None, None -> None
-            | None, x | x, None -> x
+            | ValueSome x, ValueSome y -> f x y |> ValueSome
+            | ValueNone, ValueNone -> ValueNone
+            | ValueNone, x | x, ValueNone -> x
 
         let combine (s1 : StreamState<_>) (s2 : StreamState<_>) : StreamState<'Format> =
             let writePos = optionCombine max s1.Write s2.Write
             let items = let NNA q1, NNA q2 = s1.queue, s2.queue in Seq.append q1 q2
-            StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultArg writePos 0L) items, s1.IsMalformed || s2.IsMalformed)
+            StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultValueArg writePos 0L) items, s1.IsMalformed || s2.IsMalformed)
 
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
@@ -357,7 +365,7 @@ module Buffering =
                 states[stream] <- updated
 
         member _.Merge(item : StreamEvent<'Format>) =
-            merge item.stream (StreamState<'Format>.Create(None, [| { index = item.event.Index; events = [| item.event |] } |]))
+            merge item.stream (StreamState<'Format>.Create(ValueNone, [| { index = item.event.Index; events = [| item.event |] } |]))
 
         member private _.States = states
 
@@ -374,7 +382,7 @@ module Buffering =
                 let sz = estimateSize state
                 waitingCats.Ingest(categorize stream)
                 if sz <> 0L then
-                    let sn, wp = FsCodec.StreamName.toString stream, defaultArg state.Write 0L
+                    let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.Write 0L
                     waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].events.Length, (sz + 512L) / 1024L)
                 waiting <- waiting + 1
                 waitingE <- waitingE + (state.queue |> Array.sumBy (fun x -> x.events.Length))
@@ -390,26 +398,22 @@ module Scheduling =
 
     open Buffering
 
-    type [<NoComparison; NoEquality>] DispatchItem<'Format> = { stream : FsCodec.StreamName; writePos : int64 option; span : StreamSpan<'Format> }
+    type [<Struct; NoComparison; NoEquality>] DispatchItem<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : StreamSpan<'Format> }
 
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
 
-        let tryGetItem stream =
-            match states.TryGetValue stream with
-            | true, v -> Some v
-            | _ -> None
         let update stream (state : StreamState<_>) =
-            match tryGetItem stream with
-            | None ->
+            match states.TryGetValue stream with
+            | false, _ ->
                 states.Add(stream, state)
                 stream, state
-            | Some current ->
+            | true, current ->
                 let updated = StreamState.combine current state
                 states[stream] <- updated
                 stream, updated
         let updateWritePos stream isMalformed pos span = update stream (StreamState<'Format>.Create(pos, span, isMalformed))
-        let markCompleted stream index = updateWritePos stream false (Some index) null |> ignore
+        let markCompleted stream index = updateWritePos stream false (ValueSome index) null |> ignore
         let merge (buffer : Streams<'Format>) =
             for x in buffer.Items do
                 update x.Key x.Value |> ignore
@@ -425,8 +429,8 @@ module Scheduling =
         let pending trySlipstreamed (requestedOrder : FsCodec.StreamName seq) : seq<DispatchItem<'Format>> = seq {
             let proposed = HashSet()
             for s in requestedOrder do
-                match tryGetItem s with
-                | Some ss when ss.HasValid && not (busy.Contains s) ->
+                match states.TryGetValue s with
+                | true, ss when ss.HasValid && not (busy.Contains s) ->
                     proposed.Add s |> ignore // should always be true
                     yield { writePos = ss.Write; stream = s; span = Array.head ss.Queue }
                 | _ -> ()
@@ -441,23 +445,23 @@ module Scheduling =
 
         member _.InternalMerge buffer = merge buffer
         member _.Purge() = purge ()
-        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(Some pos, queue))
+        member _.InternalUpdate stream pos queue = update stream (StreamState<'Format>.Create(ValueSome pos, queue))
 
         member _.Add(stream, index, event, ?isMalformed) =
-            updateWritePos stream (defaultArg isMalformed false) None [| { index = index; events = [| event |] } |]
+            updateWritePos stream (defaultArg isMalformed false) ValueNone [| { index = index; events = [| event |] } |]
 
         member _.Add(stream, span: StreamSpan<_>, isMalformed) =
-            updateWritePos stream isMalformed None [| span |]
+            updateWritePos stream isMalformed ValueNone [| span |]
 
         member _.SetMalformed(stream, isMalformed) =
-            updateWritePos stream isMalformed None [| { index = 0L; events = null } |]
+            updateWritePos stream isMalformed ValueNone [| { index = 0L; events = null } |]
 
         member _.TryGetItem(stream) =
-            tryGetItem stream
+            match states.TryGetValue stream with true, x -> ValueSome x | false, _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
-            match tryGetItem stream with
-            | Some streamState -> streamState.Write |> Option.exists (fun cw -> cw >= required)
+            match states.TryGetValue stream with
+            | true, streamState -> streamState.Write |> ValueOption.exists (fun cw -> cw >= required)
             | _ -> false
 
         member _.MarkBusy stream =
@@ -502,7 +506,7 @@ module Scheduling =
                     unprefixedE <- unprefixedE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
                 | sz ->
                     readyCats.Ingest(StreamName.categorize stream)
-                    readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultArg state.Write 0L) state.Queue[0].events.Length, kb sz)
+                    readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultValueArg state.Write 0L) state.Queue[0].events.Length, kb sz)
                     ready <- ready + 1
                     readyB <- readyB + sz
                     readyE <- readyE + (state.Queue |> Array.sumBy (fun x -> x.events.Length))
@@ -527,7 +531,7 @@ module Scheduling =
         /// Result of processing on stream - result (with basic stats) or the `exn` encountered
         | Result of duration : TimeSpan * stream : FsCodec.StreamName * progressed : bool * result : 'R
 
-    type BufferState = Idle | Busy | Full | Slipstreaming
+    type [<Struct>] BufferState = Idle | Busy | Full | Slipstreaming
 
     /// Manages state used to generate metrics (and summary logs) regarding streams currently being processed by a Handler
     module Busy =
@@ -727,7 +731,7 @@ module Scheduling =
     type IDispatcher<'P, 'R, 'E> =
         abstract member TryReplenish : potential : seq<DispatchItem<byte[]>> -> markStreamBusy : (FsCodec.StreamName -> unit) -> bool * bool
         [<CLIEvent>] abstract member Result : IEvent<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>
-        abstract member InterpretProgress : StreamStates<byte[]> * FsCodec.StreamName * Choice<'P, 'E> -> int64 option * Choice<'R, 'E>
+        abstract member InterpretProgress : StreamStates<byte[]> * FsCodec.StreamName * Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>
         abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
         abstract member DumpStats : int -> unit
         abstract member TryDumpState : BufferState * StreamStates<byte[]> * (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
@@ -736,7 +740,7 @@ module Scheduling =
     type MultiDispatcher<'P, 'R, 'E>
         (   inner : ItemDispatcher<Choice<'P, 'E>>,
             project : int64 -> DispatchItem<byte[]> -> Async<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
-            interpretProgress : StreamStates<byte[]> -> FsCodec.StreamName -> Choice<'P, 'E> -> int64 option * Choice<'R, 'E>,
+            interpretProgress : StreamStates<byte[]> -> FsCodec.StreamName -> Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>,
             stats : Stats<'R, 'E>,
             dumpStreams) =
         static member Create(inner, project, interpretProgress, stats, dumpStreams) =
@@ -753,8 +757,8 @@ module Scheduling =
                     return index' > span.index, Choice1Of2 (index', met, outcome)
                 with e -> return false, Choice2Of2 (met, e) }
             let interpretProgress (_streams : StreamStates<_>) _stream = function
-                | Choice1Of2 (index, met, outcome) -> Some index, Choice1Of2 (met, outcome)
-                | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
+                | Choice1Of2 (index, met, outcome) -> ValueSome index, Choice1Of2 (met, outcome)
+                | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
             MultiDispatcher<_, _, _>.Create(inner, project, interpretProgress, stats, dumpStreams)
 
         interface IDispatcher<'P, 'R, 'E> with
@@ -802,8 +806,8 @@ module Scheduling =
             [<CLIEvent>] override _.Result = result.Publish
             override _.InterpretProgress(_streams : StreamStates<_>, _stream : FsCodec.StreamName, res : Choice<_, _>) =
                 match res with
-                | Choice1Of2 (pos', (stats, outcome)) -> Some pos', Choice1Of2 (stats, outcome)
-                | Choice2Of2 (stats, exn) -> None, Choice2Of2 (stats, exn)
+                | Choice1Of2 (pos', (stats, outcome)) -> ValueSome pos', Choice1Of2 (stats, outcome)
+                | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
             override _.RecordResultStats msg = stats.Handle msg
             override _.DumpStats pendingCount = stats.DumpStats(dop.State, pendingCount)
             override _.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st)) =
@@ -865,7 +869,7 @@ module Scheduling =
 
         let weight stream =
             match streams.TryGetItem stream with
-            | Some state when not state.IsEmpty ->
+            | ValueSome state when not state.IsEmpty ->
                 let firstSpan = Array.head state.Queue
                 let mutable acc = 0
                 for x in firstSpan.events do acc <- acc + eventSize x
@@ -882,10 +886,10 @@ module Scheduling =
                 Added (streams, skipped, events)
             | Result (duration, stream : FsCodec.StreamName, progressed : bool, res : Choice<'P, 'E>) ->
                 match dispatcher.InterpretProgress(streams, stream, res) with
-                | None, Choice1Of2 (r : 'R) ->
+                | ValueNone, Choice1Of2 (r : 'R) ->
                     streams.MarkFailed(stream)
                     Result (duration, stream, progressed, Choice1Of2 r)
-                | Some index, Choice1Of2 (r : 'R) ->
+                | ValueSome index, Choice1Of2 (r : 'R) ->
                     progressState.MarkStreamProgress(stream, index)
                     streams.MarkCompleted(stream, index)
                     Result (duration, stream, progressed, Choice1Of2 r)
@@ -1249,10 +1253,10 @@ module Sync =
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
                 | Choice1Of2 (i', stats, outcome) ->
-                    Some i', Choice1Of2 (stats, outcome)
+                    ValueSome i', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (eventCount, bytesCount as stats, exn : exn) ->
                     log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
-                    None, Choice2Of2 (stats, exn)
+                    ValueNone, Choice2Of2 (stats, exn)
 
             let itemDispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
             let dumpStreams (s : Scheduling.StreamStates<_>) l =
