@@ -51,8 +51,8 @@ module Internal =
 
         open System.Threading.Channels
 
-        let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
         let unboundedSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleReader = true))
+        let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
         let write (c : Channel<_>) = c.Writer.TryWrite >> ignore
         let awaitRead (c : Channel<_>) ct = let vt = c.Reader.WaitToReadAsync(ct) in vt.AsTask()
         let apply (c : Channel<_>) f =
@@ -64,7 +64,7 @@ module Internal =
 
     module Task =
 
-        let start t = Task.Run(Action(fun () -> t |> ignore<Task>)) |> ignore
+        let start create = Task.Run<unit>(Func<Task<unit>> create) |> ignore<Task>
 
     type Sem(max) =
         let inner = new SemaphoreSlim(max)
