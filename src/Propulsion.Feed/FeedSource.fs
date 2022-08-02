@@ -26,7 +26,7 @@ type FeedSourceBase internal
             log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                             sourceId, trancheId, renderPos pos, freq.TotalMinutes)
             try return! reader.Pump(pos)
-            finally log.Information("Ingester stopping ..."); ingester.Stop(); log.Information("... Ingester stopped") }
+            finally ingester.Stop() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
