@@ -856,8 +856,8 @@ module Scheduling =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 1.)
         let sleepIntervalMs = int idleDelay.TotalMilliseconds
         let maxCycles, maxBatches, slipstreamingEnabled = defaultArg maxCycles 16, defaultArg maxBatches 5, defaultArg enableSlipstreaming false
-        let work = ConcurrentStack<InternalMessage<Choice<'P, 'E>>>() // dont need them ordered so Queue is unwarranted; usage is cross-thread so Bag is not better
-        let pending = ConcurrentQueue<StreamsBatch<byte[]>>() // Queue as need ordering
+        let writeResult, tryApplyResults = let c = Channel.unboundedSr in Channel.write c >> ignore, Channel.apply c
+        let pending = Channel.unboundedSw<StreamsBatch<_>> // Actually SingleReader too, but Count throws if you use that
         let streams = StreamStates<byte[]>()
         let progressState = Progress.ProgressState()
         let mutable totalPurged = 0
@@ -892,16 +892,6 @@ module Scheduling =
                 | _, Choice2Of2 exn ->
                     streams.MarkFailed(stream)
                     Result (duration, stream, progressed, Choice2Of2 exn)
-        let workLocalBuffer = Array.zeroCreate 1024
-        let tryApplyResults handle =
-            let mutable worked, more = false, true
-            while more do
-                let c = work.TryPopRange(workLocalBuffer)
-                if c = 0 then more <- false
-                else worked <- true
-                for i in 0..c-1 do
-                    handle (workLocalBuffer[i])
-            worked
         let tryHandleResults () = tryApplyResults (mapResult >> dispatcher.RecordResultStats)
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
@@ -918,9 +908,8 @@ module Scheduling =
             feedStats <| Added (reqs.Count, skipCount, count)
         let ingestBatch (batch : StreamsBatch<_>) () = ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
 
-        member _.Pump _abend = async {
-            use _ = dispatcher.Result.Subscribe(Result >> work.Push)
-            let! ct = Async.CancellationToken
+        member _.Pump _abend (ct : CancellationToken) = task {
+            use _ = dispatcher.Result.Subscribe(Result >> writeResult)
             while not ct.IsCancellationRequested do
                 let mutable idle, dispatcherState, remaining = true, Idle, maxCycles
                 let mutable dt, ft, mt, it, st = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
@@ -945,7 +934,7 @@ module Scheduling =
                         // If we're going to bring in lots of batches, that's more efficient when the stream-wise merges are carried out first
                         let mutable more, batchesTaken = true, 0
                         while more do
-                            let ok, batch = pending.TryDequeue()
+                            let ok, batch = pending.Reader.TryRead()
                             if ok then
                                 match batch.TryTakeStreams() with None -> () | Some s -> (fun () -> streams.InternalMerge(s)) |> accStopwatch <| fun t -> mt <- mt + t
                                 ingestBatch batch |> accStopwatch <| fun t -> it <- it + t
@@ -960,7 +949,7 @@ module Scheduling =
                         remaining <- 0
                     | Busy | Full -> failwith "Not handled here"
                     // This loop can take a long time; attempt logging of stats per iteration
-                    (fun () -> dispatcher.DumpStats pending.Count) |> accStopwatch <| fun t -> st <- st + t
+                    (fun () -> dispatcher.DumpStats pending.Reader.Count) |> accStopwatch <| fun t -> st <- st + t
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
                 if dispatcher.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st)) then
                     // After we've dumped the state, it may also be due for pruning
@@ -976,7 +965,7 @@ module Scheduling =
                     Thread.Sleep sleepIntervalMs } // Not Async.Sleep so we don't give up the thread
 
         member _.Submit(x : StreamsBatch<_>) =
-            pending.Enqueue(x)
+            pending.Writer.TryWrite(x) |> ignore
 
     type StreamSchedulingEngine =
 

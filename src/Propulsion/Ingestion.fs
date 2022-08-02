@@ -107,7 +107,7 @@ type Ingester<'Items, 'Batch> private
         submit batch
         enqueueMessage <| Added (streamCount,itemCount)
 
-    member private _.Pump ct = task {
+    member private _.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
         Task.start (fun () -> progressWriter.Pump ct)
         while not ct.IsCancellationRequested do

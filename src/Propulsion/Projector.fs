@@ -51,9 +51,9 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let start (name : string) comp =
+        let start (name : string) (f : CancellationToken -> Task<unit>) =
             let wrap () = task {
-                try do! Async.StartAsTask(comp, cancellationToken = ct)
+                try do! f ct
                     log.Information("Exiting {name}", name)
                 with e ->
                     log.Fatal(e, "Abend from {name}", name)
@@ -63,10 +63,11 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
         let supervise () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-            start "dispatcher" (Async.AwaitTaskCorrect(pumpDispatcher ct))
+
+            start "dispatcher" pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" (pumpScheduler abend)
-            start "submitter" (Async.AwaitTaskCorrect(pumpSubmitter ct))
+            start "submitter" pumpSubmitter
 
             // await for either handler-driven abend or external cancellation via Stop()
             try return! tcs.Task
