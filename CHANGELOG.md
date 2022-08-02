@@ -30,6 +30,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Dispatcher`: Replaced `GetConsumingEnumerable` with `System.Threading.Channels` [#155](https://github.com/jet/propulsion/pull/155)
 - `Scheduler`: Replaced `Concurrent*` with `System.Threading.Channels` [#156](https://github.com/jet/propulsion/pull/156)
 - `Projector`: Replaced `Async` with `task` for projector supervision [#156](https://github.com/jet/propulsion/pull/156)
+- `Scheduler`: `Struct`/`voption` conversions; buffer reuse  [#157](https://github.com/jet/propulsion/pull/157)
 
 ### Removed
 
