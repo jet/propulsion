@@ -31,10 +31,10 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
 
     member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
-    member _.Pump(ct : CancellationToken) = task {
-        while not ct.IsCancellationRequested do
+    member _.Pump ct = task {
+        while true do
             do! commitIfDirty ct
-            do! Task.sleep commitInterval ct }
+            do! Task.Delay(commitInterval, ct) }
 
 [<NoComparison; NoEquality>]
 type private InternalMessage =
@@ -107,13 +107,13 @@ type Ingester<'Items, 'Batch> private
         submit batch
         enqueueMessage <| Added (streamCount,itemCount)
 
-    member private _.Pump(ct) = task {
+    member private _.Pump ct = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
         Task.start (progressWriter.Pump ct)
-        while not ct.IsCancellationRequested do
+        while true do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
-            let nextStatsMs = stats.TryDump(maxRead.State)
-            let! _ = Task.WhenAny(awaitIncoming (), awaitMessage (), Task.Delay(int nextStatsMs, ct)) in () }
+            let nextStatsIntervalMs = stats.TryDump(maxRead.State)
+            do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(int nextStatsIntervalMs)) :> Task }
             // arguably the impl should be submitting while unpacking but
             // - maintaining consistency between incoming order and submit order is required
             // - in general maxRead will be double maxSubmit so this will only be relevant in catchup situations
@@ -125,7 +125,7 @@ type Ingester<'Items, 'Batch> private
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<_, _>(stats, maxRead, makeBatch, submit, cts)
-        Task.start (instance.Pump(cts.Token))
+        Task.start (instance.Pump cts.Token)
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit

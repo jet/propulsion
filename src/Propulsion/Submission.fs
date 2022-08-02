@@ -54,7 +54,7 @@ module Internal =
         let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
         let unboundedSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleReader = true))
         let write (c : Channel<_>) = c.Writer.TryWrite >> ignore
-        let awaitRead (c : Channel<_>) () = let vt = c.Reader.WaitToReadAsync() in vt.AsTask()
+        let awaitRead (c : Channel<_>) ct = let vt = c.Reader.WaitToReadAsync(ct) in vt.AsTask()
         let apply (c : Channel<_>) f =
             let mutable worked, msg = false, Unchecked.defaultof<_>
             while c.Reader.TryRead(&msg) do
@@ -65,7 +65,6 @@ module Internal =
     module Task =
 
         let start t = Task.Run(Action(fun () -> t |> ignore<Task>)) |> ignore
-        let sleep (ts : TimeSpan) ct = Task.Delay(int ts.TotalMilliseconds, cancellationToken = ct)
 
     type Sem(max) =
         let inner = new SemaphoreSlim(max)
@@ -163,10 +162,10 @@ module Submission =
             // Semaphores for partitions that have reached their submit limit; if capacity becomes available, we want to wake to submit
             let waitingSubmissions = ResizeArray<Sem>()
             let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
-            while not ct.IsCancellationRequested do
+            while true do
                 while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
                 let nextStatsIntervalMs = maybeDumpStats ()
-                let! _ = Task.WhenAny[| awaitIncoming () :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs, ct) |] in () }
+                do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs) |] :> Task }
 
         /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
         member _.Ingest(items : SubmissionBatch<'S, 'M>[]) =

@@ -676,6 +676,7 @@ module Scheduling =
         let work = new BlockingCollection<_>(ConcurrentQueue<_>())
         let result = Event<'R>()
         let dop = Sem maxDop
+        // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
         let dispatch computation = async {
             let! res = computation
             result.Trigger res
