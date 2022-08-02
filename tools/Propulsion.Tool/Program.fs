@@ -1,7 +1,7 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
-open Propulsion.CosmosStore.Infrastructure // AwaitKeyboardInterruptAsTaskCancelledException
+open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCancelledException
 open Propulsion.Tool.Args
 open Serilog
 open System

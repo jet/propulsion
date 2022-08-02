@@ -12,9 +12,6 @@
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
-    <Compile Include="..\Propulsion.CosmosStore\Infrastructure.fs">
-      <Link>PropulsionCosmosStoreInfrastructure.fs</Link>
-    </Compile>
     <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
       <Link>ChangeFeedProcessor.fs</Link>
     </Compile>

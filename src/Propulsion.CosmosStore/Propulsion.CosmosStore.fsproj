@@ -9,7 +9,6 @@
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
-    <Compile Include="Infrastructure.fs" />
     <Compile Include="ChangeFeedProcessor.fs" />
     <Compile Include="CosmosStoreSource.fs" />
     <Compile Include="CosmosStoreSink.fs" />
