@@ -104,8 +104,7 @@ type KafkaIngestionEngine<'Info>
                 tmp.Add(mkSubmission tp span)
             acc.Clear()
             emit <| tmp.ToArray()
-    member _.Pump() = async {
-        let! ct = Async.CancellationToken
+    member _.Pump(ct : CancellationToken) = task {
         use _ = consumer // Dispose it at the end (NB but one has to Close first or risk AccessViolations etc)
         try while not ct.IsCancellationRequested do
                 match counter.IsOverLimitNow(), remainingIngestionWindow () with
@@ -155,14 +154,14 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Consuming... Stopping {name}", consumer.Name)
             cts.Cancel()
-        let start name f =
-            let wrap (name : string) computation = async {
-                try do! computation
+        let start (name : string) (f : CancellationToken -> Task<unit>) =
+            let wrap () = task {
+                try do! f ct
                     log.Information("Exiting pipeline component {name}", name)
                 with e ->
                     log.Fatal(e, "Abend from pipeline component {name}", name)
                     triggerStop () }
-            Async.Start(wrap name f, ct)
+            Task.start wrap
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns : AggregateException) =
             if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
@@ -170,19 +169,20 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let machine = async {
+        let supervise () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-            start "dispatcher" <| Async.AwaitTaskCorrect(pumpDispatcher ct)
+
+            start "dispatcher" pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
-            start "scheduler" <| pumpScheduler abend
-            start "submitter" <| Async.AwaitTaskCorrect(pumpSubmitter ct)
-            start "ingester" <| ingester.Pump()
+            start "scheduler" (pumpScheduler abend)
+            start "submitter" pumpSubmitter
+            start "ingester" ingester.Pump
 
             // await for either handler-driven abend or external cancellation via Stop()
-            do! Async.AwaitTaskCorrect tcs.Task
+            return! tcs.Task
         }
-        let task = Async.StartAsTask machine
+        let task = Task.Run<unit>(supervise)
         new ConsumerPipeline(consumer, task, triggerStop)
 
 type ParallelConsumer private () =
