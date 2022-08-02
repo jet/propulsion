@@ -63,7 +63,8 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             start "submitter" pumpSubmitter
 
             // await for either handler-driven abend or external cancellation via Stop()
-            return! tcs.Task }
+            do! tcs.Task
+            log.Information("... projector stopped") }
 
         let task = Task.Run<unit>(supervisor)
         let triggerStop () =
