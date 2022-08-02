@@ -57,7 +57,7 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
         cycles <- 0; batchesPended <- 0; streamsPended <- 0; eventsPended <- 0
         if commitFails <> 0 || commits <> 0 then
             if commits = 0 then log.Error("Ingester {partitionId} Commits failing: {failures} failures", partitionId, commitFails)
-            else log.Warning("Ingester {partitionId} Commits {failures} failures, {commits} successes", partitionId, commitFails, commits)
+            else log.Information("Ingester {partitionId} Commits failed {failures} succeeded {commits}", partitionId, commitFails, commits)
             commits <- 0; commitFails <- 0
 
     member _.Handle : InternalMessage -> unit = function
