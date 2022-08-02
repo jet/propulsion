@@ -1,17 +1,19 @@
 ﻿module Propulsion.CosmosStore.Infrastructure
 
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open System
 open System.Threading.Tasks
 
 type Async with
 
     /// Asynchronously awaits the next keyboard interrupt event, throwing a TaskCancelledException
-    static member AwaitKeyboardInterruptAsTaskCancelledException() : Async<unit> =
-        Async.FromContinuations <| fun (_, ec, _) ->
-            let mutable isDisposed = 0
-            let rec callback (a : ConsoleCancelEventArgs) = Task.Run(fun () ->
-                a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
-                if System.Threading.Interlocked.Increment &isDisposed = 1 then d.Dispose()
-                ec (TaskCanceledException("Execution cancelled via Ctrl-C/Break; exiting..."))) |> ignore<Task>
-            and d : IDisposable = Console.CancelKeyPress.Subscribe callback
-            in ()
+    /// Honors cancellation so it can be used with Async.Parallel to have multiple pump loops couple their fates
+    static member AwaitKeyboardInterruptAsTaskCancelledException() = async {
+        let! ct = Async.CancellationToken
+        let tcs = TaskCompletionSource()
+        use _ = ct.Register(fun () ->
+            tcs.TrySetCanceled() |> ignore)
+        use _ = Console.CancelKeyPress.Subscribe(fun (a : ConsoleCancelEventArgs) ->
+            a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
+            tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
+        return! Async.AwaitTaskCorrect tcs.Task }

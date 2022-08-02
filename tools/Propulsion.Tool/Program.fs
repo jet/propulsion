@@ -342,7 +342,7 @@ module Project =
             Async.AwaitKeyboardInterruptAsTaskCancelledException()
             sink.AwaitWithStopOnCancellation()
             source.AwaitWithStopOnCancellation() ]
-        return! work |> Async.Parallel |> Async.Ignore<unit[]> }
+        return! work |> Async.Parallel |> Async.Ignore<unit array> }
 
 /// Parse the commandline; can throw exceptions in response to missing arguments and/or `-h`/`--help` args
 let parseCommandLine argv =
