@@ -135,6 +135,6 @@ type CosmosPruner =
         let pruneUntil stream index = Equinox.Cosmos.Core.Events.pruneUntil context stream index
         let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
-            log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+            log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

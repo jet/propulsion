@@ -27,6 +27,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.EventStoreDb.EventStoreSource`: Changed API to match`Propulsion.SqlStreamStore` API rather than`Propulsion.EventStore` [#139](https://github.com/jet/propulsion/pull/139)
 - `Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Ingester`,`Submitter`: Replaced `Async.Sleep` with `Task.WhenAny`; Condensed logging [#154](https://github.com/jet/propulsion/pull/154)
+- `Dispatcher`: Replaced `GetConsumingEnumerable` with `System.Threading.Channels` [#155](https://github.com/jet/propulsion/pull/155)
 
 ### Removed
 
