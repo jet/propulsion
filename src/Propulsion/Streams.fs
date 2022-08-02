@@ -6,7 +6,6 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Threading
-open System.Threading.Channels
 
 module Log =
 
@@ -673,7 +672,7 @@ module Scheduling =
 
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
     type private DopDispatcher<'R>(maxDop : int) =
-        let work = Channel.CreateUnbounded<Async<'R>>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
+        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<Async<'R>> in c.Writer.TryWrite, Channel.awaitRead c, Channel.apply c
         let result = Event<'R>()
         let dop = Sem maxDop
         // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
@@ -681,23 +680,19 @@ module Scheduling =
             let! res = computation
             result.Trigger res
             dop.Release() }
-        let tryDispatch () =
-            match work.Reader.TryRead() with
-            | true, t -> Async.Start (dispatch t); true
-            | false, _ -> false
 
         [<CLIEvent>] member _.Result = result.Publish
         member _.HasCapacity = dop.HasCapacity
         member _.State = dop.State
 
         member _.TryAdd(item) =
-            dop.TryTake() && work.Writer.TryWrite(item)
+            dop.TryTake() && tryWrite item
 
-        member _.Pump(ct) = task {
+        member _.Pump(ct : CancellationToken) = task {
             let mutable more = true
             while more do
-                match! work.Reader.WaitToReadAsync(ct) with
-                | true -> while tryDispatch () do ()
+                match! wait ct with
+                | true -> apply (dispatch >> Async.Start) |> ignore
                 | false -> more <- false }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
