@@ -8,6 +8,7 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Diagnostics
 open System.Threading
+open System.Threading.Tasks
 
 [<AutoOpen>]
 module private Impl =
@@ -22,21 +23,23 @@ module Scheduling =
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let work = new BlockingCollection<_>(ConcurrentQueue<_>())
+        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<_> in c.Writer.TryWrite, Channel.awaitRead c, Channel.apply c
         let dop = Sem maxDop
 
+        let wrap computation = async {
+            try do! computation
+            // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
+            finally dop.Release() }
+
         /// Attempt to dispatch the supplied task - returns false if processing is presently running at full capacity
-        member __.TryAdd task =
-            if dop.TryTake() then work.Add task; true
-            else false
+        member _.TryAdd computation =
+            dop.TryTake() && tryWrite computation
 
         /// Loop that continuously drains the work queue
         member _.Pump ct = task {
-            for workItem in work.GetConsumingEnumerable ct do
-                Async.Start(async {
-                    try do! workItem
-                    // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
-                    finally dop.Release() }) }
+            while true do
+                do! wait ct :> Task
+                apply (wrap >> Async.Start) |> ignore }
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
