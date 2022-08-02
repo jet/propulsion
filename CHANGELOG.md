@@ -16,6 +16,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.DynamoStore`: `Equinox.CosmosStore`-equivalent functionality for `Equinox.DynamoStore`. Combines elements of `CosmosStore`, `SqlStreamStore`, `Feed` [#140](https://github.com/jet/propulsion/pull/140)
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
+- `Ingester`: Expose optional `ingesterStatsInterval` control [#154](https://github.com/jet/propulsion/pull/154)
 
 ### Changed
 
@@ -25,6 +26,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.EventStore`: Pinned to target `Equinox.EventStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.EventStoreDb`** [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.EventStoreDb.EventStoreSource`: Changed API to match`Propulsion.SqlStreamStore` API rather than`Propulsion.EventStore` [#139](https://github.com/jet/propulsion/pull/139)
 - `Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
+- `Ingester`,`Submitter`: Replaced `Async.Sleep` with `Task.WhenAny`; Condensed logging [#154](https://github.com/jet/propulsion/pull/154)
 
 ### Removed
 
@@ -34,6 +36,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - `Propulsion.SqlStreamStore`: Replaced incorrect/meaningless stream name for `SqlStreamStoreSource` [#139](https://github.com/jet/propulsion/pull/139)
 - Synced [`AwaitTaskCorrect`](http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect) with official version [3c11142](https://github.com/jet/propulsion/commit/3c11142b75bf3b0ef2181fd106a4b17c0b2313ef)
+- `Projector`,`Ingester`,`Submitter`, `Scheduler`: Deterministic shutdown via Cancellation and/or unhandled exceptions [#154](https://github.com/jet/propulsion/pull/154)
 
 <a name="2.12.2"></a>
 ## [2.12.2] - 2022-03-10

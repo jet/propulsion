@@ -117,12 +117,15 @@ type CosmosPruner =
             // Default 5m
             ?statsInterval,
             // Default 5m
-            ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
+            ?stateInterval,
+            ?maxSubmissionsPerPartition,
             // Delay when no items available. Default 10ms.
             ?idleDelay,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval)
+            ?purgeInterval,
+            // Defaults to statsInterval
+            ?ingesterStatsInterval)
         : Propulsion.ProjectorPipeline<_> =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 10.)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
@@ -133,4 +136,5 @@ type CosmosPruner =
         let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?ingesterStatsInterval = ingesterStatsInterval)

@@ -172,12 +172,14 @@ type EventStoreSink =
             // Default 5m
             ?statsInterval,
             // Default 5m
-            ?stateInterval, ?ingesterStatsInterval, ?maxSubmissionsPerPartition, ?pumpInterval,
+            ?stateInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
@@ -186,4 +188,5 @@ type EventStoreSink =
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStats, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?ingesterStatsInterval = ingesterStatsInterval)

@@ -676,6 +676,7 @@ module Scheduling =
         let work = new BlockingCollection<_>(ConcurrentQueue<_>())
         let result = Event<'R>()
         let dop = Sem maxDop
+        // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
         let dispatch computation = async {
             let! res = computation
             result.Trigger res
@@ -1038,19 +1039,19 @@ module Projector =
 
     type StreamsIngester =
 
-        static member Start(log, partitionId, maxRead, submit, ?statsInterval, ?sleepInterval) =
+        static member Start(log, partitionId, maxRead, submit, statsInterval) =
             let makeBatch onCompletion (items : StreamEvent<_> seq) =
                 let items = Array.ofSeq items
                 let streams = HashSet(seq { for x in items -> x.stream })
                 let batch : Submission.SubmissionBatch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
                 batch, (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<_, StreamEvent<_>>>.Start(log, partitionId, maxRead, makeBatch, submit, ?statsInterval=statsInterval, ?sleepInterval=sleepInterval)
+            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<_, StreamEvent<_>>>.Start(log, partitionId, maxRead, makeBatch, submit, statsInterval)
 
     type StreamsSubmitter =
 
         static member Create
             (   log : ILogger, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval,
-                ?pumpInterval, ?disableCompaction) =
+                ?disableCompaction) =
             let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
                 submitStreamsBatch x
                 x.RemainingStreamsCount
@@ -1062,7 +1063,7 @@ module Projector =
                     | Some a -> if a.TryMerge x then worked <- true
                 worked
             let tryCompactQueue = if defaultArg disableCompaction false then None else Some tryCompactQueueImpl
-            Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?tryCompactQueue=tryCompactQueue, ?pumpInterval=pumpInterval)
+            Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?tryCompactQueue=tryCompactQueue)
 
     type StreamsProjectorPipeline =
 
@@ -1073,14 +1074,15 @@ module Projector =
                 // Holding items back is also key to the submitter's compaction mechanism working best.
                 // Defaults to holding back 20% of maxReadAhead per partition
                 ?maxSubmissionsPerPartition,
-                ?ingesterStatsInterval, ?pumpInterval) =
+                ?ingesterStatsInterval) =
+            let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
             let mapBatch onCompletion (x : Submission.SubmissionBatch<_, StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition (maxReadAhead - maxReadAhead/5) // NOTE needs to handle overflow if maxReadAhead is Int32.MaxValue
-            let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval, ?pumpInterval=pumpInterval)
-            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ?statsInterval=ingesterStatsInterval)
-            ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump(), startIngester)
+            let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval)
+            let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
+            ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump, startIngester)
 
 /// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
@@ -1117,12 +1119,13 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
             stats, statsInterval,
-            ?maxSubmissionsPerPartition, ?pumpInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -1133,7 +1136,8 @@ type StreamsProjector =
                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval)
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome>
@@ -1145,19 +1149,21 @@ type StreamsProjector =
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
-            ?pumpInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
         StreamsProjector.StartEx<SpanResult, 'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?pumpInterval=pumpInterval, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>
@@ -1168,19 +1174,22 @@ type StreamsProjector =
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
-            ?maxSubmissionsPerPartition, ?pumpInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
         StreamsProjector.Start<'Outcome>(
-            log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-            ?pumpInterval=pumpInterval, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval,
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?ingesterStatsInterval = ingesterStatsInterval)
 
 module Sync =
 
@@ -1230,7 +1239,7 @@ module Sync =
                 // Default 16384
                 ?maxEvents,
                 // Max scheduling readahead. Default 128.
-                ?maxBatches, ?pumpInterval,
+                ?maxBatches,
                 // Max inner cycles per loop. Default 128.
                 ?maxCycles,
                 // Hook to wire in external stats
@@ -1270,4 +1279,4 @@ module Sync =
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches, ?pumpInterval=pumpInterval)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
