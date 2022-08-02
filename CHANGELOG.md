@@ -31,6 +31,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Scheduler`: Replaced `Concurrent*` with `System.Threading.Channels` [#156](https://github.com/jet/propulsion/pull/156)
 - `Projector`: Replaced `Async` with `task` for projector supervision [#156](https://github.com/jet/propulsion/pull/156)
 - `Scheduler`: `Struct`/`voption` conversions; buffer reuse  [#157](https://github.com/jet/propulsion/pull/157)
+- `Feed`,`Kafka`: Replaced `Async` with `task` for supervision [#158](https://github.com/jet/propulsion/pull/158)
 
 ### Removed
 

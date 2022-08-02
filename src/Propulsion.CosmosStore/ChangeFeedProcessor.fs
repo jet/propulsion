@@ -30,7 +30,13 @@ type internal SourcePipeline =
 
     static member Start(log : ILogger, start, maybeStartChild, stop, observer : IDisposable) =
         let cts = new CancellationTokenSource()
+        let triggerStop () =
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            log.Write(level, "Source stopping...")
+            observer.Dispose()
+            cts.Cancel()
         let ct = cts.Token
+
         let tcs = TaskCompletionSource<unit>()
 
         let machine = async {
@@ -42,17 +48,11 @@ type internal SourcePipeline =
             | None -> ()
             | Some child -> let! _ = Async.StartChild child in ()
 
-            // aka base.AwaitShutdown()
-            do! Async.AwaitTaskCorrect tcs.Task
+            do! Async.AwaitTaskCorrect tcs.Task // aka base.AwaitShutdown()
             do! stop ()
             log.Information("... source stopped") }
 
         let task = Async.StartAsTask machine
-        let triggerStop () =
-            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-            log.Write(level, "Source stopping...")
-            observer.Dispose()
-            cts.Cancel()
 
         new Propulsion.Pipeline(task, triggerStop)
 
