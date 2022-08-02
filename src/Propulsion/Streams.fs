@@ -696,10 +696,12 @@ module Scheduling =
         member _.TryAdd(item) =
             dop.TryTake() && tryWrite item
 
-        member _.Pump ct = task {
-            while true do
-                do! wait ct :> Task
-                apply (wrap >> Async.Start) }
+        member _.Pump(ct : CancellationToken) = task {
+            let dispatch c = Async.Start(c, cancellationToken = ct)
+            while not ct.IsCancellationRequested do
+                try do! wait ct :> Task
+                with :? OperationCanceledException -> ()
+                apply (wrap >> dispatch) }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R>(maxDop) =

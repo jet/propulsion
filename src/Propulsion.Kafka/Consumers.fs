@@ -148,11 +148,17 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         consumer.Subscribe config.Topics
         let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
         let cts = new CancellationTokenSource()
-        let ct = cts.Token
-        let tcs = TaskCompletionSource<unit>()
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Consuming... Stopping {name}", consumer.Name)
+            cts.Cancel()
+        let ct = cts.Token
+        let tcs = TaskCompletionSource<unit>()
+        // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
+        let abend (exns : AggregateException) =
+            if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
+            else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)
+            // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
         let start (name : string) (f : CancellationToken -> Task<unit>) =
             let wrap () = task {
@@ -162,12 +168,6 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
                     log.Fatal(e, "Abend from pipeline component {name}", name)
                     triggerStop () }
             Task.start wrap
-        // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
-        let abend (exns : AggregateException) =
-            if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
-            else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)
-            // NB cancel needs to be after TSE or the Register(TSE) will win
-            cts.Cancel()
 
         let supervise () = task {
             // external cancellation should yield a success result
