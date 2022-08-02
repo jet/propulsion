@@ -172,8 +172,7 @@ module Scheduling =
             worked
 
         /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controler can use to shut down the processing
-        member __.Pump abend = async {
-            let! ct = Async.CancellationToken
+        member x.Pump abend (ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 let hadResults = drainCompleted abend
                 let queuedWork = reprovisionDispatcher ()

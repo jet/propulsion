@@ -40,12 +40,12 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
         let ct = cts.Token
         let tcs = TaskCompletionSource<unit>()
 
-        let start name f =
-            let wrap (name : string) computation = async {
-                try do! computation
+        let start (name : string) (f : CancellationToken -> Task<unit>) =
+            let wrap () = task {
+                try do! f ct
                     log.Information("Exiting {name}", name)
                 with e -> log.Fatal(e, "Abend from {name}", name) }
-            Async.Start(wrap name f, ct)
+            Internal.Task.start wrap
 
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns : AggregateException) =
@@ -54,19 +54,18 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let machine = async {
+        let supervisor () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-            start "dispatcher" <| Async.AwaitTaskCorrect(pumpDispatcher ct)
+            start "dispatcher" pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
-            start "scheduler" <| pumpScheduler abend
-            start "submitter" <| Async.AwaitTaskCorrect(pumpSubmitter ct)
+            start "scheduler" (pumpScheduler abend)
+            start "submitter" pumpSubmitter
 
             // await for either handler-driven abend or external cancellation via Stop()
-            do! Async.AwaitTaskCorrect tcs.Task
-            log.Information("... projector stopped") }
+            return! tcs.Task }
 
-        let task = Async.StartAsTask machine
+        let task = Task.Run<unit>(supervisor)
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Projector stopping...")
