@@ -174,13 +174,14 @@ type CosmosStoreSink =
             ?statsInterval,
             /// Default 5m
             ?stateInterval,
-            ?ingesterStatsInterval, ?maxSubmissionsPerPartition,
+            ?maxSubmissionsPerPartition,
             /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             /// Default: 16384
             ?maxEvents,
             /// Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
-            ?maxBytes)
+            ?maxBytes,
+            ?ingesterStatsInterval)
         : Propulsion.ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
@@ -189,4 +190,5 @@ type CosmosStoreSink =
         let streamScheduler = Internal.StreamSchedulingEngine.Create(log, eventsContext, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay, ?maxEvents=maxEvents, ?maxBytes=maxBytes)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?ingesterStatsInterval=ingesterStatsInterval, ?maxSubmissionsPerPartition=maxSubmissionsPerPartition)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?ingesterStatsInterval = ingesterStatsInterval)

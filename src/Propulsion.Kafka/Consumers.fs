@@ -198,10 +198,10 @@ type ParallelConsumer private () =
             // Default 5m
             ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
+        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
         let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<_, 'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
-        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let mapBatch onCompletion (x : Submission.SubmissionBatch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
             { source = x.source; messages = x.messages; onCompletion = onCompletion'; }
@@ -235,6 +235,7 @@ module Core =
                 prepare, handle, maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState, ?idleDelay, ?purgeInterval, ?maxBatches, ?maximizeOffsetWriting) =
+            let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
             let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
                 logExternalState |> Option.iter (fun f -> f log)
@@ -245,7 +246,7 @@ module Core =
                 Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
             let submitter =
                 Streams.Projector.StreamsSubmitter.Create
-                    (   log, defaultArg maxSubmissionsPerPartition 5, mapConsumedMessagesToStreamsBatch,
+                    (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
                         ?disableCompaction=maximizeOffsetWriting)
             ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump(), statsInterval)
@@ -475,7 +476,7 @@ type BatchesConsumer =
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
-        let mspp = defaultArg maxSubmissionsPerPartition 5
+        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
@@ -508,5 +509,5 @@ type BatchesConsumer =
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
-        let submitter = Streams.Projector.StreamsSubmitter.Create(log, mspp, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
+        let submitter = Streams.Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump(), statsInterval)

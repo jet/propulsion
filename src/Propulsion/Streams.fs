@@ -1119,12 +1119,13 @@ type StreamsProjector =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
             stats, statsInterval,
-            ?maxSubmissionsPerPartition, ?ingesterStatsInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
@@ -1135,7 +1136,8 @@ type StreamsProjector =
                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
-                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?ingesterStatsInterval=ingesterStatsInterval)
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome>
@@ -1146,20 +1148,22 @@ type StreamsProjector =
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
-            ?maxSubmissionsPerPartition, ?ingesterStatsInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
         StreamsProjector.StartEx<SpanResult, 'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?ingesterStatsInterval=ingesterStatsInterval,
-            ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome>
@@ -1170,20 +1174,22 @@ type StreamsProjector =
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
-            ?maxSubmissionsPerPartition, ?ingesterStatsInterval,
+            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?purgeInterval,
+            ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
         StreamsProjector.Start<'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?ingesterStatsInterval=ingesterStatsInterval,
-            ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?ingesterStatsInterval = ingesterStatsInterval)
 
 module Sync =
 
@@ -1273,4 +1279,4 @@ module Sync =
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition=maxBatches)
+                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
