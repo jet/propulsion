@@ -31,8 +31,7 @@ module Scheduling =
             else false
 
         /// Loop that continuously drains the work queue
-        member __.Pump() = async {
-            let! ct = Async.CancellationToken
+        member _.Pump ct = task {
             for workItem in work.GetConsumingEnumerable ct do
                 Async.Start(async {
                     try do! workItem
@@ -217,4 +216,4 @@ type ParallelProjector =
 
         let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-        ProjectorPipeline.Start(log, dispatcher.Pump(), scheduler.Pump, submitter.Pump, startIngester)
+        ProjectorPipeline.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)

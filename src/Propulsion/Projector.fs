@@ -57,7 +57,7 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
         let machine = async {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-            start "dispatcher" <| pumpDispatcher
+            start "dispatcher" <| Async.AwaitTaskCorrect(pumpDispatcher ct)
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" <| pumpScheduler abend
             start "submitter" <| Async.AwaitTaskCorrect(pumpSubmitter ct)

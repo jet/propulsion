@@ -1,6 +1,5 @@
 ﻿namespace Propulsion.Streams
 
-open FSharp.Control
 open Propulsion
 open Serilog
 open System
@@ -682,6 +681,10 @@ module Scheduling =
             let! res = computation
             result.Trigger res
             dop.Release() }
+        let tryDispatch () =
+            match work.Reader.TryRead() with
+            | true, t -> Async.Start (dispatch t); true
+            | false, _ -> false
 
         [<CLIEvent>] member _.Result = result.Publish
         member _.HasCapacity = dop.HasCapacity
@@ -690,9 +693,12 @@ module Scheduling =
         member _.TryAdd(item) =
             dop.TryTake() && work.Writer.TryWrite(item)
 
-        member _.Pump () = async {
-            let! ct = Async.CancellationToken
-            return! work.Reader.ReadAllAsync(ct) |> AsyncSeq.ofAsyncEnum |> AsyncSeq.iterAsyncParallel dispatch }
+        member _.Pump(ct) = task {
+            let mutable more = true
+            while more do
+                match! work.Reader.WaitToReadAsync(ct) with
+                | true -> while tryDispatch () do ()
+                | false -> more <- false }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R>(maxDop) =
@@ -715,7 +721,7 @@ module Scheduling =
                     dispatched <- dispatched || succeeded // if we added any request, we'll skip sleeping
             hasCapacity, dispatched
 
-        member _.Pump() = inner.Pump()
+        member _.Pump ct = inner.Pump ct
         [<CLIEvent>] member _.Result = inner.Result
         member _.State = inner.State
         member _.TryReplenish (pending, markStarted) project markStreamBusy =
@@ -792,9 +798,9 @@ module Scheduling =
                     hasCapacity <- false
             hasCapacity, dispatched
 
-        member _.Pump() = async {
+        member _.Pump ct = task {
             use _ = dop.Result.Subscribe(Array.iter result.Trigger)
-            return! dop.Pump() }
+            return! dop.Pump ct }
 
         interface IDispatcher<int64 * (EventMetrics * unit), EventMetrics * unit, EventMetrics * exn> with
             override _.TryReplenish pending markStreamBusy = trySelect pending markStreamBusy
@@ -1132,7 +1138,7 @@ type StreamsProjector =
                     (fun s l -> s.Dump(l, Buffering.StreamState.eventsSize)),
                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
         Projector.StreamsProjectorPipeline.Start(
-                log, dispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
+                log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
                 ?ingesterStatsInterval = ingesterStatsInterval)
 
@@ -1276,4 +1282,4 @@ module Sync =
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
             Projector.StreamsProjectorPipeline.Start(
-                log, itemDispatcher.Pump(), streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
+                log, itemDispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)
