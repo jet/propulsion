@@ -28,6 +28,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Ingester`,`Submitter`: Replaced `Async.Sleep` with `Task.WhenAny`; Condensed logging [#154](https://github.com/jet/propulsion/pull/154)
 - `Dispatcher`: Replaced `GetConsumingEnumerable` with `System.Threading.Channels` [#155](https://github.com/jet/propulsion/pull/155)
+- `Scheduler`: Replaced `Concurrent*` with `System.Threading.Channels` [#156](https://github.com/jet/propulsion/pull/156)
+- `Projector`: Replaced `Async` with `task` for projector supervision [#156](https://github.com/jet/propulsion/pull/156)
 
 ### Removed
 
