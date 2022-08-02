@@ -110,7 +110,7 @@ type Ingester<'Items, 'Batch> private
     member private _.Pump ct = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
         Task.start (fun () -> progressWriter.Pump ct)
-        while true do
+        while not ct.IsCancellationRequested do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             let nextStatsIntervalMs = stats.TryDump(maxRead.State)
             do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(int nextStatsIntervalMs)) :> Task }
@@ -125,7 +125,10 @@ type Ingester<'Items, 'Batch> private
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<_, _>(stats, maxRead, makeBatch, submit, cts)
-        Task.start (fun () -> instance.Pump cts.Token)
+        let pump () = task {
+            try do! instance.Pump cts.Token
+            finally log.Information("Exiting {name}", "ingester") }
+        Task.start pump
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit

@@ -37,16 +37,13 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
 
     static member Start(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
         let cts = new CancellationTokenSource()
+        let triggerStop () =
+            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            log.Write(level, "Projector stopping...")
+            cts.Cancel()
         let ct = cts.Token
+
         let tcs = TaskCompletionSource<unit>()
-
-        let start (name : string) (f : CancellationToken -> Task<unit>) =
-            let wrap () = task {
-                try do! f ct
-                    log.Information("Exiting {name}", name)
-                with e -> log.Fatal(e, "Abend from {name}", name) }
-            Internal.Task.start wrap
-
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns : AggregateException) =
             if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
@@ -54,22 +51,28 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let supervisor () = task {
+        let start (name : string) (f : CancellationToken -> Task<unit>) =
+            let wrap () = task {
+                try do! f ct
+                    log.Information("Exiting {name}", name)
+                with e ->
+                    log.Fatal(e, "Abend from {name}", name)
+                    triggerStop () }
+            Internal.Task.start wrap
+
+        let supervise () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
+
             start "dispatcher" pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" (pumpScheduler abend)
             start "submitter" pumpSubmitter
 
             // await for either handler-driven abend or external cancellation via Stop()
-            do! tcs.Task
-            log.Information("... projector stopped") }
+            try return! tcs.Task
+            finally log.Information("... projector stopped") }
 
-        let task = Task.Run<unit>(supervisor)
-        let triggerStop () =
-            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-            log.Write(level, "Projector stopping...")
-            cts.Cancel()
+        let task = Task.Run<unit>(supervise)
 
         new ProjectorPipeline<_>(task, triggerStop, startIngester)

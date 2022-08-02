@@ -163,7 +163,7 @@ module Submission =
             // Semaphores for partitions that have reached their submit limit; if capacity becomes available, we want to wake to submit
             let waitingSubmissions = ResizeArray<Sem>()
             let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
-            while true do
+            while not ct.IsCancellationRequested do
                 while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
                 let nextStatsIntervalMs = maybeDumpStats ()
                 do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs) |] :> Task }

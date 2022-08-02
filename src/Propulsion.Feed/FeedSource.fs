@@ -5,6 +5,7 @@ open Propulsion
 open Propulsion.Feed
 open Propulsion.Streams
 open System
+open System.Threading.Tasks
 
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
@@ -25,7 +26,7 @@ type FeedSourceBase internal
             log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                             sourceId, trancheId, renderPos pos, freq.TotalMinutes)
             try return! reader.Pump(pos)
-            finally log.Information("Ingester stopping ..."); ingester.Stop(); log.Information("... Ingester stopped") }
+            finally ingester.Stop() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
@@ -69,20 +70,24 @@ type TailingFeedSource
     member x.Start(pump) =
         let cts = new System.Threading.CancellationTokenSource()
         let ct = cts.Token
-        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
 
-        let machine = async {
+        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
+        let propagateExceptionToPipelineOutcome f = async { try do! f with e -> tcs.SetException(e) }
+
+        let startPump () = Async.Start(propagateExceptionToPipelineOutcome pump, cancellationToken = ct)
+
+        let supervise () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
 
-            do! pump
+            startPump ()
 
-            // aka base.AwaitShutdown()
-            do! Async.AwaitTaskCorrect tcs.Task }
-
-        let task = Async.StartAsTask machine
-
-        new Pipeline(task, cts.Cancel)
+            try return! tcs.Task // aka base.AwaitShutdown()
+            finally log.Information "... source stopped" }
+        let stop () =
+            log.Information "Source stopping..."
+            cts.Cancel()
+        new Pipeline(Task.Run<unit>(supervise), stop)
 
 /// Drives reading and checkpointing from a source that aggregates data from multiple streams as a singular source
 /// without shards/physical partitions (tranches), such as the SqlStreamStore, and EventStoreDB $all feeds
