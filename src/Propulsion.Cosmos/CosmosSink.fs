@@ -133,7 +133,9 @@ module Internal =
 
     type StreamSchedulingEngine =
 
-        static member Create(log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval, ?maxEvents, ?maxBytes)
+        static member Create(
+            log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
@@ -158,7 +160,10 @@ module Internal =
                 Writer.logTo writerResultLog malformed (stream, res)
                 ss.Write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            Scheduling.StreamSchedulingEngine(
+                dispatcher,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                enableSlipstreaming = true)
 
 type CosmosSink =
 
@@ -170,11 +175,7 @@ type CosmosSink =
             // Default 5m
             ?stateInterval,
             ?maxSubmissionsPerPartition,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
-            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
@@ -184,8 +185,13 @@ type CosmosSink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams (s : Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
-        let streamScheduler = Internal.StreamSchedulingEngine.Create(log, cosmosContexts, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxEvents=maxEvents, ?maxBytes=maxBytes)
+        let dumpStreams (s : Scheduling.StreamStates<_>, totalPruned) log =
+            s.Dump(log, totalPruned, Propulsion.Streams.Buffering.StreamState.eventsSize)
+        let streamScheduler =
+            Internal.StreamSchedulingEngine.Create(
+                log, cosmosContexts, dispatcher, stats, dumpStreams,
+
+                ?maxEvents=maxEvents, ?maxBytes=maxBytes)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
