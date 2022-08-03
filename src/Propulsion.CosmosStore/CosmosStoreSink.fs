@@ -86,25 +86,25 @@ module Internal =
 
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<EventMetrics * Writer.Result, EventMetrics * exn>(log, statsInterval, stateInterval)
-        let okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), ref 0, ref 0, ref 0, ref 0, ref 0
-        let badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), ref 0, ref 0, ref 0, ref 0
+        let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
+        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
         override _.DumpStats() =
-            let results = !resultOk + !resultDup + !resultPartialDup + !resultPrefix
+            let results = resultOk + resultDup + resultPartialDup + resultPrefix
             log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
-                mb okBytes, results, okStreams.Count, okEvents, !resultOk, !resultDup, !resultPartialDup, !resultPrefix)
-            okStreams.Clear(); resultOk := 0; resultDup := 0; resultPartialDup := 0; resultPrefix := 0; okEvents <- 0; okBytes <- 0L
-            if !rateLimited <> 0 || !timedOut <> 0 || !tooLarge <> 0 || !malformed <> 0 || badCats.Any then
-                let fails = !rateLimited + !timedOut + !tooLarge + !malformed + !resultExnOther
+                mb okBytes, results, okStreams.Count, okEvents, resultOk, resultDup, resultPartialDup, resultPrefix)
+            okStreams.Clear(); resultOk <- 0; resultDup <- 0; resultPartialDup <- 0; resultPrefix <- 0; okEvents <- 0; okBytes <- 0L
+            if rateLimited <> 0 || timedOut <> 0 || tooLarge <> 0 || malformed <> 0 || badCats.Any then
+                let fails = rateLimited + timedOut + tooLarge + malformed + resultExnOther
                 log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e Rate-limited {rateLimited:n0}r {rlStreams:n0}s Timed out {toCount:n0}r {toStreams:n0}s",
-                    mb exnBytes, fails, failStreams.Count, exnEvents, !rateLimited, rlStreams.Count, !timedOut, toStreams.Count)
-                rateLimited := 0; timedOut := 0; resultExnOther := 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
+                    mb exnBytes, fails, failStreams.Count, exnEvents, rateLimited, rlStreams.Count, timedOut, toStreams.Count)
+                rateLimited <- 0; timedOut <- 0; resultExnOther <- 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
             if badCats.Any then
                 log.Warning(" Affected cats {@badCats} Too large {tooLarge:n0}r {@tlStreams} Malformed {malformed:n0}r {@mfStreams} Other {other:n0}r {@oStreams}",
-                    badCats.StatsDescending |> Seq.truncate 50, !tooLarge, tlStreams |> Seq.truncate 100, !malformed, mfStreams |> Seq.truncate 100, !resultExnOther, oStreams |> Seq.truncate 100)
-                badCats.Clear(); tooLarge := 0; malformed := 0;  resultExnOther := 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
+                    badCats.StatsDescending |> Seq.truncate 50, tooLarge, tlStreams |> Seq.truncate 100, malformed, mfStreams |> Seq.truncate 100, resultExnOther, oStreams |> Seq.truncate 100)
+                badCats.Clear(); tooLarge <- 0; malformed <- 0;  resultExnOther <- 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
         override this.Handle message =
@@ -118,21 +118,21 @@ module Internal =
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 match res with
-                | Writer.Result.Ok _ -> incr resultOk
-                | Writer.Result.Duplicate _ -> incr resultDup
-                | Writer.Result.PartialDuplicate _ -> incr resultPartialDup
-                | Writer.Result.PrefixMissing _ -> incr resultPrefix
+                | Writer.Result.Ok _ -> resultOk <- resultOk + 1
+                | Writer.Result.Duplicate _ -> resultDup <- resultDup + 1
+                | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
+                | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 this.HandleOk res
             | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 match Writer.classify exn with
-                | ResultKind.RateLimited -> adds stream rlStreams; incr rateLimited
-                | ResultKind.TimedOut -> adds stream toStreams; incr timedOut
-                | ResultKind.TooLarge -> bads stream tlStreams; incr tooLarge
-                | ResultKind.Malformed -> bads stream mfStreams; incr malformed
-                | ResultKind.Other -> bads stream oStreams; incr resultExnOther
+                | ResultKind.RateLimited -> adds stream rlStreams; rateLimited <- rateLimited + 1
+                | ResultKind.TimedOut -> adds stream toStreams; timedOut <- timedOut + 1
+                | ResultKind.TooLarge -> bads stream tlStreams; tooLarge <- tooLarge + 1
+                | ResultKind.Malformed -> bads stream mfStreams; malformed <- malformed + 1
+                | ResultKind.Other -> bads stream oStreams; resultExnOther <- resultExnOther + 1
                 this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
         abstract member HandleOk : Result -> unit
         default _.HandleOk _ : unit = ()
@@ -141,7 +141,9 @@ module Internal =
 
     type StreamSchedulingEngine =
 
-        static member Create(log : ILogger, eventsContext, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay, ?maxEvents, ?maxBytes)
+        static member Create(
+            log : ILogger, eventsContext, itemDispatcher, stats : Stats, dumpStreams,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
@@ -163,23 +165,25 @@ module Internal =
                 Writer.logTo writerResultLog malformed (stream, res)
                 ss.Write, res
             let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay)
+            Scheduling.StreamSchedulingEngine(
+                 dispatcher,
+                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                 enableSlipstreaming = true)
 
 type CosmosStoreSink =
 
     /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
         (   log : ILogger, maxReadAhead, eventsContext, maxConcurrentStreams,
-            /// Default 5m
+            // Default 5m
             ?statsInterval,
-            /// Default 5m
+            // Default 5m
             ?stateInterval,
             ?maxSubmissionsPerPartition,
-            /// Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
-            /// Default: 16384
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+            // Default: 16384
             ?maxEvents,
-            /// Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
+            // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
         : Propulsion.ProjectorPipeline<_> =
@@ -188,7 +192,11 @@ type CosmosStoreSink =
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStreams (s : Scheduling.StreamStates<_>, totalPurged) logger =
             s.Dump(logger, totalPurged, Propulsion.Streams.Buffering.StreamState.eventsSize)
-        let streamScheduler = Internal.StreamSchedulingEngine.Create(log, eventsContext, dispatcher, stats, dumpStreams, ?idleDelay=idleDelay, ?maxEvents=maxEvents, ?maxBytes=maxBytes)
+        let streamScheduler =
+            Internal.StreamSchedulingEngine.Create(
+                log, eventsContext, dispatcher, stats, dumpStreams,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?maxEvents=maxEvents, ?maxBytes=maxBytes)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,

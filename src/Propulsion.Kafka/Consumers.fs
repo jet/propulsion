@@ -234,13 +234,17 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
                 prepare, handle, maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
-                ?maxSubmissionsPerPartition, ?logExternalState, ?idleDelay, ?purgeInterval, ?maxBatches, ?maximizeOffsetWriting) =
+                ?maxSubmissionsPerPartition, ?logExternalState,
+                ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+                ?maximizeOffsetWriting) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
-            let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
+            let dumpStreams (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
                 logExternalState |> Option.iter (fun f -> f log)
-                streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
-            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxBatches=maxBatches)
+                streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
+            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(
+                dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
@@ -255,18 +259,19 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
-                ?maxSubmissionsPerPartition, ?logExternalState, ?idleDelay, ?purgeInterval, ?maxBatches, ?maximizeOffsetWriting) =
+                ?maxSubmissionsPerPartition, ?logExternalState,
+                ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+                ?maximizeOffsetWriting) =
             let prepare (streamName, span) =
                 let stats = Streams.Buffering.StreamSpan.stats span
                 stats, (streamName, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
-                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-                ?logExternalState=logExternalState,
-                ?idleDelay=idleDelay, ?purgeInterval=purgeInterval,
-                ?maxBatches=maxBatches,
-                ?maximizeOffsetWriting=maximizeOffsetWriting)
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+                ?logExternalState = logExternalState,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
 
         (* KeyValuePair optimized mappings (these were the original implementation); retained as:
             - the default mapping overloads in Propulsion.Kafka.StreamsConsumer pass the ConsumeResult to parser functions,
@@ -281,14 +286,15 @@ module Core =
                 prepare, handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
                 maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
-                ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?logExternalState, ?idleDelay, ?purgeInterval)=
+                ?maxSubmissionsPerPartition, ?logExternalState,
+                ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+                ?maximizeOffsetWriting) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Binding.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop,
-                stats, statsInterval=statsInterval,
-                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-                ?logExternalState=logExternalState,
-                ?idleDelay=idleDelay, ?purgeInterval=purgeInterval,
-                ?maximizeOffsetWriting=maximizeOffsetWriting)
+                stats, statsInterval = statsInterval,
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition, ?logExternalState = logExternalState,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
 
         /// Starts a Kafka Consumer running spans of events per stream through the `handle` function to `maxDop` concurrently
         static member Start<'Outcome>
@@ -297,15 +303,15 @@ module Core =
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
                 handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
                 stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
-                ?maximizeOffsetWriting, ?maxSubmissionsPerPartition, ?logExternalState, ?idleDelay, ?purgeInterval, ?maxBatches) =
+                ?maxSubmissionsPerPartition, ?logExternalState,
+                ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+                ?maximizeOffsetWriting) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
                 log, config, Binding.mapConsumeResult, keyValueToStreamEvents, handle, maxDop,
                 stats, statsInterval,
-                ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-                ?logExternalState=logExternalState,
-                ?idleDelay=idleDelay, ?purgeInterval=purgeInterval,
-                ?maxBatches=maxBatches,
-                ?maximizeOffsetWriting=maximizeOffsetWriting)
+                ?maxSubmissionsPerPartition = maxSubmissionsPerPartition, ?logExternalState = logExternalState,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?maximizeOffsetWriting = maximizeOffsetWriting)
 
     // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsProjector
     let parseMessageKey defaultCategory = function
@@ -421,23 +427,15 @@ type StreamsConsumer =
             maxDop,
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
             stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+            ?maxSubmissionsPerPartition, ?logExternalState,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
-            ?maximizeOffsetWriting,
-            ?maxSubmissionsPerPartition,
-            ?logExternalState,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
-            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval,
-            ?maxBatches) =
+            ?maximizeOffsetWriting) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
             log, config, id, consumeResultToStreamEvents, handle, maxDop,
             stats, statsInterval,
-            ?maxSubmissionsPerPartition=maxSubmissionsPerPartition,
-            ?logExternalState=logExternalState,
-            ?idleDelay=idleDelay, ?purgeInterval=purgeInterval,
-            ?maxBatches=maxBatches,
+            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition, ?logExternalState = logExternalState,
+            ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?maximizeOffsetWriting=maximizeOffsetWriting)
 
 type BatchesConsumer =
@@ -469,17 +467,13 @@ type BatchesConsumer =
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Default 5
             ?maxSubmissionsPerPartition,
-            ?logExternalState,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
-            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval) =
+            ?purgeInterval, ?wakeForResults, ?idleDelay,
+            ?logExternalState) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>) log =
+        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
             logExternalState |> Option.iter (fun f -> f log)
-            streams.Dump(log, Streams.Buffering.StreamState.eventsSize)
+            streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
         let handle (items : Streams.Scheduling.DispatchItem<byte[]>[])
             : Async<(TimeSpan * StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = async {
             let sw = Stopwatch.StartNew()
@@ -505,7 +499,10 @@ type BatchesConsumer =
                         let s = Streams.Buffering.StreamSpan.stats x.span
                         ae, x.stream, false, Choice2Of2 (s, e) |] }
         let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
-        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(dispatcher, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, maxBatches=maxBatches)
+        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(
+            dispatcher,
+            maxBatches = maxBatches,
+            ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
             Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst

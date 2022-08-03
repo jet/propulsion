@@ -851,17 +851,17 @@ module Scheduling =
     /// d) periodically reports state (with hooks for ingestion engines to report same)
     type StreamSchedulingEngine<'P, 'R, 'E>
         (   dispatcher : IDispatcher<'P, 'R, 'E>,
+            ?maxBatches,
+            // Tune the max number of check/dispatch cycles. Default 2.
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
-            // Tune the sleep time when there are no items to schedule or items to dispatch. Default 1s.
-            ?idleDelay,
             // The default behavior is to wait for dispatch capacity
             // Enables having the scheduler service results immediately (quicker feedback on batch completions), at the cost of increased CPU usage (esp given in normal conditions, the `idleDelay` is not onerous and incoming batches or dispatch capacity becoming available typically are proxies)
             ?wakeForResults,
+            // Tune the sleep time when there are no items to schedule or items to dispatch. Default 1s.
+            ?idleDelay,
             // Tune number of batches to ingest at a time. Default 1.
-            ?maxBatches,
-            // Tune the max number of check/dispatch cycles. Default 2.
             ?maxCycles,
             // Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
@@ -1012,15 +1012,21 @@ module Scheduling =
                 prepare : FsCodec.StreamName * StreamSpan<_> -> 'Metrics * (FsCodec.StreamName * StreamSpan<_>),
                 handle : FsCodec.StreamName * StreamSpan<_> -> Async<'Progress * 'Outcome>,
                 toIndex : FsCodec.StreamName * StreamSpan<_> -> 'Progress -> int64,
-                dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval, ?enableSlipstreaming)
+                dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn> =
 
             let dispatcher = MultiDispatcher<_, _, _>.Create(itemDispatcher, handle, prepare, toIndex, stats, dumpStreams)
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?enableSlipstreaming=enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(
+                dispatcher,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
+                ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
-        static member Create(dispatcher, ?maxBatches, ?idleDelay, ?purgeInterval, ?enableSlipstreaming)
+        static member Create(dispatcher, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?enableSlipstreaming)
             : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn> =
-            StreamSchedulingEngine<_, _, _>(dispatcher, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?enableSlipstreaming=enableSlipstreaming)
+            StreamSchedulingEngine<_, _, _>(
+                dispatcher,
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
+                ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
@@ -1143,11 +1149,15 @@ type StreamsProjector =
             prepare, handle, toIndex,
             stats, statsInterval,
             ?maxSubmissionsPerPartition,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
+            // Tune the number of batches the Scheduler should ingest at a time. Can be useful to compensate for small batches
+            ?maxBatches,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
+            // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
+            ?wakeForResults,
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
+            ?idleDelay,
             ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
@@ -1156,7 +1166,7 @@ type StreamsProjector =
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
                     (fun (s, totalPurged) logger -> s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)),
-                    ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+                    ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
@@ -1172,11 +1182,15 @@ type StreamsProjector =
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
+            // Tune the number of batches the Scheduler should ingest at a time. Can be useful to compensate for small batches
+            ?maxBatches,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
+            // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
+            ?wakeForResults,
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
+            ?idleDelay,
             ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let prepare (streamName, span) =
@@ -1185,7 +1199,7 @@ type StreamsProjector =
         StreamsProjector.StartEx<SpanResult, 'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
@@ -1198,11 +1212,15 @@ type StreamsProjector =
             // Holding items back is also key to the compaction mechanism working best.
             // Defaults to holding back 20% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
-            ?idleDelay,
+            // Tune the number of batches the Scheduler should ingest at a time. Can be useful to compensate for small batches
+            ?maxBatches,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
+            // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
+            ?wakeForResults,
+            // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
+            ?idleDelay,
             ?ingesterStatsInterval)
         : ProjectorPipeline<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
@@ -1211,7 +1229,7 @@ type StreamsProjector =
         StreamsProjector.Start<'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+            ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval)
 
 module Sync =
