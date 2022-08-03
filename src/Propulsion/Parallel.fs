@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.Parallel
 
 open Propulsion
+open Propulsion.Submission.Helpers
 open Propulsion.Internal // Helpers
 open Serilog
 open System
@@ -11,7 +12,7 @@ open System.Threading
 open System.Threading.Tasks
 
 [<AutoOpen>]
-module private Impl =
+module private Helpers =
 
     /// Can't figure out a cleaner way to shim it :(
     let tryPeek (x : Queue<_>) = if x.Count = 0 then None else Some (x.Peek())

@@ -95,7 +95,7 @@ module Internal =
         member _.Count = cats.Count
         member _.Any = (not << Seq.isEmpty) cats
         member _.Clear() = cats.Clear()
-        member _.StatsDescending = Internal.statsDescending cats
+        member _.StatsDescending = Submission.Helpers.statsDescending cats
 
     type private Data =
         {   min    : TimeSpan

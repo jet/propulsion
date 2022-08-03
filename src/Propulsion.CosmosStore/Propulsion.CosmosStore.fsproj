@@ -6,7 +6,6 @@
 
   <ItemGroup>
     <Compile Include="CosmosStoreParser.fs" />
-    <Compile Include="Infrastructure.fs" />
     <Compile Include="..\Propulsion\Infrastructure.fs">
       <Link>PropulsionInfrastructure.fs</Link>
     </Compile>
