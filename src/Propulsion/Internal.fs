@@ -28,6 +28,7 @@ module Channel =
     let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
     let write (c : Channel<_>) = c.Writer.TryWrite >> ignore
     let awaitRead (c : Channel<_>) ct = let vt = c.Reader.WaitToReadAsync(ct) in vt.AsTask()
+    let tryRead (c : Channel<_>) () = match c.Reader.TryRead() with true, m -> ValueSome m | false, _ -> ValueNone
     let apply (c : Channel<_>) f =
         let mutable worked, msg = false, Unchecked.defaultof<_>
         while c.Reader.TryRead(&msg) do
@@ -44,7 +45,7 @@ type Sem(max) =
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = max-inner.CurrentCount,max
     member _.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
-    member x.AwaitButRelease() = inner.WaitAsync().ContinueWith(fun _t -> x.Release())
+    member x.AwaitButRelease() = inner.WaitAsync().ContinueWith((fun _t -> x.Release()), TaskContinuationOptions.ExecuteSynchronously)
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
 

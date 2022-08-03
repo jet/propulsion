@@ -126,7 +126,8 @@ type CosmosStorePruner =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
         let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams (s : Propulsion.Streams.Scheduling.StreamStates<_>) l = s.Dump(l, Propulsion.Streams.Buffering.StreamState.eventsSize)
+        let dumpStreams (s : Propulsion.Streams.Scheduling.StreamStates<_>, totalPurged) logger =
+            s.Dump(logger, totalPurged, Propulsion.Streams.Buffering.StreamState.eventsSize)
         let pruneUntil stream index = Equinox.CosmosStore.Core.Events.pruneUntil context stream index
         let streamScheduler = Pruner.StreamSchedulingEngine.Create(pruneUntil, dispatcher, stats, dumpStreams, idleDelay=idleDelay)
         Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
