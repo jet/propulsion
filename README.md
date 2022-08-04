@@ -185,13 +185,25 @@ $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 ```
 
-### 3. Use `propulsion` tool to validate DynamoStoreSource Index  
+### 3. Use `propulsion` tool to inspect DynamoStoreSource Index
+
+Summarize current state of the index being prepared by `Propulsion.DynamoStore.Lambda`
+
+    propulsion index dynamo -t equinox-test
+
+Example output:
+
+    19:15:50 I Current Tranches / Active Epochs [[0, 354], [2, 15], [3, 13], [4, 13], [5, 13], [6, 64], [7, 53], [8, 53], [9, 60]]  
+    19:15:50 I Inspect Index Tranches list events 👉 eqx -C dump '$AppendsIndex-0' dynamo -t equinox-test-index  
+    19:15:50 I Inspect Batches in Epoch 2 of Index Tranche 0 👉 eqx -C dump '$AppendsEpoch-0_2' -B dynamo -t equinox-test-index
+
+### 4. Use `propulsion` tool to validate DynamoStoreSource Index  
 
 Validate `Propulsion.DynamoStore.Lambda` has not missed any events (normally you guarantee this by having alerting on Lambda failures) 
  
     propulsion index -t 0 dynamo -t equinox-test
 
-### 4. Use `propulsion` tool to reindex and/or add missing notifications
+### 5. Use `propulsion` tool to reindex and/or add missing notifications
 
 In addition to being able to validate the index (see preceding step), the tool facilitates ingestion of missing events from a complete [DynamoDB JSON Export](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DataExport.html). Steps are as follows:
 

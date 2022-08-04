@@ -35,12 +35,9 @@ module private Impl =
 
     let renderPos (Checkpoint.Parse (epochId, offset)) = sprintf"%s@%d" (AppendsEpochId.toString epochId) offset
 
-    let readTranches log context = async {
-        let index = AppendsIndex.Reader.create log context
-        let! res = index.ReadKnownTranches()
-        // TODO remove this hard-coding if/when FeedSourceBase.Pump starts to periodically pick up new tranches
-        let appendsTrancheIds = match res with [||] -> [| AppendsTrancheId.wellKnownId |] | ids -> ids
-        return appendsTrancheIds |> Array.map AppendsTrancheId.toTrancheId }
+    let readTranches storeLog context =
+        let index = AppendsIndex.Reader.create storeLog context
+        index.ReadKnownTranches()
 
     let readTailPositionForTranche log context (AppendsTrancheId.Parse trancheId) = async {
         let index = AppendsIndex.Reader.create log context
@@ -162,8 +159,8 @@ module internal LoadMode =
             else None
     let private withoutBodies filter =
         fun sn (i, cs) ->
-            let render = async { return cs |> Array.mapi (fun offset c -> FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)) }
-            if filter sn then Some render else None
+            let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
+            if filter sn then Some (async { return cs |> Array.mapi renderEvent }) else None
     let map storeLog : LoadMode -> _ = function
         | All -> false, withoutBodies (fun _ -> true), 1
         | Filtered filter -> false, withoutBodies filter, 1
@@ -176,28 +173,42 @@ type DynamoStoreSource
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore,
         sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
-        // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance.
-        loadMode,
+        // If the Handler does not utilize the bodies of the events, we can avoid loading them from the Store
+        loadMode : LoadMode,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
         ?fromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
         ?storeLog,
         ?readFailureSleepInterval,
-        ?sourceId) =
+        ?sourceId,
+        ?trancheIds) =
     inherit Propulsion.Feed.Internal.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.materializeIndexEpochAsBatchesOfStreamEvents (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                                                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
+            Impl.materializeIndexEpochAsBatchesOfStreamEvents
+                (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
+                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
-            (if fromTail = Some true then Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient)) else None),
+            (   if fromTail <> Some true then None
+                else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
             sink,
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
-            (defaultArg readFailureSleepInterval (tailSleepInterval * 2.)),
+            defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
 
-    member _.Pump() =
-        let context = DynamoStoreContext(indexClient)
-        base.Pump(fun () -> Impl.readTranches (defaultArg storeLog log) context)
+    abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
+    default _.ListTranches() = async {
+        match trancheIds with
+        | Some ids -> return ids
+        | None ->
+            let context = DynamoStoreContext(indexClient)
+            let storeLog = defaultArg storeLog log
+            let! res = Impl.readTranches storeLog context
+            let appendsTrancheIds = match res with [||] -> [| AppendsTrancheId.wellKnownId |] | ids -> ids
+            return appendsTrancheIds |> Array.map AppendsTrancheId.toTrancheId }
 
-    member x.Start() = base.Start(x.Pump())
+    abstract member Pump : unit -> Async<unit>
+    default x.Pump() = base.Pump(x.ListTranches)
+
+    abstract member Start : unit -> Propulsion.Pipeline
+    default x.Start() = base.Start(x.Pump())
