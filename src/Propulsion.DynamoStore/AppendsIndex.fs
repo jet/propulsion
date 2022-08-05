@@ -4,7 +4,7 @@
 module Propulsion.DynamoStore.AppendsIndex
 
 let [<Literal>] Category = "$AppendsIndex"
-let streamName iid = FsCodec.StreamName.create Category (IndexId.toString iid)
+let streamName () = FsCodec.StreamName.create Category (IndexId.toString IndexId.wellKnownId)
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -55,7 +55,7 @@ module Config =
     let private resolveStream store =
         let cat = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
         cat.Resolve
-    let resolveDecider log store () = streamName IndexId.wellKnownId |> resolveStream store |> Config.createDecider log
+    let resolveDecider log store () = streamName () |> resolveStream store |> Config.createDecider log
     let create log (context, cache) = Service(resolveDecider log (context, Some cache))
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
@@ -68,6 +68,10 @@ module Reader =
         state |> Map.tryFind trancheId |> Option.defaultValue AppendsEpochId.initial
 
     type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
+
+        member _.Read() : Async<Fold.State> =
+            let decider = resolve ()
+            decider.Query(id)
 
         member _.ReadKnownTranches() : Async<AppendsTrancheId[]> =
             let decider = resolve ()

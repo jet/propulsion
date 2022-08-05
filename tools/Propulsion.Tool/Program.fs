@@ -43,7 +43,8 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
 and CosmosModeType = Container | Db | Serverless
 and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
     let rusOrDefault value = p.GetResult(Rus, value)
-    let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000) else CosmosInit.Throughput.Manual (rusOrDefault 400)
+    let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000)
+                                  else CosmosInit.Throughput.Manual (rusOrDefault 400)
     member val ProvisioningMode =
         match p.GetResult(Mode, CosmosModeType.Container), p.Contains Autoscale with
         | CosmosModeType.Container, auto -> CosmosInit.Provisioning.Container (throughput auto)
@@ -52,8 +53,8 @@ and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
         | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 
 and [<NoEquality; NoComparison>] IndexParameters =
-    | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
     | [<AltCommandLine "-t"; Unique>]       TrancheId of int
+    | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
     | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
     | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
     | [<AltCommandLine "-g"; Unique>]       GapsLimit of int
@@ -61,11 +62,11 @@ and [<NoEquality; NoComparison>] IndexParameters =
     | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | DynamoDbJson _ ->             "Specify source DynamoDB JSON filename(s)"
-            | TrancheId _ ->                "Specify destination TrancheId. Default 0"
-            | MinSizeK _ ->                 "Specify Index Minimum Item size in KiB. Default 48"
-            | EventsPerBatch _ ->           "Specify Maximum Events to Ingest as a single batch. Default 10000"
-            | GapsLimit _ ->                "Max Number of gaps to dump to console. Default 10"
+            | TrancheId _ ->                "TrancheId to verify/import into. (Optional; omitting displays tranches and epochs list)"
+            | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
+            | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
+            | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
+            | GapsLimit _ ->                "Max Number of gaps to ouput to console. Default 10"
 
             | Dynamo _ ->                   "Specify DynamoDB parameters."
 
@@ -190,9 +191,7 @@ module Indexer =
     type Arguments(c, p : ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
-        member val TrancheId =              p.TryGetResult IndexParameters.TrancheId
-                                            |> Option.map AppendsTrancheId.parse
-                                            |> Option.defaultValue AppendsTrancheId.wellKnownId
+        member val TrancheId =              p.TryGetResult IndexParameters.TrancheId |> Option.map AppendsTrancheId.parse
         // Larger optimizes for not needing to use TransactWriteItems as frequently
         // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
@@ -228,24 +227,42 @@ module Indexer =
         let a = Arguments(c, p)
         let context = a.CreateContext()
 
-        let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) a.TrancheId a.GapsLimit
-        let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
-        dump 0
+        match a.TrancheId with
+        | None when (not << List.isEmpty) a.ImportJsonFiles ->
+            missingArg "Must specify a trancheId parameter to import into"
+        | None ->
+            let index = AppendsIndex.Reader.create Log.forMetrics context
+            let! state = index.Read()
+            Log.Information("Current Tranches / Active Epochs {summary}",
+                            seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
 
-        match a.ImportJsonFiles with
-        | [] -> ()
-        | files ->
+            let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
+            let dumpCmd sn opts = $"eqx -C dump '{sn}' {opts}{storeSpecFragment}"
+            Log.Information("Inspect Index Tranches list events 👉 {cmd}",
+                            dumpCmd (AppendsIndex.streamName ()) "")
 
-        Log.Information("Ingesting {files}...", files)
+            let tid, eid = AppendsTrancheId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
+            Log.Information("Inspect Batches in Epoch {epoch} of Index Tranche {tranche} 👉 {cmd}",
+                            eid, tid, dumpCmd (AppendsEpoch.streamName (tid, eid)) "-B ")
+        | Some trancheId ->
+            let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) trancheId a.GapsLimit
+            let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
+            dump 0
 
-        let ingest =
-            let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Log.forMetrics)
-            fun batch -> ingester.Service.IngestWithoutConcurrency(a.TrancheId, batch)
-        let import = DynamoDbExport.Importer(buffer, ingest, dump)
-        for file in files do
-            let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
-            Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
-        do! import.Flush()
+            match a.ImportJsonFiles with
+            | [] -> ()
+            | files ->
+
+            Log.Information("Ingesting {files}...", files)
+
+            let ingest =
+                let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Log.forMetrics)
+                fun batch -> ingester.Service.IngestWithoutConcurrency(trancheId, batch)
+            let import = DynamoDbExport.Importer(buffer, ingest, dump)
+            for file in files do
+                let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
+                Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
+            do! import.Flush()
         Equinox.DynamoStore.Core.Log.InternalMetrics.dump Log.Logger }
 
 module Project =

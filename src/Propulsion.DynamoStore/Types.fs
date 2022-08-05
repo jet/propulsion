@@ -32,6 +32,7 @@ module internal AppendsEpochId =
     let toString : AppendsEpochId -> string = UMX.untag >> string
     let value : AppendsEpochId -> int = UMX.untag
     let next (value : AppendsEpochId) : AppendsEpochId = % (%value + 1)
+    let parse : int -> AppendsEpochId = int >> UMX.tag
 
 /// Identifies an Equinox Store Stream; used within an AppendsEpoch
 type IndexStreamId = string<indexStreamId>
