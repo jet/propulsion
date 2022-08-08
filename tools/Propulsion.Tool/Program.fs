@@ -25,7 +25,7 @@ type Parameters =
             | Init _ ->                     "Initialize auxiliary store (Supported for `cosmos` Only)."
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
-            | Project _ ->                  "Project from store specified as the last argument, storing state in the specified `aux` Store (see init)."
+            | Project _ ->                  "Project from store specified as the last argument."
 
 and [<NoComparison; NoEquality>] InitAuxParameters =
     | [<AltCommandLine "-ru"; Unique>]      Rus of int
@@ -99,7 +99,7 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name."
             | FromTail _ ->                 "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
-            | MaxItems _ ->                 "Maximum item count to supply to ChangeFeed Api when querying. Default: Unlimited"
+            | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
             | Stats _ ->                    "Do not emit events, only stats."
             | Kafka _ ->                    "Project to Kafka."
@@ -340,7 +340,7 @@ module Project =
                   ( Log.Logger, monitored, leases, group, observer,
                     startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
             | Choice2Of2 sa ->
-                let indexStore, maybeHydrate = sa.MonitoringParams()
+                let (indexStore, indexFilter), maybeHydrate = sa.MonitoringParams()
                 let checkpoints =
                     let cache = Equinox.Cache (appName, sizeMb = 1)
                     sa.CreateCheckpointStore(group, cache, Log.forMetrics)
@@ -353,7 +353,8 @@ module Project =
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics
+                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
+                    ?trancheIds = indexFilter
                 ).Start()
         let work = [
             Async.AwaitKeyboardInterruptAsTaskCancelledException()

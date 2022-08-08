@@ -170,6 +170,7 @@ module Dynamo =
         | [<AltCommandLine "-i">]           IndexTable of string
         | [<AltCommandLine "-is">]          IndexSuffix of string
         | [<AltCommandLine "-d">]           StreamsDop of int
+        | [<AltCommandLine "-it">]          IndexTranche of Propulsion.Feed.TrancheId
         interface IArgParserTemplate with
             member a.Usage = a |> function
                 | RegionProfile _ ->        "specify an AWS Region (aka System Name, e.g. \"us-east-1\") to connect to using the implicit AWS SDK/tooling config and/or environment variables etc. Optional if:\n" +
@@ -185,6 +186,7 @@ module Dynamo =
                 | IndexTable _ ->           "specify a table name for the index store. (optional if environment variable " + INDEX_TABLE + " specified. default: `Table`+`IndexSuffix`)"
                 | IndexSuffix _ ->          "specify a suffix for the index store. (not relevant if `Table` or `IndexTable` specified. default: \"-index\")"
                 | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
+                | IndexTranche _ ->         "Constrain Index Tranches to load. Default: Load all indexed tranches"
 
     type Arguments(c : Configuration, p : ParseResults<Parameters>) =
         let conn =                          match p.TryGetResult RegionProfile |> Option.orElseWith (fun () -> c.DynamoRegion) with
@@ -221,17 +223,26 @@ module Dynamo =
         let streamsDop =                    p.TryGetResult StreamsDop
 
         let checkpointInterval =            TimeSpan.FromHours 1.
+        let indexTranches =                 p.GetResults IndexTranche
         member val IndexTable =             indexTable
         member _.MonitoringParams() =
-            let indexClient = indexReadClient.Value
+            let indexProps =
+                let c = indexReadClient.Value
+                match indexTranches with
+                | [] ->
+                    Log.Information "DynamoStoreSource Tranches (All)"
+                    (c, None)
+                | xs ->
+                    Log.Information("DynamoStoreSource Tranches Filter {trancheIds}", xs)
+                    (c, Some (Array.ofList xs))
             match streamsDop with
             | None ->
-                Log.Information("DynamoStoreSource NOT Hydrating events"); indexClient, None
+                Log.Information("DynamoStoreSource NOT Hydrating events"); indexProps, None
             | Some streamsDop ->
                 Log.Information("DynamoStoreSource Hydrater parallelism {streamsDop}", streamsDop)
                 let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
                 let context = readClient.ConnectStore("Store", table) |> DynamoStoreContext.create
-                indexClient, Some (context, streamsDop)
+                indexProps, Some (context, streamsDop)
 
         member _.CreateContext(minItemSizeK) =
             let client = indexWriteClient.Value
