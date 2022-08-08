@@ -99,11 +99,8 @@ module internal Async =
                 finally s.Release() |> ignore }
     let private parallelThrottledUnsafe dop computations = // https://github.com/dotnet/fsharp/issues/13165
         Async.Parallel(computations, maxDegreeOfParallelism = dop)
-    // NB this should not be necessary if targeting FSharp.Core 6.0.5 as we do
-    // However my eyes say otherwise so this stays until someone figures out what the problem is, i.e.
-    // - if we are getting the wrong version
-    // - the patch did not make it into 6.0.5
-    // - or there is some other secondary issue in play
+    // NOTE as soon as a non-preview Async.Parallel impl in FSharp.Core includes the fix (e.g. 6.0.5 does not, 6.0.5-beta.22329.3 does),
+    // we can remove this shimming and replace it with the body of parallelThrottledUnsafe
     let parallelThrottled dop computations = async {
         let throttle = Async.Throttle dop // each batch of 1200 gets the full potential dop - we internally limit what actually gets to run concurrently here
         let! allResults =

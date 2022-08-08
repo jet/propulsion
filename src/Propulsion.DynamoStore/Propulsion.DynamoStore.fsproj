@@ -25,9 +25,6 @@
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
-      <!-- NOTE Code here leans on the fact that https://github.com/dotnet/fsharp/issues/13165 is resolved in 6.0.5 -->
-      <!-- <PackageReference Include="FSharp.Core" Version="6.0.5" />-->
-        
       <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-beta.10.3" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.4" />
     </ItemGroup>
