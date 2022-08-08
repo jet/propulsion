@@ -5,6 +5,7 @@ open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCancelledException
 open Propulsion.Tool.Args
 open Serilog
 open System
+open System.Threading.Tasks
 
 module CosmosInit = Equinox.CosmosStore.Core.Initialization
 
@@ -382,7 +383,7 @@ let main argv =
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
                 | x ->              missingArg $"unexpected subcommand %A{x}"
                 0
-            with e when not (e :? MissingArg || e :? ArguParseException) -> Log.Fatal(e, "Exiting"); 2
+            with e when not (e :? MissingArg || e :? ArguParseException || e :? TaskCanceledException) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
     with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | MissingArg msg -> eprintfn $"ERROR: %s{msg}"; 1
