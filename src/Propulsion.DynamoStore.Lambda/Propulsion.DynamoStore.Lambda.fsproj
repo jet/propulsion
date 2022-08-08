@@ -6,8 +6,11 @@
         <AWSProjectType>Lambda</AWSProjectType>
         <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+        <!-- NOTE PublishReadyToRun needs to be disabled or `dotnet lambda package -farch arm64 lambda.zip` content will fail at runtime due to missing FSharp.Core -->
         <!-- Generate ready to run images during publishing to improve cold start time -->
-        <PublishReadyToRun>true</PublishReadyToRun>
+        <!-- <PublishReadyToRun>true</PublishReadyToRun>-->
+
         <!-- Needs to be explicitly managed here as we chain the Publish step into the Pack -->
         <RuntimeIdentifier>linux-arm64</RuntimeIdentifier>
         <!-- As we dotnet pack, we slip in a publish step and include that in the NuGet package's tools/ folder -->
