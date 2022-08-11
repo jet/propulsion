@@ -10,27 +10,11 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion including `ParallelProjector`, `StreamsProjector`. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
 
-  1. `Streams.Prometheus`: Exposes per-scheduler metrics.
+    1. `Streams.Prometheus`: Exposes per-scheduler metrics.
 
-- `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Serilog`
+- `Propulsion.MemoryStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.MemoryStore.svg)](https://www.nuget.org/packages/Propulsion.MemoryStore/). Provides bindings to `Equinox.MemoryStore`. [Depends](https://www.fuget.org/packages/Propulsion.MemoryStore) on `Equinox.MemoryStore` v `4.0.0`, `FsCodec.Box`, `Propulsion`
 
-  - **Deprecated as Equinox.CosmosStore superseded Equinox.Cosmos**
-  1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
-  2. `CosmosSink`: writing to `Equinox.Cosmos` v `2.6.0`.
-  3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `2.6.0`.
-
-  (Reading and position metrics are exposed via `Propulsion.Cosmos.Prometheus`)
-
-- `Propulsion.CosmosStore3` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore3.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore3/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore3) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.27.0`
-
-  - **Deprecated; Only intended for use in migration from Propulsion.Cosmos and/or Equinox.Cosmos**
-  1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
-  2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.7`.
-  3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.7`.
-  4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.EventStoreDb`/`DynamoStore`/'Feed'/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `3.0.7`.
-
-  (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
+    1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.ProjectorPipeline`, in order to enable maximum speed integration testing.
 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
@@ -43,10 +27,10 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.DynamoStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore/) Provides bindings to `Equinox.DynamoStore`. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore) on `Equinox.DynamoStore` v `4.0.0`
 
-    0. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the Index Event Store 
-    1. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Lambda`)
-    2. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Lambda` via `DynamoStoreIndexer`)
-    3. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
+    1. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the Index Event Store 
+    2. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Lambda`)
+    3. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Lambda` via `DynamoStoreIndexer`)
+    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
 
   (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 
@@ -60,14 +44,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.DynamoStore.Constructs` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Constructs.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Constructs/) AWS Lambda CDK deploy logic. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Constructs) on `Amazon.CDK.Lib` (and, indirectly, on the binary assets included as content in `Propulsion.DynamoStore.Lambda`)
 
-- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
-
-    - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
-    - Contains ultra-high throughput striped reader implementation
-
-  (Reading and position metrics are emitted to Console / Serilog; no Prometheus support)
-
-- `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
+- `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStoreDb) on `Equinox.EventStoreDb` v `4.0.0`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.ProjectorPipeline` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
     2. `EventStoreSink`: writing to `Equinox.EventStoreDb` v `4.0.0`
   
@@ -94,10 +71,42 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
 
 - `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. See [quickstart](#quickstart).
 
-  - CosmosDB: Initialize `-aux` Container for ChangeFeedProcessor
-  - CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints
-  - CosmosDB/DynamoStore/EventStoreDB: walk change feeds/indexes and/or project to Kafka
-  - DynamoStore: validate and/or reindex DynamoStore Index
+    - CosmosDB: Initialize `-aux` Container for ChangeFeedProcessor
+    - CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints
+    - CosmosDB/DynamoStore/EventStoreDB: walk change feeds/indexes and/or project to Kafka
+    - DynamoStore: validate and/or reindex DynamoStore Index
+
+## Backward compatability components
+
+Propulsion supports recent versions of Equinox and other Store Clients within reason - the aim is to provide a clean way to manage phased updates from older
+clients to current ones by means of adjusting package references while retaining source compatibility to the maximum degree possible.   
+
+- `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`, `Serilog`
+
+    - **Deprecated as Equinox.CosmosStore superseded Equinox.Cosmos**
+    1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
+    2. `CosmosSink`: writing to `Equinox.Cosmos` v `2.6.0`.
+    3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
+    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `2.6.0`.
+
+  (Reading and position metrics are exposed via `Propulsion.Cosmos.Prometheus`)
+
+- `Propulsion.CosmosStore3` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore3.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore3/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore3) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.27.0`
+
+    - **Deprecated; Only intended for use in migration from Propulsion.Cosmos and/or Equinox.Cosmos**
+    1. `CosmosStoreSource`: reading from CosmosDb's ChangeFeed  using `Microsoft.Azure.Cosmos` (relies on explicit checkpointing that entered GA in `3.21.0`)
+    2. `CosmosStoreSink`: writing to `Equinox.CosmosStore` v `3.0.7`.
+    3. `CosmosStorePruner`: pruning from `Equinox.CosmosStore` v `3.0.7`.
+    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.EventStoreDb`/`DynamoStore`/'Feed'/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `3.0.7`.
+
+  (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
+
+- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
+
+    - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
+    - Contains ultra-high throughput striped reader implementation
+
+  (Reading and position metrics are emitted to Console / Serilog; no Prometheus support)
 
 ## Related repos
 
