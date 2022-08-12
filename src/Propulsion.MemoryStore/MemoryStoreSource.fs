@@ -53,26 +53,26 @@ module TimelineEvent =
         FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
 
 type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
-                               mapTimelineEvent,
+                               mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<byte array>,
                                sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
     let ingester = sink.StartIngester(log, 0)
 
-    let mutable epoch = -1L
-    let mutable completed = None
-    let mutable checkpointed = None
+    // epoch index of most recently prepared and completed submissions
+    let mutable prepared, completed = -1L, -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
         let c = Channel.unboundedSr
         Channel.write c, Channel.awaitRead c, c.Reader.TryRead
 
     let handleCommitted (stream, events : FsCodec.ITimelineEvent<_> seq) =
-        let epoch = Interlocked.Increment &epoch
+        let epoch = Interlocked.Increment &prepared
         let events = MemoryStoreLogger.toStreamEvents stream events
         MemoryStoreLogger.renderSubmit log (epoch, stream, events)
         let markCompleted () =
             MemoryStoreLogger.renderCompleted log (epoch, stream)
-            Volatile.Write(&completed, Some epoch)
-        let checkpoint = async { checkpointed <- Some epoch }
+            Volatile.Write(&completed, epoch)
+        // We don't have anything Async to do, so we pass a null checkpointing function
+        let checkpoint = async { () }
         enqueueSubmission (epoch, checkpoint, events, markCompleted)
 
     let storeCommitsSubscription =
@@ -109,37 +109,44 @@ type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
             do! awaitCompletion ()
             storeCommitsSubscription.Dispose() }
         new Pipeline(Task.Run<unit>(supervise), stop)
-(*
-    /// Waits until all <c>Submit</c>ted batches have been fed into the <c>inner</c> Projector
-    member _.AwaitWithStopOnCancellation
+
+    /// Waits until all <c>Submit</c>ted batches have been successfully processed via the Sink
+    member _.AwaitCompletion
         (   // sleep time while awaiting completion
             ?delay,
             // interval at which to log progress of Projector loop
-            ?logInterval) = async {
-        if -1L = Volatile.Read(&epoch) then
-            log.Warning("No events submitted; completing immediately")
-        else
-            let delay = defaultArg delay TimeSpan.FromMilliseconds 5.
+            ?logInterval,
+            // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
+            ?ignoreSubsequent) = async {
+        match Volatile.Read &prepared with
+        | -1L -> log.Warning "No events submitted; completing immediately"
+        | epoch when epoch = Volatile.Read(&completed) -> log.Debug("Processing already complete to epoch {epoch}", completed)
+        | startingEpoch ->
+            let includeSubsequent = ignoreSubsequent <> Some true
+            let delayMs =
+                let delay = defaultArg delay TimeSpan.FromMilliseconds 5.
+                int delay.TotalMilliseconds
             let maybeLog =
                 let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
-                let logDue = Propulsion.Internal.intervalCheck logInterval
+                let logDue = intervalCheck logInterval
                 fun () ->
                     if logDue () then
-                        log.ForContext("checkpoint", checkpointed)
-                            .Information("Waiting for epoch {epoch}. Current completed epoch {completed}", epoch, Option.toNullable completed)
-            let delayMs = int delay.TotalMilliseconds
-            while Some (Volatile.Read &epoch) <> Volatile.Read &completed do
-                maybeLog()
+                        let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
+                        if includeSubsequent then
+                            log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
+                                            startingEpoch, Volatile.Read &prepared, completed)
+                        else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
+            let isIncomplete () =
+                let currentCompleted = Volatile.Read &completed
+                (startingEpoch > currentCompleted && not includeSubsequent) // At or beyond starting point
+                || Volatile.Read &prepared = currentCompleted // All submitted work (including follow-on work), completed
+            while isIncomplete () && not sink.IsCompleted do
+                maybeLog ()
                 do! Async.Sleep delayMs
-        // the ingestion pump can be stopped now...
-        ingester.Stop()
-        // as we've validated all submissions have had their processing completed, we can stop the inner projector too
-        inner.Stop()
-        // trigger termination of GetConsumingEnumerable()-driven pumping loop
-        queue.CompleteAdding()
-        return! inner.AwaitWithStopOnCancellation()
+            // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
+            if sink.IsCompleted && not sink.RanToCompletion then
+                return! sink.AwaitShutdown()
     }
-*)
 
 type MemoryStoreSource<'B>(log, store : VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter,
                            sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
