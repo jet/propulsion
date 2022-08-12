@@ -1,6 +1,5 @@
 namespace Propulsion.MemoryStore
 
-open Equinox.MemoryStore
 open Propulsion
 open Propulsion.Internal
 open System
@@ -52,7 +51,9 @@ module TimelineEvent =
         let mapBodyToBytes = (fun (x : ReadOnlyMemory<byte>) -> x.ToArray())
         FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
 
-type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
+/// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
+/// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
+type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
                                mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<byte array>,
                                sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
     let ingester = sink.StartIngester(log, 0)
@@ -78,7 +79,7 @@ type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
     let storeCommitsSubscription =
         let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
         store.Committed
-        |> Observable.filter (fst >> filter)
+        |> Observable.filter (fst >> streamFilter)
         |> Observable.subscribe (mapBody >> handleCommitted)
 
     member private _.Pump(ct : CancellationToken) = task {
@@ -111,6 +112,11 @@ type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
         new Pipeline(Task.Run<unit>(supervise), stop)
 
     /// Waits until all <c>Submit</c>ted batches have been successfully processed via the Sink
+    /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
+    /// 1. a Decider's Transact will not return until such time as the Committed events have been handled
+    ///      (i.e., we have prepared the batch for submission)
+    /// 2. At the point where the caller triggers AwaitCompletion, we can infer that all reactions have been processed
+    ///      when checkpointing/completion has passed beyond our starting point
     member _.AwaitCompletion
         (   // sleep time while awaiting completion
             ?delay,
@@ -148,6 +154,8 @@ type MemoryStoreSource<'F, 'B>(log, store : VolatileStore<'F>, filter,
                 return! sink.AwaitShutdown()
     }
 
-type MemoryStoreSource<'B>(log, store : VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter,
+/// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
+/// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
+type MemoryStoreSource<'B>(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter,
                            sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
     inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>), 'B>(log, store, filter, TimelineEvent.mapEncoded, sink)
