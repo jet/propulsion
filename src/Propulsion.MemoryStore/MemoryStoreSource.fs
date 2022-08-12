@@ -126,7 +126,7 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
             ?ignoreSubsequent) = async {
         match Volatile.Read &prepared with
         | -1L -> log.Warning "No events submitted; completing immediately"
-        | epoch when epoch = Volatile.Read(&completed) -> log.Debug("Processing already complete to epoch {epoch}", completed)
+        | epoch when epoch = Volatile.Read(&completed) -> log.Debug("No processing pending. Completed Epoch {epoch}", completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
