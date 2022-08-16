@@ -731,7 +731,8 @@ module Scheduling =
             while not ct.IsCancellationRequested do
                 try do! wait ct :> Task
                 with :? OperationCanceledException -> ()
-                apply (wrap ct >> Task.start) }
+                let run (f : CancellationToken -> Task<'R>) = Task.start (wrap ct f)
+                apply run }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R>(maxDop) =
