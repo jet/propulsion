@@ -236,7 +236,7 @@ module Buffering =
             | End n when n < min -> { index = min; events = [||] } // throw away if before min
             | x -> { index = min; events = x.events |> Array.skip (min - x.index |> int) }  // slice
 
-        let merge min items =
+        let merge min (items : StreamSpan<_> seq) =
             let xs =
                 items
                 |> Seq.map (fun x -> if x.events <> null then x else { x with events = Array.empty })
