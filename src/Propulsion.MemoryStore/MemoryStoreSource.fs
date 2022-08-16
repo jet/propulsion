@@ -8,8 +8,8 @@ open System.Threading.Tasks
 
 module MemoryStoreLogger =
 
-    let private propEvents name (kvps : System.Collections.Generic.KeyValuePair<string,string> seq) (log : Serilog.ILogger) =
-        let items = seq { for kv in kvps do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
+    let private propEvents name (xs : System.Collections.Generic.KeyValuePair<string,string> seq) (log : Serilog.ILogger) =
+        let items = seq { for kv in xs do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
         log.ForContext(name, sprintf "[%s]" (String.concat ",\n\r" items))
 
     let private propEventJsonUtf8 name (events : Propulsion.Streams.StreamEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
@@ -125,12 +125,12 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
         match Volatile.Read &prepared with
-        | -1L -> log.Warning "No events submitted; completing immediately"
-        | epoch when epoch = Volatile.Read(&completed) -> log.Debug("No processing pending. Completed Epoch {epoch}", completed)
+        | -1L -> log.Information "No events submitted; completing immediately"
+        | epoch when epoch = Volatile.Read(&completed) -> log.Verbose("No processing pending. Completed Epoch {epoch}", completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
-                let delay = defaultArg delay TimeSpan.FromMilliseconds 5.
+                let delay = defaultArg delay TimeSpan.FromMilliseconds 1.
                 int delay.TotalMilliseconds
             let maybeLog =
                 let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
@@ -142,11 +142,11 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
                             log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
                                             startingEpoch, Volatile.Read &prepared, completed)
                         else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
-            let isIncomplete () =
+            let isComplete () =
                 let currentCompleted = Volatile.Read &completed
-                (startingEpoch > currentCompleted && not includeSubsequent) // At or beyond starting point
-                || Volatile.Read &prepared = currentCompleted // All submitted work (including follow-on work), completed
-            while isIncomplete () && not sink.IsCompleted do
+                Volatile.Read &prepared = currentCompleted // All submitted work (including follow-on work), completed
+                || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
+            while not (isComplete ()) && not sink.IsCompleted do
                 maybeLog ()
                 do! Async.Sleep delayMs
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
