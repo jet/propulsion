@@ -140,11 +140,11 @@ module Internal =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
-            let attemptWrite (stream, span) = async {
+            let attemptWrite (stream, span) ct = task {
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts[index]
                 let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
-                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span'
+                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                     return span'.events.Length > 0, Choice1Of2 (met, res)
                 with e -> return false, Choice2Of2 (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -181,18 +181,18 @@ type CosmosSink =
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
-        : Propulsion.ProjectorPipeline<_> =
+        : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams (s : Scheduling.StreamStates<_>, totalPruned) log =
-            s.Dump(log, totalPruned, Propulsion.Streams.Buffering.StreamState.eventsSize)
+        let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
+        let dumpStreams struct (s : Scheduling.StreamStates<_>, totalPruned) log =
+            s.Dump(log, totalPruned, Buffering.StreamState.eventsSize)
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(
                 log, cosmosContexts, dispatcher, stats, dumpStreams,
-
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents=maxEvents, ?maxBytes=maxBytes)
-        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
+        Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)
