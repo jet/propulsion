@@ -678,16 +678,16 @@ module Scheduling =
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
     type private DopDispatcher<'R>(maxDop : int) =
         let tryWrite, wait, apply =
-            let c = Channel.unboundedSwSr<Async<'R>>
+            let c = Channel.unboundedSwSr<CancellationToken -> Task<'R>>
             c.Writer.TryWrite, Channel.awaitRead c, Channel.apply c >> ignore
         let result = Event<'R>()
         let dop = Sem maxDop
 
         // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
-        let wrap computation = async {
-            let! res = computation
-            result.Trigger res
-            dop.Release() }
+        let wrap ct (computation : CancellationToken -> Task<'R>) () = task {
+            let! res = computation ct
+            dop.Release()
+            result.Trigger res }
 
         [<CLIEvent>] member _.Result = result.Publish
         member _.HasCapacity = dop.HasCapacity
@@ -698,11 +698,10 @@ module Scheduling =
             dop.TryTake() && tryWrite item
 
         member _.Pump(ct : CancellationToken) = task {
-            let dispatch c = Async.Start(c, cancellationToken = ct)
             while not ct.IsCancellationRequested do
                 try do! wait ct :> Task
                 with :? OperationCanceledException -> ()
-                apply (wrap >> dispatch) }
+                apply (wrap ct >> Task.start) }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R>(maxDop) =
@@ -738,25 +737,25 @@ module Scheduling =
         abstract member InterpretProgress : StreamStates<byte[]> * FsCodec.StreamName * Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>
         abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
         abstract member DumpStats : int -> unit
-        abstract member TryDumpState : BufferState * (StreamStates<byte[]> * int) * (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
+        abstract member TryDumpState : BufferState * struct (StreamStates<byte[]> * int) * (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
 
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type MultiDispatcher<'P, 'R, 'E>
         (   inner : ItemDispatcher<Choice<'P, 'E>>,
-            project : int64 -> DispatchItem<byte[]> -> Async<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
+            project : int64 -> DispatchItem<byte[]> -> CancellationToken -> Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
             interpretProgress : StreamStates<byte[]> -> FsCodec.StreamName -> Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>,
             stats : Stats<'R, 'E>,
             dumpStreams) =
-        static member Create(inner, project, interpretProgress, stats, dumpStreams) =
-            let project sw (item : DispatchItem<byte[]>) : Async<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>> = async {
-                let! progressed, res = project (item.stream, item.span)
+        static member Create(inner, project : _ * _ -> CancellationToken -> Task<bool * Choice<'P, 'E>>, interpretProgress, stats, dumpStreams) =
+            let project sw (item : DispatchItem<byte[]>) (ct : CancellationToken) (*: Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>*) = task {
+                let! progressed, res = project (item.stream, item.span) ct
                 let now = System.Diagnostics.Stopwatch.GetTimestamp()
                 return Busy.timeSpanFromStopwatchTicks (now - sw), item.stream, progressed, res }
             MultiDispatcher(inner, project, interpretProgress, stats, dumpStreams)
         static member Create(inner, handle, interpret, toIndex, stats, dumpStreams) =
-            let project item = async {
+            let project item ct = task {
                 let met, (stream, span) = interpret item
-                try let! spanResult, outcome = handle (stream, span)
+                try let! spanResult, outcome = handle (stream, span) |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                     let index' = toIndex (stream, span) spanResult
                     return index' > span.index, Choice1Of2 (index', met, outcome)
                 with e -> return false, Choice2Of2 (met, e) }
@@ -779,7 +778,7 @@ module Scheduling =
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type BatchedDispatcher
         (   select : DispatchItem<byte[]> seq -> DispatchItem<byte[]>[],
-            handle : DispatchItem<byte[]>[] -> Async<(TimeSpan * FsCodec.StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]>,
+            handle : DispatchItem<byte[]>[] -> CancellationToken -> Task<(TimeSpan * FsCodec.StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]>,
             stats : Stats<_, _>,
             dumpStreams) =
         let dop = DopDispatcher 1
@@ -1165,7 +1164,7 @@ type StreamsProjector =
             Scheduling.StreamSchedulingEngine.Create<_, 'Progress, 'Outcome>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
-                    (fun (s, totalPurged) logger -> s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)),
+                    (fun struct (s, totalPurged) logger -> s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)),
                     ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.StreamsProjectorPipeline.Start(
                 log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
@@ -1292,11 +1291,11 @@ module Sync =
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-            let attemptWrite (stream, span) = async {
+            let attemptWrite (stream, span) ct = task {
                 let met, span' = Buffering.StreamSpan.slice (maxEvents, maxBytes) span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
                 try let req = (stream, span')
-                    let! res, outcome = handle req
+                    let! res, outcome = Async.StartAsTask(handle req, cancellationToken = ct)
                     let prepareElapsed = sw.Elapsed
                     let index' = SpanResult.toIndex req res
                     return index' > span.index, Choice1Of2 (index', (met, prepareElapsed), outcome)
@@ -1310,7 +1309,7 @@ module Sync =
                     ValueNone, Choice2Of2 (stats, exn)
 
             let itemDispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-            let dumpStreams (s : Scheduling.StreamStates<_>, totalPurged) logger =
+            let dumpStreams struct (s : Scheduling.StreamStates<_>, totalPurged) logger =
                 s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)
                 match dumpExternalStats with Some f -> f logger | None -> ()
 

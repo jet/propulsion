@@ -239,7 +239,7 @@ module Core =
                 ?maximizeOffsetWriting) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
-            let dumpStreams (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
+            let dumpStreams struct (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
                 logExternalState |> Option.iter (fun f -> f log)
                 streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
             let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(
@@ -471,16 +471,16 @@ type BatchesConsumer =
             ?logExternalState) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let dumpStreams (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
+        let dumpStreams struct (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
             logExternalState |> Option.iter (fun f -> f log)
             streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
-        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[])
-            : Async<(TimeSpan * StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = async {
+        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[]) ct
+            : Task<(TimeSpan * StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = task {
             let sw = Stopwatch.StartNew()
             let avgElapsed () =
                 let tot = let e = sw.Elapsed in e.TotalMilliseconds
                 TimeSpan.FromMilliseconds(tot / float items.Length)
-            try let! results = handle items
+            try let! results = handle items |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                 let ae = avgElapsed ()
                 return
                     [| for x in Seq.zip items results ->

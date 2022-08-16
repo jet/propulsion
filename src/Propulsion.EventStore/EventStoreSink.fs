@@ -138,7 +138,7 @@ module Internal =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
-            let attemptWrite (stream, span) = async {
+            let attemptWrite (stream, span) ct = task {
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
@@ -146,7 +146,7 @@ module Internal =
 #if !EVENTSTORE_LEGACY
                 let span' = mapStreamSpanToRom span'
 #endif
-                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span'
+                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                     return span'.events.Length > 0, Choice1Of2 (met, res)
                 with e -> return false, Choice2Of2 (met, e) }
 
@@ -180,14 +180,14 @@ type EventStoreSink =
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
             ?ingesterStatsInterval)
-        : Propulsion.ProjectorPipeline<_> =
+        : ProjectorPipeline<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Propulsion.Streams.Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStats (s : Scheduling.StreamStates<_>, totalPurged) logger =
-            s.Dump(logger, totalPurged, Propulsion.Streams.Buffering.StreamState.eventsSize)
+        let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
+        let dumpStats struct (s : Scheduling.StreamStates<_>, totalPurged) logger =
+            s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStats, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
-        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
+        Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)
