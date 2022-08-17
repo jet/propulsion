@@ -8,7 +8,6 @@
     <Compile Include="ProgressTests.fs" />
     <Compile Include="StreamStateTests.fs" />
     <Compile Include="FsKafkaCodec.fs" />
-    <Compile Include="DynamoImportTests.fs" />
     <Compile Include="SpanQueueTests.fs" />
     <Compile Include="ParallelThrottledValidation.fs" />
   </ItemGroup>

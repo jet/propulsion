@@ -5,26 +5,29 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// Runs triggered by a `Start` method , until `Stop()` is requested or `handle` yields a fault.
-/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
+/// Represents a running Pipeline as triggered by a `Start` method , until `Stop()` is requested or the pipeline becomes Faulted for any reason
+/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
 type Pipeline (task : Task<unit>, triggerStop) =
 
-    interface IDisposable with member __.Dispose() = __.Stop()
+    interface IDisposable with member x.Dispose() = x.Stop()
 
-    /// Inspects current status of processing task
+    /// Inspects current status of task representing the Pipeline's overall state
     member _.Status = task.Status
 
-    /// After AwaitShutdown, can be used to infer whether exit was clean
+    /// Determines whether processing has completed, be that due to an intentional Stop(), or due to a Fault (see also RanToCompletion)
+    member _.IsCompleted = let s = task.Status in s = TaskStatus.RanToCompletion || s = TaskStatus.Faulted
+
+    /// After AwaitShutdown (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via AwaitShutdown)
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
-    /// Request cancellation of processing
+    /// Request completion of processing and shutdown of the Pipeline
     member _.Stop() = triggerStop ()
 
-    /// Asynchronously awaits until consumer stops or a `handle` invocation yields a fault
+    /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
     member _.AwaitShutdown() = Async.AwaitTaskCorrect task
 
     /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
-    /// Reacts to cancellation by Stopping the Consume loop via <c>Stop()</c>; see <c>AwaitShutdown</c> if such semantics are not desired.
+    /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>AwaitShutdown</c> if such semantics are not desired.
     member x.AwaitWithStopOnCancellation() = async {
         let! ct = Async.CancellationToken
         use _ = ct.Register(fun () -> x.Stop())

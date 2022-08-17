@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="MemoryStoreSource.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
+
+    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.4" />
+    <PackageReference Include="Equinox.MemoryStore" Version="4.0.0-beta.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+  </ItemGroup>
+
+</Project>
