@@ -1,7 +1,7 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
-open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCancelledException
+open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCanceledException
 open Propulsion.Tool.Args
 open Serilog
 open System
@@ -358,7 +358,7 @@ module Project =
                     ?trancheIds = indexFilter
                 ).Start()
         let work = [
-            Async.AwaitKeyboardInterruptAsTaskCancelledException()
+            Async.AwaitKeyboardInterruptAsTaskCanceledException()
             sink.AwaitWithStopOnCancellation()
             source.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit array> }

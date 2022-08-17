@@ -53,9 +53,9 @@ type Sem(max) =
 /// Helpers for use in Propulsion.Tool
 type Async with
 
-    /// Asynchronously awaits the next keyboard interrupt event, throwing a TaskCancelledException
+    /// Asynchronously awaits the next keyboard interrupt event, throwing a TaskCanceledException
     /// Honors cancellation so it can be used with Async.Parallel to have multiple pump loops couple their fates
-    static member AwaitKeyboardInterruptAsTaskCancelledException() = async {
+    static member AwaitKeyboardInterruptAsTaskCanceledException() = async {
         let! ct = Async.CancellationToken
         let tcs = TaskCompletionSource()
         use _ = ct.Register(fun () ->
