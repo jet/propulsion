@@ -75,7 +75,7 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
 
     member _.TryDump(readState) =
         cycles <- cycles + 1
-        let due, remaining = statsInterval ()
+        let struct (due, remaining) = statsInterval ()
         if due then dumpStats readState
         remaining
 

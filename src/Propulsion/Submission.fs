@@ -68,7 +68,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
     let maybeDumpStats () =
         cycles <- cycles + 1
-        let due, remaining = statsInterval ()
+        let struct (due, remaining) = statsInterval ()
         if due then dumpStats ()
         int remaining
 
@@ -91,10 +91,10 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
     let ingest (partitionBatches : SubmissionBatch<'S, 'M>[]) =
         ingested <- ingested + 1
         for { source = pid } as batch in partitionBatches do
-            let pq =
-                match buffer.TryGetValue pid with
-                | false, _ -> let t = PartitionQueue<_>.Create(maxSubmitsPerPartition) in buffer[pid] <- t; t
-                | true, pq -> pq
+            let mutable pq = Unchecked.defaultof<_>
+            if not (buffer.TryGetValue(pid, &pq)) then
+                pq <- PartitionQueue<_>.Create(maxSubmitsPerPartition)
+                buffer[pid] <- pq
             let markCompleted () =
                 Interlocked.Increment(&completed) |> ignore
                 pq.submissions.Release()
