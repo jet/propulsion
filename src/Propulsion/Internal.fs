@@ -16,8 +16,8 @@ let timeRemaining (period : TimeSpan) =
     let timer, max = Stopwatch.StartNew(), int64 period.TotalMilliseconds
     fun () ->
         match max - timer.ElapsedMilliseconds |> int with
-        | rem when rem <= 0 -> timer.Restart(); true, max
-        | rem -> false, rem
+        | rem when rem <= 0 -> timer.Restart(); struct (true, max)
+        | rem -> (false, rem)
 
 module Channel =
 
