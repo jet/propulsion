@@ -39,7 +39,7 @@ module Helpers =
 
 /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
 [<NoComparison; NoEquality>]
-type SubmissionBatch<'S, 'M> = { source : 'S; onCompletion : unit -> unit; messages : 'M [] }
+type Batch<'S, 'M> = { source : 'S; onCompletion : unit -> unit; messages : 'M [] }
 
 /// Holds the queue for a given partition, together with a semaphore we use to ensure the number of in-flight batches per partition is constrained
 [<NoComparison>]
@@ -50,7 +50,7 @@ type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
 /// Holds the stream of incoming batches, grouping by partition
 /// Manages the submission of batches into the Scheduler in a fair manner
 type SubmissionEngine<'S, 'M, 'B when 'S : equality>
-    (   log : ILogger, maxSubmitsPerPartition, mapBatch : (unit -> unit) -> SubmissionBatch<'S, 'M> -> 'B, submitBatch : 'B -> int, statsInterval,
+    (   log : ILogger, maxSubmitsPerPartition, mapBatch : (unit -> unit) -> Batch<'S, 'M> -> 'B, submitBatch : 'B -> int, statsInterval,
         ?tryCompactQueue) =
 
     let awaitIncoming, applyIncoming, enqueueIncoming =
@@ -88,7 +88,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
                 else waiting.Add(pq.submissions)
         worked
 
-    let ingest (partitionBatches : SubmissionBatch<'S, 'M>[]) =
+    let ingest (partitionBatches : Batch<'S, 'M>[]) =
         ingested <- ingested + 1
         for { source = pid } as batch in partitionBatches do
             let mutable pq = Unchecked.defaultof<_>
@@ -125,9 +125,9 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
             do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
-    member _.Ingest(items : SubmissionBatch<'S, 'M>[]) =
+    member _.Ingest(items : Batch<'S, 'M>[]) =
         enqueueIncoming items
 
     /// Supplies an incoming Batch for holding and forwarding to scheduler at the right time
-    member x.Ingest(batch : SubmissionBatch<'S, 'M>) =
+    member x.Ingest(batch : Batch<'S, 'M>) =
         x.Ingest [| batch |]

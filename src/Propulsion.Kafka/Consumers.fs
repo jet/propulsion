@@ -60,7 +60,7 @@ module private Binding =
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'Info>
     (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_, _>, closeConsumer,
-        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.SubmissionBatch<TopicPartition, 'Info>[] -> unit,
+        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.Batch<TopicPartition, 'Info>[] -> unit,
         maxBatchSize, emitInterval, statsInterval) =
     let acc = Dictionary<TopicPartition, _>()
     let remainingIngestionWindow = intervalTimer emitInterval
@@ -73,7 +73,7 @@ type KafkaIngestionEngine<'Info>
     let maybeLogStats =
         let due = intervalCheck statsInterval
         fun () -> if due () then dumpStats ()
-    let mkSubmission topicPartition span : Submission.SubmissionBatch<'S, 'M> =
+    let mkSubmission topicPartition span : Submission.Batch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
             try consumer.StoreOffset(span.highWaterMark)
@@ -99,7 +99,7 @@ type KafkaIngestionEngine<'Info>
         match acc.Count with
         | 0 -> ()
         | topicPartitionsWithMessagesThisInterval ->
-            let tmp = ResizeArray<Submission.SubmissionBatch<_, 'Info>>(topicPartitionsWithMessagesThisInterval)
+            let tmp = ResizeArray<Submission.Batch<_, 'Info>>(topicPartitionsWithMessagesThisInterval)
             for KeyValue(tp, span) in acc do
                 tmp.Add(mkSubmission tp span)
             acc.Clear()
@@ -202,7 +202,7 @@ type ParallelConsumer private () =
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
         let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<_, 'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
+        let mapBatch onCompletion (x : Submission.Batch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
             { source = x.source; messages = x.messages; onCompletion = onCompletion'; }
         let submitBatch (x : Parallel.Scheduling.Batch<_, _>) : int =
@@ -245,9 +245,9 @@ module Core =
             let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(
                 dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
+            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Streams.Scheduling.Batch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
-                Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
+                Streams.Scheduling.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
             let submitter =
                 Streams.Projector.StreamsSubmitter.Create
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
@@ -503,8 +503,8 @@ type BatchesConsumer =
             dispatcher,
             maxBatches = maxBatches,
             ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Streams.Scheduling.Batch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
+            Streams.Scheduling.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
         let submitter = Streams.Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)

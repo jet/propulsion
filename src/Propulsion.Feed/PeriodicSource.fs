@@ -6,7 +6,6 @@ namespace Propulsion.Feed
 
 open FSharp.Control
 open Propulsion
-open Propulsion.Streams
 open System
 
 /// Int64.MaxValue = 9223372036854775807
@@ -53,9 +52,9 @@ type PeriodicSource
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
         crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        startIngester,
         ?renderPos) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, startIngester, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {
@@ -74,11 +73,11 @@ type PeriodicSource
         let mutable elapsed = TimeSpan.Zero
         for ts, xs in crawl trancheId do
             elapsed <- elapsed + ts
-            let streamEvents = seq {
+            let streamEvents : Propulsion.Streams.StreamEvent<_> seq = seq {
                 for si in xs ->
                     let i = index
                     index <- index + 1L
-                    { StreamEvent.stream = si.streamName; event = mkTimelineEvent (i, si.eventData, si.context) }
+                    { stream = si.streamName; event = mkTimelineEvent (i, si.eventData, si.context) }
             }
             buffer.AddRange(streamEvents)
             match buffer.Count - 1 with

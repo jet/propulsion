@@ -8,12 +8,12 @@ open System
 
 type ParallelProducerSink =
     static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item = async {
             let key, value = render item
             do! producer.Produce (key, value) }
-        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats=producer.DumpStats)
+        Parallel.ParallelSink.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats=producer.DumpStats)
 
 type StreamsProducerSink =
 
@@ -35,7 +35,7 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
             let handle (stream : StreamName, span) = async {
                 let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
@@ -72,7 +72,7 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
             let prepare (stream, span) = async {
                 let! k, v = prepare (stream, span)
                 return Some (k, v), ()

@@ -17,7 +17,7 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
 
     let commitIfDirty ct = task {
         match Volatile.Read &validatedPos with
-        | Some (v,f) when Volatile.Read(&committedEpoch) <> Some v ->
+        | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
             try do! Async.StartAsTask(f, cancellationToken = ct)
                 Volatile.Write(&committedEpoch, Some v)
                 result.Trigger (Choice1Of2 v)
@@ -26,8 +26,8 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
 
     [<CLIEvent>] member _.Result = result.Publish
 
-    member _.Post(version,f) =
-        Volatile.Write(&validatedPos,Some (version, f))
+    member _.Post(version, f) =
+        Volatile.Write(&validatedPos, Some (version, f))
 
     member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
@@ -44,6 +44,9 @@ type private InternalMessage =
     | ProgressResult of Choice<int64, exn>
     /// Internal message for stats purposes
     | Added of streams : int * events : int
+
+[<Struct; NoComparison; NoEquality>]
+type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : Async<unit> }
 
 type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
@@ -81,15 +84,15 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
 
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
-type Ingester<'Items, 'Batch> private
-    (   stats : Stats, maxRead,
-        makeBatch : (unit -> unit) -> 'Items -> 'Batch * (int * int),
-        submit : 'Batch -> unit,
+type Ingester<'Items> private
+    (   stats : Stats, maxReadAhead,
+        // forwards a set of items and the completion callback, yielding streams count * event count
+        submitBatch : 'Items * (unit -> unit) -> int * int,
         cts : CancellationTokenSource) =
 
-    let maxRead = Sem maxRead
+    let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
-        let c = Channel.unboundedSwSr
+        let c = Channel.unboundedSwSr<Batch<'Items>>
         Channel.awaitRead c, Channel.apply c, Channel.write c
     let awaitMessage, applyMessages, enqueueMessage =
         let c = Channel.unboundedSr
@@ -97,15 +100,14 @@ type Ingester<'Items, 'Batch> private
 
     let progressWriter = ProgressWriter<_>()
 
-    let handleIncoming (epoch, checkpoint, items, outerMarkCompleted) =
+    let handleIncoming (batch : Batch<'Items>) =
         let markCompleted () =
             maxRead.Release()
-            outerMarkCompleted |> Option.iter (fun f -> f ()) // we guarantee this happens before checkpoint can be called
-            enqueueMessage <| Validated epoch
-            progressWriter.Post(epoch, checkpoint)
-        let batch, (streamCount, itemCount) = makeBatch markCompleted items
-        submit batch
-        enqueueMessage <| Added (streamCount,itemCount)
+            batch.onCompletion () // we guarantee this happens before checkpoint can be called
+            enqueueMessage <| Validated batch.epoch
+            progressWriter.Post(batch.epoch, batch.checkpoint)
+        let streamCount, itemCount = submitBatch (batch.items, markCompleted)
+        enqueueMessage <| Added (streamCount, itemCount)
 
     member private _.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
@@ -121,10 +123,10 @@ type Ingester<'Items, 'Batch> private
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Item>(log, partitionId, maxRead, makeBatch, submit, statsInterval) =
+    static member Start<'Items>(log, partitionId, maxRead, submitBatch, statsInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let instance = Ingester<_, _>(stats, maxRead, makeBatch, submit, cts)
+        let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts)
         let pump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("Exiting {name}", "ingester") }
@@ -133,11 +135,9 @@ type Ingester<'Items, 'Batch> private
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
     /// Returns (reads in flight, maximum reads in flight)
-    /// markCompleted will (if supplied) be triggered when the supplied batch has completed processing
-    ///   (but prior to the calling of the checkpoint method, which will take place asynchronously)
-    member _.Submit(epoch, checkpoint, items, ?markCompleted) = async {
-        // If we've read it, feed it into the queue for unpacking
-        enqueueIncoming (epoch, checkpoint, items, markCompleted)
+    member _.Ingest(batch : Batch<'Items>) = async {
+        // It's been read... feed it into the queue for unpacking
+        enqueueIncoming batch
         // ... but we might hold off on yielding if we're at capacity
         do! maxRead.Await(cts.Token)
         return maxRead.State }

@@ -14,7 +14,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.MemoryStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.MemoryStore.svg)](https://www.nuget.org/packages/Propulsion.MemoryStore/). Provides bindings to `Equinox.MemoryStore`. [Depends](https://www.fuget.org/packages/Propulsion.MemoryStore) on `Equinox.MemoryStore` v `4.0.0`, `FsCodec.Box`, `Propulsion`
 
-    1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.ProjectorPipeline`, in order to enable maximum speed integration testing.
+    1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.Sink`, in order to enable maximum speed integration testing.
 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
@@ -45,7 +45,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 - `Propulsion.DynamoStore.Constructs` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Constructs.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Constructs/) AWS Lambda CDK deploy logic. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Constructs) on `Amazon.CDK.Lib` (and, indirectly, on the binary assets included as content in `Propulsion.DynamoStore.Lambda`)
 
 - `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStoreDb) on `Equinox.EventStoreDb` v `4.0.0`, `Serilog`
-    1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.ProjectorPipeline` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
+    1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.Sink` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
     2. `EventStoreSink`: writing to `Equinox.EventStoreDb` v `4.0.0`
   
     (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
@@ -60,7 +60,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.SqlStreamStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.SqlStreamStore.svg)](https://www.nuget.org/packages/Propulsion.SqlStreamStore/). Provides bindings to [SqlStreamStore](https://github.com/SQLStreamStore/SQLStreamStore), maintaining checkpoints in a SQL table using Dapper [Depends](https://www.fuget.org/packages/Propulsion.SqlStreamStore) on `Propulsion.Feed`, `SqlStreamStore`, `Dapper` v `2.0`, `Microsoft.Data.SqlClient` v `1.1.3`, `Serilog`
 
-  1. `SqlStreamStoreSource`: reading from a SqlStreamStore `$all` stream into a `Propulsion.ProjectorPipeline`
+  1. `SqlStreamStoreSource`: reading from a SqlStreamStore `$all` stream into a `Propulsion.Sink`
   2. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Dapper`, `Microsoft.Data.SqlClient`
 
   (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)

@@ -29,8 +29,7 @@ module private Impl =
 type EventStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
-        sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, startIngester,
         // If the Handler does not utilize the bodies of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?hydrateBodies,
         // TODO borrow impl of determining tail from Propulsion.EventStore, pass that to base as ?establishOrigin
@@ -38,4 +37,4 @@ type EventStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Internal.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)
+            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, startIngester)

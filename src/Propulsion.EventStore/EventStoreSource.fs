@@ -44,7 +44,7 @@ module Mapping =
 
 type EventStoreSource =
     static member Run
-        (   log : Serilog.ILogger, sink : Propulsion.ProjectorPipeline<_>, checkpoints : Checkpoint.CheckpointSeries,
+        (   log : Serilog.ILogger, sink : Propulsion.Sink<_>, checkpoints : Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
             maxReadAhead, statsInterval) = async {
         let conn = connect ()

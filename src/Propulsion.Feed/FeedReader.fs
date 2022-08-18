@@ -106,12 +106,8 @@ type FeedReader
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
-        submitBatch :
-            int64 // unique tag used to identify batch in internal logging
-            * Async<unit> // commit callback. Internal checkpointing dictates when it will be called.
-            * seq<Propulsion.Streams.StreamEvent<byte[]>>
-            // Yields (current batches pending,max readAhead) for logging purposes
-            -> Async<int*int>,
+        // Yields (current batches pending,max readAhead) for logging purposes
+        submitBatch : Ingestion.Batch<Propulsion.Streams.StreamEvent<byte[]> seq> -> Async<int*int>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -145,7 +141,7 @@ type FeedReader
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
         let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq = int64 batch.checkpoint, Seq.ofArray batch.items
         let ingestTimer = System.Diagnostics.Stopwatch.StartNew()
-        let! cur, max = submitBatch (epoch, commit batch.checkpoint, streamEvents)
+        let! cur, max = submitBatch { epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }
 
     member _.Pump(initialPosition : Position) = async {

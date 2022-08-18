@@ -45,24 +45,18 @@ module MemoryStoreLogger =
         if log.IsEnabled Serilog.Events.LogEventLevel.Debug then Observable.subscribe aux source
         else { new IDisposable with member _.Dispose() = () }
 
-module TimelineEvent =
-
-    let mapEncoded =
-        let mapBodyToBytes = (fun (x : ReadOnlyMemory<byte>) -> x.ToArray())
-        FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
-
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
-                               mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<byte array>,
-                               sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
-    let ingester = sink.StartIngester(log, 0)
+type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
+                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<byte array>,
+                           sink : Streams.Sink) =
+    let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
 
     // epoch index of most recently prepared and completed submissions
     let mutable prepared, completed = -1L, -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
-        let c = Channel.unboundedSr
+        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<byte array> seq>>
         Channel.write c, Channel.awaitRead c, c.Reader.TryRead
 
     let handleCommitted (stream, events : FsCodec.ITimelineEvent<_> seq) =
@@ -74,7 +68,7 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
             Volatile.Write(&completed, epoch)
         // We don't have anything Async to do, so we pass a null checkpointing function
         let checkpoint = async { () }
-        enqueueSubmission (epoch, checkpoint, events, markCompleted)
+        enqueueSubmission { epoch = epoch; checkpoint = checkpoint; items = events; onCompletion = markCompleted }
 
     let storeCommitsSubscription =
         let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
@@ -88,7 +82,7 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
             while more do
                 match tryDequeueSubmission () with
                 | false, _ -> more <- false
-                | true, (epoch, checkpoint, events, markCompleted) -> do! ingester.Submit(epoch, checkpoint, events, markCompleted) |> Async.Ignore
+                | true, batch -> do! ingester.Ingest(batch) |> Async.Ignore
             do! awaitSubmissions ct :> Task }
 
     member x.Start() =
@@ -154,8 +148,13 @@ type MemoryStoreSource<'F, 'B>(log, store : Equinox.MemoryStore.VolatileStore<'F
                 return! sink.AwaitShutdown()
     }
 
+module TimelineEvent =
+
+    let mapEncoded =
+        let mapBodyToBytes = (fun (x : ReadOnlyMemory<byte>) -> x.ToArray())
+        FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
+
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource<'B>(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter,
-                           sink : ProjectorPipeline<Ingestion.Ingester<Propulsion.Streams.StreamEvent<byte[]> seq, 'B>>) =
-    inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>), 'B>(log, store, filter, TimelineEvent.mapEncoded, sink)
+type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter, sink) =
+    inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>)>(log, store, filter, TimelineEvent.mapEncoded, sink)

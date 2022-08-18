@@ -112,7 +112,7 @@ module Pruner =
 type CosmosStorePruner =
 
     /// DANGER: this API DELETES events - use with care
-    /// Starts a <c>StreamsProjectorPipeline</c> that prunes _all submitted events from the supplied <c>context</c>_
+    /// Starts a <c>Sink</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
         (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
             // Default 5m
@@ -125,7 +125,7 @@ type CosmosStorePruner =
             ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
-        : Propulsion.ProjectorPipeline<_> =
+        : Propulsion.Sink<_> =
         let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 10.)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
@@ -137,7 +137,7 @@ type CosmosStorePruner =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, idleDelay = idleDelay)
-        Propulsion.Streams.Projector.StreamsProjectorPipeline.Start(
+        Propulsion.Streams.Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

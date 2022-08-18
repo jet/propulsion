@@ -3,7 +3,6 @@ namespace Propulsion.Feed.Internal
 open FSharp.Control
 open Propulsion
 open Propulsion.Feed
-open Propulsion.Streams
 open System
 open System.Threading.Tasks
 
@@ -11,7 +10,7 @@ open System.Threading.Tasks
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        startIngester,
         renderPos : Position -> string,
         ?logCommitFailure) =
 
@@ -19,8 +18,8 @@ type FeedSourceBase internal
 
     let pumpPartition crawl partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
-        let ingester : Ingestion.Ingester<_, _> = sink.StartIngester(log, partitionId)
-        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Submit, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
+        let ingester : Ingestion.Ingester<_> = startIngester (log, partitionId)
+        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingester.Ingest, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
         try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (match establishOrigin with None -> None | Some f -> Some (f trancheId)))
             log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                             sourceId, trancheId, renderPos pos, freq.TotalMinutes)
@@ -51,12 +50,12 @@ type TailingFeedSource
         sourceId, tailSleepInterval : TimeSpan,
         crawl : TrancheId * Position -> AsyncSeq<TimeSpan * Batch<_>>,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        startIngester,
         renderPos,
         ?logReadFailure,
         ?readFailureSleepInterval : TimeSpan,
         ?logCommitFailure) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure)
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, startIngester, renderPos, ?logCommitFailure = logCommitFailure)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
         if wasLast then
@@ -79,7 +78,7 @@ type TailingFeedSource
         let ct = cts.Token
 
         let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-        let propagateExceptionToPipelineOutcome f = async { try do! f with e -> tcs.SetException(e) }
+        let propagateExceptionToPipelineOutcome inner = async { try do! inner with e -> tcs.SetException(e) }
 
         let startPump () = Async.Start(propagateExceptionToPipelineOutcome pump, cancellationToken = ct)
 
@@ -101,7 +100,7 @@ type AllFeedSource
         sourceId, tailSleepInterval : TimeSpan,
         readBatch : Position -> Async<Batch<_>>,
         checkpoints : IFeedCheckpointStore,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        startIngester,
         // Custom checkpoint rendering logic
         ?renderPos,
         // Custom logic to derive an origin position if the checkpoint store doesn't have one
@@ -113,7 +112,7 @@ type AllFeedSource
                   let sw = System.Diagnostics.Stopwatch.StartNew()
                   let! b = readBatch pos
                   yield sw.Elapsed, b } ),
-            checkpoints, establishOrigin, sink,
+            checkpoints, establishOrigin, startIngester,
             renderPos = defaultArg renderPos string)
 
     member _.Pump() =
@@ -141,9 +140,9 @@ type FeedSource
         checkpoints : IFeedCheckpointStore,
         // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position -> Async<Page<byte[]>>,
-        sink : ProjectorPipeline<Ingestion.Ingester<seq<StreamEvent<byte[]>>, Submission.SubmissionBatch<int,StreamEvent<byte[]>>>>,
+        startIngester,
         ?renderPos) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, startIngester, defaultArg renderPos string)
 
     let crawl trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]

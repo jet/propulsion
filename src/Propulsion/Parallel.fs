@@ -7,15 +7,8 @@ open Serilog
 open System
 open System.Collections.Concurrent
 open System.Collections.Generic
-open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
-
-[<AutoOpen>]
-module private Helpers =
-
-    /// Can't figure out a cleaner way to shim it :(
-    let tryPeek (x : Queue<_>) = if x.Count = 0 then None else Some (x.Peek())
 
 /// Deals with dispatch and result handling, triggering completion callbacks as batches reach completed state
 module Scheduling =
@@ -68,7 +61,7 @@ module Scheduling =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> async {
-                    let sw = Stopwatch.StartNew()
+                    let sw = System.Diagnostics.Stopwatch.StartNew()
                     try let! res = handle item
                         let elapsed = sw.Elapsed
                         match res with
@@ -126,12 +119,12 @@ module Scheduling =
             while more do
                 more <- false
                 for queue in active.Values do
-                    match tryPeek queue with
-                    | None // empty
-                    | Some Busy -> () // still working
-                    | Some (Faulted exns) -> // outer layers will react to this by tearing us down
+                    match queue.TryPeek() with
+                    | false, _ // empty
+                    | true, Busy -> () // still working
+                    | true, Faulted exns -> // outer layers will react to this by tearing us down
                         abend (AggregateException(exns))
-                    | Some (Completed batchProcessingDuration) -> // call completion function asap
+                    | true, Completed batchProcessingDuration -> // call completion function asap
                         let partitionId, markCompleted, itemCount =
                             let { batch = { source = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
                             p, f, msgs.LongLength
@@ -161,10 +154,10 @@ module Scheduling =
         let reprovisionDispatcher () =
             let mutable more, worked = true, false
             while more do
-                match tryPeek waiting with
-                | None -> // Crack open a new batch if we don't have anything ready
+                match waiting.TryPeek() with
+                | false, _ -> // Crack open a new batch if we don't have anything ready
                     more <- tryPrepareNext ()
-                | Some pending -> // Dispatch until we reach capacity if we do have something
+                | true, pending -> // Dispatch until we reach capacity if we do have something
                     if tryDispatch pending then
                         worked <- true
                         waiting.Dequeue() |> ignore
@@ -188,13 +181,14 @@ module Scheduling =
 type ParallelIngester<'Item> =
 
     static member Start(log, partitionId, maxRead, submit, statsInterval) =
-        let makeBatch onCompletion (items : 'Item seq) =
+        let submitBatch (items : 'Item seq, onCompletion) =
             let items = Array.ofSeq items
-            let batch : Submission.SubmissionBatch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
-            batch,(items.Length,items.Length)
-        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, partitionId, maxRead, makeBatch, submit, statsInterval)
+            let batch : Submission.Batch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
+            submit batch
+            items.Length, items.Length
+        Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
-type ParallelProjector =
+type ParallelSink =
 
     static member Start
             (    log : ILogger, maxReadAhead, maxDop, handle,
@@ -202,14 +196,14 @@ type ParallelProjector =
                  // Default 5
                  ?maxSubmissionsPerPartition, ?logExternalStats,
                  ?ingesterStatsInterval)
-            : ProjectorPipeline<_> =
+            : Sink<_> =
 
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
         let dispatcher = Scheduling.Dispatcher maxDop
         let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
 
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
+        let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
             let onCompletion () = x.onCompletion(); onCompletion()
             { source = x.source; onCompletion = onCompletion; messages = x.messages}
 
@@ -219,4 +213,4 @@ type ParallelProjector =
 
         let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-        ProjectorPipeline.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)
+        Sink.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)

@@ -33,7 +33,7 @@ type Pipeline (task : Task<unit>, triggerStop) =
         use _ = ct.Register(fun () -> x.Stop())
         return! x.AwaitShutdown() }
 
-type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
+type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
     member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
@@ -78,4 +78,4 @@ type ProjectorPipeline<'Ingester> private (task : Task<unit>, triggerStop, start
 
         let task = Task.Run<unit>(supervise)
 
-        new ProjectorPipeline<_>(task, triggerStop, startIngester)
+        new Sink<_>(task, triggerStop, startIngester)

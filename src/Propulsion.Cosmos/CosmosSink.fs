@@ -167,7 +167,7 @@ module Internal =
 
 type CosmosSink =
 
-    /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>context</c>
+    /// Starts a <c>Sink</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
         (   log : ILogger, maxReadAhead, cosmosContexts, maxConcurrentStreams,
             // Default 5m
@@ -181,7 +181,7 @@ type CosmosSink =
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
@@ -192,7 +192,7 @@ type CosmosSink =
                 log, cosmosContexts, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents=maxEvents, ?maxBytes=maxBytes, prioritizeLargePayloads = true)
-        Projector.StreamsProjectorPipeline.Start(
+        Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

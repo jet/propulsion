@@ -848,7 +848,7 @@ module Scheduling =
                 stats.TryDumpState(dispatcherState, dumpStreams streams, (dt, ft, mt, it, st, zt))
 
     [<NoComparison; NoEquality>]
-    type StreamsBatch<'Format> private (onCompletion, buffer, reqs) =
+    type Batch<'Format> private (onCompletion, buffer, reqs) =
         let mutable buffer = Some buffer
         static member Create(onCompletion, items : StreamEvent<'Format> seq) =
             let buffer, reqs = Streams<'Format>(), Dictionary<FsCodec.StreamName, int64>()
@@ -860,14 +860,14 @@ module Scheduling =
                 | (false, _), required -> reqs[item.stream] <- required
                 | (true, actual), required when actual < required -> reqs[item.stream] <- required
                 | (true, _), _ -> () // replayed same or earlier item
-            let batch = StreamsBatch(onCompletion, buffer, reqs)
+            let batch = Batch(onCompletion, buffer, reqs)
             batch, (batch.RemainingStreamsCount, itemCount)
 
         member _.OnCompletion = onCompletion
         member _.Reqs = reqs :> seq<KeyValuePair<FsCodec.StreamName, int64>>
         member _.RemainingStreamsCount = reqs.Count
         member _.TryTakeStreams() = let t = buffer in buffer <- None; t
-        member _.TryMerge(other : StreamsBatch<_>) =
+        member _.TryMerge(other : Batch<_>) =
             match buffer, other.TryTakeStreams() with
             | Some x, Some y -> x.Merge(y); true
             | Some _, None -> false
@@ -906,7 +906,7 @@ module Scheduling =
         let maxCycles, maxBatches, slipstreamingEnabled = defaultArg maxCycles 3, defaultArg maxBatches 1, defaultArg enableSlipstreaming false
         let writeResult, awaitResults, tryApplyResults = let c = Channel.unboundedSr in Channel.write c >> ignore, Channel.awaitRead c, Channel.apply c
         let writePending, pendingCount, awaitPending, tryReadPending =
-            let c = Channel.unboundedSw<StreamsBatch<_>> // Actually SingleReader too, but Count throws if you use that
+            let c = Channel.unboundedSw<Batch<_>> // Actually SingleReader too, but Count throws if you use that
             Channel.write c >> ignore, (fun () -> c.Reader.Count), Channel.awaitRead c, Channel.tryRead c
         let streams = StreamStates<byte[]>()
         let progressState = Progress.ProgressState()
@@ -959,7 +959,7 @@ module Scheduling =
                     reqs[item.Key] <- item.Value
             progressState.AppendBatch(markCompleted, reqs)
             feedStats <| Added (reqs.Count, skipCount, count)
-        let ingestBatch (batch : StreamsBatch<_>) () = ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
+        let ingestBatch (batch : Batch<_>) () = ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
 
         let maybePurge () =
             // After we've dumped the state, it may also be due for pruning
@@ -1037,7 +1037,7 @@ module Scheduling =
                     do! Task.WhenAny(wakeConditions) :> Task
                     zt <- sw.Elapsed }
 
-        member _.Submit(x : StreamsBatch<_>) =
+        member _.Submit(x : Batch<_>) =
             writePending x
 
     type StreamSchedulingEngine =
@@ -1105,22 +1105,23 @@ module Projector =
     type StreamsIngester =
 
         static member Start(log, partitionId, maxRead, submit, statsInterval) =
-            let makeBatch onCompletion (items : StreamEvent<_> seq) =
+            let submitBatch (items : StreamEvent<_> seq, onCompletion) =
                 let items = Array.ofSeq items
                 let streams = HashSet(seq { for x in items -> x.stream })
-                let batch : Submission.SubmissionBatch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
-                batch, (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq, Submission.SubmissionBatch<_, StreamEvent<_>>>.Start(log, partitionId, maxRead, makeBatch, submit, statsInterval)
+                let batch : Submission.Batch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
+                submit batch
+                streams.Count, items.Length
+            Ingestion.Ingester<StreamEvent<_> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
     type StreamsSubmitter =
 
         static member Create
             (   log : ILogger, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval,
                 ?disableCompaction) =
-            let submitBatch (x : Scheduling.StreamsBatch<_>) : int =
+            let submitBatch (x : Scheduling.Batch<_>) : int =
                 submitStreamsBatch x
                 x.RemainingStreamsCount
-            let tryCompactQueueImpl (queue : Queue<Scheduling.StreamsBatch<_>>) =
+            let tryCompactQueueImpl (queue : Queue<Scheduling.Batch<_>>) =
                 let mutable acc, worked = None, false
                 for x in queue do
                     match acc with
@@ -1130,7 +1131,7 @@ module Projector =
             let tryCompactQueue = if defaultArg disableCompaction false then None else Some tryCompactQueueImpl
             Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval, ?tryCompactQueue=tryCompactQueue)
 
-    type StreamsProjectorPipeline =
+    type Pipeline =
 
         static member Start
             (   log : ILogger, pumpDispatcher, pumpScheduler, maxReadAhead, submitStreamsBatch, statsInterval,
@@ -1141,13 +1142,13 @@ module Projector =
                 ?maxSubmissionsPerPartition,
                 ?ingesterStatsInterval) =
             let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
-            let mapBatch onCompletion (x : Submission.SubmissionBatch<_, StreamEvent<_>>) : Scheduling.StreamsBatch<_> =
+            let mapBatch onCompletion (x : Submission.Batch<_, StreamEvent<_>>) : Scheduling.Batch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
-                Scheduling.StreamsBatch.Create(onCompletion, x.messages) |> fst
+                Scheduling.Batch.Create(onCompletion, x.messages) |> fst
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition (maxReadAhead - maxReadAhead/5) // NOTE needs to handle overflow if maxReadAhead is Int32.MaxValue
             let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval)
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-            ProjectorPipeline.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump, startIngester)
+            Sink.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump, startIngester)
 
 /// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
@@ -1176,7 +1177,10 @@ module SpanResult =
         | PartiallyProcessed count -> span.index + int64 count
         | OverrideWritePosition index -> index
 
-type StreamsProjector =
+type StreamEvent = StreamEvent<byte array>
+type Sink = Sink<Ingestion.Ingester<StreamEvent seq>>
+
+type StreamsSink =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
     /// and a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
@@ -1195,7 +1199,7 @@ type StreamsProjector =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
             ?ingesterStatsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let streamScheduler =
             Scheduling.StreamSchedulingEngine.Create<_, 'Progress, 'Outcome>
@@ -1203,7 +1207,7 @@ type StreamsProjector =
                     prepare, handle, toIndex,
                     (fun struct (s, totalPurged) logger -> s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)),
                     ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Projector.StreamsProjectorPipeline.Start(
+        Projector.Pipeline.Start(
                 log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
                 ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
                 ?ingesterStatsInterval = ingesterStatsInterval)
@@ -1228,11 +1232,11 @@ type StreamsProjector =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
             ?ingesterStatsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let prepare (streamName, span) =
             let stats = Buffering.StreamSpan.stats span
             stats, (streamName, span)
-        StreamsProjector.StartEx<SpanResult, 'Outcome>(
+        StreamsSink.StartEx<SpanResult, 'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
@@ -1258,11 +1262,11 @@ type StreamsProjector =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
             ?ingesterStatsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let handle (streamName, span : StreamSpan<_>) = async {
             let! res = handle (streamName, span)
             return SpanResult.AllProcessed, res }
-        StreamsProjector.Start<'Outcome>(
+        StreamsSink.Start<'Outcome>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
@@ -1324,7 +1328,7 @@ module Sync =
                 // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
                 // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
                 ?purgeInterval)
-            : ProjectorPipeline<_> =
+            : Sink<_> =
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
@@ -1355,5 +1359,5 @@ module Sync =
                 Scheduling.StreamSchedulingEngine<int64 * (EventMetrics * TimeSpan) * 'Outcome, (EventMetrics * TimeSpan) * 'Outcome, EventMetrics * exn>
                     (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
 
-            Projector.StreamsProjectorPipeline.Start(
+            Projector.Pipeline.Start(
                 log, itemDispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)

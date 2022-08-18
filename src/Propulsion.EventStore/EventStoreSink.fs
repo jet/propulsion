@@ -166,7 +166,7 @@ module Internal =
 
 type EventStoreSink =
 
-    /// Starts a <c>StreamsProjectorPipeline</c> that ingests all submitted events into the supplied <c>connections</c>
+    /// Starts a <c>Sink</c> that ingests all submitted events into the supplied <c>connections</c>
     static member Start
         (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams,
             // Default 5m
@@ -180,14 +180,14 @@ type EventStoreSink =
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
             ?ingesterStatsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
         let dumpStats struct (s : Scheduling.StreamStates<_>, totalPurged) logger =
             s.Dump(logger, totalPurged, Buffering.StreamState.eventsSize)
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStats, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
-        Projector.StreamsProjectorPipeline.Start(
+        Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

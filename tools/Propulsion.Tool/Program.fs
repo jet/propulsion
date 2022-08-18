@@ -328,7 +328,7 @@ module Project =
                 | Some producer ->
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
                     let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
-            Propulsion.Streams.StreamsProjector.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = a.IdleDelay)
+            Propulsion.Streams.StreamsSink.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = a.IdleDelay)
         let source =
             match storeArgs with
             | Choice1Of2 sa ->
@@ -354,7 +354,7 @@ module Project =
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
+                    checkpoints, sink.StartIngester, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
                     ?trancheIds = indexFilter
                 ).Start()
         let work = [
