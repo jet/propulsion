@@ -181,8 +181,6 @@ module StreamName =
         | FsCodec.StreamName.CategoryAndId ("", aggregateId) -> aggregateId
         | FsCodec.StreamName.CategoryAndId (category, _) -> category
 
-#nowarn "52" // see tmp.Sort
-
 module Progress =
 
     type [<Struct; NoComparison; NoEquality>] internal BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
@@ -212,27 +210,24 @@ module Progress =
 
         member _.IsEmpty = pending.Count = 0
         // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
-        member _.InScheduledOrder getStreamWeight : seq<FsCodec.StreamName> =
+        member _.InScheduledOrder(getStreamWeight : (FsCodec.StreamName -> int64) option) : seq<FsCodec.StreamName> =
             trim ()
             // sortBuffer is used once per invocation, but the result is lazy so we can only clear it on entry
             sortBuffer.Clear()
-            let mutable batch, sortRequired = 0, false
-            let weight =
-                // Within the head batch, expedite work on longest streams, where requested
-                match getStreamWeight with
-                | None -> fun _s -> 0
-                | Some f -> fun s -> if batch = 0 then sortRequired <- true; -f s |> int
-                                     else 0 // For anything other than the head batch, submitted order is just fine
+            let mutable batch = 0
+            let weight = match getStreamWeight with None -> (fun _s -> 0) | Some f -> (fun s -> -f s |> int)
             for x in pending do
                 for s in x.streamToRequiredIndex.Keys do
                     if streamsBuffer.Add s then
-                        sortBuffer.Add((struct (s, batch, weight s)))
+                        // Within the head batch, expedite work on longest streams, where requested
+                        let w = if batch = 0 then weight s else 0 // For anything other than the head batch, submitted order is just fine
+                        sortBuffer.Add((struct (s, batch, w)))
+                if batch = 0 && sortBuffer.Count > 0 then
+                    let c = Comparer<_>.Default
+                    sortBuffer.Sort(fun struct (_, _ab, _aw) struct (_, _bb, _bw) -> c.Compare(struct(_ab, _aw), struct(_bb, _bw)))
                 batch <- batch + 1
             // We reuse this buffer next time around, but clear it now as it has no further use
             streamsBuffer.Clear()
-            if sortRequired then
-                let c = Comparer<_>.Default
-                sortBuffer.Sort(fun struct (_, _ab, _aw) struct (_, _bb, _bw) -> c.Compare(struct(_ab, _aw), struct(_bb, _bw)))
             sortBuffer |> Seq.map (fun struct(s, _, _) -> s)
 
 module Buffering =
@@ -433,8 +428,9 @@ module Scheduling =
         let purge () =
             let mutable purged = 0
             for x in states do
-                if x.Value.IsPurgeable then
-                    states.Remove x.Key |> ignore // Safe to do while iterating
+                let v = x.Value
+                if v.IsPurgeable then
+                    states.Remove x.Key |> ignore // Safe to do while iterating on netcore >=3.0
                     purged <- purged + 1
             states.Count, purged
 

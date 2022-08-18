@@ -135,7 +135,7 @@ module Internal =
 
         static member Create(
             log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams,
-            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes)
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes, ?prioritizeLargePayloads)
             : Scheduling.StreamSchedulingEngine<_, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
@@ -163,7 +163,7 @@ module Internal =
             Scheduling.StreamSchedulingEngine(
                 dispatcher,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                enableSlipstreaming = true)
+                enableSlipstreaming = true, ?prioritizeLargePayloads = prioritizeLargePayloads)
 
 type CosmosSink =
 
@@ -191,7 +191,7 @@ type CosmosSink =
             Internal.StreamSchedulingEngine.Create(
                 log, cosmosContexts, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?maxEvents=maxEvents, ?maxBytes=maxBytes)
+                ?maxEvents=maxEvents, ?maxBytes=maxBytes, prioritizeLargePayloads = true)
         Projector.StreamsProjectorPipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,

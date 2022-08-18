@@ -11,7 +11,7 @@ let mkDictionary xs = Dictionary<StreamName,int64>(dict xs)
 
 let [<Fact>] ``Empty has zero streams pending or progress to write`` () =
     let sut = Progress.ProgressState<_>()
-    let queue = sut.InScheduledOrder(fun _ -> 0L)
+    let queue = sut.InScheduledOrder(None)
     test <@ Seq.isEmpty queue @>
 
 let [<Fact>] ``Can add multiple batches with overlapping streams`` () =
