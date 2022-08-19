@@ -334,12 +334,11 @@ module Project =
             | Choice1Of2 sa ->
                 let monitored = sa.MonitoredContainer()
                 let leases = sa.ConnectLeases()
-                let maybeLogLagInterval = sa.MaybeLogLagInterval
-                let transformOrFilter = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents
-                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect transformOrFilter)
+                let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents (fun _ -> true)
+                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
                 Propulsion.CosmosStore.CosmosStoreSource.Start
                   ( Log.Logger, monitored, leases, group, observer,
-                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = maybeLogLagInterval)
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval)
             | Choice2Of2 sa ->
                 let (indexStore, indexFilter), maybeHydrate = sa.MonitoringParams()
                 let checkpoints =

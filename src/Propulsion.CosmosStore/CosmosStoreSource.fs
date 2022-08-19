@@ -121,7 +121,7 @@ type CosmosStoreSource =
         { new IChangeFeedObserver with
             member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
           interface IDisposable with
-            member _.Dispose() = dispose() }
+            member _.Dispose() = dispose () }
 #endif
 
 #if COSMOSV2
