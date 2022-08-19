@@ -59,7 +59,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<byte array> seq>>
         Channel.write c, Channel.awaitRead c, c.Reader.TryRead
 
-    let handleCommitted (stream, events : FsCodec.ITimelineEvent<_> seq) =
+    let handleStoreCommitted (stream, events : FsCodec.ITimelineEvent<_> seq) =
         let epoch = Interlocked.Increment &prepared
         let events = MemoryStoreLogger.toStreamEvents stream events
         MemoryStoreLogger.renderSubmit log (epoch, stream, events)
@@ -74,7 +74,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
         let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
         store.Committed
         |> Observable.filter (fst >> streamFilter)
-        |> Observable.subscribe (mapBody >> handleCommitted)
+        |> Observable.subscribe (mapBody >> handleStoreCommitted)
 
     member private _.Pump(ct : CancellationToken) = task {
         while not ct.IsCancellationRequested do

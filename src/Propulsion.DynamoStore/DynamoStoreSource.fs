@@ -169,7 +169,7 @@ module internal LoadMode =
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, startIngester,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
         // If the Handler does not utilize the bodies of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
@@ -187,7 +187,7 @@ type DynamoStoreSource
             checkpoints,
             (   if fromTail <> Some true then None
                 else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
-            startIngester,
+            sink,
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),

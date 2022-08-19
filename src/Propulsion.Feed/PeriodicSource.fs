@@ -51,10 +51,9 @@ type PeriodicSource
         // The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
         crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore,
-        startIngester,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
         ?renderPos) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, startIngester, defaultArg renderPos DateTimeOffsetPosition.render)
+    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {

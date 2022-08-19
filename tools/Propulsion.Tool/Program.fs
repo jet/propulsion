@@ -330,11 +330,12 @@ module Project =
                     let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
             Propulsion.Streams.StreamsSink.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, idleDelay = a.IdleDelay)
         let source =
+            let nullFilter _ = true
             match storeArgs with
             | Choice1Of2 sa ->
                 let monitored = sa.MonitoredContainer()
                 let leases = sa.ConnectLeases()
-                let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents (fun _ -> true)
+                let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents nullFilter
                 let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
                 Propulsion.CosmosStore.CosmosStoreSource.Start
                   ( Log.Logger, monitored, leases, group, observer,
@@ -347,13 +348,12 @@ module Project =
                 let loadMode =
                     match maybeHydrate with
                     | Some (context, streamsDop) ->
-                        let nullFilter _ = true
                         Propulsion.DynamoStore.LoadMode.Hydrated (nullFilter, streamsDop, context)
                     | None -> Propulsion.DynamoStore.LoadMode.All
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink.StartIngester, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
+                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
                     ?trancheIds = indexFilter
                 ).Start()
         let work = [

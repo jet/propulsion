@@ -12,7 +12,8 @@ open System.Threading.Tasks
 [<AutoOpen>]
 module Helpers =
 
-    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map (fun x -> struct (x.Key, x.Value)) |> Seq.sortByDescending ValueTuple.snd
+    let toValueTuple (x : KeyValuePair<_, _>) = struct (x.Key, x.Value)
+    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map toValueTuple |> Seq.sortByDescending ValueTuple.snd
     let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
 
     /// Gathers stats relating to how many items of a given partition have been observed

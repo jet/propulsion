@@ -30,7 +30,7 @@ module private Impl =
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, startIngester,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
         // If the Handler does not require the bodies of the events, we can save significant Read Capacity by not having to load them. Default: false
         ?hydrateBodies,
         // TODO borrow impl of determining tail from Propulsion.EventStoreDb
@@ -38,4 +38,4 @@ type SqlStreamStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Internal.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, startIngester)
+            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)

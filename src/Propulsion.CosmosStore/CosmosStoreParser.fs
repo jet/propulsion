@@ -37,7 +37,7 @@ module EquinoxSystemTextJsonParser =
         let hasProp (id : string) : bool = tryProp id |> ValueOption.isSome
 
         match tryProp "p" with
-        | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String &&  hasProp "i" && hasProp "n" && hasProp "e" ->
+        | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String && hasProp "i" && hasProp "n" && hasProp "e" ->
              let streamName = je.GetString() |> FsCodec.StreamName.parse // we expect all Equinox data to adhere to "{category}-{aggregateId}" form (or we'll throw)
              if streamFilter streamName then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
         | _ -> ValueNone
