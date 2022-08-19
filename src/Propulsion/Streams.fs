@@ -71,8 +71,7 @@ module Log =
         | None -> None
 
 /// A Single Event from an Ordered stream
-[<NoComparison; NoEquality>]
-type StreamEvent<'Format> = { stream : FsCodec.StreamName; event : FsCodec.ITimelineEvent<'Format> }
+type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
 
 /// Span of events from an Ordered Stream
 [<NoComparison; NoEquality>]
@@ -221,7 +220,7 @@ module Progress =
                     if streamsBuffer.Add s then
                         // Within the head batch, expedite work on longest streams, where requested
                         let w = if batch = 0 then weight s else 0 // For anything other than the head batch, submitted order is just fine
-                        sortBuffer.Add((struct (s, batch, w)))
+                        sortBuffer.Add(struct (s, batch, w))
                 if batch = 0 && sortBuffer.Count > 0 then
                     let c = Comparer<_>.Default
                     sortBuffer.Sort(fun struct (_, _ab, _aw) struct (_, _bb, _bw) -> c.Compare(struct(_ab, _aw), struct(_bb, _bw)))
@@ -372,8 +371,8 @@ module Buffering =
             if states.TryGetValue(stream, &current) then states[stream] <- StreamState.combine current state
             else states.Add(stream, state)
 
-        member _.Merge(item : StreamEvent<'Format>) =
-            merge item.stream (StreamState<'Format>.Create(ValueNone, [| { index = item.event.Index; events = [| item.event |] } |]))
+        member _.Merge(stream, event : FsCodec.ITimelineEvent<'Format>) =
+            merge stream (StreamState<'Format>.Create(ValueNone, [| { index = event.Index; events = [| event |] } |]))
 
         member _.Items = states :> seq<KeyValuePair<FsCodec.StreamName, StreamState<'Format>>>
 
@@ -850,15 +849,15 @@ module Scheduling =
     [<NoComparison; NoEquality>]
     type Batch<'Format> private (onCompletion, buffer, reqs) =
         let mutable buffer = Some buffer
-        static member Create(onCompletion, items : StreamEvent<'Format> seq) =
+        static member Create(onCompletion, streamEvents : StreamEvent<'Format> seq) =
             let buffer, reqs = Streams<'Format>(), Dictionary<FsCodec.StreamName, int64>()
             let mutable itemCount = 0
-            for item in items do
+            for struct (stream, event) in streamEvents do
                 itemCount <- itemCount + 1
-                buffer.Merge(item)
-                match reqs.TryGetValue(item.stream), item.event.Index + 1L with
-                | (false, _), required -> reqs[item.stream] <- required
-                | (true, actual), required when actual < required -> reqs[item.stream] <- required
+                buffer.Merge(stream, event)
+                match reqs.TryGetValue(stream), event.Index + 1L with
+                | (false, _), required -> reqs[stream] <- required
+                | (true, actual), required when actual < required -> reqs[stream] <- required
                 | (true, _), _ -> () // replayed same or earlier item
             let batch = Batch(onCompletion, buffer, reqs)
             batch, (batch.RemainingStreamsCount, itemCount)
@@ -909,9 +908,6 @@ module Scheduling =
             let c = Channel.unboundedSw<Batch<_>> // Actually SingleReader too, but Count throws if you use that
             Channel.write c >> ignore, (fun () -> c.Reader.Count), Channel.awaitRead c, Channel.tryRead c
         let streams = StreamStates<byte[]>()
-        let progressState = Progress.ProgressState()
-        let mutable totalPurged = 0
-
         let weight stream =
             match streams.TryGetItem stream with
             | ValueSome state when not state.IsEmpty ->
@@ -921,6 +917,9 @@ module Scheduling =
                 int64 acc
             | _ -> 0L
         let maybePrioritizeLargePayloads = if defaultArg prioritizeLargePayloads false then Some weight else None
+        let progressState = Progress.ProgressState()
+        let mutable totalPurged = 0
+
         let tryDispatch isSlipStreaming () =
             let hasCapacity = dispatcher.HasCapacity
             if not hasCapacity || (progressState.IsEmpty && not isSlipStreaming) then struct (false, hasCapacity) else
@@ -1107,7 +1106,7 @@ module Projector =
         static member Start(log, partitionId, maxRead, submit, statsInterval) =
             let submitBatch (items : StreamEvent<_> seq, onCompletion) =
                 let items = Array.ofSeq items
-                let streams = HashSet(seq { for x in items -> x.stream })
+                let streams = items |> Seq.map ValueTuple.fst |> HashSet
                 let batch : Submission.Batch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
                 submit batch
                 streams.Count, items.Length
@@ -1152,7 +1151,7 @@ module Projector =
 
 /// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
-/// Incoming <c>StreamEvents</c> with <c>Index</c>es prior to the Write Position implied by the result are proactively
+/// Incoming <c>StreamEvent</c>s with <c>Index</c>es prior to the Write Position implied by the result are proactively
 /// dropped from incoming buffers, yielding increased throughput due to reduction of redundant processing.
 type SpanResult =
    /// Indicates no events where processed.

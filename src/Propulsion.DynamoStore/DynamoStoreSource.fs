@@ -1,7 +1,5 @@
 ﻿namespace Propulsion.DynamoStore
 
-type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
-
 open Equinox.DynamoStore
 open FSharp.Control
 open System.Collections.Concurrent
@@ -93,7 +91,7 @@ module private Impl =
                             sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
-        let materializeSpans : Async<StreamEvent array> = async {
+        let materializeSpans : Async<Propulsion.Streams.StreamEvent array> = async {
             let loadsRequired =
                 buffer
                 |> Seq.distinctBy (fun x -> x.p)
@@ -115,7 +113,7 @@ module private Impl =
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
                         // TOCONSIDER revise logic to share session key etc to rule this out
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
-                        for e in events do ({ stream = IndexStreamId.toStreamName span.p; event = e } : StreamEvent) |] }
+                        for e in events -> IndexStreamId.toStreamName span.p, e |] }
         let mutable prevLoaded, batchIndex = 0L, 0
         let report (i : int option) len =
             if largeEnough && hydrating then

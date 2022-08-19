@@ -159,10 +159,10 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
         let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
         streams.Clear(); cats.Clear()
-        for x in events do
-            if streams.Add x.stream then
-                cats.Add (StreamName.categorize x.stream) |> ignore
-        let! (cur, max) = postBatch currentSlice.NextPosition events
+        for struct (stream, _) in events do
+            if streams.Add stream then
+                cats.Add (StreamName.categorize stream) |> ignore
+        let! cur, max = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
             range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
             batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
@@ -193,7 +193,7 @@ type Req =
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type Res =
     /// A batch read from a Chunk
-    | Batch of seriesId : int * pos : Position * items : StreamEvent<byte[]> seq
+    | Batch of seriesId : int * pos : Position * items : StreamEvent seq
     /// Ingestion buffer requires an explicit end of chunk message before next chunk can commence processing
     | EndOfChunk of seriesId : int
     /// A Batch read from a Stream or StreamPrefix

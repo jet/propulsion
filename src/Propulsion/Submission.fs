@@ -12,9 +12,8 @@ open System.Threading.Tasks
 [<AutoOpen>]
 module Helpers =
 
-    let sortByVsndDescending (xs : seq<struct (_ * _)>) = xs |> Seq.sortByDescending (fun struct (_k, v) -> v)
-    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map (fun x -> struct (x.Key, x.Value)) |> sortByVsndDescending
-    let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy (fun struct (_k, v) -> v)
+    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map (fun x -> struct (x.Key, x.Value)) |> Seq.sortByDescending ValueTuple.snd
+    let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
 
     /// Gathers stats relating to how many items of a given partition have been observed
     type PartitionStats<'S when 'S : equality>() =
@@ -62,7 +61,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
     let submittedBatches,submittedMessages = PartitionStats(), PartitionStats()
     let statsInterval = timeRemaining statsInterval
     let dumpStats () =
-        let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then yield struct (x.Key, x.Value.queue.Count) } |> sortByVsndDescending
+        let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then struct (x.Key, x.Value.queue.Count) } |> Seq.sortByDescending ValueTuple.snd
         log.Information("Submitter ingested {ingested} compacted {compacted} completed {completed} Events {items} Batches {batches} Holding {holding} Cycles {cycles}",
                         ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, cycles)
         cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()

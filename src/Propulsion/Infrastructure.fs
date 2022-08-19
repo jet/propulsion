@@ -1,6 +1,11 @@
 [<AutoOpen>]
 module internal Propulsion.Infrastructure
 
+module ValueTuple =
+
+    let inline fst struct (f, _s) = f
+    let inline snd struct (_f, s) = s
+
 open System
 open System.Threading.Tasks
 

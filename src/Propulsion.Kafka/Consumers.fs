@@ -355,11 +355,11 @@ type StreamNameSequenceGenerator() =
     member __.ConsumeResultToStreamEvent
         (   toStreamName : ConsumeResult<_, _> -> StreamName,
             toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
-        : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent seq =
         fun consumeResult ->
             let sn = toStreamName consumeResult
             let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
-            Seq.singleton { stream = sn; event = e }
+            Seq.singleton (sn, e)
 
     /// Enables customizing of mapping from ConsumeResult to<br/>
     /// 1) The <c>StreamName</c><br/>
@@ -400,7 +400,7 @@ type StreamNameSequenceGenerator() =
     member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
-        Seq.singleton { stream = sn; event = e }
+        Seq.singleton (sn, e)
 
 type StreamsConsumer =
 

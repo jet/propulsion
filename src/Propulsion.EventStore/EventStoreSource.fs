@@ -40,7 +40,7 @@ module Mapping =
         FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp) :> _
 
     let (|PropulsionStreamEvent|) (x : RecordedEvent) : Propulsion.Streams.StreamEvent<_> =
-        { stream = StreamName.internalParseSafe x.EventStreamId; event = (|PropulsionTimelineEvent|) x }
+        StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
 
 type EventStoreSource =
     static member Run
@@ -86,7 +86,7 @@ type EventStoreSource =
                 log.Information("Commencing Gorging with {stripes} $all reader stripes covering a 256MB chunk each", factor)
                 let extraConns = Seq.init (factor- 1 ) (ignore >> connect)
                 let conns = [| yield conn; yield! extraConns |]
-                Reader.chunk startPos |> int, conns, (max (conns.Length) (spec.streamReaders+1))
+                Reader.chunk startPos |> int, conns, (max conns.Length (spec.streamReaders+1))
             | None ->
                 0, [|conn|], spec.streamReaders + 1
 

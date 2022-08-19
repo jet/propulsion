@@ -14,7 +14,7 @@ module MemoryStoreLogger =
 
     let private propEventJsonUtf8 name (events : Propulsion.Streams.StreamEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
         log |> propEvents name (seq {
-            for { event = e } in events do
+            for _s, e in events do
                 let d = e.Data
                 if not d.IsEmpty then System.Collections.Generic.KeyValuePair<_,_>(e.EventType, System.Text.Encoding.UTF8.GetString d.Span) })
 
@@ -24,16 +24,16 @@ module MemoryStoreLogger =
                 if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log
                 elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
                 else log |> propEventJsonUtf8 "Json" (unbox events)
-            let types = seq { for x in events -> x.event.EventType }
+            let types = seq { for _s, e in events -> e.EventType }
             log.ForContext("types", types).Debug("Submit #{epoch} {stream}x{count}", epoch, stream, events.Length)
         elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
-            let types = seq { for x in events -> x.event.EventType } |> Seq.truncate 5
+            let types = seq { for _s, e in events -> e.EventType } |> Seq.truncate 5
             log.Debug("Submit #{epoch} {stream}x{count} {types}", epoch, stream, events.Length, types)
     let renderCompleted (log : Serilog.ILogger) (epoch, stream) =
         log.Verbose("Done!  #{epoch} {stream}", epoch, stream)
 
-    let toStreamEvents stream (events : FsCodec.ITimelineEvent<'F> seq) =
-        [| for x in events -> { stream = stream; event = x } : Propulsion.Streams.StreamEvent<'F> |]
+    let toStreamEvents stream (events : FsCodec.ITimelineEvent<'F> seq) : Propulsion.Streams.StreamEvent<'F> array =
+        [| for x in events -> stream, x |]
 
     /// Wires specified <c>Observable</c> source (e.g. <c>VolatileStore.Committed</c>) to the Logger
     let subscribe log source =
@@ -105,16 +105,16 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             storeCommitsSubscription.Dispose() }
         new Pipeline(Task.Run<unit>(supervise), stop)
 
-    /// Waits until all <c>Submit</c>ted batches have been successfully processed via the Sink
+    /// Waits until all <c>Ingest</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
     /// 1. a Decider's Transact will not return until such time as the Committed events have been handled
     ///      (i.e., we have prepared the batch for submission)
     /// 2. At the point where the caller triggers AwaitCompletion, we can infer that all reactions have been processed
     ///      when checkpointing/completion has passed beyond our starting point
     member _.AwaitCompletion
-        (   // sleep time while awaiting completion
+        (   // sleep interval while awaiting completion. Default 1ms.
             ?delay,
-            // interval at which to log progress of Projector loop
+            // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {

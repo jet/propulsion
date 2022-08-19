@@ -1,6 +1,6 @@
 namespace Propulsion.SqlStreamStore
 
-type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
+type StreamEvent = Propulsion.Streams.StreamEvent
 
 module private Impl =
 
@@ -15,7 +15,7 @@ module private Impl =
                     msg.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes |> len0ToNull,
                     msg.MessageId,
                     timestamp = System.DateTimeOffset(msg.CreatedUtc))
-        { stream = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId; event = e }
+        Propulsion.Streams.StreamName.internalParseSafe msg.StreamId, e
     let readWithDataAsStreamEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
         let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
         return toStreamEvent json msg }

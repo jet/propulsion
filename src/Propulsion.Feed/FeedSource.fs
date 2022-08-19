@@ -139,7 +139,7 @@ type FeedSource
         sourceId, tailSleepInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore,
         // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-        readPage : TrancheId * Position -> Async<Page<byte[]>>,
+        readPage : TrancheId * Position -> Async<Page<byte array>>,
         startIngester,
         ?renderPos) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, startIngester, defaultArg renderPos string)
@@ -151,7 +151,7 @@ type FeedSource
                 do! Async.Sleep tailSleepInterval
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let! page = readPage (trancheId, pos)
-            let items' = page.items |> Array.map (fun x -> { stream = streamName; event = x })
+            let items' = page.items |> Array.map (fun x -> struct (streamName, x))
             yield sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Internal.Batch<_>)
         }
 

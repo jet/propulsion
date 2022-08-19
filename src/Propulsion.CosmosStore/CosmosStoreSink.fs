@@ -2,7 +2,6 @@ namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
 open FsCodec
-open Propulsion
 open Propulsion.Streams
 open Propulsion.Streams.Internal // Helpers
 open Serilog
@@ -186,7 +185,7 @@ type CosmosStoreSink =
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
-        : Sink<_> =
+        : Propulsion.Sink<_> =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)

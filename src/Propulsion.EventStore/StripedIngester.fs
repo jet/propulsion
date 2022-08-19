@@ -9,7 +9,7 @@ open System.Collections.Concurrent
 open System.Threading
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent<byte[]> seq
+    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent seq
     | CloseSeries of seriesIndex : int
 
 module StripedIngesterImpl =
@@ -33,7 +33,7 @@ module StripedIngesterImpl =
                 dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent<byte[]> seq
+        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent seq
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
@@ -48,7 +48,7 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<seq<StreamEvent<byte[]>>>,
+    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<StreamEvent seq>,
         maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)

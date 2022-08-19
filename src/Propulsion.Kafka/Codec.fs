@@ -67,7 +67,7 @@ module RenderedSpan =
     let enum (span: RenderedSpan) : StreamEvent<_> seq =
         let streamName = StreamName.internalParseSafe span.s
         let inline mkEvent offset (e : RenderedEvent) = FsCodec.Core.TimelineEvent.Create(span.i+int64 offset, e.c, e.d, e.m, timestamp=e.t)
-        span.e |> Seq.mapi (fun i e -> { stream = streamName; event = mkEvent i e })
+        span.e |> Seq.mapi (fun i e -> streamName, mkEvent i e)
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSpan.Parse |> enum
@@ -99,7 +99,7 @@ module RenderedSummary =
 
     let enum (span: RenderedSummary) : StreamEvent<_> seq =
         let streamName = StreamName.internalParseSafe span.s
-        seq { for e in span.u -> { stream = streamName; event = FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) } }
+        seq { for e in span.u -> streamName, FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) }
 
     let parse (spanJson: string) : StreamEvent<_> seq =
         spanJson |> RenderedSummary.Parse |> enum

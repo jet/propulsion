@@ -107,7 +107,7 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch : Ingestion.Batch<Propulsion.Streams.StreamEvent<byte[]> seq> -> Async<int*int>,
+        submitBatch : Ingestion.Batch<Propulsion.Streams.StreamEvent seq> -> Async<int*int>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -136,7 +136,7 @@ type FeedReader
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
         | c -> if log.IsEnabled(Serilog.Events.LogEventLevel.Debug) then
-                   let streamsCount = batch.items |> Seq.distinctBy (fun x -> x.stream) |> Seq.length
+                   let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
         let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq = int64 batch.checkpoint, Seq.ofArray batch.items

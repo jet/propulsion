@@ -77,7 +77,7 @@ type PeriodicSource
                 for si in xs ->
                     let i = index
                     index <- index + 1L
-                    { stream = si.streamName; event = mkTimelineEvent (i, si.eventData, si.context) }
+                    si.streamName, mkTimelineEvent (i, si.eventData, si.context)
             }
             buffer.AddRange(streamEvents)
             match buffer.Count - 1 with
@@ -91,7 +91,7 @@ type PeriodicSource
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
-            | finalItem -> finalItem, (Array.last finalItem).event |> Internal.TimelineEvent.toCheckpointPosition
+            | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Internal.TimelineEvent.toCheckpointPosition
         yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
