@@ -64,4 +64,3 @@ type Async with
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
         return! Async.AwaitTaskCorrect tcs.Task }
-

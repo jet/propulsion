@@ -112,8 +112,9 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let deserialize consumerId (e : FsCodec.ITimelineEvent<byte[]>) : ConsumedTestMessage =
-        let d = serdes.Deserialize(System.Text.Encoding.UTF8.GetString e.Data)
+    let deserialize consumerId (e : ITimelineEvent<Propulsion.Streams.Default.EventBody>) : ConsumedTestMessage =
+        let d = e.Data
+        let d = serdes.Deserialize(System.Text.Encoding.UTF8.GetString d.Span)
         { consumerId = consumerId; meta = d; payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
@@ -136,14 +137,14 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<byte[]>[]) = async {
+            let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<Propulsion.Streams.Default.EventBody>[]) = async {
                 let mutable c = 0
                 for stream in streams do
-                  for event in stream.span.events do
+                  for event in stream.span do
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event)
-                (log : Serilog.ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
-                return [| for x in streams -> Choice1Of2 (x.span.events.[x.span.events.Length-1].Index+1L) |] |> Seq.ofArray }
+                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
+                return [| for x in streams -> Choice1Of2 (x.span[x.span.Length-1].Index+1L) |] |> Seq.ofArray }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
@@ -162,9 +163,9 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : byte[] * obj =
+    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : Propulsion.Streams.Default.EventBody * obj =
         let m = Binding.message x
-        System.Text.Encoding.UTF8.GetBytes(m.Value),
+        System.Text.Encoding.UTF8.GetBytes(m.Value) |> ReadOnlyMemory,
         box { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value }
 
     let runConsumersStream log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
@@ -179,8 +180,8 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle (streamName : StreamName, span : Propulsion.Streams.StreamSpan<byte[]>) = async {
-                for event in span.events do
+            let handle (streamName : StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
+                for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return Propulsion.Streams.SpanResult.AllProcessed, () }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
@@ -243,7 +244,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
 
     member __.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log bootstrapServers topic numProducers messagesPerProducer |> Async.Ignore
-    abstract RunConsumers: Serilog.ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
+    abstract RunConsumers: ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
     member __.RunConsumers(log,config,count,cb) = __.RunConsumers(log,config,count,cb,None)
 
     [<FactIfBroker>]
@@ -259,7 +260,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
         let consumedBatches = ConcurrentBag<ConsumedTestMessage>()
         let expectedUniqueMessages = numProducers * messagesPerProducer
         let consumerCallback (consumer:ConsumerPipeline) msg = async {
-            itemsSeen.[msg.payload] <- ()
+            itemsSeen[msg.payload] <- ()
             consumedBatches.Add msg
             // signal cancellation if consumed items reaches expected size
             if itemsSeen.Count >= expectedUniqueMessages then
@@ -297,7 +298,7 @@ and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentSche
             |> Array.where (fun gp -> gp.Length <> messagesPerProducer)
         let unconsumedCounts =
             unconsumed
-            |> Seq.map (fun gp -> gp.[0].payload.producerId, gp.Length)
+            |> Seq.map (fun gp -> gp[0].payload.producerId, gp.Length)
             |> Array.ofSeq
         test <@ Array.isEmpty unconsumedCounts @>
     }

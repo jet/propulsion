@@ -80,7 +80,7 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : (Async<unit>) -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : Async<unit> -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
         let incoming = ConcurrentQueue<Batch<'S, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
@@ -146,7 +146,7 @@ module Scheduling =
                 let wipBatch, runners = WipBatch.Create(batch, handle)
                 runners |> Seq.iter waiting.Enqueue
                 match active.TryGetValue pid with
-                | false, _ -> let q = Queue(1024) in active.[pid] <- q; q.Enqueue wipBatch
+                | false, _ -> let q = Queue(1024) in active[pid] <- q; q.Enqueue wipBatch
                 | true, q -> q.Enqueue wipBatch
                 true
 
@@ -165,7 +165,7 @@ module Scheduling =
                         more <- false
             worked
 
-        /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controler can use to shut down the processing
+        /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controller can use to shut down the processing
         member _.Pump abend (ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 let hadResults = drainCompleted abend
@@ -174,8 +174,8 @@ module Scheduling =
                 if not hadResults && not queuedWork && not loggedStats then
                     Thread.Sleep 1 } // not Async.Sleep, we like this context and/or cache state if nobody else needs it
 
-        /// Feeds a batch of work into the queue; the caller is expected to ensure sumbissions are timely to avoid starvation, but throttled to ensure fair ordering
-        member __.Submit(batches : Batch<'S, 'M>) =
+        /// Feeds a batch of work into the queue; the caller is expected to ensure submissions are timely to avoid starvation, but throttled to ensure fair ordering
+        member _.Submit(batches : Batch<'S, 'M>) =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
@@ -196,7 +196,7 @@ type ParallelSink =
                  // Default 5
                  ?maxSubmissionsPerPartition, ?logExternalStats,
                  ?ingesterStatsInterval)
-            : Sink<_> =
+            : Sink<Ingestion.Ingester<'Item seq>> =
 
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval

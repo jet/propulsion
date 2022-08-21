@@ -12,34 +12,30 @@ module MemoryStoreLogger =
         let items = seq { for kv in xs do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
         log.ForContext(name, sprintf "[%s]" (String.concat ",\n\r" items))
 
-    let private propEventJsonUtf8 name (events : Propulsion.Streams.StreamEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
+    let private propEventJsonUtf8 name (events : FsCodec.ITimelineEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
         log |> propEvents name (seq {
-            for _s, e in events do
+            for e in events do
                 let d = e.Data
                 if not d.IsEmpty then System.Collections.Generic.KeyValuePair<_,_>(e.EventType, System.Text.Encoding.UTF8.GetString d.Span) })
 
-    let renderSubmit (log : Serilog.ILogger) (epoch, stream, events : Propulsion.Streams.StreamEvent<'F> array) =
+    let renderSubmit (log : Serilog.ILogger) (epoch, stream, events : FsCodec.ITimelineEvent<'F> array) =
         if log.IsEnabled Serilog.Events.LogEventLevel.Verbose then
             let log =
                 if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log
                 elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
                 else log |> propEventJsonUtf8 "Json" (unbox events)
-            let types = seq { for _s, e in events -> e.EventType }
+            let types = seq { for e in events -> e.EventType }
             log.ForContext("types", types).Debug("Submit #{epoch} {stream}x{count}", epoch, stream, events.Length)
         elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
-            let types = seq { for _s, e in events -> e.EventType } |> Seq.truncate 5
+            let types = seq { for e in events -> e.EventType } |> Seq.truncate 5
             log.Debug("Submit #{epoch} {stream}x{count} {types}", epoch, stream, events.Length, types)
     let renderCompleted (log : Serilog.ILogger) (epoch, stream) =
         log.Verbose("Done!  #{epoch} {stream}", epoch, stream)
-
-    let toStreamEvents stream (events : FsCodec.ITimelineEvent<'F> seq) : Propulsion.Streams.StreamEvent<'F> array =
-        [| for x in events -> stream, x |]
 
     /// Wires specified <c>Observable</c> source (e.g. <c>VolatileStore.Committed</c>) to the Logger
     let subscribe log source =
         let mutable epoch = -1L
         let aux (stream, events) =
-            let events = toStreamEvents stream events
             let epoch = Interlocked.Increment &epoch
             renderSubmit log (epoch, stream, events)
         if log.IsEnabled Serilog.Events.LogEventLevel.Debug then Observable.subscribe aux source
@@ -48,27 +44,27 @@ module MemoryStoreLogger =
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
-                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<byte array>,
-                           sink : Streams.Sink) =
+                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Streams.Default.EventBody>,
+                           sink : Propulsion.Streams.Default.Sink) =
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
 
     // epoch index of most recently prepared and completed submissions
     let mutable prepared, completed = -1L, -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
-        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<byte array> seq>>
+        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<_> seq>>
         Channel.write c, Channel.awaitRead c, c.Reader.TryRead
 
-    let handleStoreCommitted (stream, events : FsCodec.ITimelineEvent<_> seq) =
+    let handleStoreCommitted (stream, events : FsCodec.ITimelineEvent<_> []) =
         let epoch = Interlocked.Increment &prepared
-        let events = MemoryStoreLogger.toStreamEvents stream events
+        let events = Seq.toArray events
         MemoryStoreLogger.renderSubmit log (epoch, stream, events)
         let markCompleted () =
             MemoryStoreLogger.renderCompleted log (epoch, stream)
             Volatile.Write(&completed, epoch)
         // We don't have anything Async to do, so we pass a null checkpointing function
         let checkpoint = async { () }
-        enqueueSubmission { epoch = epoch; checkpoint = checkpoint; items = events; onCompletion = markCompleted }
+        enqueueSubmission { epoch = epoch; checkpoint = checkpoint; items = [| for x in events -> stream, x |]; onCompletion = markCompleted }
 
     let storeCommitsSubscription =
         let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
@@ -150,9 +146,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
 
 module TimelineEvent =
 
-    let mapEncoded =
-        let mapBodyToBytes = (fun (x : ReadOnlyMemory<byte>) -> x.ToArray())
-        FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
+    let mapEncoded = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time

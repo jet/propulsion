@@ -9,7 +9,7 @@ open System.Collections.Concurrent
 open System.Threading
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent seq
+    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
     | CloseSeries of seriesIndex : int
 
 module StripedIngesterImpl =
@@ -24,16 +24,16 @@ module StripedIngesterImpl =
             log.Information("Read {ingested} Cycles {cycles} Series {series} Holding {buffered} Reading {@reading} Ready {@ready} Active {currentBuffer}/{maxBuffer}",
                 ingested, cycles, activeSeries, buffered, ahead, ready, currentBuffer, maxBuffer)
             ingested <- 0; cycles <- 0
-        member __.Handle : InternalMessage -> unit = function
+        member _.Handle : InternalMessage -> unit = function
             | Batch _ -> ingested <- ingested + 1
             | ActivateSeries _ | CloseSeries _ -> ()
-        member __.TryDump(activeSeries, readingAhead, ready, readMaxState) =
+        member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
             if statsDue () then
                 dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent seq
+        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
@@ -48,14 +48,14 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<StreamEvent seq>,
+    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<Default.StreamEvent seq>,
         maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
     let maxInFlightBatches = Sem maxInFlightBatches
     let stats = Stats(log, statsInterval)
-    let pending = Queue<Propulsion.Ingestion.Batch<StreamEvent<byte array> seq>>()
+    let pending = Queue<Propulsion.Ingestion.Batch<StreamEvent<_> seq>>()
     let readingAhead, ready = Dictionary<int, ResizeArray<_>>(), Dictionary<int, ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 
@@ -83,7 +83,7 @@ type StripedIngester
                 pending.Enqueue batchInfo
             else
                 match readingAhead.TryGetValue seriesId with
-                | false, _ -> readingAhead.[seriesId] <- ResizeArray[|batchInfo|]
+                | false, _ -> readingAhead[seriesId] <- ResizeArray[|batchInfo|]
                 | true,current -> current.Add(batchInfo)
                 // As we'll be submitting `id` as the onCompleted callback, we now immediately release the allocation that gets `Await`ed in `Submit()`
                 releaseInFlightBatchAllocation()
@@ -95,10 +95,10 @@ type StripedIngester
             else
                 match readingAhead |> tryTake seriesIndex with
                 | Some batchesRead ->
-                    ready.[seriesIndex] <- batchesRead
+                    ready[seriesIndex] <- batchesRead
                     log.Information("Completed reading {series}, marking {buffered} buffered items ready", seriesIndex, batchesRead.Count)
                 | None ->
-                    ready.[seriesIndex] <- ResizeArray()
+                    ready[seriesIndex] <- ResizeArray()
                     log.Information("Completed reading {series}, leaving empty batch list", seriesIndex)
 
         | ActivateSeries newActiveSeries ->

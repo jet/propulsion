@@ -40,7 +40,7 @@ module private TimelineEvent =
                 baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 
 [<Struct; NoComparison; NoEquality>]
-type SourceItem = { streamName : FsCodec.StreamName; eventData : FsCodec.IEventData<byte[]>; context : obj }
+type SourceItem<'F> = { streamName : FsCodec.StreamName; eventData : FsCodec.IEventData<'F>; context : obj }
 
 /// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
 /// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
@@ -50,8 +50,8 @@ type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         // The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem array>, refreshInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
+        crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem<_> array>, refreshInterval : TimeSpan,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         ?renderPos) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 

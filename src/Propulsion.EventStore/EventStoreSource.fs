@@ -39,12 +39,12 @@ module Mapping =
         let inline len0ToNull (x : _[]) = match x with null -> null | x when x.Length = 0 -> null | x -> x
         FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp) :> _
 
-    let (|PropulsionStreamEvent|) (x : RecordedEvent) : Propulsion.Streams.StreamEvent<_> =
+    let (|PropulsionStreamEvent|) (x : RecordedEvent) : StreamEvent<_> =
         StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
 
 type EventStoreSource =
     static member Run
-        (   log : Serilog.ILogger, sink : Propulsion.Sink<_>, checkpoints : Checkpoint.CheckpointSeries,
+        (   log : Serilog.ILogger, sink : Default.Sink, checkpoints : Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
             maxReadAhead, statsInterval) = async {
         let conn = connect ()

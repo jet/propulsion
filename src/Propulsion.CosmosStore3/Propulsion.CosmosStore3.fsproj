@@ -36,6 +36,7 @@
     <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
 
     <PackageReference Include="Equinox.CosmosStore" Version="[3.0.7, 3.99.0]" />
+    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.4" />
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.27.0" />
   </ItemGroup>
 

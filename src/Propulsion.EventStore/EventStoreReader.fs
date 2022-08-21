@@ -132,12 +132,12 @@ let establishMax (conn : IEventStoreConnection) = async {
 
 /// Walks a stream within the specified constraints; used to grab data when writing to a stream for which a prefix is missing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * StreamSpan<_> -> Async<unit>) =
+let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.StreamSpan -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
         let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.AwaitTaskCorrect
         let events = currentSlice.Events |> Array.map (fun x -> mapEvent x.Event)
-        do! postBatch (stream, { index = currentSlice.FromEventNumber; events = events })
+        do! postBatch (stream, events)
         match limit with
         | None when currentSlice.IsEndOfStream -> return ()
         | None -> return! fetchFrom currentSlice.NextEventNumber None
@@ -193,7 +193,7 @@ type Req =
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type Res =
     /// A batch read from a Chunk
-    | Batch of seriesId : int * pos : Position * items : StreamEvent seq
+    | Batch of seriesId : int * pos : Position * items : Default.StreamEvent seq
     /// Ingestion buffer requires an explicit end of chunk message before next chunk can commence processing
     | EndOfChunk of seriesId : int
     /// A Batch read from a Stream or StreamPrefix

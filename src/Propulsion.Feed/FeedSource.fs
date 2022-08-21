@@ -29,7 +29,7 @@ module TrancheState =
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
-        sink : Propulsion.Streams.Sink,
+        sink : Propulsion.Streams.Default.Sink,
         renderPos : Position -> string,
         ?logCommitFailure) =
 
@@ -54,7 +54,7 @@ type FeedSourceBase internal
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<byte[]>>) = async {
+            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<_>>) = async {
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
         try let! tranches = readTranches ()
@@ -130,7 +130,7 @@ type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
         crawl : TrancheId * Position -> AsyncSeq<TimeSpan * Batch<_>>,
-        checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Sink,
+        checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         renderPos,
         ?logReadFailure,
         ?readFailureSleepInterval : TimeSpan,
@@ -179,7 +179,7 @@ type AllFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
         readBatch : Position -> Async<Batch<_>>,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // Custom checkpoint rendering logic
         ?renderPos,
         // Custom logic to derive an origin position if the checkpoint store doesn't have one
@@ -207,7 +207,7 @@ open Propulsion
 open System
 
 [<NoComparison; NoEquality>]
-type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; isTail : bool }
+type Page<'F> = { items : FsCodec.ITimelineEvent<'F>[]; checkpoint : Position; isTail : bool }
 
 /// Drives reading and checkpointing for a set of change feeds (tranches) of a custom data source that can represent their
 ///   content as an append-only data source with a change feed wherein each <c>FsCodec.ITimelineEvent</c> has a monotonically increasing <c>Index</c>. <br/>
@@ -215,9 +215,9 @@ type Page<'e> = { items : FsCodec.ITimelineEvent<'e>[]; checkpoint : Position; i
 type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Sink,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-        readPage : TrancheId * Position -> Async<Page<byte array>>,
+        readPage : TrancheId * Position -> Async<Page<_>>,
         ?renderPos) =
     inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
 

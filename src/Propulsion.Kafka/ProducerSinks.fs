@@ -8,7 +8,7 @@ open System
 
 type ParallelProducerSink =
     static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
-        : Sink<_> =
+        : Sink<Ingestion.Ingester<'F seq>> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item = async {
             let key, value = render item
@@ -35,14 +35,14 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : Sink<_> =
+        : Default.Sink =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
             let handle (stream : StreamName, span) = async {
                 let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
                 match maybeMsg with
                 | Some (key : string, message : string) ->
                     match message.Length with
-                    | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.events.Length)
+                    | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.Length)
                     | _ -> ()
                     do! producer.Produce(key, message)
                 | None -> ()
@@ -50,7 +50,7 @@ type StreamsProducerSink =
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
-                     stats, statsInterval=statsInterval,
+                     stats, statsInterval, Default.jsonSize, Default.eventSize,
                      maxBytes=maxBytes, ?idleDelay=idleDelay,?purgeInterval=purgeInterval,
                      ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
 
@@ -72,7 +72,7 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : Sink<_> =
+        : Default.Sink =
             let prepare (stream, span) = async {
                 let! k, v = prepare (stream, span)
                 return Some (k, v), ()

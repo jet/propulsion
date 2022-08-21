@@ -78,4 +78,4 @@ type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
 
         let task = Task.Run<unit>(supervise)
 
-        new Sink<_>(task, triggerStop, startIngester)
+        new Sink<'Ingester>(task, triggerStop, startIngester)
