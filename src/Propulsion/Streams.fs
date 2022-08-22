@@ -320,20 +320,19 @@ module Buffering =
                 | ValueSome w -> w
             { write = effWrite; queue = queue }
         member x.IsEmpty = obj.ReferenceEquals(null, x.queue)
-        member private x.Items = x.queue |> Seq.collect id
         member x.IsPurgeable = x.IsEmpty && not x.IsMalformed
         member x.IsMalformed = not x.IsEmpty && -3L = x.write
         member x.HasValid = not x.IsEmpty && not x.IsMalformed
         member x.WritePos = match x.write with -2L -> ValueNone | x -> ValueSome x
         member x.HeadSpan = x.queue[0]
         member x.IsReady =
-            if not x.HasValid then false else
-
-            match x.WritePos with
-            | ValueSome w -> w = x.HeadSpan[0].Index
-            | ValueNone -> true
-        member x.EventsCount = if x.IsEmpty then 0 else x.Items |> Seq.length
-        member x.EventsSumBy f = if x.IsEmpty then 0 else x.Items |> Seq.sumBy f
+            if x.HasValid then
+                match x.WritePos with
+                | ValueSome w -> w = x.HeadSpan[0].Index
+                | ValueNone -> true
+            else false
+        member x.EventsSumBy(f) = x.queue |> Seq.collect id |> Seq.sumBy f |> int64
+        member x.EventsCount = x.EventsSumBy(fun _ -> 1) |> int
 
     module StreamState =
 
@@ -345,10 +344,6 @@ module Buffering =
                 let items = if any1 && any2 then Seq.append s1.queue s2.queue elif any1 then s1.queue else s2.queue
                 StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultValueArg writePos 0L) items, malformed)
             else StreamState<'Format>.Create(writePos, null, malformed)
-
-        let storedSize eventF (x : StreamState<'F>) =
-            if x.IsEmpty then 0L
-            else x.EventsSumBy eventF
 
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
@@ -464,14 +459,14 @@ module Scheduling =
         member _.Pending(trySlipstreamed, byQueuedPriority : FsCodec.StreamName seq) : DispatchItem<'Format> seq =
             pending trySlipstreamed byQueuedPriority
 
-        member _.Dump(log : ILogger, totalPurged, estimateSize) =
+        member _.Dump(log : ILogger, totalPurged, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
             let mutable (unprefixed, unprefixedE, unprefixedB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
             let busyCats, readyCats, readyStreams = CatStats(), CatStats(), CatStats()
             let unprefixedCats, unprefixedStreams, malformedCats, malformedStreams = CatStats(), CatStats(), CatStats(), CatStats()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
-                match estimateSize state with
+                match state.EventsSumBy(eventSize) with
                 | 0L ->
                     synced <- synced + 1
                 | sz when busy.Contains stream ->
@@ -1175,7 +1170,7 @@ type StreamsSink =
             Scheduling.StreamSchedulingEngine.Create<_, 'Progress, 'Outcome, 'F>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
-                    (fun struct (s, totalPurged) logger -> s.Dump(logger, totalPurged, Buffering.StreamState.storedSize eventSize)),
+                    (fun struct (s, totalPurged) logger -> s.Dump(logger, totalPurged, eventSize)),
                     ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
@@ -1321,7 +1316,7 @@ module Sync =
 
             let itemDispatcher = Scheduling.ItemDispatcher<_, 'F>(maxConcurrentStreams)
             let dumpStreams struct (s : Scheduling.StreamStates<'F>, totalPurged) logger =
-                s.Dump(logger, totalPurged, Buffering.StreamState.storedSize eventSize)
+                s.Dump(logger, totalPurged, eventSize)
                 match dumpExternalStats with Some f -> f logger | None -> ()
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
