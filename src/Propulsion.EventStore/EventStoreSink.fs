@@ -156,14 +156,14 @@ module Internal =
 
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null
-                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.InternalUpdate stream pos null
-                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.InternalUpdate stream overage[0].Index [| overage |]
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.InternalUpdate stream pos [| overage |]
-                    | Choice2Of2 (_stats, _exn) -> streams.SetMalformed(stream, false)
-                let _stream, ss = applyResultToStreamState res
+                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.RecordWriteProgress(stream, pos, null)
+                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null)
+                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |])
+                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |])
+                    | Choice2Of2 (_stats, _exn) ->                                streams.SetMalformed(stream, false)
+                let ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
-                ss.WritePos, res
+                struct (ss.WritePos, res)
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)

@@ -156,16 +156,16 @@ module Internal =
                 with e -> return false, Choice2Of2 (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.InternalUpdate stream pos null, false
-                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.InternalUpdate stream pos null, false
-                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.InternalUpdate stream overage[0].Index [| overage |], false
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.InternalUpdate stream pos [| overage |], false
+                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       struct (streams.RecordWriteProgress(stream, pos, null), false)
+                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null), false
+                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
+                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |]), false
                     | Choice2Of2 (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed), malformed
-                let (_stream, ss), malformed = applyResultToStreamState res
+                let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
-                ss.WritePos, res
+                struct (ss.WritePos, res)
             let dispatcher =
                 Scheduling.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)

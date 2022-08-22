@@ -393,23 +393,19 @@ module Scheduling =
         let tryGetItem stream =
             let mutable x = Unchecked.defaultof<_>
             if states.TryGetValue(stream, &x) then ValueSome x else ValueNone
-        let update stream (state : StreamState<_>) =
+        let merge stream (state : StreamState<_>) =
             match tryGetItem stream with
             | ValueSome current ->
                 let updated = StreamState.combine current state
                 states[stream] <- updated
-                stream, updated
+                updated
             | ValueNone ->
                 states.Add(stream, state)
-                stream, state
-        let merge_ stream (state : StreamState<'Format>) =
-            match tryGetItem stream with
-            | ValueSome current -> states[stream] <- StreamState.combine current state
-            | ValueNone -> states.Add(stream, state)
+                state
         let markCompleted stream index =
-            merge_ stream (StreamState<'Format>.Create(ValueSome index, queue = null, malformed = false))
+            merge stream (StreamState<'Format>.Create(ValueSome index, queue = null, malformed = false)) |> ignore
         let updateWritePos stream isMalformed pos span =
-            update stream (StreamState<'Format>.Create(pos, span, isMalformed))
+            merge stream (StreamState<'Format>.Create(pos, span, isMalformed))
         let purge () =
             let mutable purged = 0
             for x in states do
@@ -433,30 +429,22 @@ module Scheduling =
                 for KeyValue(s, ss) in states do
                     if ss.HasValid && not (busy.Contains s) && proposed.Add s then
                         yield { writePos = ss.WritePos; stream = s; span = ss.HeadSpan } }
-
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
-
-        member _.Merge(streams : Streams<'Format>) =
-            for kv in streams.States do
-                merge_ kv.Key kv.Value
-        member _.Purge() = purge ()
-        member _.InternalUpdate stream pos queue =
-            update stream (StreamState<'Format>.Create(ValueSome pos, queue))
-
-        member _.Add(stream, span : FsCodec.ITimelineEvent<_> array, isMalformed) =
-            updateWritePos stream isMalformed ValueNone [| span |]
-
-        member x.Add(stream, event, ?isMalformed) =
-            x.Add(stream, [| event |], defaultArg isMalformed false)
-
-        member _.SetMalformed(stream, isMalformed) =
-            updateWritePos stream isMalformed ValueNone null
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
             | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | _ -> false
             | _ -> false
+        member _.Merge(streams : Streams<'Format>) =
+            for kv in streams.States do
+                merge kv.Key kv.Value |> ignore
+        member _.RecordWriteProgress(stream, pos, queue) =
+            merge stream (StreamState<'Format>.Create(ValueSome pos, queue))
+        member _.SetMalformed(stream, isMalformed) =
+            updateWritePos stream isMalformed ValueNone null
+        member _.Purge() =
+            purge ()
 
         member _.HeadSpanSizeBy(stream, f : _ -> int) =
             match tryGetItem stream with
@@ -752,7 +740,7 @@ module Scheduling =
         abstract member AwaitCapacity : unit -> Task<unit>
         abstract member TryReplenish : pending : seq<DispatchItem<'F>> * markStreamBusy : (FsCodec.StreamName -> unit) -> struct (bool * bool)
         [<CLIEvent>] abstract member Result : IEvent<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>
-        abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>
+        abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
         abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
         abstract member DumpStats : int -> unit
         abstract member TryDumpState : BufferState * struct (StreamStates<'F> * int) * struct (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
@@ -761,7 +749,7 @@ module Scheduling =
     type MultiDispatcher<'P, 'R, 'E, 'F>
         (   inner : ItemDispatcher<Choice<'P, 'E>, 'F>,
             project : int64 -> DispatchItem<'F> -> CancellationToken -> Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
-            interpretProgress : StreamStates<'F> -> FsCodec.StreamName -> Choice<'P, 'E> -> int64 voption * Choice<'R, 'E>,
+            interpretProgress : StreamStates<'F> -> FsCodec.StreamName -> Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>),
             stats : Stats<'R, 'E>,
             dumpStreams : struct(StreamStates<'F> * int) -> ILogger -> unit) =
         static member Create(inner,
@@ -780,7 +768,7 @@ module Scheduling =
                     return index' > span[0].Index, Choice1Of2 (index', met, outcome)
                 with e -> return false, Choice2Of2 (met, e) }
             let interpretProgress (_streams : StreamStates<'F>) _stream = function
-                | Choice1Of2 (index, met, outcome) -> ValueSome index, Choice1Of2 (met, outcome)
+                | Choice1Of2 (index, met, outcome) -> struct (ValueSome index, Choice1Of2 (met, outcome))
                 | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
             MultiDispatcher<_, _, _, 'F>.Create(inner, project, interpretProgress, stats, dumpStreams)
         interface IDispatcher<'P, 'R, 'E, 'F> with
@@ -1326,7 +1314,7 @@ module Sync =
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
                 | Choice1Of2 (i', stats, outcome) ->
-                    ValueSome i', Choice1Of2 (stats, outcome)
+                    struct (ValueSome i', Choice1Of2 (stats, outcome))
                 | Choice2Of2 (eventCount, bytesCount as stats, exn : exn) ->
                     log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
                     ValueNone, Choice2Of2 (stats, exn)
