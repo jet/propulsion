@@ -194,13 +194,12 @@ type CosmosStoreSink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
-        let dumpStreams struct (s : Scheduling.StreamStates<_>, totalPurged) logger =
-            s.Dump(logger, totalPurged, Buffering.StreamState.storedSize Default.eventSize)
+        let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(
                 log, eventsContext, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?maxEvents=maxEvents, ?maxBytes=maxBytes, prioritizeStreamsBy = Default.eventDataSize)
+                ?maxEvents = maxEvents, ?maxBytes = maxBytes, prioritizeStreamsBy = Default.eventDataSize)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,

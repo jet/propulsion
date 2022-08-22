@@ -654,7 +654,7 @@ module Scheduling =
                 mon.DumpState log
                 x.DumpStats()
 
-        member _.TryDumpState(state, dump, struct (_dt, _ft, _mt, _it, _st, _zt)) =
+        member _.TryDumpState(state, dumpState, struct (_dt, _ft, _mt, _it, _st, _zt)) =
             dt <- dt + _dt
             ft <- ft + _ft
             mt <- mt + _mt
@@ -666,7 +666,7 @@ module Scheduling =
 
             let due = stateDue ()
             if due then
-                dump log
+                dumpState log
             due
 
         /// Allows an ingester or projector to wire in custom stats (typically based on data gathered in a `Handle` override)
@@ -738,7 +738,7 @@ module Scheduling =
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
         abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
         abstract member DumpStats : int -> unit
-        abstract member TryDumpState : BufferState * struct (StreamStates<'F> * int) * struct (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
+        abstract member TryDumpState : BufferState * StreamStates<'F> * int * struct (TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan * TimeSpan) -> bool
 
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type MultiDispatcher<'P, 'R, 'E, 'F>
@@ -746,7 +746,7 @@ module Scheduling =
             project : int64 -> DispatchItem<'F> -> CancellationToken -> Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
             interpretProgress : StreamStates<'F> -> FsCodec.StreamName -> Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>),
             stats : Stats<'R, 'E>,
-            dumpStreams : struct(StreamStates<'F> * int) -> ILogger -> unit) =
+            dumpState : ((FsCodec.ITimelineEvent<'F> -> int) -> unit) -> ILogger -> unit) =
         static member Create(inner,
                 project : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> CancellationToken -> Task<bool * Choice<'P, 'E>>,
                 interpretProgress, stats, dumpStreams) =
@@ -776,8 +776,11 @@ module Scheduling =
                 interpretProgress streams stream res
             override _.RecordResultStats msg = stats.Handle msg
             override _.DumpStats pendingCount = stats.DumpStats(inner.State, pendingCount)
-            override _.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st, zt)) =
-                stats.TryDumpState(dispatcherState, dumpStreams streams, (dt, ft, mt, it, st, zt))
+            override _.TryDumpState(dispatcherState, streams, totalPurged, (dt, ft, mt, it, st, zt)) =
+                let dumpNow log =
+                    let dumpStreamStates (eventSize : FsCodec.ITimelineEvent<'F> -> int) = streams.Dump(log, totalPurged, eventSize)
+                    dumpState dumpStreamStates log
+                stats.TryDumpState(dispatcherState, dumpNow, (dt, ft, mt, it, st, zt))
 
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type BatchedDispatcher<'F>
@@ -819,8 +822,11 @@ module Scheduling =
                 | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
             override _.RecordResultStats msg = stats.Handle msg
             override _.DumpStats pendingCount = stats.DumpStats(dop.State, pendingCount)
-            override _.TryDumpState(dispatcherState, streams, (dt, ft, mt, it, st, zt)) =
-                stats.TryDumpState(dispatcherState, dumpStreams streams, (dt, ft, mt, it, st, zt))
+            override _.TryDumpState(dispatcherState, streams, totalPurged, (dt, ft, mt, it, st, zt)) =
+                let dumpNow log =
+                    let dumpStreamStates (eventSize : FsCodec.ITimelineEvent<'F> -> int) = streams.Dump(log, totalPurged, eventSize)
+                    dumpStreams dumpStreamStates log
+                stats.TryDumpState(dispatcherState, dumpNow, (dt, ft, mt, it, st, zt))
 
     [<NoComparison; NoEquality>]
     type Batch<'Format> private (onCompletion, buffer, reqs) =
@@ -991,7 +997,7 @@ module Scheduling =
                 // While the loop can take a long time, we don't attempt logging of stats per iteration on the basis that the maxCycles should be low
                 (fun () -> dispatcher.DumpStats(pendingCount())) |> accStopwatch <| fun t -> st <- st + t
                 // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                let dumped = dispatcher.TryDumpState(dispatcherState, (streams, totalPurged), (dt, ft, mt, it, st, zt))
+                let dumped = dispatcher.TryDumpState(dispatcherState, streams, totalPurged, (dt, ft, mt, it, st, zt))
                 zt <- TimeSpan.Zero
                 if dumped then maybePurge ()
                 elif idle then
@@ -1170,7 +1176,7 @@ type StreamsSink =
             Scheduling.StreamSchedulingEngine.Create<_, 'Progress, 'Outcome, 'F>
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
-                    (fun struct (s, totalPurged) logger -> s.Dump(logger, totalPurged, eventSize)),
+                    (fun logStreamStates _log -> logStreamStates eventSize),
                     ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
@@ -1315,14 +1321,14 @@ module Sync =
                     ValueNone, Choice2Of2 (stats, exn)
 
             let itemDispatcher = Scheduling.ItemDispatcher<_, 'F>(maxConcurrentStreams)
-            let dumpStreams struct (s : Scheduling.StreamStates<'F>, totalPurged) logger =
-                s.Dump(logger, totalPurged, eventSize)
-                match dumpExternalStats with Some f -> f logger | None -> ()
+            let dumpStreams logStreamStates log =
+                logStreamStates eventSize
+                match dumpExternalStats with Some f -> f log | None -> ()
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<int64 * (StreamSpan.Metrics * TimeSpan) * 'Outcome, (StreamSpan.Metrics * TimeSpan) * 'Outcome, StreamSpan.Metrics * exn, 'F>
-                    (   dispatcher, maxBatches=maxBatches, maxCycles=defaultArg maxCycles 128, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+                    (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(
                 log, itemDispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval, maxSubmissionsPerPartition = maxBatches)

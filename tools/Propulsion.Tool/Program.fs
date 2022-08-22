@@ -365,7 +365,7 @@ module Project =
 /// Parse the commandline; can throw exceptions in response to missing arguments and/or `-h`/`--help` args
 let parseCommandLine argv =
     let programName = Reflection.Assembly.GetEntryAssembly().GetName().Name
-    let parser = ArgumentParser.Create<Parameters>(programName=programName)
+    let parser = ArgumentParser.Create<Parameters>(programName = programName)
     parser.ParseCommandLine argv
 
 [<EntryPoint>]

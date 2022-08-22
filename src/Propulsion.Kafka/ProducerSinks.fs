@@ -51,8 +51,8 @@ type StreamsProducerSink =
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
                      stats, statsInterval, Default.jsonSize, Default.eventSize,
-                     maxBytes=maxBytes, ?idleDelay=idleDelay,?purgeInterval=purgeInterval,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
+                     maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
+                     ?maxEvents=maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -80,5 +80,5 @@ type StreamsProducerSink =
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
                      stats, statsInterval,
-                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxBytes=maxBytes,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)
+                     ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
+                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles)

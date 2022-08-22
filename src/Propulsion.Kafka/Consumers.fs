@@ -238,9 +238,9 @@ module Core =
                 ?maximizeOffsetWriting) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
             let dispatcher = Scheduling.ItemDispatcher<_, _> maxDop
-            let dumpStreams struct (s : Scheduling.StreamStates<_>, totalPurged) log =
+            let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
-                s.Dump(log, totalPurged, Buffering.StreamState.storedSize Default.eventSize)
+                logStreamStates Default.eventSize
             let streamsScheduler =
                 Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(
                     dispatcher, stats, prepare, handle, SpanResult.toIndex, dumpStreams,
@@ -471,9 +471,9 @@ type BatchesConsumer =
             ?logExternalState) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let dumpStreams struct (streams : Scheduling.StreamStates<_>, totalPurged) log =
+        let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
-            streams.Dump(log, totalPurged, Buffering.StreamState.storedSize Default.eventSize)
+            logStreamStates Default.eventSize
         let handle (items : Scheduling.DispatchItem<Default.EventBody>[]) ct
             : Task<(TimeSpan * StreamName * bool * Choice<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * exn>)[]> = task {
             let sw = Stopwatch.StartNew()

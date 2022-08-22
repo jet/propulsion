@@ -166,7 +166,7 @@ module Internal =
                 struct (ss.WritePos, res)
 
             let dispatcher = Scheduling.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming=true, ?maxBatches=maxBatches, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 
@@ -188,9 +188,8 @@ type EventStoreSink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
-        let dumpStats struct (s : Scheduling.StreamStates<_>, totalPurged) logger =
-            s.Dump(logger, totalPurged, Buffering.StreamState.storedSize Default.eventSize)
-        let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStats, ?idleDelay=idleDelay, ?purgeInterval=purgeInterval)
+        let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
+        let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStreams, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
