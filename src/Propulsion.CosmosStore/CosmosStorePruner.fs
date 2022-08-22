@@ -123,13 +123,10 @@ type CosmosStorePruner =
             // Default 5m
             ?stateInterval,
             ?maxSubmissionsPerPartition,
-            ?maxBatches, ?purgeInterval, ?wakeForResults,
-            // Delay when no items available. Default 10ms.
-            ?idleDelay,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
         : Default.Sink =
-        let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 10.)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
         let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
@@ -138,7 +135,7 @@ type CosmosStorePruner =
         let streamScheduler =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, idleDelay = idleDelay)
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
