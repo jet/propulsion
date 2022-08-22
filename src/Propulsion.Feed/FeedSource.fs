@@ -50,6 +50,45 @@ type FeedSourceBase internal
             return! Async.Raise e
     }
 
+    let choose f (xs : KeyValuePair<_,_> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
+    let checkForActivity () =
+        match positions.Current() with
+        | xs when xs |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) -> Array.empty
+        | originals -> originals |> choose (fun v -> v.read)
+    let awaitPropagation (propagationDelay : TimeSpan) (delayMs : int) = async {
+        let sw, max = System.Diagnostics.Stopwatch.StartNew(), int64 propagationDelay.TotalMilliseconds
+        let mutable startPositions = checkForActivity ()
+        while Array.isEmpty startPositions && not sink.IsCompleted && sw.ElapsedMilliseconds < max do
+            do! Async.Sleep delayMs
+            startPositions <- checkForActivity ()
+        return startPositions }
+    let awaitCompletion starting (delayMs : int) includeSubsequent logInterval = async {
+        let maybeLog =
+            let logDue = Internal.intervalCheck logInterval
+            fun () ->
+                if logDue () then
+                    let currentRead, completed =
+                        let current = positions.Current()
+                        current |> choose (fun v -> v.read), current |> choose (fun v -> v.completed)
+                    if includeSubsequent then
+                        log.Information("Feed Awaiting All. Current {current} Completed {completed} Starting {starting}",
+                                        currentRead, completed, starting)
+                    else log.Information("Feed Awaiting Starting {starting} Completed {completed}", starting, completed)
+        let isComplete () =
+            let current = positions.Current()
+            let completed = current |> choose (fun v -> v.completed)
+            let originalStartedAreAllCompleted () =
+                let forTranche = Dictionary() in for struct (k, v) in completed do forTranche.Add(k, v)
+                let hasPassed origin trancheId =
+                    let mutable v = Unchecked.defaultof<_>
+                    forTranche.TryGetValue(trancheId, &v) && v > origin
+                starting |> Seq.forall (fun struct (t, s) -> hasPassed s t)
+            current |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) // All submitted work (including follow-on work), completed
+            || (not includeSubsequent && originalStartedAreAllCompleted ())
+        while not (isComplete ()) && not sink.IsCompleted do
+            maybeLog ()
+            do! Async.Sleep delayMs }
+
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
@@ -64,61 +103,35 @@ type FeedSourceBase internal
             log.Warning(e, "Exception encountered while running source, exiting loop")
             return! Async.Raise e }
 
-    /// Waits until all <c>Ingest</c>ed batches have been successfully processed via the Sink
-    /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
-    /// 1. a Decider's Transact will not return until such time as the Committed events have been handled
-    ///      (i.e., we have prepared the batch for submission)
-    /// 2. At the point where the caller triggers AwaitCompletion, we can infer that all reactions have been processed
-    ///      when checkpointing/completion has passed beyond our starting point
+    /// Waits (for up to the <c>propagationDelay</c>) for events to be observed
+    /// If at least one event has been observed, waits for the completion of the Sink's processing
     member _.AwaitCompletion
-        (   // sleep interval while awaiting completion. Default 1ms.
+        (   // time to wait for arrival of initial events, this should take into account:
+            // - time for indexing of the events to complete based on the environment's configuration (e.g. with DynamoStore, the total Lambda and DynamoDB Streams trigger time)
+            // - an adjustment to account for the polling interval that the Source is using
+            propagationDelay,
+            // sleep interval while awaiting completion. Default 1ms.
             ?delay,
             // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
-        match positions.Current() with
-        | xs when xs |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) ->
-            log.Debug("Feed Wait Skipped; no processing pending. Completed Epochs {epochs}", seq { for kv in xs -> struct (kv.Key, kv.Value.completed) })
-        | originals ->
-            let sw = System.Diagnostics.Stopwatch.StartNew()
-            let choose f (xs : KeyValuePair<_,_> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
-            let starting = originals |> choose (fun v -> v.read)
+        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let delayMs =
+            let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
+            int delay.TotalMilliseconds
+        match! awaitPropagation propagationDelay delayMs with
+        | [||] ->
+            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
+            if propagationDelay = TimeSpan.Zero then log.Debug("Feed Wait Skipped; no processing pending. Completed Epochs {completed}", currentCompleted)
+            else log.Information("Feed Wait Timeout {propagationDelay:n1}s. Completed {completed}", float sw.ElapsedMilliseconds / 1000., currentCompleted)
+        | starting ->
             let includeSubsequent = ignoreSubsequent <> Some true
-            let delayMs =
-                let delay = defaultArg delay TimeSpan.FromMilliseconds 1.
-                int delay.TotalMilliseconds
-            let maybeLog =
-                let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
-                let logDue = Internal.intervalCheck logInterval
-                fun () ->
-                    if logDue () then
-                        let currentRead, completed =
-                            let current = positions.Current()
-                            current |> choose (fun v -> v.read), current |> choose (fun v -> v.completed)
-                        if includeSubsequent then
-                            log.Information("Feed Awaiting All. Current {current} Completed {completed} Starting {starting}",
-                                            currentRead, completed, starting)
-                        else log.Information("Feed Awaiting Starting {starting} Completed {completed}", starting, completed)
-            let isComplete () =
-                let current = positions.Current()
-                let completed = current |> choose (fun v -> v.completed)
-                let originalStartedAreAllCompleted () =
-                    let forTranche = Dictionary() in for struct (k, v) in completed do forTranche.Add(k, v)
-                    let hasPassed origin trancheId =
-                        let mutable v = Unchecked.defaultof<_>
-                        forTranche.TryGetValue(trancheId, &v) && v > origin
-                    starting |> Seq.forall (fun struct (t, s) -> hasPassed s t)
-                current |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) // All submitted work (including follow-on work), completed
-                ||  not includeSubsequent && originalStartedAreAllCompleted ()
-            while not (isComplete ()) && not sink.IsCompleted do
-                maybeLog ()
-                do! Async.Sleep delayMs
+            let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
+            do! awaitCompletion starting delayMs includeSubsequent logInterval
             if log.IsEnabled Serilog.Events.LogEventLevel.Information then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
-                let t = sw.Elapsed
-                log.Information("Feed Waited {wait:n1}s Starting {starting} Completed {completed}", t.TotalSeconds, starting, completed)
-
+                log.Information("Feed Wait Complete {wait:n1}s Starting {starting} Completed {completed}", float sw.ElapsedMilliseconds / 1000., starting, completed)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown()

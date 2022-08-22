@@ -331,7 +331,7 @@ module Buffering =
                 | ValueSome w -> w = x.HeadSpan[0].Index
                 | ValueNone -> true
             else false
-        member x.EventsSumBy(f) = x.queue |> Seq.collect id |> Seq.sumBy f |> int64
+        member x.EventsSumBy(f) = if x.IsEmpty then 0L else x.queue |> Seq.collect id |> Seq.sumBy f |> int64
         member x.EventsCount = x.EventsSumBy(fun _ -> 1) |> int
 
     module StreamState =
