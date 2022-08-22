@@ -21,7 +21,6 @@
 
     <PackageReference Include="Equinox.EventStore" Version="[3.0.7, 3.99.0]" />
     <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.4" />
-    <PackageReference Include="TypeShape" Version="8.0.1" />
   </ItemGroup>
 
   <ItemGroup>
