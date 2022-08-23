@@ -54,7 +54,7 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable cycles, batchesPended, streamsPended, eventsPended = 0, 0, 0, 0
     let statsInterval = timeRemaining statsInterval
 
-    let dumpStats (activeReads, maxReads) =
+    let dumpStats struct (activeReads, maxReads) =
         log.Information("Ingester {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits) Ingested {batches} ({streams:n0}s {events:n0}e) Cycles {cycles}",
                         partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch, commits, batchesPended, streamsPended, eventsPended, cycles)
         cycles <- 0; batchesPended <- 0; streamsPended <- 0; eventsPended <- 0
@@ -93,10 +93,10 @@ type Ingester<'Items> private
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
         let c = Channel.unboundedSwSr<Batch<'Items>>
-        Channel.awaitRead c, Channel.apply c, Channel.write c
+        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
     let awaitMessage, applyMessages, enqueueMessage =
         let c = Channel.unboundedSr
-        Channel.awaitRead c, Channel.apply c, Channel.write c
+        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
 
     let progressWriter = ProgressWriter<_>()
 

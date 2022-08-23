@@ -4,23 +4,16 @@ open Equinox.Cosmos.Core
 open Equinox.Cosmos.Store
 open FsCodec
 open Propulsion
+open Propulsion.Internal // Helpers
 open Propulsion.Streams
-open Propulsion.Streams.Internal // Helpers
 open Serilog
 open System.Collections.Generic
 open System
 open System.Threading
 
-[<AutoOpen>]
-module private Impl =
-    let inline mb x = float x / 1024. / 1024.
+module private StreamSpan =
 
-module StreamSpan =
-
-//    let nativeToDefault_ = FsCodec.Core.TimelineEvent.Map (fun (xs : byte array) -> ReadOnlyMemory xs)
-//    let inline nativeToDefault span = Array.map nativeToDefault_ span
     let defaultToNative_ = FsCodec.Core.TimelineEvent.Map (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
-//    let inline defaultToNative span = Array.map defaultToNative_ span
 
 module Internal =
 
@@ -86,7 +79,7 @@ module Internal =
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
         let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
-        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), 0, 0, 0, 0
+        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Internal.Stats.CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -150,7 +143,7 @@ module Internal =
             let attemptWrite (stream, span) ct = task {
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts[index]
-                let met, span' = Internal.StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+                let met, span' = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                     return span'.Length > 0, Choice1Of2 (met, res)
                 with e -> return false, Choice2Of2 (met, e) }
@@ -167,7 +160,7 @@ module Internal =
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
             let dispatcher =
-                Scheduling.MultiDispatcher<_, _, _, _>
+                Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                 dispatcher,
@@ -193,7 +186,7 @@ type CosmosSink =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
+        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(

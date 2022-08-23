@@ -1,7 +1,7 @@
 ﻿module StreamStateTests
 
 open Propulsion.Streams
-open Propulsion.Streams.Buffering
+open Propulsion.Streams.Buffer
 open Swensen.Unquote
 open Xunit
 

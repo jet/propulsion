@@ -2,8 +2,8 @@ namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
 open FsCodec
+open Propulsion.Internal // Helpers
 open Propulsion.Streams
-open Propulsion.Streams.Internal // Helpers
 open Serilog
 open System
 open System.Collections.Generic
@@ -91,7 +91,7 @@ module Internal =
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
         let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
-        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = CatStats(), HashSet(), 0, 0, 0, 0
+        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Stats.CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -168,7 +168,7 @@ module Internal =
                 let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                  dispatcher,
                  ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
@@ -193,7 +193,7 @@ type CosmosStoreSink =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
+        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(

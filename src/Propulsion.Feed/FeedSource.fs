@@ -7,24 +7,6 @@ open System
 open System.Collections.Generic
 open System.Threading.Tasks
 
-/// Intercepts receipt and completion of batches, recording the read and completion positions
-type TranchePositions() =
-    let positions = System.Collections.Concurrent.ConcurrentDictionary<TrancheId, TrancheState>()
-
-    member _.Intercept(trancheId) =
-        positions.GetOrAdd(trancheId, fun _trancheId -> { read = ValueNone; completed = ValueNone }) |> ignore
-        fun (batch : Ingestion.Batch<_>) ->
-            positions[trancheId].read <- ValueSome batch.epoch
-            let onCompletion () =
-                batch.onCompletion()
-                positions[trancheId].completed <- ValueSome batch.epoch
-            { batch with onCompletion = onCompletion }
-    member _.Current() = positions.ToArray()
-and TrancheState = { mutable read : int64 voption; mutable completed : int64 voption }
-module TrancheState =
-
-    let isEmpty (x : TrancheState) = x.completed = x.read
-
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
@@ -47,13 +29,21 @@ type FeedSourceBase internal
             return! reader.Pump(pos)
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
-            return! Async.Raise e
-    }
+            return! Async.Raise e }
+    let pump readTranches crawl = async {
+        try let! (tranches : TrancheId array) = readTranches ()
 
-    let choose f (xs : KeyValuePair<_,_> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
+            log.Information("Starting {tranches} tranche readers...", tranches.Length)
+            return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
+        with e ->
+            log.Warning(e, "Exception encountered while running source, exiting loop")
+            return! Async.Raise e }
+
+    let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
+    let elapsedSeconds (x : System.Diagnostics.Stopwatch) = float x.ElapsedMilliseconds / 1000.
     let checkForActivity () =
         match positions.Current() with
-        | xs when xs |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) -> Array.empty
+        | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>)  -> kv.Value.IsEmpty) -> Array.empty
         | originals -> originals |> choose (fun v -> v.read)
     let awaitPropagation (propagationDelay : TimeSpan) (delayMs : int) = async {
         let sw, max = System.Diagnostics.Stopwatch.StartNew(), int64 propagationDelay.TotalMilliseconds
@@ -83,7 +73,7 @@ type FeedSourceBase internal
                     let mutable v = Unchecked.defaultof<_>
                     forTranche.TryGetValue(trancheId, &v) && v > origin
                 starting |> Seq.forall (fun struct (t, s) -> hasPassed s t)
-            current |> Array.forall (fun kv -> TrancheState.isEmpty kv.Value) // All submitted work (including follow-on work), completed
+            current |> Array.forall (fun kv -> kv.Value.IsEmpty) // All submitted work (including follow-on work), completed
             || (not includeSubsequent && originalStartedAreAllCompleted ())
         while not (isComplete ()) && not sink.IsCompleted do
             maybeLog ()
@@ -93,15 +83,10 @@ type FeedSourceBase internal
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<_>>) = async {
+            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<_>>) =
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
-        try let! tranches = readTranches ()
-            log.Information("Starting {tranches} tranche readers...", tranches.Length)
-            return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
-        with e ->
-            log.Warning(e, "Exception encountered while running source, exiting loop")
-            return! Async.Raise e }
+        pump readTranches crawl
 
     /// Waits (for up to the <c>propagationDelay</c>) for events to be observed
     /// If at least one event has been observed, waits for the completion of the Sink's processing
@@ -124,18 +109,35 @@ type FeedSourceBase internal
         | [||] ->
             let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
             if propagationDelay = TimeSpan.Zero then log.Debug("Feed Wait Skipped; no processing pending. Completed Epochs {completed}", currentCompleted)
-            else log.Information("Feed Wait Timeout {propagationDelay:n1}s. Completed {completed}", float sw.ElapsedMilliseconds / 1000., currentCompleted)
+            else log.Information("Feed Wait Timeout {propagationDelay:n1}s. Completed {completed}", elapsedSeconds sw, currentCompleted)
         | starting ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
             do! awaitCompletion starting delayMs includeSubsequent logInterval
             if log.IsEnabled Serilog.Events.LogEventLevel.Information then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
-                log.Information("Feed Wait Complete {wait:n1}s Starting {starting} Completed {completed}", float sw.ElapsedMilliseconds / 1000., starting, completed)
+                log.Information("Feed Wait Complete {wait:n1}s Starting {starting} Completed {completed}", elapsedSeconds sw, starting, completed)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
-                return! sink.AwaitShutdown()
-    }
+                return! sink.AwaitShutdown() }
+
+/// Intercepts receipt and completion of batches, recording the read and completion positions
+and TranchePositions() =
+    let positions = System.Collections.Concurrent.ConcurrentDictionary<TrancheId, TrancheState>()
+
+    member _.Intercept(trancheId) =
+        positions.GetOrAdd(trancheId, fun _trancheId -> { read = ValueNone; completed = ValueNone }) |> ignore
+        fun (batch : Ingestion.Batch<_>) ->
+            positions[trancheId].read <- ValueSome batch.epoch
+            let onCompletion () =
+                batch.onCompletion()
+                positions[trancheId].completed <- ValueSome batch.epoch
+            { batch with onCompletion = onCompletion }
+    member _.Current() = positions.ToArray()
+/// Represents the current state of a tranche of the source's processing
+and TrancheState =
+    { mutable read : int64 voption; mutable completed : int64 voption }
+    member x.IsEmpty = x.completed = x.read
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
 /// it may have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc

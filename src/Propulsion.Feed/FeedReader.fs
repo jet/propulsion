@@ -107,7 +107,7 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch : Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Async<int*int>,
+        submitBatch : Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Async<struct (int * int)>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop

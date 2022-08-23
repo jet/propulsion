@@ -8,7 +8,6 @@ open FsKafka
 open Propulsion
 open Propulsion.Internal // intervalCheck, AwaitTaskCorrect
 open Propulsion.Streams
-open Propulsion.Streams.Internal
 open Serilog
 open System
 open System.Collections.Generic
@@ -237,7 +236,7 @@ module Core =
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-            let dispatcher = Scheduling.ItemDispatcher<_, _> maxDop
+            let dispatcher = Dispatch.ItemDispatcher<_, _> maxDop
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
                 logStreamStates Default.eventSize
@@ -245,9 +244,9 @@ module Core =
                 Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(
                     dispatcher, stats, prepare, handle, SpanResult.toIndex, dumpStreams,
                     ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Scheduling.Batch<_> =
+            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Buffer.Batch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
-                Scheduling.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
+                Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
             let submitter =
                 Projector.StreamsSubmitter.Create
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
@@ -457,7 +456,7 @@ type BatchesConsumer =
             // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Scheduling.DispatchItem<_>[] -> Async<seq<Choice<int64, exn>>>,
+            handle : Dispatch.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats : Scheduling.Stats<StreamSpan.Metrics * unit, StreamSpan.Metrics * exn>, statsInterval,
             // Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
@@ -474,7 +473,7 @@ type BatchesConsumer =
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
             logStreamStates Default.eventSize
-        let handle (items : Scheduling.DispatchItem<Default.EventBody>[]) ct
+        let handle (items : Dispatch.Item<Default.EventBody>[]) ct
             : Task<(TimeSpan * StreamName * bool * Choice<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * exn>)[]> = task {
             let sw = Stopwatch.StartNew()
             let avgElapsed () =
@@ -498,13 +497,13 @@ type BatchesConsumer =
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Default.jsonSize x.span
                         ae, x.stream, false, Choice2Of2 (metrics, e) |] }
-        let dispatcher = Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
+        let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Scheduling.StreamSchedulingEngine.Create(
             dispatcher,
             maxBatches = maxBatches,
             ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Scheduling.Batch<_> =
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Buffer.Batch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            Scheduling.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
+            Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
         let submitter = Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)

@@ -17,7 +17,7 @@ module Scheduling =
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<_> in c.Writer.TryWrite, Channel.awaitRead c, Channel.apply c
+        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<_> in c.Writer.TryWrite, Channel.awaitRead c.Reader, Channel.apply c.Reader
         let dop = Sem maxDop
 
         let wrap computation = async {

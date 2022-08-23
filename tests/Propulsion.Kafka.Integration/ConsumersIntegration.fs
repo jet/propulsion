@@ -137,7 +137,7 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Streams.Scheduling.DispatchItem<Propulsion.Streams.Default.EventBody>[]) = async {
+            let handle (streams : Propulsion.Streams.Dispatch.Item<Propulsion.Streams.Default.EventBody>[]) = async {
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do

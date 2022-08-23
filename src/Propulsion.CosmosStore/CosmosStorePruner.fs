@@ -101,10 +101,10 @@ module Pruner =
         static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let interpret (stream, span) =
-                let metrics = Internal.StreamSpan.metrics Default.eventSize span
+                let metrics = StreamSpan.metrics Default.eventSize span
                 metrics, (stream, span)
             let dispatcher =
-                Scheduling.MultiDispatcher<_, _, _, _>
+                Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                 dispatcher,
@@ -129,7 +129,7 @@ type CosmosStorePruner =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
+        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let pruneUntil stream index = Equinox.CosmosStore.Core.Events.pruneUntil context stream index
         let streamScheduler =

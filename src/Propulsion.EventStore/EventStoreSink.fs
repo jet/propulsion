@@ -9,28 +9,24 @@ open Equinox.EventStoreDb
 #endif
 
 open Propulsion
+open Propulsion.Internal // Helpers
 open Propulsion.Streams
-open Propulsion.Streams.Internal // Helpers
 open Serilog
 open System.Collections.Generic
 open System
 open System.Threading
 
-[<AutoOpen>]
-module private Impl2 =
-    let inline mb x = float x / 1024. / 1024.
-
-    module StreamSpan =
+module private StreamSpan =
 
 #if EVENTSTORE_LEGACY
-        let private nativeToDefault_ = FsCodec.Core.TimelineEvent.Map (fun (xs : byte array) -> ReadOnlyMemory xs)
-        let inline nativeToDefault span = Array.map nativeToDefault_ span
-        let defaultToNative_ = FsCodec.Core.TimelineEvent.Map (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
-        let inline defaultToNative span = Array.map defaultToNative_ span
+    let private nativeToDefault_ = FsCodec.Core.TimelineEvent.Map (fun (xs : byte array) -> ReadOnlyMemory xs)
+    let inline nativeToDefault span = Array.map nativeToDefault_ span
+    let defaultToNative_ = FsCodec.Core.TimelineEvent.Map (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
+    let inline defaultToNative span = Array.map defaultToNative_ span
 #else
-        let nativeToDefault = id
-        let defaultToNative_ = id
-        let defaultToNative = id
+    let nativeToDefault = id
+    let defaultToNative_ = id
+    let defaultToNative = id
 #endif
 
 module Internal =
@@ -89,7 +85,7 @@ module Internal =
 
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
-        let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), CatStats(), HashSet(), HashSet(), HashSet()
+        let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), Stats.CatStats(), HashSet(), HashSet(), HashSet()
         let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther, timedOut = 0, 0, 0, 0, 0, 0
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 
@@ -165,7 +161,7 @@ module Internal =
                 Writer.logTo writerResultLog (stream, res)
                 struct (ss.WritePos, res)
 
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
@@ -187,7 +183,7 @@ type EventStoreSink =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Scheduling.ItemDispatcher<_, _>(maxConcurrentStreams)
+        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStreams, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
         Projector.Pipeline.Start(

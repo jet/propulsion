@@ -101,7 +101,7 @@ module Reader =
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length
         log.Information("Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
-                        string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, float sizeB / 1024. / 1024., t.TotalSeconds)
+                        string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Propulsion.Internal.mb sizeB, t.TotalSeconds)
         return spans, state.closed, sizeB }
 
     let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<Buffer * int64> = async {
@@ -124,6 +124,5 @@ module Reader =
                  else totalSpans <- totalSpans + 1L
             more <- closed
             epochId <- AppendsEpochId.next epochId
-        let totalMib = float totalB / 1024. / 1024.
-        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans", string trancheId, totalMib, invalidSpans)
+        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans", string trancheId, Propulsion.Internal.mb totalB, invalidSpans)
         return state, totalSpans }

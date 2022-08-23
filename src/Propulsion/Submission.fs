@@ -1,7 +1,7 @@
 ﻿/// Holds batches from the Ingestion pipe, feeding them continuously to the scheduler in an appropriate order
 module Propulsion.Submission
 
-open Propulsion.Internal // Helper types
+open Propulsion.Internal // Helpers
 open Serilog
 open System
 open System.Collections.Generic
@@ -12,8 +12,6 @@ open System.Threading.Tasks
 [<AutoOpen>]
 module Helpers =
 
-    let toValueTuple (x : KeyValuePair<_, _>) = struct (x.Key, x.Value)
-    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map toValueTuple |> Seq.sortByDescending ValueTuple.snd
     let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
 
     /// Gathers stats relating to how many items of a given partition have been observed
@@ -27,7 +25,7 @@ module Helpers =
             | false, _ -> partitions[partitionId] <- weight
 
         member _.Clear() = partitions.Clear()
-        member _.StatsDescending = statsDescending partitions
+        member _.StatsDescending = Stats.statsDescending partitions
 
     let atTimedIntervals (period : TimeSpan) =
         let timer, max = Stopwatch.StartNew(), int64 period.TotalMilliseconds
@@ -55,7 +53,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
 
     let awaitIncoming, applyIncoming, enqueueIncoming =
         let c = Channel.unboundedSr
-        Channel.awaitRead c, Channel.apply c, Channel.write c
+        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
     let buffer = Dictionary<'S, PartitionQueue<'B>>()
 
     let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
