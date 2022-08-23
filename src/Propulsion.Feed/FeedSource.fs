@@ -1,4 +1,4 @@
-namespace Propulsion.Feed.Internal
+namespace Propulsion.Feed.Core
 
 open FSharp.Control
 open Propulsion
@@ -218,7 +218,6 @@ type AllFeedSource
 namespace Propulsion.Feed
 
 open FSharp.Control
-open Propulsion
 open System
 
 [<NoComparison; NoEquality>]
@@ -234,7 +233,7 @@ type FeedSource
         // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position -> Async<Page<_>>,
         ?renderPos) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
+    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
 
     let crawl trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
@@ -244,7 +243,7 @@ type FeedSource
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Internal.Batch<_>)
+            yield sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>)
         }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>

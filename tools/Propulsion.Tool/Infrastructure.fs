@@ -34,7 +34,7 @@ type Logging() =
         let removeMetricsProps (c : LoggerConfiguration) : LoggerConfiguration =
             let trim (e : Serilog.Events.LogEvent) =
                 e.RemovePropertyIfPresent(Propulsion.Streams.Log.PropertyTag)
-                e.RemovePropertyIfPresent(Propulsion.Feed.Internal.Log.PropertyTag)
+                e.RemovePropertyIfPresent(Propulsion.Feed.Core.Log.PropertyTag)
                 e.RemovePropertyIfPresent(Propulsion.CosmosStore.Log.PropertyTag)
                 e.RemovePropertyIfPresent(Equinox.CosmosStore.Core.Log.PropertyTag)
                 e.RemovePropertyIfPresent(Equinox.DynamoStore.Core.Log.PropertyTag)

@@ -79,7 +79,7 @@ module Internal =
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
         let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
-        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Internal.Stats.CatStats(), HashSet(), 0, 0, 0, 0
+        let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Stats.CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
 

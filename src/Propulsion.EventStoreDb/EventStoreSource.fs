@@ -11,7 +11,7 @@ module private Impl =
         let n, d, m, eu, ts = e.EventNumber, e.Data, e.Metadata, e.EventId, System.DateTimeOffset e.Created
         let e = FsCodec.Core.TimelineEvent.Create(n.ToInt64(), e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts)
         Propulsion.Streams.StreamName.internalParseSafe x.Event.EventStreamId, e
-    let readBatch hydrateBodies batchSize (store : EventStore.Client.EventStoreClient) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readBatch hydrateBodies batchSize (store : EventStore.Client.EventStoreClient) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in EventStore.Client.Position(p, p)
         let res = store.ReadAllAsync(EventStore.Client.Direction.Forwards, pos, batchSize, hydrateBodies, cancellationToken = ct)
@@ -31,6 +31,6 @@ type EventStoreSource
         // TODO borrow impl of determining tail from Propulsion.EventStore, pass that to base as ?establishOrigin
         // ?fromTail,
         ?sourceId) =
-    inherit Propulsion.Feed.Internal.AllFeedSource
+    inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)

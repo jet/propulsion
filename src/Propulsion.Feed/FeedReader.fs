@@ -1,4 +1,4 @@
-namespace Propulsion.Feed.Internal
+namespace Propulsion.Feed.Core
 
 open FSharp.Control
 open Propulsion // Async.Sleep, Raise

@@ -56,18 +56,18 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch checkpoint isTail items : Propulsion.Feed.Internal.Batch<_> =
+    let mkBatch checkpoint isTail items : Propulsion.Feed.Core.Batch<_> =
         { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.ofEpochAndOffset epochId offset) false items
-    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
+    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Core.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<_>> = asyncSeq {
+        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Core.Batch<_>> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
@@ -177,7 +177,7 @@ type DynamoStoreSource
         ?readFailureSleepInterval,
         ?sourceId,
         ?trancheIds) =
-    inherit Propulsion.Feed.Internal.TailingFeedSource
+    inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)

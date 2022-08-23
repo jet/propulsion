@@ -16,7 +16,7 @@ module private Impl =
     let readWithDataAsStreamEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
         let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
         return toStreamEvent json msg }
-    let readBatch hydrateBodies batchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Internal.Batch<_>> = async {
+    let readBatch hydrateBodies batchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, hydrateBodies, ct) |> Async.AwaitTaskCorrect
         let! items =
@@ -33,6 +33,6 @@ type SqlStreamStoreSource
         // TODO borrow impl of determining tail from Propulsion.EventStoreDb
         // ?fromTail,
         ?sourceId) =
-    inherit Propulsion.Feed.Internal.AllFeedSource
+    inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)

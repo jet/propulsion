@@ -5,7 +5,6 @@
 namespace Propulsion.Feed
 
 open FSharp.Control
-open Propulsion
 open System
 
 /// Int64.MaxValue = 9223372036854775807
@@ -53,10 +52,10 @@ type PeriodicSource
         crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem<_> array>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         ?renderPos) =
-    inherit Internal.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
+    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Internal.Batch<_>> = asyncSeq {
+    let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Core.Batch<_>> = asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -84,14 +83,14 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield elapsed, ({ items = items; checkpoint = position; isTail = false } : Internal.Batch<_> )
+                yield elapsed, ({ items = items; checkpoint = position; isTail = false } : Core.Batch<_> )
                 elapsed <- TimeSpan.Zero
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
-            | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Internal.TimelineEvent.toCheckpointPosition
-        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Internal.Batch<_>) }
+            | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Core.TimelineEvent.toCheckpointPosition
+        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Core.Batch<_>) }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
