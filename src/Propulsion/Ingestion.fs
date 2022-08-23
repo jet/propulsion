@@ -54,7 +54,7 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable cycles, batchesPended, streamsPended, eventsPended = 0, 0, 0, 0
     let statsInterval = timeRemaining statsInterval
 
-    let dumpStats struct (activeReads, maxReads) =
+    member _.DumpStats(activeReads, maxReads) =
         log.Information("Ingester {partitionId} Ahead {activeReads}/{maxReads} @ {validated} (committed: {committed}, {commits} commits) Ingested {batches} ({streams:n0}s {events:n0}e) Cycles {cycles}",
                         partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch, commits, batchesPended, streamsPended, eventsPended, cycles)
         cycles <- 0; batchesPended <- 0; streamsPended <- 0; eventsPended <- 0
@@ -76,27 +76,25 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
             streamsPended <- streamsPended + streams
             eventsPended <- eventsPended + events
 
-    member _.TryDump(readState) =
+    member _.Ingest() =
         cycles <- cycles + 1
-        let struct (due, remaining) = statsInterval ()
-        if due then dumpStats readState
-        remaining
+        statsInterval ()
 
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
 type Ingester<'Items> private
     (   stats : Stats, maxReadAhead,
         // forwards a set of items and the completion callback, yielding streams count * event count
-        submitBatch : 'Items * (unit -> unit) -> int * int,
+        submitBatch : 'Items * (unit -> unit) -> struct (int * int),
         cts : CancellationTokenSource) =
 
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
-        let c = Channel.unboundedSwSr<Batch<'Items>>
-        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
+        let c = Channel.unboundedSwSr<Batch<'Items>> in let r, w = c.Reader, c.Writer
+        Channel.awaitRead r, Channel.apply r, Channel.write w
     let awaitMessage, applyMessages, enqueueMessage =
-        let c = Channel.unboundedSr
-        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
+        let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
+        Channel.awaitRead r, Channel.apply r, Channel.write w
 
     let progressWriter = ProgressWriter<_>()
 
@@ -106,7 +104,7 @@ type Ingester<'Items> private
             batch.onCompletion () // we guarantee this happens before checkpoint can be called
             enqueueMessage <| Validated batch.epoch
             progressWriter.Post(batch.epoch, batch.checkpoint)
-        let streamCount, itemCount = submitBatch (batch.items, markCompleted)
+        let struct (streamCount, itemCount) = submitBatch (batch.items, markCompleted)
         enqueueMessage <| Added (streamCount, itemCount)
 
     member private _.Pump(ct) = task {
@@ -114,8 +112,10 @@ type Ingester<'Items> private
         Task.start (fun () -> progressWriter.Pump ct)
         while not ct.IsCancellationRequested do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
-            let nextStatsIntervalMs = stats.TryDump(maxRead.State)
-            do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(int nextStatsIntervalMs)) :> Task }
+            let timeToNextStatsMs = let struct (due, nextStatsIntervalMs) = stats.Ingest()
+                                    if due then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
+                                    int nextStatsIntervalMs
+            do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(timeToNextStatsMs)) :> Task }
             // arguably the impl should be submitting while unpacking but
             // - maintaining consistency between incoming order and submit order is required
             // - in general maxRead will be double maxSubmit so this will only be relevant in catchup situations

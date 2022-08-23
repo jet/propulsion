@@ -52,8 +52,8 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         ?tryCompactQueue) =
 
     let awaitIncoming, applyIncoming, enqueueIncoming =
-        let c = Channel.unboundedSr
-        Channel.awaitRead c.Reader, Channel.apply c.Reader, Channel.write c.Writer
+        let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
+        Channel.awaitRead r, Channel.apply r, Channel.write w
     let buffer = Dictionary<'S, PartitionQueue<'B>>()
 
     let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
@@ -64,11 +64,9 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         log.Information("Submitter ingested {ingested} compacted {compacted} completed {completed} Events {items} Batches {batches} Holding {holding} Cycles {cycles}",
                         ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, cycles)
         cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
-    let maybeDumpStats () =
+    let ingestStats () =
         cycles <- cycles + 1
-        let struct (due, remaining) = statsInterval ()
-        if due then dumpStats ()
-        int remaining
+        statsInterval ()
 
     // Loop, submitting 0 or 1 item per partition per iteration to ensure
     // - each partition has a controlled maximum number of entrants in the scheduler queue
@@ -119,8 +117,10 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
         while not ct.IsCancellationRequested do
             while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
-            let nextStatsIntervalMs = maybeDumpStats ()
-            do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(nextStatsIntervalMs) |] :> Task }
+            let timeToNextStatsMs = let struct (due, remaining) = ingestStats ()
+                                    if due then dumpStats ()
+                                    int remaining
+            do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(timeToNextStatsMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
     member _.Ingest(items : Batch<'S, 'M>[]) =

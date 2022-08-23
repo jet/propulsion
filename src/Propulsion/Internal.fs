@@ -42,12 +42,12 @@ open System.Threading.Tasks
 
 module Task =
 
-    let start create = Task.Run<unit>(Func<Task<unit>> create) |> ignore<Task>
+    let inline start create = Task.Run<unit>(Func<Task<unit>> create) |> ignore<Task>
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
     member _.HasCapacity = inner.CurrentCount <> 0
-    member _.State = struct(max-inner.CurrentCount,max)
+    member _.State = struct(max - inner.CurrentCount, max)
     member _.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
     member x.AwaitButRelease() = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
         inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)

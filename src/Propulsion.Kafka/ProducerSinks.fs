@@ -37,7 +37,7 @@ type StreamsProducerSink =
             ?maxCycles)
         : Default.Sink =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
-            let handle (stream : StreamName, span) = async {
+            let handle struct (stream : StreamName, span) = async {
                 let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
                 match maybeMsg with
                 | Some (key : string, message : string) ->
@@ -46,7 +46,7 @@ type StreamsProducerSink =
                     | _ -> ()
                     do! producer.Produce(key, message)
                 | None -> ()
-                return SpanResult.AllProcessed, outcome
+                return struct (SpanResult.AllProcessed, outcome)
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,

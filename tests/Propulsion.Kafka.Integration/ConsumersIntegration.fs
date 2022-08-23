@@ -180,10 +180,10 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle (streamName : StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
+            let handle struct (streamName : StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event)
-                return Propulsion.Streams.SpanResult.AllProcessed, () }
+                return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =

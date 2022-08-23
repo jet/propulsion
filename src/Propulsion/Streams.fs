@@ -94,10 +94,10 @@ type StreamSpan<'Format> = FsCodec.ITimelineEvent<'Format> array
 
 module StreamSpan =
 
-    type Metrics = int * int
+    type Metrics = (struct (int * int))
     let metrics eventSize (xs : FsCodec.ITimelineEvent<'F> array) : Metrics =
-        xs.Length, xs |> Seq.sumBy eventSize
-    let slice<'F> eventSize (maxEvents, maxBytes) (span : FsCodec.ITimelineEvent<'F> array) : (int * int) * FsCodec.ITimelineEvent<'F> array =
+        struct (xs.Length, xs |> Seq.sumBy eventSize)
+    let slice<'F> eventSize (maxEvents, maxBytes) (span : FsCodec.ITimelineEvent<'F> array) : struct (Metrics * FsCodec.ITimelineEvent<'F> array) =
         let mutable count, bytes = 0, 0
         let mutable countBudget, bytesBudget = maxEvents, maxBytes
         let withinLimits y =
@@ -251,8 +251,8 @@ module Dispatch =
     /// Coordinates the dispatching of work and emission of results, subject to the maxDop concurrent processors constraint
     type internal DopDispatcher<'R>(maxDop : int) =
         let tryWrite, wait, apply =
-            let c = Channel.unboundedSwSr<CancellationToken -> Task<'R>>
-            c.Writer.TryWrite, Channel.awaitRead c.Reader, Channel.apply c.Reader >> ignore
+            let c = Channel.unboundedSwSr<CancellationToken -> Task<'R>> in let r, w = c.Reader, c.Writer
+            w.TryWrite, Channel.awaitRead r, Channel.apply r >> ignore
         let result = Event<'R>()
         let dop = Sem maxDop
 
@@ -279,7 +279,7 @@ module Dispatch =
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type ItemDispatcher<'R, 'F>(maxDop) =
-        let inner = DopDispatcher<TimeSpan * FsCodec.StreamName * bool * 'R>(maxDop)
+        let inner = DopDispatcher<struct (TimeSpan * FsCodec.StreamName * bool * 'R)>(maxDop)
 
         // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
         let tryFillDispatcher (potential : seq<Item<'F>>) markStarted project markBusy =
@@ -607,7 +607,7 @@ module Scheduling =
             abstract member HasCapacity : bool with get
             abstract member AwaitCapacity : unit -> Task<unit>
             abstract member TryReplenish : pending : seq<Dispatch.Item<'F>> * markStreamBusy : (FsCodec.StreamName -> unit) -> struct (bool * bool)
-            [<CLIEvent>] abstract member Result : IEvent<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>
+            [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
             abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
             abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
             abstract member DumpStats : int -> unit
@@ -616,28 +616,28 @@ module Scheduling =
         /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
         type MultiDispatcher<'P, 'R, 'E, 'F>
             (   inner : Dispatch.ItemDispatcher<Choice<'P, 'E>, 'F>,
-                project : int64 -> Dispatch.Item<'F> -> CancellationToken -> Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>,
+                project : int64 -> Dispatch.Item<'F> -> CancellationToken -> Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>,
                 interpretProgress : StreamStates<'F> -> FsCodec.StreamName -> Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>),
                 stats : Stats<'R, 'E>,
                 dumpState : ((FsCodec.ITimelineEvent<'F> -> int) -> unit) -> ILogger -> unit) =
             static member Create(inner,
-                    project : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> CancellationToken -> Task<bool * Choice<'P, 'E>>,
+                    project : struct (FsCodec.StreamName * StreamSpan<'F>) -> CancellationToken -> Task<struct (bool * Choice<'P, 'E>)>,
                     interpretProgress, stats, dumpStreams) =
-                let project sw (item : Dispatch.Item<'F>) (ct : CancellationToken) (*: Task<TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>>*) = task {
+                let project sw (item : Dispatch.Item<'F>) (ct : CancellationToken) = task {
                     let! progressed, res = project (item.stream, item.span) ct
                     let now = System.Diagnostics.Stopwatch.GetTimestamp()
-                    return Stats.Busy.timeSpanFromStopwatchTicks (now - sw), item.stream, progressed, res }
+                    return struct (Stats.Busy.timeSpanFromStopwatchTicks (now - sw), item.stream, progressed, res) }
                 MultiDispatcher<_, _, _, _>(inner, project, interpretProgress, stats, dumpStreams)
             static member Create(inner, handle, interpret, toIndex, stats, dumpStreams) =
                 let project item ct = task {
-                    let met, (stream, span : StreamSpan<'F>) = interpret item
-                    try let! spanResult, outcome = handle (stream, span) |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
-                        let index' = toIndex (stream, span) spanResult
-                        return index' > span[0].Index, Choice1Of2 (index', met, outcome)
-                    with e -> return false, Choice2Of2 (met, e) }
+                    let struct (met, (struct (_sn, span : StreamSpan<'F>) as ss)) = interpret item
+                    try let! struct (spanResult, outcome) = handle ss |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
+                        let index' = toIndex span spanResult
+                        return struct (index' > span[0].Index, Choice1Of2 struct (index', met, outcome))
+                    with e -> return struct (false, Choice2Of2 struct (met, e)) }
                 let interpretProgress (_streams : StreamStates<'F>) _stream = function
-                    | Choice1Of2 (index, met, outcome) -> struct (ValueSome index, Choice1Of2 (met, outcome))
-                    | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
+                    | Choice1Of2 struct (index, met, outcome) -> struct (ValueSome index, Choice1Of2 struct (met, outcome))
+                    | Choice2Of2 struct (stats, exn) -> ValueNone, Choice2Of2 struct (stats, exn)
                 MultiDispatcher<_, _, _, 'F>.Create(inner, project, interpretProgress, stats, dumpStreams)
             interface IDispatcher<'P, 'R, 'E, 'F> with
                 override _.HasCapacity = inner.HasCapacity
@@ -661,11 +661,11 @@ module Scheduling =
         type BatchedDispatcher<'F>
             (   select : Dispatch.Item<'F> seq -> Dispatch.Item<'F> array,
                 handle : Dispatch.Item<'F> array -> CancellationToken ->
-                         Task<(TimeSpan * FsCodec.StreamName * bool * Choice<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * exn>) array>,
+                         Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>) array>,
                 stats : Stats<_, _>,
                 dumpState) =
             let dop = Dispatch.DopDispatcher 1
-            let result = Event<TimeSpan * FsCodec.StreamName * bool * Choice<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * exn>>()
+            let result = Event<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)>()
 
             // On each iteration, we offer the ordered work queue to the selector
             // we propagate the selected streams to the handler
@@ -686,7 +686,7 @@ module Scheduling =
                 use _ = dop.Result.Subscribe(Array.iter result.Trigger)
                 return! dop.Pump ct }
 
-            interface IDispatcher<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * unit, StreamSpan.Metrics * exn, 'F> with
+            interface IDispatcher<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn), 'F> with
                 override _.HasCapacity = dop.HasCapacity
                 override _.AwaitCapacity() = dop.AwaitButRelease()
                 override _.TryReplenish(pending, markStreamBusy) = trySelect pending markStreamBusy
@@ -849,7 +849,7 @@ module Scheduling =
             | _ -> ()
 
         member _.Pump _abend (ct : CancellationToken) = task {
-            use _ = dispatcher.Result.Subscribe(Result >> writeResult)
+            use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult (Result (t, s, pr, r)))
             let mutable zt = TimeSpan.Zero
             let inline startSw () = System.Diagnostics.Stopwatch.StartNew()
             while not ct.IsCancellationRequested do
@@ -921,13 +921,13 @@ module Scheduling =
     type StreamSchedulingEngine =
 
         static member Create<'Metrics, 'Progress, 'Outcome, 'F>
-            (   itemDispatcher : Dispatch.ItemDispatcher<Choice<int64 * 'Metrics * 'Outcome, 'Metrics * exn>, 'F>,
-                stats : Stats<'Metrics * 'Outcome, 'Metrics * exn>,
-                prepare : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> 'Metrics * (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array),
-                handle : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> Async<'Progress * 'Outcome>,
-                toIndex : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> 'Progress -> int64,
+            (   itemDispatcher : Dispatch.ItemDispatcher<Choice<struct (int64 * 'Metrics * 'Outcome), struct ('Metrics * exn)>, 'F>,
+                stats : Stats<struct ('Metrics * 'Outcome), struct ('Metrics * exn)>,
+                prepare : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> struct ('Metrics * struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array)),
+                handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct ('Progress * 'Outcome)>,
+                toIndex : StreamSpan<'F> -> 'Progress -> int64,
                 dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?enableSlipstreaming)
-            : StreamSchedulingEngine<int64 * 'Metrics * 'Outcome, 'Metrics * 'Outcome, 'Metrics * exn, 'F> =
+            : StreamSchedulingEngine<struct (int64 * 'Metrics * 'Outcome), struct ('Metrics * 'Outcome), struct ('Metrics * exn), 'F> =
 
             let dispatcher = Dispatcher.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, handle, prepare, toIndex, stats, dumpStreams)
             StreamSchedulingEngine<_, _, _, 'F>(
@@ -936,7 +936,7 @@ module Scheduling =
                 ?idleDelay = idleDelay, ?enableSlipstreaming = enableSlipstreaming)
 
         static member Create(dispatcher, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?enableSlipstreaming)
-            : StreamSchedulingEngine<int64 * ('Metrics * unit), 'Stats * unit, 'Stats * exn, 'F> =
+            : StreamSchedulingEngine<struct (int64 * struct ('Metrics * unit)), struct ('Stats * unit), struct ('Stats * exn), 'F> =
             StreamSchedulingEngine<_, _, _, 'F>(
                 dispatcher,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
@@ -944,7 +944,7 @@ module Scheduling =
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
-    inherit Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>(log, statsInterval, statesInterval)
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, statesInterval)
     let okStreams, failStreams, badCats = HashSet(), HashSet(), Stats.CatStats()
     let mutable resultOk, resultExnOther, okEvents, okBytes, exnEvents, exnBytes = 0, 0, 0, 0L, 0, 0L
 
@@ -988,7 +988,7 @@ module Projector =
                 let streams = items |> Seq.map ValueTuple.fst |> HashSet
                 let batch : Submission.Batch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
                 submit batch
-                streams.Count, items.Length
+                struct (streams.Count, items.Length)
             Ingestion.Ingester<StreamEvent<_> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
     type StreamsSubmitter =
@@ -1049,7 +1049,7 @@ type SpanResult =
 
 module SpanResult =
 
-    let toIndex<'F> (_sn, span : FsCodec.ITimelineEvent<'F> array) = function
+    let toIndex<'F> (span : StreamSpan<'F>) = function
         | NoneProcessed -> span[0].Index
         | AllProcessed -> span[0].Index + span.LongLength
         | PartiallyProcessed count -> span[0].Index + int64 count
@@ -1090,7 +1090,7 @@ type StreamsSink =
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> Async<SpanResult * 'Outcome>,
+            handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
             stats, statsInterval, eventSize,
             // Limits number of batches passed to the scheduler.
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
@@ -1108,9 +1108,9 @@ type StreamsSink =
             ?idleDelay,
             ?ingesterStatsInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let prepare (streamName, span) =
+        let prepare struct (streamName, span) =
             let metrics = StreamSpan.metrics eventSize span
-            metrics, (streamName, span)
+            struct (metrics, struct (streamName, span))
         StreamsSink.StartEx<SpanResult, 'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, eventSize,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
@@ -1138,9 +1138,9 @@ type StreamsSink =
             ?idleDelay,
             ?ingesterStatsInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let handle (streamName, span : FsCodec.ITimelineEvent<'F> array) = async {
+        let handle struct (streamName, span : FsCodec.ITimelineEvent<'F> array) = async {
             let! res = handle (streamName, span)
-            return SpanResult.AllProcessed, res }
+            return struct (SpanResult.AllProcessed, res) }
         StreamsSink.Start<'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
@@ -1151,7 +1151,7 @@ module Sync =
 
     [<AbstractClass>]
     type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.Stats<(StreamSpan.Metrics * TimeSpan) * 'Outcome, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.Stats<struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
         let okStreams, failStreams = HashSet(), HashSet()
         let prepareStats = Stats.LatencyStats("prepare")
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -1186,7 +1186,7 @@ module Sync =
 
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-                handle : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> Async<SpanResult * 'Outcome>,
+                handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
                 stats : Stats<'Outcome>, statsInterval, sliceSize, eventSize,
                 // Default 1 ms
                 ?idleDelay,
@@ -1207,22 +1207,22 @@ module Sync =
 
             let maxBatches, maxEvents, maxBytes = defaultArg maxBatches 128, defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-            let attemptWrite (stream, span : FsCodec.ITimelineEvent<'F> array) ct = task {
-                let met, (span' : FsCodec.ITimelineEvent<'F> array) = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
+            let attemptWrite struct (stream, span : FsCodec.ITimelineEvent<'F> array) ct = task {
+                let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
                 let sw = System.Diagnostics.Stopwatch.StartNew()
-                try let req = (stream, span')
+                try let req = struct (stream, span')
                     let! res, outcome = Async.StartAsTask(handle req, cancellationToken = ct)
                     let prepareElapsed = sw.Elapsed
-                    let index' = SpanResult.toIndex req res
-                    return index' > span[0].Index, Choice1Of2 (index', (met, prepareElapsed), outcome)
-                with e -> return false, Choice2Of2 (met, e) }
+                    let index' = SpanResult.toIndex span' res
+                    return struct (index' > span[0].Index, Choice1Of2 struct (index', struct (met, prepareElapsed), outcome))
+                with e -> return struct (false, Choice2Of2 struct (met, e)) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
-                | Choice1Of2 (i', stats, outcome) ->
-                    struct (ValueSome i', Choice1Of2 (stats, outcome))
-                | Choice2Of2 (eventCount, bytesCount as stats, exn : exn) ->
+                | Choice1Of2 struct (i', stats, outcome) ->
+                    struct (ValueSome i', Choice1Of2 struct (stats, outcome))
+                | Choice2Of2 struct (struct (eventCount, bytesCount) as stats, exn : exn) ->
                     log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
-                    ValueNone, Choice2Of2 (stats, exn)
+                    ValueNone, Choice2Of2 struct (stats, exn)
 
             let itemDispatcher = Dispatch.ItemDispatcher<_, 'F>(maxConcurrentStreams)
             let dumpStreams logStreamStates log =
@@ -1231,7 +1231,7 @@ module Sync =
 
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
-                Scheduling.StreamSchedulingEngine<int64 * (StreamSpan.Metrics * TimeSpan) * 'Outcome, (StreamSpan.Metrics * TimeSpan) * 'Outcome, StreamSpan.Metrics * exn, 'F>
+                Scheduling.StreamSchedulingEngine<struct (int64 * struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                     (   dispatcher, maxBatches = maxBatches, maxCycles = defaultArg maxCycles 128, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(
@@ -1257,7 +1257,7 @@ module Default =
 
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
-                handle : FsCodec.StreamName * StreamSpan -> Async<SpanResult * 'Outcome>,
+                handle : struct (FsCodec.StreamName * StreamSpan) -> Async<struct (SpanResult * 'Outcome)>,
                 stats, statsInterval,
                 ?maxSubmissionsPerPartition, ?maxBatches,
                 ?purgeInterval,

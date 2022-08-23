@@ -17,7 +17,9 @@ module Scheduling =
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<_> in c.Writer.TryWrite, Channel.awaitRead c.Reader, Channel.apply c.Reader
+        let tryWrite, wait, apply =
+            let c = Channel.unboundedSwSr<_> in let r, w = c.Reader, c.Writer
+            w.TryWrite, Channel.awaitRead r, Channel.apply r
         let dop = Sem maxDop
 
         let wrap computation = async {
@@ -185,7 +187,7 @@ type ParallelIngester<'Item> =
             let items = Array.ofSeq items
             let batch : Submission.Batch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
             submit batch
-            items.Length, items.Length
+            struct (items.Length, items.Length)
         Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
 type ParallelSink =

@@ -78,7 +78,7 @@ module Pruner =
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneUntil (stream, span: StreamSpan<_>) = async {
+    let handle pruneUntil struct (stream, span: StreamSpan<_>) = async {
         // The newest event eligible for deletion defines the cutoff point
         let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
@@ -94,16 +94,16 @@ module Pruner =
         let res = if deleted = 0 && deferred = 0 then Nop span.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
         let writePos = max trimmedPos (untilIndex + 1L)
-        return writePos, res
+        return struct (writePos, res)
     }
 
     type StreamSchedulingEngine =
 
         static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
-            let interpret (stream, span) =
+            let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
-                metrics, (stream, span)
+                struct (metrics, struct (stream, span))
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                 dispatcher,

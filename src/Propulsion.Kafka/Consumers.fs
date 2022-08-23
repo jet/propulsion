@@ -231,7 +231,7 @@ module Core =
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
                 prepare, handle, maxDop,
-                stats : Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>, statsInterval,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
@@ -256,14 +256,14 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : StreamName * StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>, statsInterval,
+                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
-            let prepare (streamName, span) =
+            let prepare struct (streamName, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
-                metrics, (streamName, span)
+                struct (metrics, struct (streamName, span))
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
@@ -282,9 +282,9 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
-                prepare, handle : StreamName * StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
+                prepare, handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
                 maxDop,
-                stats : Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>, statsInterval,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
@@ -300,8 +300,8 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> StreamEvent<_> seq,
-                handle : StreamName * StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>, statsInterval,
+                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
@@ -419,13 +419,13 @@ type StreamsConsumer =
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : StreamName * StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
+            handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
             // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
             // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
             // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
             maxDop,
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
-            stats : Scheduling.Stats<StreamSpan.Metrics * 'Outcome, StreamSpan.Metrics * exn>, statsInterval,
+            stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?maxSubmissionsPerPartition, ?logExternalState,
             ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
@@ -458,7 +458,7 @@ type BatchesConsumer =
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle : Dispatch.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats : Scheduling.Stats<StreamSpan.Metrics * unit, StreamSpan.Metrics * exn>, statsInterval,
+            stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             // Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             // NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
             ?schedulerIngestionBatchCount,
@@ -474,7 +474,7 @@ type BatchesConsumer =
             logExternalState |> Option.iter (fun f -> f log)
             logStreamStates Default.eventSize
         let handle (items : Dispatch.Item<Default.EventBody>[]) ct
-            : Task<(TimeSpan * StreamName * bool * Choice<int64 * (StreamSpan.Metrics * unit), StreamSpan.Metrics * exn>)[]> = task {
+            : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.StartNew()
             let avgElapsed () =
                 let tot = let e = sw.Elapsed in e.TotalMilliseconds
@@ -487,16 +487,16 @@ type BatchesConsumer =
                         | item, Choice1Of2 index' ->
                             let used : StreamSpan<_> = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
                             let metrics = StreamSpan.metrics Default.eventSize used
-                            ae, item.stream, true, Choice1Of2 (index', (metrics, ()))
+                            struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
                         | item, Choice2Of2 exn ->
                             let metrics = StreamSpan.metrics Default.jsonSize item.span
-                            ae, item.stream, false, Choice2Of2 (metrics, exn) |]
+                            ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Default.jsonSize x.span
-                        ae, x.stream, false, Choice2Of2 (metrics, e) |] }
+                        ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
         let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Scheduling.StreamSchedulingEngine.Create(
             dispatcher,

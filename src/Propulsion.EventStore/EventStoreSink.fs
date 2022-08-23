@@ -39,7 +39,7 @@ module Internal =
             | PartialDuplicate of overage : Default.StreamSpan
             | PrefixMissing of batch : Default.StreamSpan * writePos : int64
 
-        let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<StreamSpan.Metrics * Result, StreamSpan.Metrics * exn>) =
+        let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Choice1Of2 (_, Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -84,7 +84,7 @@ module Internal =
             | _ -> ResultKind.Other
 
     type Stats(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.Stats<struct (StreamSpan.Metrics * Writer.Result), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
         let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), Stats.CatStats(), HashSet(), HashSet(), HashSet()
         let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther, timedOut = 0, 0, 0, 0, 0, 0
         let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -140,23 +140,23 @@ module Internal =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
-            let attemptWrite (stream, span) ct = task {
+            let attemptWrite struct (stream, span) ct = task {
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let met, span' = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+                let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span'
                                |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
-                    return span'.Length > 0, Choice1Of2 (met, res)
-                with e -> return false, Choice2Of2 (met, e) }
+                    return struct (span'.Length > 0, Choice1Of2 struct (met, res))
+                with e -> return false, Choice2Of2 struct (met, e) }
 
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       streams.RecordWriteProgress(stream, pos, null)
+                    | Choice1Of2 struct (_stats, Writer.Ok pos) ->                streams.RecordWriteProgress(stream, pos, null)
                     | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null)
                     | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |])
                     | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |])
-                    | Choice2Of2 (_stats, _exn) ->                                streams.SetMalformed(stream, false)
+                    | Choice2Of2 struct (_stats, _exn) ->                         streams.SetMalformed(stream, false)
                 let ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
                 struct (ss.WritePos, res)

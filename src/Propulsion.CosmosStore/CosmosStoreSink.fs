@@ -39,7 +39,7 @@ module Internal =
             | Duplicate of updatedPos : int64
             | PartialDuplicate of overage : StreamSpan<Default.EventBody>
             | PrefixMissing of batch : StreamSpan<Default.EventBody> * writePos : int64
-        let logTo (log : ILogger) malformed (res : StreamName * Choice<StreamSpan.Metrics * Result, StreamSpan.Metrics * exn>) =
+        let logTo (log : ILogger) malformed (res : StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Choice1Of2 (_, Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -89,7 +89,7 @@ module Internal =
             | ResultKind.TooLarge | ResultKind.Malformed -> true
 
     type Stats(log : ILogger, statsInterval, stateInterval) =
-        inherit Scheduling.Stats<StreamSpan.Metrics * Writer.Result, StreamSpan.Metrics * exn>(log, statsInterval, stateInterval)
+        inherit Scheduling.Stats<struct (StreamSpan.Metrics * Writer.Result), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
         let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
         let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Stats.CatStats(), HashSet(), 0, 0, 0, 0
         let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
@@ -151,18 +151,18 @@ module Internal =
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
-            let attemptWrite (stream, span) ct = task {
-                let met, span' = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+            let attemptWrite struct (stream, span) ct = task {
+                let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
-                    return span'.Length > 0, Choice1Of2 (met, res)
-                with e -> return false, Choice2Of2 (met, e) }
+                    return struct (span'.Length > 0, Choice1Of2 struct (met, res))
+                with e -> return struct (false, Choice2Of2 struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 (_stats, Writer.Ok pos) ->                       struct (streams.RecordWriteProgress(stream, pos, null), false)
+                    | Choice1Of2 struct (_stats, Writer.Ok pos) ->                struct (streams.RecordWriteProgress(stream, pos, null), false)
                     | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null), false
                     | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
                     | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
-                    | Choice2Of2 (_stats, exn) ->
+                    | Choice2Of2 struct (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed), malformed
                 let struct (ss, malformed) = applyResultToStreamState res
