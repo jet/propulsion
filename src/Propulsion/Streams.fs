@@ -218,7 +218,7 @@ module Buffer =
 
     [<NoComparison; NoEquality>]
     type Batch<'Format> private (onCompletion, buffer, reqs) =
-        let mutable buffer = Some buffer
+        let mutable buffer = ValueSome buffer
         static member Create(onCompletion, streamEvents : StreamEvent<'Format> seq) =
             let buffer, reqs = Streams<'Format>(), Dictionary<FsCodec.StreamName, int64>()
             let mutable itemCount = 0
@@ -235,12 +235,12 @@ module Buffer =
         member _.OnCompletion = onCompletion
         member _.Reqs = reqs :> seq<KeyValuePair<FsCodec.StreamName, int64>>
         member _.RemainingStreamsCount = reqs.Count
-        member _.TryTakeStreams() = let t = buffer in buffer <- None; t
+        member _.TryTakeStreams() = let t = buffer in buffer <- ValueNone; t
         member _.TryMerge(other : Batch<_>) =
             match buffer, other.TryTakeStreams() with
-            | Some x, Some y -> x.Merge(y); true
-            | Some _, None -> false
-            | None, x -> buffer <- x; false
+            | ValueSome x, ValueSome y -> x.Merge(y); true
+            | ValueSome _, ValueNone -> false
+            | ValueNone, x -> buffer <- x; false
 
 /// A separate Async pump manages dispatching of scheduled work via the ThreadPool , managing the concurrency limits
 module Dispatch =
@@ -853,29 +853,30 @@ module Scheduling =
             let mutable zt = TimeSpan.Zero
             let inline startSw () = System.Diagnostics.Stopwatch.StartNew()
             while not ct.IsCancellationRequested do
-                let mutable idle, dispatcherState, remaining = true, Idle, maxCycles
-                let mutable dt, ft, mt, it, st = TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero, TimeSpan.Zero
-                let tryIngestMaxBatches () =
-                    // If we're going to fill the write queue with random work, we should bring all read events into the state first
-                    // Hence we potentially take more than one batch at a time based on maxBatches (but less buffered work is more optimal)
-                    let mutable more, batchesTaken, ok = true, 0, true
-                    while more do
-                        match tryReadPending () with
-                        | ValueSome batch ->
-                            // Accommodate where stream-wise merges have been performed preemptively in the ingester
-                            match batch.TryTakeStreams() with
-                            | Some (batchStreams : Streams<'F>) -> let sw = startSw () in streams.Merge(batchStreams); mt <- mt + sw.Elapsed
-                            | None -> ()
-                            let sw = startSw () in ingestBatch batch; it <- it + sw.Elapsed
-                            batchesTaken <- batchesTaken + 1
-                            more <- batchesTaken < maxBatches
-                        | ValueNone ->
-                            more <- false
-                            if batchesTaken <> 0 then ()
-                            elif slipstreamingEnabled then dispatcherState <- Slipstreaming
-                            else remaining <- 0; ok <- false
-                    ok
-                let mutable waitForPending, waitForCapacity = false, false
+                let mutable mt = TimeSpan.Zero
+                let mergeStreams batchStreams = let sw = startSw () in streams.Merge batchStreams; mt <- mt + sw.Elapsed
+
+                let mutable it = TimeSpan.Zero
+                let ingestBatch batch = let sw = startSw () in ingestBatch batch; it <- it + sw.Elapsed
+
+                let mutable dispatcherState = Idle
+                let mutable remaining = maxCycles
+                let mutable waitForCapacity, waitForPending = Unchecked.defaultof<_>
+                let rec tryIngest batchesRemaining =
+                    match tryReadPending () with
+                    | ValueSome batch ->
+                        // Accommodate where stream-wise merges have been performed preemptively in the ingester
+                        batch.TryTakeStreams() |> ValueOption.iter mergeStreams
+                        ingestBatch batch
+                        match batchesRemaining - 1 with
+                        | 0 -> false // no need to wait, we filled the capacity
+                        | r -> tryIngest r
+                    | ValueNone ->
+                        if batchesRemaining <> maxBatches then false // already added some items, so we don't need to wait for pending
+                        elif slipstreamingEnabled then dispatcherState <- Slipstreaming; false
+                        else remaining <- 0; true // definitely need to wait as there were no items
+                let mutable dt, ft, st = Unchecked.defaultof<_>
+                let mutable idle = true
                 while remaining <> 0 do
                     remaining <- remaining - 1
                     // 1. propagate write write outcomes to buffer (can mark batches completed etc)
@@ -892,7 +893,9 @@ module Scheduling =
                     | Idle when remaining = 0 ->
                         dispatcherState <- Active
                     | Idle -> // need to bring more work into the pool as we can't fill the work queue from what we have
-                        waitForPending <- not (tryIngestMaxBatches ())
+                        // If we're going to fill the write queue with random work, we should bring all read events into the state first
+                        // Hence we potentially take more than one batch at a time based on maxBatches (but less buffered work is more optimal)
+                        waitForPending <- tryIngest maxBatches
                     | Slipstreaming -> // only do one round of slipstreaming
                         remaining <- 0
                     | Active | Full -> failwith "Not handled here"

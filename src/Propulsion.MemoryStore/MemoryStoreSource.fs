@@ -18,13 +18,13 @@ module MemoryStoreLogger =
                 let d = e.Data
                 if not d.IsEmpty then System.Collections.Generic.KeyValuePair<_,_>(e.EventType, System.Text.Encoding.UTF8.GetString d.Span) })
 
-    let renderSubmit (log : Serilog.ILogger) (epoch, stream, events : FsCodec.ITimelineEvent<'F> array) =
+    let renderSubmit (log : Serilog.ILogger) struct (epoch, stream, events : FsCodec.ITimelineEvent<'F> array) =
         if log.IsEnabled Serilog.Events.LogEventLevel.Verbose then
             let log =
                 if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log
                 elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
                 else log |> propEventJsonUtf8 "Json" (unbox events)
-            let types = seq { for e in events -> e.EventType }
+            let types = events |> Seq.map (fun e -> e.EventType)
             log.ForContext("types", types).Debug("Submit #{epoch} {stream}x{count}", epoch, stream, events.Length)
         elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
             let types = seq { for e in events -> e.EventType } |> Seq.truncate 5
@@ -62,8 +62,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             MemoryStoreLogger.renderCompleted log (epoch, stream)
             Volatile.Write(&completed, epoch)
         // We don't have anything Async to do, so we pass a null checkpointing function
-        let checkpoint = async { () }
-        enqueueSubmission { epoch = epoch; checkpoint = checkpoint; items = [| for x in events -> stream, x |]; onCompletion = markCompleted }
+        enqueueSubmission { epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> stream, e); onCompletion = markCompleted }
 
     let storeCommitsSubscription =
         let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
