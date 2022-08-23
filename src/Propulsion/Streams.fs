@@ -754,6 +754,13 @@ module Scheduling =
                 streamsBuffer.Clear()
                 sortBuffer |> Seq.map (fun struct(s, _, _) -> s)
 
+    (* These become individually allocated FSharpRef cells that get allocated for every cycle; until https://github.com/fsharp/fslang-suggestions/issues/732 we do this... *)
+    type [<Struct; NoComparison; NoEquality>] private Timers =
+        { mutable dt : TimeSpan; mutable ft : TimeSpan; mutable mt : TimeSpan; mutable it : TimeSpan; mutable st : TimeSpan }
+    type [<Struct; NoComparison; NoEquality>] private State =
+        { mutable idle : bool; mutable dispatcherState : BufferState; mutable remaining : int; mutable waitForCapacity : bool; mutable waitForPending : bool }
+        member x.IsSlipStreaming = x.dispatcherState = Slipstreaming
+
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
     /// b) triggers synchronous callbacks as batches complete; writing of progress is managed asynchronously by the TrancheEngine(s)
@@ -850,73 +857,66 @@ module Scheduling =
 
         member _.Pump _abend (ct : CancellationToken) = task {
             use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult (Result (t, s, pr, r)))
-            let mutable zt = TimeSpan.Zero
             let inline startSw () = System.Diagnostics.Stopwatch.StartNew()
             while not ct.IsCancellationRequested do
-                let mutable mt = TimeSpan.Zero
-                let mergeStreams batchStreams = let sw = startSw () in streams.Merge batchStreams; mt <- mt + sw.Elapsed
-
-                let mutable it = TimeSpan.Zero
-                let ingestBatch batch = let sw = startSw () in ingestBatch batch; it <- it + sw.Elapsed
-
-                let mutable dispatcherState = Idle
-                let mutable remaining = maxCycles
-                let mutable waitForCapacity, waitForPending = Unchecked.defaultof<_>
-                let rec tryIngest batchesRemaining =
+                let mutable t = Unchecked.defaultof<Timers>
+                let mergeStreams batchStreams = let sw = startSw () in streams.Merge batchStreams; t.mt <- t.mt + sw.Elapsed
+                let ingestBatch batch = let sw = startSw () in ingestBatch batch; t.it <- t.it + sw.Elapsed
+                let rec ingestBatches batchesRemaining =
                     match tryReadPending () with
                     | ValueSome batch ->
                         // Accommodate where stream-wise merges have been performed preemptively in the ingester
                         batch.TryTakeStreams() |> ValueOption.iter mergeStreams
                         ingestBatch batch
                         match batchesRemaining - 1 with
-                        | 0 -> false // no need to wait, we filled the capacity
-                        | r -> tryIngest r
+                        | 0 -> struct (true, true) // no need to wait, we filled the capacity
+                        | r -> ingestBatches r
                     | ValueNone ->
-                        if batchesRemaining <> maxBatches then false // already added some items, so we don't need to wait for pending
-                        elif slipstreamingEnabled then dispatcherState <- Slipstreaming; false
-                        else remaining <- 0; true // definitely need to wait as there were no items
-                let mutable dt, ft, st = Unchecked.defaultof<_>
-                let mutable idle = true
-                while remaining <> 0 do
-                    remaining <- remaining - 1
+                        if batchesRemaining <> maxBatches then true, false // already added some items, so we don't need to wait for pending
+                        else false, true
+
+                let mutable s = { idle = true; dispatcherState = Idle; remaining = maxCycles; waitForPending = false; waitForCapacity = false }
+                while s.remaining <> 0 do
+                    s.remaining <- s.remaining - 1
                     // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                    let processedResults = let sw = startSw () in let r = tryHandleResults () in dt <- dt + sw.Elapsed; r
+                    let processedResults = let sw = startSw () in let r = tryHandleResults () in t.dt <- t.dt + sw.Elapsed; r
                     // 2. top up provisioning of writers queue
                     // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
-                    let struct (dispatched, hasCapacity) = let sw = startSw () in let r = tryDispatch (dispatcherState = Slipstreaming) in ft <- ft + sw.Elapsed; r
-                    idle <- idle && not processedResults && not dispatched
-                    match dispatcherState with
+                    let struct (dispatched, hasCapacity) = let sw = startSw () in let r = tryDispatch s.IsSlipStreaming in t.ft <- t.ft + sw.Elapsed; r
+                    s.idle <- s.idle && not processedResults && not dispatched
+                    match s.dispatcherState with
                     | Idle when not hasCapacity ->
                         // If we've achieved full state, spin around the loop to dump stats and ingest reader data
-                        dispatcherState <- Full
-                        remaining <- 0
-                    | Idle when remaining = 0 ->
-                        dispatcherState <- Active
+                        s.dispatcherState <- Full
+                        s.remaining <- 0
+                    | Idle when s.remaining = 0 ->
+                        s.dispatcherState <- Active
                     | Idle -> // need to bring more work into the pool as we can't fill the work queue from what we have
                         // If we're going to fill the write queue with random work, we should bring all read events into the state first
                         // Hence we potentially take more than one batch at a time based on maxBatches (but less buffered work is more optimal)
-                        waitForPending <- tryIngest maxBatches
+                        let struct (ingested, filled) = ingestBatches maxBatches
+                        if ingested then s.waitForPending <- not filled // no need to wait if we ingested as many as needed
+                        elif slipstreamingEnabled then s.dispatcherState <- Slipstreaming; s.waitForPending <- true // try some slip-streaming, but wait for proper items too
+                        else s.remaining <- 0; s.waitForPending <- true // definitely need to wait as there were no items
                     | Slipstreaming -> // only do one round of slipstreaming
-                        remaining <- 0
+                        s.remaining <- 0
                     | Active | Full -> failwith "Not handled here"
-                    if remaining = 0 && hasCapacity then waitForPending <- true
-                    if remaining = 0 && not hasCapacity && not wakeForResults then waitForCapacity <- true
+                    if s.remaining = 0 && hasCapacity then s.waitForPending <- true
+                    if s.remaining = 0 && not hasCapacity && not wakeForResults then s.waitForCapacity <- true
                 // While the loop can take a long time, we don't attempt logging of stats per iteration on the basis that the maxCycles should be low
-                let sw = startSw () in dispatcher.DumpStats(pendingCount()); st <- st + sw.Elapsed
-                // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                let dumped = dispatcher.TryDumpState(dispatcherState, streams, totalPurged, dt, ft, mt, it, st, zt)
-                zt <- TimeSpan.Zero
-                if dumped then maybePurge ()
-                elif idle then
+                let sw = startSw () in dispatcher.DumpStats(pendingCount()); t.st <- t.st + sw.Elapsed
+                let zt = System.Diagnostics.Stopwatch.StartNew()
+                if s.idle then
                     // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                     let wakeConditions : Task array = [|
                         if wakeForResults then awaitResults ct
-                        elif waitForCapacity then dispatcher.AwaitCapacity()
-                        if waitForPending then awaitPending ct
+                        elif s.waitForCapacity then dispatcher.AwaitCapacity()
+                        if s.waitForPending then awaitPending ct
                         Task.Delay(int sleepIntervalMs) |]
-                    let sw = System.Diagnostics.Stopwatch.StartNew()
                     do! Task.WhenAny(wakeConditions) :> Task
-                    zt <- sw.Elapsed }
+                // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
+                if dispatcher.TryDumpState(s.dispatcherState, streams, totalPurged, t.dt, t.ft, t.mt, t.it, t.st, zt.Elapsed) then
+                    maybePurge () }
 
         member _.Submit(x : Batch<_>) =
             writePending x
