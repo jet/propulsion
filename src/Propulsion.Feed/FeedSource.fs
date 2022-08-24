@@ -76,6 +76,8 @@ type FeedSourceBase internal
         while not (isComplete ()) && not sink.IsCompleted do
             if logInterval.IfDueRestart() then logStatus()
             do! Async.Sleep delayMs }
+    let defaultLinger (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
+        max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
@@ -95,26 +97,47 @@ type FeedSourceBase internal
             propagationDelay,
             // sleep interval while awaiting completion. Default 1ms.
             ?delay,
-            // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
+            // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 5s.
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
-            ?ignoreSubsequent) = async {
+            ?ignoreSubsequent,
+            // Time to wait subsequent to processing for trailing events. Default: propagationDelay / 4
+            ?linger) = async {
         let sw = System.Diagnostics.Stopwatch.StartNew()
-        let delayMs =
-            let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
-            int delay.TotalMilliseconds
+        let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
             let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
             if propagationDelay = TimeSpan.Zero then log.Debug("Feed Wait Skipped; no processing pending. Completed Epochs {completed}", currentCompleted)
-            else log.Information("Feed Wait Timeout {propagationDelay:n1}s. Completed {completed}", elapsedSeconds sw, currentCompleted)
+            else log.Information("FeedSource Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
+            let propUsed = sw.Elapsed
             let includeSubsequent = ignoreSubsequent <> Some true
-            let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
+            let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 5.)
+            let swProcessing = System.Diagnostics.Stopwatch.StartNew()
             do! awaitCompletion starting delayMs includeSubsequent logInterval
-            if log.IsEnabled Serilog.Events.LogEventLevel.Information then
+            let procUsed = swProcessing.Elapsed
+            let lingerF = defaultArg linger defaultLinger
+            let linger = lingerF propagationDelay propUsed procUsed
+            // let linger = linger |> Option.defaultValue (max (propagationDelay.TotalSeconds / 4.) ((propagationS + processingS) / 3.) |> TimeSpan.FromSeconds)
+            let skipLinger = linger = TimeSpan.Zero
+            let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
+            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
+            let originalCompleted = currentCompleted |> Seq.cache
+            if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
-                log.Information("Feed Wait Complete {wait:n1}s Starting {starting} Completed {completed}", elapsedSeconds sw, starting, completed)
+                log.Write(ll, "FeedSource Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Starting {starting} Completed {completed}",
+                                sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, starting, completed)
+            let swLinger = System.Diagnostics.Stopwatch.StartNew()
+            if not skipLinger then
+                match! awaitPropagation linger delayMs with
+                | [||] ->
+                    log.Information("FeedSource Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {linger:n1}s. Starting {starting} Completed {completed}",
+                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, starting, originalCompleted)
+                | lingering ->
+                    do! awaitCompletion lingering delayMs includeSubsequent logInterval
+                    log.Information("FeedSource Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n0}s. Starting {starting} Lingering {lingering} Completed {completed}",
+                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown() }
