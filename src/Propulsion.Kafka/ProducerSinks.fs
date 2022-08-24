@@ -56,7 +56,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName * StreamSpan<_> -> Async<string*string>,
+            prepare : struct (StreamName * StreamSpan<_>) -> Async<struct (string*string)>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
             // Default 1 ms

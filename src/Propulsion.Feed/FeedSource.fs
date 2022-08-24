@@ -3,6 +3,7 @@ namespace Propulsion.Feed.Core
 open FSharp.Control
 open Propulsion
 open Propulsion.Feed
+open Propulsion.Internal
 open System
 open System.Collections.Generic
 open System.Threading.Tasks
@@ -40,7 +41,6 @@ type FeedSourceBase internal
             return! Async.Raise e }
 
     let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
-    let elapsedSeconds (x : System.Diagnostics.Stopwatch) = float x.ElapsedMilliseconds / 1000.
     let checkForActivity () =
         match positions.Current() with
         | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>)  -> kv.Value.IsEmpty) -> Array.empty
@@ -53,17 +53,15 @@ type FeedSourceBase internal
             startPositions <- checkForActivity ()
         return startPositions }
     let awaitCompletion starting (delayMs : int) includeSubsequent logInterval = async {
-        let maybeLog =
-            let logDue = Internal.intervalCheck logInterval
-            fun () ->
-                if logDue () then
-                    let currentRead, completed =
-                        let current = positions.Current()
-                        current |> choose (fun v -> v.read), current |> choose (fun v -> v.completed)
-                    if includeSubsequent then
-                        log.Information("Feed Awaiting All. Current {current} Completed {completed} Starting {starting}",
-                                        currentRead, completed, starting)
-                    else log.Information("Feed Awaiting Starting {starting} Completed {completed}", starting, completed)
+        let logInterval = IntervalTimer logInterval
+        let logStatus () =
+            let currentRead, completed =
+                let current = positions.Current()
+                current |> choose (fun v -> v.read), current |> choose (fun v -> v.completed)
+            if includeSubsequent then
+                log.Information("FeedSource Awaiting All. Current {current} Completed {completed} Starting {starting}",
+                                currentRead, completed, starting)
+            else log.Information("FeedSource Awaiting Starting {starting} Completed {completed}", starting, completed)
         let isComplete () =
             let current = positions.Current()
             let completed = current |> choose (fun v -> v.completed)
@@ -76,14 +74,14 @@ type FeedSourceBase internal
             current |> Array.forall (fun kv -> kv.Value.IsEmpty) // All submitted work (including follow-on work), completed
             || (not includeSubsequent && originalStartedAreAllCompleted ())
         while not (isComplete ()) && not sink.IsCompleted do
-            maybeLog ()
+            if logInterval.IfDueRestart() then logStatus()
             do! Async.Sleep delayMs }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<TimeSpan * Batch<_>>) =
+            crawl : TrancheId -> bool * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>) =
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
         pump readTranches crawl
@@ -144,7 +142,7 @@ and TrancheState =
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        crawl : TrancheId * Position -> AsyncSeq<TimeSpan * Batch<_>>,
+        crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         renderPos,
         ?logReadFailure,
@@ -243,7 +241,7 @@ type FeedSource
             let sw = System.Diagnostics.Stopwatch.StartNew()
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>)
+            yield struct (sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>))
         }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>

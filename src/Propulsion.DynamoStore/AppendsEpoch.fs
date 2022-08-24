@@ -131,7 +131,7 @@ module Config =
 /// only deserializing events pertaining to things we have not seen before
 module Reader =
 
-    type Event = int64 * Events.Event
+    type Event = (struct (int64 * Events.Event))
     let codec : FsCodec.IEventCodec<Event, _, _> = EventCodec.withIndex<Events.Event>
 
     type State = { changes : struct (int * Events.StreamSpan array) array; closed : bool }

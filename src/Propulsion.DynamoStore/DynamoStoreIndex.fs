@@ -104,7 +104,7 @@ module Reader =
                         string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Propulsion.Internal.mb sizeB, t.TotalSeconds)
         return spans, state.closed, sizeB }
 
-    let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<Buffer * int64> = async {
+    let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<struct (Buffer * int64)> = async {
         let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
         let state = Buffer()

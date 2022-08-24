@@ -110,10 +110,10 @@ module Scheduling =
             logExternalStats |> Option.iter (fun f -> f log) // doing this in here allows stats intervals to be aligned with that of the scheduler engine
 
         let maybeLogStats : unit -> bool =
-            let due = intervalCheck statsInterval
+            let timer = IntervalTimer statsInterval
             fun () ->
                 cycles <- cycles + 1
-                if due () then dumpStats (); true else false
+                if timer.IfDueRestart() then dumpStats (); true else false
 
         /// Inspects the oldest in-flight batch per partition to determine if it's reached a terminal state; if it has, remove and trigger completion callback
         let drainCompleted abend =

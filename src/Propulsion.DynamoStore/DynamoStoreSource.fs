@@ -67,7 +67,7 @@ module private Impl =
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Core.Batch<_>> = asyncSeq {
+        : AsyncSeq<struct (System.TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
@@ -130,7 +130,7 @@ module private Impl =
             if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
                 let! hydrated = materializeSpans
                 report (Some i) hydrated.Length
-                yield sw.Elapsed, sliceBatch epochId i hydrated // not i + 1 as the batch does not include these changes
+                yield struct (sw.Elapsed, sliceBatch epochId i hydrated) // not i + 1 as the batch does not include these changes
                 sw.Reset()
                 buffer.Clear()
             buffer.AddRange(pending)

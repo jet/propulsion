@@ -64,7 +64,7 @@ type CosmosSource =
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs.[docs.Count-1].Timestamp
             let! pt, (cur,max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore } |> Stopwatch.Time
-            let readS, postS, rc = float sw.ElapsedMilliseconds / 1000., (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
+            let readS, postS, rc = sw.ElapsedSeconds, (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
                 token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count

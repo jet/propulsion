@@ -101,7 +101,7 @@ type FeedReader
         crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            -> AsyncSeq<TimeSpan * Batch<Streams.Default.EventBody>>,
+            -> AsyncSeq<struct (TimeSpan * Batch<Streams.Default.EventBody>)>,
         // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,

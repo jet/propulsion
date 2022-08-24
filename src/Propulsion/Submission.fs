@@ -45,6 +45,30 @@ type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
     member x.Append(batch) = x.queue.Enqueue batch
     static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits) }
 
+type internal Stats<'S when 'S : equality>(log : ILogger, interval) =
+
+    let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
+    let submittedBatches,submittedMessages = PartitionStats<'S>(), PartitionStats<'S>()
+
+    member val Interval = IntervalTimer interval
+
+    member _.Dump(waiting : seq<struct ('S * int)>) =
+        log.Information("Submitter ingested {ingested} compacted {compacted} completed {completed} Events {items} Batches {batches} Holding {holding} Cycles {cycles}",
+                        ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, cycles)
+        cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
+
+    member _.RecordCompacted() =
+        compacted <- compacted + 1
+    member _.RecordBatchIngested() =
+         ingested <- ingested + 1
+    member _.RecordBatchCompleted() =
+        Interlocked.Increment(&completed) |> ignore
+    member _.RecordBatch(pi, count : int64) =
+        submittedBatches.Record(pi)
+        submittedMessages.Record(pi, count)
+    member _.RecordCycle() =
+        cycles <- cycles + 1
+
 /// Holds the stream of incoming batches, grouping by partition
 /// Manages the submission of batches into the Scheduler in a fair manner
 type SubmissionEngine<'S, 'M, 'B when 'S : equality>
@@ -55,18 +79,8 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
         Channel.awaitRead r, Channel.apply r, Channel.write w
     let buffer = Dictionary<'S, PartitionQueue<'B>>()
-
-    let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
-    let submittedBatches,submittedMessages = PartitionStats(), PartitionStats()
-    let statsInterval = timeRemaining statsInterval
-    let dumpStats () =
-        let waiting = seq { for x in buffer do if x.Value.queue.Count <> 0 then struct (x.Key, x.Value.queue.Count) } |> Seq.sortByDescending ValueTuple.snd
-        log.Information("Submitter ingested {ingested} compacted {compacted} completed {completed} Events {items} Batches {batches} Holding {holding} Cycles {cycles}",
-                        ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, cycles)
-        cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
-    let ingestStats () =
-        cycles <- cycles + 1
-        statsInterval ()
+    let queueStats = seq { for x in buffer do if x.Value.queue.Count <> 0 then struct (x.Key, x.Value.queue.Count) } |> Seq.sortByDescending ValueTuple.snd
+    let stats = Stats<'S>(log, statsInterval)
 
     // Loop, submitting 0 or 1 item per partition per iteration to ensure
     // - each partition has a controlled maximum number of entrants in the scheduler queue
@@ -74,25 +88,25 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
     let tryPropagate (waiting : ResizeArray<Sem>) =
         waiting.Clear()
         let mutable worked = false
-        for KeyValue (pi, pq) in buffer do
+        for kv in buffer do
+            let pi, pq = kv.Key, kv.Value
             if pq.queue.Count <> 0 then
                 if pq.submissions.TryTake() then
                     worked <- true
                     let count = submitBatch <| pq.queue.Dequeue()
-                    submittedBatches.Record(pi)
-                    submittedMessages.Record(pi, int64 count)
+                    stats.RecordBatch(pi, count)
                 else waiting.Add(pq.submissions)
         worked
 
     let ingest (partitionBatches : Batch<'S, 'M>[]) =
-        ingested <- ingested + 1
+        stats.RecordBatchIngested()
         for { source = pid } as batch in partitionBatches do
             let mutable pq = Unchecked.defaultof<_>
             if not (buffer.TryGetValue(pid, &pq)) then
                 pq <- PartitionQueue<_>.Create(maxSubmitsPerPartition)
                 buffer[pid] <- pq
             let markCompleted () =
-                Interlocked.Increment(&completed) |> ignore
+                stats.RecordBatchCompleted()
                 pq.submissions.Release()
             let mapped = mapBatch markCompleted batch
             pq.Append(mapped)
@@ -100,10 +114,10 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
     /// We use timeslices where we're we've fully provisioned the scheduler to index any waiting Batches
     let compact f =
         let mutable worked = false
-        for KeyValue(_, pq) in buffer do
-            if f pq.queue then
+        for kv in buffer do
+            if f kv.Value.queue then
                 worked <- true
-        if worked then compacted <- compacted + 1
+        if worked then stats.RecordCompacted()
         worked
     let maybeCompact () =
         match tryCompactQueue with
@@ -117,10 +131,9 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
         while not ct.IsCancellationRequested do
             while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
-            let timeToNextStatsMs = let struct (due, remaining) = ingestStats ()
-                                    if due then dumpStats ()
-                                    int remaining
-            do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(timeToNextStatsMs) |] :> Task }
+            stats.RecordCycle()
+            if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
+            do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(stats.Interval.RemainingMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
     member _.Ingest(items : Batch<'S, 'M>[]) =

@@ -120,22 +120,19 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             let delayMs =
                 let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
                 int delay.TotalMilliseconds
-            let maybeLog =
-                let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 10.)
-                let logDue = intervalCheck logInterval
-                fun () ->
-                    if logDue () then
-                        let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
-                        if includeSubsequent then
-                            log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
-                                            startingEpoch, Volatile.Read &prepared, completed)
-                        else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
+            let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
+            let logStatus () =
+                let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
+                if includeSubsequent then
+                    log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
+                                    startingEpoch, Volatile.Read &prepared, completed)
+                else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
             let isComplete () =
                 let currentCompleted = Volatile.Read &completed
                 Volatile.Read &prepared = currentCompleted // All submitted work (including follow-on work), completed
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
-                maybeLog ()
+                if logInterval.IfDueRestart() then logStatus ()
                 do! Async.Sleep delayMs
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then

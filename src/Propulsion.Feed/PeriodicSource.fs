@@ -49,13 +49,13 @@ type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         // The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> AsyncSeq<TimeSpan * SourceItem<_> array>, refreshInterval : TimeSpan,
+        crawl : TrancheId -> AsyncSeq<struct (TimeSpan * SourceItem<_> array)>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl trancheId (_wasLast, position) : AsyncSeq<TimeSpan * Core.Batch<_>> = asyncSeq {
+    let crawl trancheId (_wasLast, position) : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> = asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -83,7 +83,7 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield elapsed, ({ items = items; checkpoint = position; isTail = false } : Core.Batch<_> )
+                yield struct (elapsed, ({ items = items; checkpoint = position; isTail = false } : Core.Batch<_>))
                 elapsed <- TimeSpan.Zero
             | _ -> ()
         let items, checkpoint =

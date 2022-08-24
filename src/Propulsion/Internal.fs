@@ -2,20 +2,26 @@ module Propulsion.Internal
 
 open System
 
-/// Maintains a Stopwatch such that invoking will yield true at intervals defined by `period`
-let intervalCheck (period : TimeSpan) =
-    let timer, max = System.Diagnostics.Stopwatch.StartNew(), int64 period.TotalMilliseconds
-    fun () ->
-        let due = timer.ElapsedMilliseconds > max
-        if due then timer.Restart()
+/// Manages a time cycle defined by `period`. Can be explicitly Trigger()ed prematurely
+type IntervalTimer(period : TimeSpan) =
+
+    let timer, periodMs = System.Diagnostics.Stopwatch.StartNew(), int64 period.TotalMilliseconds
+    let mutable force = false
+
+    member val Period = period
+    member _.RemainingMs = periodMs - timer.ElapsedMilliseconds |> int |> max 0
+
+    member _.Trigger() = force <- true
+
+    // NOTE asking the question is destructive - the timer is reset as a side effect
+    member _.IfDueRestart() =
+        let due = force || timer.ElapsedMilliseconds > periodMs
+        if due then timer.Restart(); force <- false
         due
-let timeRemaining (period : TimeSpan) =
-    let timer, max = System.Diagnostics.Stopwatch.StartNew(), int64 period.TotalMilliseconds
-    fun () ->
-        match max - timer.ElapsedMilliseconds |> int with
-        | rem when rem <= 0 -> timer.Restart(); struct (true, max)
-        | rem -> (false, rem)
+
 let inline mb x = float x / 1024. / 1024.
+
+type System.Diagnostics.Stopwatch with member x.ElapsedSeconds = float x.ElapsedMilliseconds / 1000.
 
 module Channel =
 
