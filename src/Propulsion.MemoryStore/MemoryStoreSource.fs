@@ -121,7 +121,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
                 let delay = defaultArg delay TimeSpan.FromMilliseconds 1.
                 int delay.TotalMilliseconds
             let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
-            let logStatus =
+            let logStatus () =
                 let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
                 if includeSubsequent then
                     log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
