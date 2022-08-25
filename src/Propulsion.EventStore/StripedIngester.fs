@@ -15,7 +15,7 @@ type [<NoComparison; NoEquality>] Message =
 module StripedIngesterImpl =
 
     type Stats(log : ILogger, statsInterval) =
-        let statsDue = intervalCheck statsInterval
+        let interval = IntervalTimer statsInterval
         let mutable cycles, ingested = 0, 0
         let dumpStats activeSeries (readingAhead, ready) struct (currentBuffer, maxBuffer) =
             let mutable buffered = 0
@@ -29,7 +29,7 @@ module StripedIngesterImpl =
             | ActivateSeries _ | CloseSeries _ -> ()
         member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
-            if statsDue () then
+            if interval.IfDueRestart() then
                 dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =

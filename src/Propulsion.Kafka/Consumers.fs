@@ -71,8 +71,8 @@ type KafkaIngestionEngine<'Info>
             intervalMsgs, intervalChars, counter.InFlightMb, totalMessages, totalChars)
         intervalMsgs <- 0L; intervalChars <- 0L
     let maybeLogStats =
-        let due = intervalCheck statsInterval
-        fun () -> if due () then dumpStats ()
+        let interval = IntervalTimer statsInterval
+        fun () -> if interval.IfDueRestart() then dumpStats ()
     let mkSubmission topicPartition span : Submission.Batch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
@@ -114,8 +114,8 @@ type KafkaIngestionEngine<'Info>
                         maybeLogStats()
                     counter.AwaitThreshold(ct, consumer, busyWork)
                 | false, None ->
-                    submit()
-                    maybeLogStats()
+                    submit ()
+                    maybeLogStats ()
                 | false, Some intervalRemainder ->
                     try match consumer.Consume(intervalRemainder) with
                         | null -> ()
@@ -125,7 +125,7 @@ type KafkaIngestionEngine<'Info>
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
             dumpStats () // Unconditional logging when completing
-            closeConsumer() (* Orderly Close() before Dispose() is critical *) }
+            closeConsumer () (* Orderly Close() before Dispose() is critical *) }
 
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.

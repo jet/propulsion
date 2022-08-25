@@ -11,6 +11,7 @@ open Microsoft.Azure.Cosmos
 #endif
 
 open Equinox.Core // Stopwatch.Time
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
