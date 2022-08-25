@@ -6,50 +6,16 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-module MemoryStoreLogger =
-
-    let private propEvents name (xs : System.Collections.Generic.KeyValuePair<string,string> seq) (log : Serilog.ILogger) =
-        let items = seq { for kv in xs do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
-        log.ForContext(name, sprintf "[%s]" (String.concat ",\n\r" items))
-
-    let private propEventJsonUtf8 name (events : FsCodec.ITimelineEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
-        log |> propEvents name (seq {
-            for e in events do
-                let d = e.Data
-                if not d.IsEmpty then System.Collections.Generic.KeyValuePair<_,_>(e.EventType, System.Text.Encoding.UTF8.GetString d.Span) })
-
-    let renderSubmit (log : Serilog.ILogger) struct (epoch, stream, events : FsCodec.ITimelineEvent<'F> array) =
-        if log.IsEnabled Serilog.Events.LogEventLevel.Verbose then
-            let log =
-                if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log
-                elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
-                else log |> propEventJsonUtf8 "Json" (unbox events)
-            let types = events |> Seq.map (fun e -> e.EventType)
-            log.ForContext("types", types).Debug("Submit #{epoch} {stream}x{count}", epoch, stream, events.Length)
-        elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
-            let types = seq { for e in events -> e.EventType } |> Seq.truncate 5
-            log.Debug("Submit #{epoch} {stream}x{count} {types}", epoch, stream, events.Length, types)
-    let renderCompleted (log : Serilog.ILogger) (epoch, stream) =
-        log.Verbose("Done!  #{epoch} {stream}", epoch, stream)
-
-    /// Wires specified <c>Observable</c> source (e.g. <c>VolatileStore.Committed</c>) to the Logger
-    let subscribe log source =
-        let mutable epoch = -1L
-        let aux (stream, events) =
-            let epoch = Interlocked.Increment &epoch
-            renderSubmit log (epoch, stream, events)
-        if log.IsEnabled Serilog.Events.LogEventLevel.Debug then Observable.subscribe aux source
-        else { new IDisposable with member _.Dispose() = () }
-
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
                            mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Streams.Default.EventBody>,
                            sink : Propulsion.Streams.Default.Sink) =
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
-
-    // epoch index of most recently prepared and completed submissions
-    let mutable prepared, completed = -1L, -1L
+    let positions = TranchePositions()
+    let monitor = lazy MemoryStoreMonitor(log, positions, sink)
+    // epoch index of most recently prepared submission - conceptually events arrive concurrently though V4 impl makes them serial
+    let mutable prepared = -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<_> seq>> in let r, w = c.Reader, c.Writer
@@ -57,10 +23,12 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
 
     let handleStoreCommitted (stream, events : FsCodec.ITimelineEvent<_> []) =
         let epoch = Interlocked.Increment &prepared
+        positions.Prepared <- epoch
         MemoryStoreLogger.renderSubmit log (epoch, stream, events)
+        // Completion notifications are guaranteed to be delivered deterministically, in order of submission
         let markCompleted () =
             MemoryStoreLogger.renderCompleted log (epoch, stream)
-            Volatile.Write(&completed, epoch)
+            positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
         enqueueSubmission { epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> stream, e); onCompletion = markCompleted }
 
@@ -97,7 +65,17 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             Task.start(fun () -> x.Pump ct)
             do! awaitCompletion ()
             storeCommitsSubscription.Dispose() }
-        new Pipeline(Task.Run<unit>(supervise), stop)
+        new Pipeline(Task.run supervise, stop)
+
+    member _.Monitor = monitor.Value
+
+/// Intercepts receipt and completion of batches, recording the read and completion positions
+and internal TranchePositions() =
+
+    member val Prepared : int64 = -1L with get, set
+    member val Completed : int64 = -1L with get, set
+
+and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink) =
 
     /// Deterministically waits until all <c>Submit</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
@@ -112,9 +90,9 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
-        match Volatile.Read &prepared with
+        match positions.Prepared with
         | -1L -> log.Information "No events submitted; completing immediately"
-        | epoch when epoch = Volatile.Read(&completed) -> log.Information("No processing pending. Completed Epoch {epoch}", completed)
+        | epoch when epoch = positions.Completed -> log.Information("No processing pending. Completed Epoch {epoch}", positions.Completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
@@ -122,22 +100,21 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
                 int delay.TotalMilliseconds
             let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
             let logStatus () =
-                let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
+                let completed = match positions.Completed with -1L -> Nullable() | x -> Nullable x
                 if includeSubsequent then
                     log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
-                                    startingEpoch, Volatile.Read &prepared, completed)
+                                    startingEpoch, positions.Prepared, completed)
                 else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
             let isComplete () =
-                let currentCompleted = Volatile.Read &completed
-                Volatile.Read &prepared = currentCompleted // All submitted work (including follow-on work), completed
+                let currentCompleted = positions.Completed
+                positions.Prepared = currentCompleted // All submitted work (including follow-on work), completed
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
                 if logInterval.IfDueRestart() then logStatus ()
                 do! Async.Sleep delayMs // TODO this should really be driven by a condition variable / event flipped when `Volatile.Write completed` happens
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
-                return! sink.AwaitShutdown()
-    }
+                return! sink.AwaitShutdown() }
 
 module TimelineEvent =
 

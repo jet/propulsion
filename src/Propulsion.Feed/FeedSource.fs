@@ -6,7 +6,6 @@ open Propulsion.Feed
 open Propulsion.Internal
 open System
 open System.Collections.Generic
-open System.Threading.Tasks
 
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
@@ -212,7 +211,7 @@ type TailingFeedSource
 
             try return! tcs.Task // aka base.AwaitShutdown()
             finally log.Information "... source stopped" }
-        new Pipeline(Task.Run<unit>(supervise), stop)
+        new Pipeline(Task.run supervise, stop)
 
 /// Drives reading and checkpointing from a source that aggregates data from multiple streams as a singular source
 /// without shards/physical partitions (tranches), such as the SqlStreamStore, and EventStoreDB $all feeds

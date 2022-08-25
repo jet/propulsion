@@ -48,7 +48,8 @@ open System.Threading.Tasks
 
 module Task =
 
-    let inline start create = Task.Run<unit>(Func<Task<unit>> create) |> ignore<Task>
+    let inline run create = Task.Run<unit>(Func<Task<unit>> create)
+    let inline start create = run create |> ignore<Task>
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
@@ -145,4 +146,3 @@ module Stats =
             if buffer.Count <> 0 then
                 dumpStats kind buffer log
                 buffer.Clear()
-
