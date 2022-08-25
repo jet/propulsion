@@ -6,7 +6,8 @@ Please refer to the [FAQ](README.md#FAQ), [README.md](README.md) and the [Issues
 
 In general, the primary background information is covered in the [Background Reading section of Equinox's Documentation](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#background-reading).
 
-_Enterprise Integration Patterns, Hohpe/Woolf, 2004_: Timeless book on messaging, routing integration and more.
+- _Enterprise Integration Patterns, Hohpe/Woolf, 2004_: Timeless book on messaging, routing integration and more.
+- _Designing Data Intensive Applications, Kleppmann, 2015_: Timeless book on infrastructure and asynchrony in distributed systems, and much more.
 
 - **Your link here** - Please add materials that helped you on your journey so far here via PRs!
 
