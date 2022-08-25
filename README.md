@@ -15,6 +15,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 - `Propulsion.MemoryStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.MemoryStore.svg)](https://www.nuget.org/packages/Propulsion.MemoryStore/). Provides bindings to `Equinox.MemoryStore`. [Depends](https://www.fuget.org/packages/Propulsion.MemoryStore) on `Equinox.MemoryStore` v `4.0.0`, `FsCodec.Box`, `Propulsion`
 
     1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.Sink`, in order to enable maximum speed integration testing.
+    2. `FeedMonitor.AwaitSource`: Enables efficient deterministic waits for Reaction processing within an integration test.
 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
@@ -31,6 +32,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
     2. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Lambda`)
     3. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Lambda` via `DynamoStoreIndexer`)
     4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
+    5. `FeedMonitor.AwaitSource`: See `Propulsion.Feed`
 
   (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 
@@ -47,7 +49,8 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 - `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStoreDb) on `Equinox.EventStoreDb` v `4.0.0`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.Sink` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
     2. `EventStoreSink`: writing to `Equinox.EventStoreDb` v `4.0.0`
-  
+    3. `FeedMonitor.AwaitSource`: See `Propulsion.Feed`
+
     (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 
 - `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.Cosmos` or `Propulsion.CosmosStore`)
@@ -55,6 +58,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
   1. `FeedSource`: Handles continual reading and checkpointing of events from a set of feeds ('tranches' of a 'source') that collectively represent a change data capture source from a custom system (roughly analogous to how a CosmosDB Container presents a changefeed). A `readTranches` function is expected to yield a `TrancheId` list; the Feed Source operates a logical reader thread per such tranche. Each individual Tranche is required to be able to represent its content as an incrementally retrievable change feed with a monotonically increasing `Index` per `FsCodec.ITimelineEvent` read from a given tranche.
   2. `PeriodicSource`: Handles regular crawling of an external datasource (such as a SQL database) where there is no way to isolate the changes since a given checkpoint (based on either the intrinsic properties of the data, or of the store itself). The source is expected to present its content as an `AsyncSeq` of `FsCodec.StreamName * FsCodec.IEventData * context`. Checkpointing occurs only when all events have been completely ingested by the Sink.   
   3. `Prometheus`: Exposes reading statistics to Prometheus (including metrics from `SqlStreamStore.SqlStreamStoreSource` and `EventStoreDb.EventStoreSource`)   
+  4. `FeedMonitor.AwaitSource`: Enables efficient waiting for completion of reaction processing within an integration test
 
 - `Propulsion.Kafka` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Kafka.svg)](https://www.nuget.org/packages/Propulsion.Kafka/) Provides bindings for producing and consuming both streamwise and in parallel. Includes a standard codec for use with streamwise projection and consumption, `Propulsion.Kafka.Codec.NewtonsoftJson.RenderedSpan`. [Depends](https://www.fuget.org/packages/Propulsion.Kafka) on `FsKafka` v `1.7.0`-`1.9.99`, `Serilog`
 
@@ -62,6 +66,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
   1. `SqlStreamStoreSource`: reading from a SqlStreamStore `$all` stream into a `Propulsion.Sink`
   2. `ReaderCheckpoint`: checkpoint storage for `Propulsion.Feed`/`SqlStreamSteamStore`/`EventStoreDb` using `Dapper`, `Microsoft.Data.SqlClient`
+  3. `FeedMonitor.AwaitSource`: See `Propulsion.Feed`
 
   (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 
