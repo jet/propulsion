@@ -108,8 +108,10 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
     let defaultLinger (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
         max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
 
-    /// Waits (for up to the <c>propagationDelay</c>) for events to be observed
+    /// Waits quasi-deterministically for events to be observed, (for up to the <c>propagationDelay</c>)
     /// If at least one event has been observed, waits for the completion of the Sink's processing
+    /// NOTE: Best used in conjunction with MemoryStoreSource.AwaitCompletion, which is deterministic.
+    /// This enables one to place minimal waits within integration tests precisely when and where they are necessary.
     member _.AwaitCompletion
         (   // time to wait for arrival of initial events, this should take into account:
             // - time for indexing of the events to complete based on the environment's configuration (e.g. with DynamoStore, the total Lambda and DynamoDB Streams trigger time)
@@ -121,7 +123,10 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent,
-            // Time to wait subsequent to processing for trailing events. Default: propagationDelay / 4
+            // Time to wait subsequent to processing for trailing events.
+            // Default algorithm takes the higher of:
+            // - propagationDelay / 4
+            // - (observed propagation delay + observed processing time) / 3
             ?linger) = async {
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
@@ -139,7 +144,6 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let procUsed = swProcessing.Elapsed
             let lingerF = defaultArg linger defaultLinger
             let linger = lingerF propagationDelay propUsed procUsed
-            // let linger = linger |> Option.defaultValue (max (propagationDelay.TotalSeconds / 4.) ((propagationS + processingS) / 3.) |> TimeSpan.FromSeconds)
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
             let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }

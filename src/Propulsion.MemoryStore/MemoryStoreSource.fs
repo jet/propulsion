@@ -99,26 +99,26 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             storeCommitsSubscription.Dispose() }
         new Pipeline(Task.Run<unit>(supervise), stop)
 
-    /// Waits until all <c>Ingest</c>ed batches have been successfully processed via the Sink
+    /// Deterministically waits until all <c>Submit</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
     /// 1. a Decider's Transact will not return until such time as the Committed events have been handled
     ///      (i.e., we have prepared the batch for submission)
     /// 2. At the point where the caller triggers AwaitCompletion, we can infer that all reactions have been processed
     ///      when checkpointing/completion has passed beyond our starting point
     member _.AwaitCompletion
-        (   // sleep time while awaiting completion
+        (   // sleep interval while awaiting completion. Default 1ms.
             ?delay,
-            // interval at which to log progress of Projector loop
+            // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
         match Volatile.Read &prepared with
         | -1L -> log.Information "No events submitted; completing immediately"
-        | epoch when epoch = Volatile.Read(&completed) -> log.Verbose("No processing pending. Completed Epoch {epoch}", completed)
+        | epoch when epoch = Volatile.Read(&completed) -> log.Information("No processing pending. Completed Epoch {epoch}", completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
-                let delay = defaultArg delay TimeSpan.FromMilliseconds 1.
+                let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
                 int delay.TotalMilliseconds
             let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
             let logStatus () =
@@ -133,7 +133,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
                 if logInterval.IfDueRestart() then logStatus ()
-                do! Async.Sleep delayMs
+                do! Async.Sleep delayMs // TODO this should really be driven by a condition variable / event flipped when `Volatile.Write completed` happens
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown()
