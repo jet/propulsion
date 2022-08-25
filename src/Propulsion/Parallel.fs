@@ -7,15 +7,8 @@ open Serilog
 open System
 open System.Collections.Concurrent
 open System.Collections.Generic
-open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
-
-[<AutoOpen>]
-module private Helpers =
-
-    /// Can't figure out a cleaner way to shim it :(
-    let tryPeek (x : Queue<_>) = if x.Count = 0 then None else Some (x.Peek())
 
 /// Deals with dispatch and result handling, triggering completion callbacks as batches reach completed state
 module Scheduling =
@@ -24,7 +17,9 @@ module Scheduling =
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
         // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
-        let tryWrite, wait, apply = let c = Channel.unboundedSwSr<_> in c.Writer.TryWrite, Channel.awaitRead c, Channel.apply c
+        let tryWrite, wait, apply =
+            let c = Channel.unboundedSwSr<_> in let r, w = c.Reader, c.Writer
+            w.TryWrite, Channel.awaitRead r, Channel.apply r
         let dop = Sem maxDop
 
         let wrap computation = async {
@@ -68,7 +63,7 @@ module Scheduling =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> async {
-                    let sw = Stopwatch.StartNew()
+                    let sw = System.Diagnostics.Stopwatch.StartNew()
                     try let! res = handle item
                         let elapsed = sw.Elapsed
                         match res with
@@ -87,7 +82,7 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : (Async<unit>) -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : Async<unit> -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
         let incoming = ConcurrentQueue<Batch<'S, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
@@ -115,10 +110,10 @@ module Scheduling =
             logExternalStats |> Option.iter (fun f -> f log) // doing this in here allows stats intervals to be aligned with that of the scheduler engine
 
         let maybeLogStats : unit -> bool =
-            let due = intervalCheck statsInterval
+            let timer = IntervalTimer statsInterval
             fun () ->
                 cycles <- cycles + 1
-                if due () then dumpStats (); true else false
+                if timer.IfDueRestart() then dumpStats (); true else false
 
         /// Inspects the oldest in-flight batch per partition to determine if it's reached a terminal state; if it has, remove and trigger completion callback
         let drainCompleted abend =
@@ -126,12 +121,12 @@ module Scheduling =
             while more do
                 more <- false
                 for queue in active.Values do
-                    match tryPeek queue with
-                    | None // empty
-                    | Some Busy -> () // still working
-                    | Some (Faulted exns) -> // outer layers will react to this by tearing us down
+                    match queue.TryPeek() with
+                    | false, _ // empty
+                    | true, Busy -> () // still working
+                    | true, Faulted exns -> // outer layers will react to this by tearing us down
                         abend (AggregateException(exns))
-                    | Some (Completed batchProcessingDuration) -> // call completion function asap
+                    | true, Completed batchProcessingDuration -> // call completion function asap
                         let partitionId, markCompleted, itemCount =
                             let { batch = { source = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
                             p, f, msgs.LongLength
@@ -153,7 +148,7 @@ module Scheduling =
                 let wipBatch, runners = WipBatch.Create(batch, handle)
                 runners |> Seq.iter waiting.Enqueue
                 match active.TryGetValue pid with
-                | false, _ -> let q = Queue(1024) in active.[pid] <- q; q.Enqueue wipBatch
+                | false, _ -> let q = Queue(1024) in active[pid] <- q; q.Enqueue wipBatch
                 | true, q -> q.Enqueue wipBatch
                 true
 
@@ -161,10 +156,10 @@ module Scheduling =
         let reprovisionDispatcher () =
             let mutable more, worked = true, false
             while more do
-                match tryPeek waiting with
-                | None -> // Crack open a new batch if we don't have anything ready
+                match waiting.TryPeek() with
+                | false, _ -> // Crack open a new batch if we don't have anything ready
                     more <- tryPrepareNext ()
-                | Some pending -> // Dispatch until we reach capacity if we do have something
+                | true, pending -> // Dispatch until we reach capacity if we do have something
                     if tryDispatch pending then
                         worked <- true
                         waiting.Dequeue() |> ignore
@@ -172,7 +167,7 @@ module Scheduling =
                         more <- false
             worked
 
-        /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controler can use to shut down the processing
+        /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controller can use to shut down the processing
         member _.Pump abend (ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 let hadResults = drainCompleted abend
@@ -181,20 +176,21 @@ module Scheduling =
                 if not hadResults && not queuedWork && not loggedStats then
                     Thread.Sleep 1 } // not Async.Sleep, we like this context and/or cache state if nobody else needs it
 
-        /// Feeds a batch of work into the queue; the caller is expected to ensure sumbissions are timely to avoid starvation, but throttled to ensure fair ordering
-        member __.Submit(batches : Batch<'S, 'M>) =
+        /// Feeds a batch of work into the queue; the caller is expected to ensure submissions are timely to avoid starvation, but throttled to ensure fair ordering
+        member _.Submit(batches : Batch<'S, 'M>) =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
 
     static member Start(log, partitionId, maxRead, submit, statsInterval) =
-        let makeBatch onCompletion (items : 'Item seq) =
+        let submitBatch (items : 'Item seq, onCompletion) =
             let items = Array.ofSeq items
-            let batch : Submission.SubmissionBatch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
-            batch,(items.Length,items.Length)
-        Ingestion.Ingester<'Item seq,Submission.SubmissionBatch<_, 'Item>>.Start(log, partitionId, maxRead, makeBatch, submit, statsInterval)
+            let batch : Submission.Batch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
+            submit batch
+            struct (items.Length, items.Length)
+        Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
-type ParallelProjector =
+type ParallelSink =
 
     static member Start
             (    log : ILogger, maxReadAhead, maxDop, handle,
@@ -202,14 +198,14 @@ type ParallelProjector =
                  // Default 5
                  ?maxSubmissionsPerPartition, ?logExternalStats,
                  ?ingesterStatsInterval)
-            : ProjectorPipeline<_> =
+            : Sink<Ingestion.Ingester<'Item seq>> =
 
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
         let dispatcher = Scheduling.Dispatcher maxDop
         let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
 
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
+        let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
             let onCompletion () = x.onCompletion(); onCompletion()
             { source = x.source; onCompletion = onCompletion; messages = x.messages}
 
@@ -219,4 +215,4 @@ type ParallelProjector =
 
         let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-        ProjectorPipeline.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)
+        Sink.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)

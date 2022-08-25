@@ -67,10 +67,10 @@ module internal Config =
     let createWithOriginIndex codec initial fold context minIndex =
         // TOCONSIDER include way to limit item count being read
         // TOCONSIDER implement a loader hint to pass minIndex to the query as an additional filter
-        let isOrigin (i, _) = i <= minIndex
+        let isOrigin struct (i, _) = i <= minIndex
         // There _should_ always be an event at minIndex - if there isn't for any reason, the load might go back one event too far
         // Here we trim it for correctness (although Propulsion would technically ignore it)
-        let trimPotentialOverstep = Seq.filter (fun (i, _e) -> i >= minIndex)
+        let trimPotentialOverstep = Seq.filter (fun struct (i, _e) -> i >= minIndex)
         let accessStrategy = AccessStrategy.MultiSnapshot (isOrigin, fun _ -> failwith "writing not applicable")
         create codec initial (fun s -> trimPotentialOverstep >> fold s) accessStrategy (context, None)
 
@@ -81,9 +81,9 @@ module internal EventCodec =
     let private withUpconverter<'c, 'e when 'c :> TypeShape.UnionContract.IUnionContract> up : FsCodec.IEventCodec<'e, _, _> =
         let down (_ : 'e) = failwith "Unexpected"
         FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Deflate.EncodeTryDeflate
-    let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<int64 * 'c, _, _> =
-        let up (raw : FsCodec.ITimelineEvent<_>, e) = raw.Index, e
-        withUpconverter<'c, int64 * 'c> up
+    let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<struct (int64 * 'c), _, _> =
+        let up (raw : FsCodec.ITimelineEvent<_>, e) = struct (raw.Index, e)
+        withUpconverter<'c, struct (int64 * 'c)> up
 
 module internal Async =
 

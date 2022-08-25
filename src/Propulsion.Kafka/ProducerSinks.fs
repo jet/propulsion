@@ -8,12 +8,12 @@ open System
 
 type ParallelProducerSink =
     static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
-        : ProjectorPipeline<_> =
+        : Sink<Ingestion.Ingester<'F seq>> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item = async {
             let key, value = render item
             do! producer.Produce (key, value) }
-        Parallel.ParallelProjector.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats=producer.DumpStats)
+        Parallel.ParallelSink.Start(Log.Logger, maxReadAhead, maxDop, handle >> Async.Catch, statsInterval=statsInterval, logExternalStats=producer.DumpStats)
 
 type StreamsProducerSink =
 
@@ -35,28 +35,28 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : ProjectorPipeline<_> =
+        : Default.Sink =
             let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
-            let handle (stream : StreamName, span) = async {
+            let handle struct (stream : StreamName, span) = async {
                 let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
                 match maybeMsg with
                 | Some (key : string, message : string) ->
                     match message.Length with
-                    | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.events.Length)
+                    | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.Length)
                     | _ -> ()
                     do! producer.Produce(key, message)
                 | None -> ()
-                return SpanResult.AllProcessed, outcome
+                return struct (SpanResult.AllProcessed, outcome)
             }
             Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
-                     stats, statsInterval=statsInterval,
-                     maxBytes=maxBytes, ?idleDelay=idleDelay,?purgeInterval=purgeInterval,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles, dumpExternalStats=producer.DumpStats)
+                     stats, statsInterval, Default.jsonSize, Default.eventSize,
+                     maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
+                     ?maxEvents=maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName * StreamSpan<_> -> Async<string*string>,
+            prepare : struct (StreamName * StreamSpan<_>) -> Async<struct (string*string)>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
             // Default 1 ms
@@ -72,7 +72,7 @@ type StreamsProducerSink =
             ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
-        : ProjectorPipeline<_> =
+        : Default.Sink =
             let prepare (stream, span) = async {
                 let! k, v = prepare (stream, span)
                 return Some (k, v), ()
@@ -80,5 +80,5 @@ type StreamsProducerSink =
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
                      stats, statsInterval,
-                     ?idleDelay=idleDelay, ?purgeInterval=purgeInterval, ?maxBytes=maxBytes,
-                     ?maxEvents=maxEvents, ?maxBatches=maxBatches, ?maxCycles=maxCycles)
+                     ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
+                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles)

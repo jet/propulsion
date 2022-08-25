@@ -80,7 +80,7 @@ let decideStart establishOrigin at freq state = async {
     | Fold.NotStarted ->
         let! origin = establishOrigin
         let config, checkpoint = mk at freq origin
-        return (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
+        return struct (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
     | Fold.Running s ->
         return (configFreq s.config, s.state.pos), [] }
 
@@ -114,7 +114,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche, ?establishOrigin) : Async<TimeSpan * Position> =
+        member _.Start(source, tranche, ?establishOrigin) : Async<struct (TimeSpan * Position)> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> f
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)

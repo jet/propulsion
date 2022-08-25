@@ -29,10 +29,26 @@ module EquinoxSystemTextJsonParser =
         unixEpoch.AddSeconds(ts.GetDouble())
 
     /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
-    let isEquinoxBatch (d : System.Text.Json.JsonDocument) =
+    let tryParseEquinoxBatch streamFilter (d : System.Text.Json.JsonDocument) =
         let r = d.RootElement
-        let hasProp (id : string) = match r.TryGetProperty id with true, _ -> true | _ -> false
-        hasProp "p" && hasProp "i" && hasProp "n" && hasProp "e"
+        let tryProp (id : string) : ValueOption<System.Text.Json.JsonElement> =
+            let mutable p = Unchecked.defaultof<_>
+            if r.TryGetProperty(id, &p) then ValueSome p else ValueNone
+        let hasProp (id : string) : bool = tryProp id |> ValueOption.isSome
+
+        match tryProp "p" with
+        | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String && hasProp "i" && hasProp "n" && hasProp "e" ->
+             let streamName = je.GetString() |> FsCodec.StreamName.parse // we expect all Equinox data to adhere to "{category}-{aggregateId}" form (or we'll throw)
+             if streamFilter streamName then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
+        | _ -> ValueNone
+
+    /// Enumerates the events represented within a batch
+    let enumEquinoxCosmosEvents struct (streamName, batch : Batch) : Default.StreamEvent seq =
+        batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp = x.t))
+
+    /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
+    let enumStreamEvents streamFilter d : Default.StreamEvent seq =
+        tryParseEquinoxBatch streamFilter d |> ValueOption.map enumEquinoxCosmosEvents |> ValueOption.defaultValue Seq.empty
 #else
 #if COSMOSV2
 module EquinoxCosmosParser =
@@ -66,15 +82,14 @@ module EquinoxNewtonsoftParser =
     let isEquinoxBatch (d : Newtonsoft.Json.Linq.JObject) =
         d.ContainsKey "p" && d.ContainsKey "i" && d.ContainsKey "n" && d.ContainsKey "e"
 #endif
-#endif
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents (batch : Batch) : StreamEvent<byte[]> seq =
+    let enumEquinoxCosmosEvents (batch : Batch) : Default.StreamEvent seq =
         let streamName = FsCodec.StreamName.parse batch.p // we expect all Equinox data to adhere to "{category}-{aggregateId}" form (or we'll throw)
-        batch.e |> Seq.mapi (fun offset x -> { stream = streamName; event = FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp=x.t) })
+        batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp=x.t))
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumStreamEvents d : StreamEvent<byte[]> seq =
+    let enumStreamEvents d : Default.StreamEvent seq =
         if isEquinoxBatch d then d.Cast<Batch>() |> enumEquinoxCosmosEvents
         else Seq.empty
-
+#endif

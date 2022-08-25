@@ -7,6 +7,7 @@ open FsCodec
 open FsKafka
 open Propulsion
 open Propulsion.Internal // intervalCheck, AwaitTaskCorrect
+open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
@@ -46,7 +47,6 @@ module private Impl =
     let approximateMessageBytes (m : Message<string, string>) =
         let inline len (x : string) = match x with null -> 0 | x -> sizeof<char> * x.Length
         16 + len m.Key + len m.Value |> int64
-    let inline mb x = float x / 1024. / 1024.
 
 module private Binding =
 
@@ -60,7 +60,7 @@ module private Binding =
 /// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
 type KafkaIngestionEngine<'Info>
     (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_, _>, closeConsumer,
-        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.SubmissionBatch<TopicPartition, 'Info>[] -> unit,
+        mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.Batch<TopicPartition, 'Info>[] -> unit,
         maxBatchSize, emitInterval, statsInterval) =
     let acc = Dictionary<TopicPartition, _>()
     let remainingIngestionWindow = intervalTimer emitInterval
@@ -71,9 +71,9 @@ type KafkaIngestionEngine<'Info>
             intervalMsgs, intervalChars, counter.InFlightMb, totalMessages, totalChars)
         intervalMsgs <- 0L; intervalChars <- 0L
     let maybeLogStats =
-        let due = intervalCheck statsInterval
-        fun () -> if due () then dumpStats ()
-    let mkSubmission topicPartition span : Submission.SubmissionBatch<'S, 'M> =
+        let interval = IntervalTimer statsInterval
+        fun () -> if interval.IfDueRestart() then dumpStats ()
+    let mkSubmission topicPartition span : Submission.Batch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
             try consumer.StoreOffset(span.highWaterMark)
@@ -99,7 +99,7 @@ type KafkaIngestionEngine<'Info>
         match acc.Count with
         | 0 -> ()
         | topicPartitionsWithMessagesThisInterval ->
-            let tmp = ResizeArray<Submission.SubmissionBatch<_, 'Info>>(topicPartitionsWithMessagesThisInterval)
+            let tmp = ResizeArray<Submission.Batch<_, 'Info>>(topicPartitionsWithMessagesThisInterval)
             for KeyValue(tp, span) in acc do
                 tmp.Add(mkSubmission tp span)
             acc.Clear()
@@ -114,8 +114,8 @@ type KafkaIngestionEngine<'Info>
                         maybeLogStats()
                     counter.AwaitThreshold(ct, consumer, busyWork)
                 | false, None ->
-                    submit()
-                    maybeLogStats()
+                    submit ()
+                    maybeLogStats ()
                 | false, Some intervalRemainder ->
                     try match consumer.Consume(intervalRemainder) with
                         | null -> ()
@@ -125,7 +125,7 @@ type KafkaIngestionEngine<'Info>
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
             dumpStats () // Unconditional logging when completing
-            closeConsumer() (* Orderly Close() before Dispose() is critical *) }
+            closeConsumer () (* Orderly Close() before Dispose() is critical *) }
 
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
 /// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
@@ -202,7 +202,7 @@ type ParallelConsumer private () =
 
         let dispatcher = Parallel.Scheduling.Dispatcher maxDop
         let scheduler = Parallel.Scheduling.PartitionedSchedulingEngine<_, 'Msg>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
-        let mapBatch onCompletion (x : Submission.SubmissionBatch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
+        let mapBatch onCompletion (x : Submission.Batch<_, _>) : Parallel.Scheduling.Batch<_, 'Msg> =
             let onCompletion' () = x.onCompletion(); onCompletion()
             { source = x.source; messages = x.messages; onCompletion = onCompletion'; }
         let submitBatch (x : Parallel.Scheduling.Batch<_, _>) : int =
@@ -222,8 +222,6 @@ type ParallelConsumer private () =
         ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, handle >> Async.Catch,
             ?maxSubmissionsPerPartition=maxSubmissionsPerPartition, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
-type EventMetrics = Streams.EventMetrics
-
 /// APIs only required for advanced scenarios (specifically the integration tests)
 /// APIs within are not part of the stable API and are subject to unlimited change
 module Core =
@@ -233,23 +231,24 @@ module Core =
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
                 prepare, handle, maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-            let dispatcher = Streams.Scheduling.ItemDispatcher<_> maxDop
-            let dumpStreams struct (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
+            let dispatcher = Dispatch.ItemDispatcher<_, _> maxDop
+            let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
-                streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
-            let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create<_, _, _>(
-                dispatcher, stats, prepare, handle, Streams.SpanResult.toIndex, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
+                logStreamStates Default.eventSize
+            let streamsScheduler =
+                Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(
+                    dispatcher, stats, prepare, handle, SpanResult.toIndex, dumpStreams,
+                    ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+            let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Buffer.Batch<_> =
                 let onCompletion () = x.onCompletion(); onCompletion()
-                Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
+                Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
             let submitter =
-                Streams.Projector.StreamsSubmitter.Create
+                Projector.StreamsSubmitter.Create
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
                         ?disableCompaction=maximizeOffsetWriting)
@@ -257,14 +256,14 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
-            let prepare (streamName, span) =
-                let stats = Streams.Buffering.StreamSpan.stats span
-                stats, (streamName, span)
+            let prepare struct (streamName, span) =
+                let metrics = StreamSpan.metrics Default.eventSize span
+                struct (metrics, struct (streamName, span))
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
@@ -283,9 +282,9 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
-                prepare, handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
+                prepare, handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
                 maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
@@ -300,9 +299,9 @@ module Core =
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
-                keyValueToStreamEvents : KeyValuePair<string, string> -> Propulsion.Streams.StreamEvent<_> seq,
-                handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>, maxDop,
-                stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+                keyValueToStreamEvents : KeyValuePair<string, string> -> StreamEvent<_> seq,
+                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
                 ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
                 ?maximizeOffsetWriting) =
@@ -316,7 +315,7 @@ module Core =
     // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsProjector
     let parseMessageKey defaultCategory = function
         | null -> FsCodec.StreamName.create defaultCategory ""
-        | key -> Propulsion.Streams.StreamName.parseWithDefaultCategory defaultCategory key
+        | key -> StreamName.parseWithDefaultCategory defaultCategory key
     let toTimelineEvent toDataAndContext (result : ConsumeResult<string, string>, index) =
         let data, context = toDataAndContext result
         FsCodec.Core.TimelineEvent.Create(index, String.Empty, data, context = context)
@@ -329,12 +328,12 @@ module Core =
     // This type is not a formal part of the API; the intent is to provide context as to the origin of the event for insertion into a parser error message
     // Arguably it should be an anonymous record...
     type ConsumeResultContext = { topic : string; partition : int; offset : int64 }
-    let toDataAndContext (result : ConsumeResult<string, string>) : byte[] * obj =
+    let toDataAndContext (result : ConsumeResult<string, string>) : Default.EventBody * obj =
         let m = Binding.message result
         if m = null then invalidOp "Cannot dereference null message"
         let data = System.Text.Encoding.UTF8.GetBytes m.Value
         let context = { topic = result.Topic; partition = Binding.partitionValue result.Partition; offset = Binding.offsetValue result.Offset }
-        (data, box context)
+        (ReadOnlyMemory data, box context)
 
 /// StreamsProjector buffers and deduplicates messages from a contiguous stream with each event bearing a monotonically incrementing `index`.
 /// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
@@ -342,7 +341,7 @@ module Core =
 type StreamNameSequenceGenerator() =
 
     // Last-used index per streamName
-    let indices = System.Collections.Generic.Dictionary()
+    let indices = Dictionary()
 
     /// Generates an index for the specified StreamName. Sequence starts at 0, incrementing per call.
     member _.GenerateIndex(streamName : StreamName) =
@@ -355,36 +354,36 @@ type StreamNameSequenceGenerator() =
     member __.ConsumeResultToStreamEvent
         (   toStreamName : ConsumeResult<_, _> -> StreamName,
             toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
-        : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+        : ConsumeResult<_, _> -> Default.StreamEvent seq =
         fun consumeResult ->
             let sn = toStreamName consumeResult
             let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
-            Seq.singleton { stream = sn; event = e }
+            Seq.singleton (sn, e)
 
     /// Enables customizing of mapping from ConsumeResult to<br/>
     /// 1) The <c>StreamName</c><br/>
     /// 2) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload<br/>
     /// 3) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
-    member __.ConsumeResultToStreamEvent
+    member x.ConsumeResultToStreamEvent
         (    toStreamName : ConsumeResult<_, _> -> StreamName,
-             toDataAndContext : ConsumeResult<_, _> -> byte[] * obj)
-        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-        __.ConsumeResultToStreamEvent(toStreamName, Core.toTimelineEvent toDataAndContext)
+             toDataAndContext : ConsumeResult<_, _> -> Default.EventBody * obj)
+        : ConsumeResult<string, string> -> Default.StreamEvent seq =
+        x.ConsumeResultToStreamEvent(toStreamName, Core.toTimelineEvent toDataAndContext)
 
     /// Enables customizing of mapping from ConsumeResult to<br/>
     /// 1) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload<br/>
     /// 2) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
-    member __.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> byte[] * obj, ?defaultCategory)
-        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+    member x.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> Default.EventBody * obj, ?defaultCategory)
+        : ConsumeResult<string, string> -> Default.StreamEvent seq =
         let defaultCategory = defaultArg defaultCategory ""
-        __.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory, Core.toTimelineEvent toDataAndContext)
+        x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory, Core.toTimelineEvent toDataAndContext)
 
     /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
     /// The body of the message is passed as the <c>ITimelineEvent.Data</c><br/>
     /// Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member __.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
-        : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
-        __.ConsumeResultToStreamEvent(toStreamName, Core.toDataAndContext)
+    member x.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
+        : ConsumeResult<string, string> -> Default.StreamEvent seq =
+        x.ConsumeResultToStreamEvent(toStreamName, Core.toDataAndContext)
 
     /// Default Mapping: <br/>
     /// - Treats <c>null</c> keys as having <c>streamId</c> of <c>""</c><br/>
@@ -392,15 +391,15 @@ type StreamNameSequenceGenerator() =
     /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
     member x.ConsumeResultToStreamEvent(
             // Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
-            ?defaultCategory) : ConsumeResult<string, string> -> Propulsion.Streams.StreamEvent<byte[]> seq =
+            ?defaultCategory) : ConsumeResult<string, string> -> StreamEvent<Default.EventBody> seq =
         let defaultCategory = defaultArg defaultCategory ""
         x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
     /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
-    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Propulsion.Streams.StreamEvent<byte[]> seq =
+    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : StreamEvent<Default.EventBody> seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
-        let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v)
-        Seq.singleton { stream = sn; event = e }
+        let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
+        Seq.singleton (sn, e)
 
 type StreamsConsumer =
 
@@ -414,19 +413,19 @@ type StreamsConsumer =
     static member Start<'Outcome>
         (   log : ILogger, config : KafkaConsumerConfig,
             // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
-            consumeResultToStreamEvents : ConsumeResult<_, _> -> Propulsion.Streams.StreamEvent<_> seq,
+            consumeResultToStreamEvents : ConsumeResult<_, _> -> StreamEvent<_> seq,
             // Handler responses:
             // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : StreamName * Streams.StreamSpan<_> -> Async<Streams.SpanResult * 'Outcome>,
+            handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
             // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
             // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
             // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
             maxDop,
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
-            stats : Streams.Scheduling.Stats<EventMetrics * 'Outcome, EventMetrics * exn>, statsInterval,
+            stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?maxSubmissionsPerPartition, ?logExternalState,
             ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Prevent batches being consolidated prior to scheduling in order to maximize granularity of consumer offset updates
@@ -457,9 +456,9 @@ type BatchesConsumer =
             // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Streams.Scheduling.DispatchItem<_>[] -> Async<seq<Choice<int64, exn>>>,
+            handle : Dispatch.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats : Streams.Scheduling.Stats<EventMetrics * unit, EventMetrics * exn>, statsInterval,
+            stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             // Maximum number of batches to ingest for scheduling at any one time (Default: 24.)
             // NOTE Stream-wise consumption defaults to taking 5 batches each time replenishment is required
             ?schedulerIngestionBatchCount,
@@ -471,11 +470,11 @@ type BatchesConsumer =
             ?logExternalState) =
         let maxBatches = defaultArg schedulerIngestionBatchCount 24
         let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
-        let dumpStreams struct (streams : Streams.Scheduling.StreamStates<_>, totalPurged) log =
+        let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
-            streams.Dump(log, totalPurged, Streams.Buffering.StreamState.eventsSize)
-        let handle (items : Streams.Scheduling.DispatchItem<byte[]>[]) ct
-            : Task<(TimeSpan * StreamName * bool * Choice<int64 * (EventMetrics * unit), EventMetrics * exn>)[]> = task {
+            logStreamStates Default.eventSize
+        let handle (items : Dispatch.Item<Default.EventBody>[]) ct
+            : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.StartNew()
             let avgElapsed () =
                 let tot = let e = sw.Elapsed in e.TotalMilliseconds
@@ -486,25 +485,25 @@ type BatchesConsumer =
                     [| for x in Seq.zip items results ->
                         match x with
                         | item, Choice1Of2 index' ->
-                            let used : Streams.StreamSpan<_> = { item.span with events = item.span.events |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq }
-                            let s = Streams.Buffering.StreamSpan.stats used
-                            ae, item.stream, true, Choice1Of2 (index', (s, ()))
+                            let used : StreamSpan<_> = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
+                            let metrics = StreamSpan.metrics Default.eventSize used
+                            struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
                         | item, Choice2Of2 exn ->
-                            let s = Streams.Buffering.StreamSpan.stats item.span
-                            ae, item.stream, false, Choice2Of2 (s, exn) |]
+                            let metrics = StreamSpan.metrics Default.jsonSize item.span
+                            ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
-                        let s = Streams.Buffering.StreamSpan.stats x.span
-                        ae, x.stream, false, Choice2Of2 (s, e) |] }
-        let dispatcher = Streams.Scheduling.BatchedDispatcher(select, handle, stats, dumpStreams)
-        let streamsScheduler = Streams.Scheduling.StreamSchedulingEngine.Create(
+                        let metrics = StreamSpan.metrics Default.jsonSize x.span
+                        ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
+        let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle, stats, dumpStreams)
+        let streamsScheduler = Scheduling.StreamSchedulingEngine.Create(
             dispatcher,
             maxBatches = maxBatches,
             ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.SubmissionBatch<TopicPartition, 'Info>) : Streams.Scheduling.StreamsBatch<_> =
+        let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : Buffer.Batch<_> =
             let onCompletion () = x.onCompletion(); onCompletion()
-            Streams.Scheduling.StreamsBatch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> fst
-        let submitter = Streams.Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
+            Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
+        let submitter = Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
         ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)

@@ -9,7 +9,7 @@
     <Compile Include="Internal.fs" />
     <Compile Include="Submission.fs" />
     <Compile Include="Ingestion.fs" />
-    <Compile Include="Projector.fs" />
+    <Compile Include="Pipeline.fs" />
     <Compile Include="Parallel.fs" />
     <Compile Include="Streams.fs" />
     <Compile Include="PropulsionPrometheus.fs" />

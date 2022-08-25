@@ -9,31 +9,31 @@ open System.Collections.Concurrent
 open System.Threading
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent<byte[]> seq
+    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
     | CloseSeries of seriesIndex : int
 
 module StripedIngesterImpl =
 
     type Stats(log : ILogger, statsInterval) =
-        let statsDue = intervalCheck statsInterval
+        let interval = IntervalTimer statsInterval
         let mutable cycles, ingested = 0, 0
-        let dumpStats activeSeries (readingAhead, ready) (currentBuffer, maxBuffer) =
+        let dumpStats activeSeries (readingAhead, ready) struct (currentBuffer, maxBuffer) =
             let mutable buffered = 0
             let count (xs : IDictionary<int, ResizeArray<_>>) = seq { for x in xs do buffered <- buffered + x.Value.Count; yield x.Key, x.Value.Count } |> Seq.sortBy fst |> Seq.toArray
             let ahead, ready = count readingAhead, count ready
             log.Information("Read {ingested} Cycles {cycles} Series {series} Holding {buffered} Reading {@reading} Ready {@ready} Active {currentBuffer}/{maxBuffer}",
                 ingested, cycles, activeSeries, buffered, ahead, ready, currentBuffer, maxBuffer)
             ingested <- 0; cycles <- 0
-        member __.Handle : InternalMessage -> unit = function
+        member _.Handle : InternalMessage -> unit = function
             | Batch _ -> ingested <- ingested + 1
             | ActivateSeries _ | CloseSeries _ -> ()
-        member __.TryDump(activeSeries, readingAhead, ready, readMaxState) =
+        member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
-            if statsDue () then
+            if interval.IfDueRestart() then
                 dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : StreamEvent<byte[]> seq
+        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
@@ -48,14 +48,14 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<seq<StreamEvent<byte[]>>, Propulsion.Submission.SubmissionBatch<int, StreamEvent<byte[]>>>,
+    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<Default.StreamEvent seq>,
         maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
     let maxInFlightBatches = Sem maxInFlightBatches
     let stats = Stats(log, statsInterval)
-    let pending = Queue<_>()
+    let pending = Queue<Propulsion.Ingestion.Batch<StreamEvent<_> seq>>()
     let readingAhead, ready = Dictionary<int, ResizeArray<_>>(), Dictionary<int, ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 
@@ -65,10 +65,8 @@ type StripedIngester
     let handle = function
         | Batch (seriesId, epoch, checkpoint, items) ->
             let isForActiveStripe = activeSeries = seriesId
-            let batchInfo =
-                let items = Array.ofSeq items
-                let onCompleted =
-                    if isForActiveStripe then
+            let onCompletion =
+                if isForActiveStripe then
                         // If this read represents a batch that we will immediately submit for processing, we will defer the releasing of the batch in out buffer
                         // limit only when the batch's processing has concluded
                         releaseInFlightBatchAllocation
@@ -78,13 +76,14 @@ type StripedIngester
                         //   any ones we hold and forward through `readingAhead` are processed)
                         // - yield a null function as the onCompleted callback to be triggered when the batch's processing has concluded
                         id
-                epoch, checkpoint, items, onCompleted
+            let batchInfo : Propulsion.Ingestion.Batch<_ seq> =
+                { epoch = epoch; items = Array.ofSeq items; checkpoint = checkpoint; onCompletion = onCompletion }
 
             if isForActiveStripe then
                 pending.Enqueue batchInfo
             else
                 match readingAhead.TryGetValue seriesId with
-                | false, _ -> readingAhead.[seriesId] <- ResizeArray[|batchInfo|]
+                | false, _ -> readingAhead[seriesId] <- ResizeArray[|batchInfo|]
                 | true,current -> current.Add(batchInfo)
                 // As we'll be submitting `id` as the onCompleted callback, we now immediately release the allocation that gets `Await`ed in `Submit()`
                 releaseInFlightBatchAllocation()
@@ -96,10 +95,10 @@ type StripedIngester
             else
                 match readingAhead |> tryTake seriesIndex with
                 | Some batchesRead ->
-                    ready.[seriesIndex] <- batchesRead
+                    ready[seriesIndex] <- batchesRead
                     log.Information("Completed reading {series}, marking {buffered} buffered items ready", seriesIndex, batchesRead.Count)
                 | None ->
-                    ready.[seriesIndex] <- ResizeArray()
+                    ready[seriesIndex] <- ResizeArray()
                     log.Information("Completed reading {series}, leaving empty batch list", seriesIndex)
 
         | ActivateSeries newActiveSeries ->
@@ -117,7 +116,7 @@ type StripedIngester
             log.Information("Moving to series {activeChunk}, releasing {buffered} buffered batches, {ready} others ready, {ahead} reading ahead",
                 newActiveSeries, buffered, ready.Count, readingAhead.Count)
 
-    member __.Pump = async {
+    member _.Pump = async {
         while not cts.IsCancellationRequested do
             let mutable itemLimit = 1024
             while itemLimit > 0 do
@@ -125,14 +124,13 @@ type StripedIngester
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
                 | false, _ -> itemLimit <- 0
             while pending.Count <> 0 do
-                let epoch, checkpoint, items, markCompleted = pending.Dequeue()
-                let! _, _ = inner.Submit(epoch, checkpoint, items, markCompleted) in ()
+                let! _, _ = inner.Ingest(pending.Dequeue()) in ()
             stats.TryDump(activeSeries, readingAhead, ready, maxInFlightBatches.State)
             do! Async.Sleep pumpInterval }
 
     /// Yields (used, maximum) of in-flight batches limit
     /// return can be delayed where we're over the limit until such time as the background processing ingests the batch
-    member __.Submit(content : Message) = async {
+    member _.Submit(content : Message) = async {
         match content with
         | Message.Batch (seriesId, epoch, checkpoint, events) ->
             work.Enqueue <| Batch (seriesId, epoch, checkpoint, events)
@@ -143,4 +141,4 @@ type StripedIngester
         return maxInFlightBatches.State }
 
     /// As range assignments get revoked, a user is expected to `Stop `the active processing thread for the Ingester before releasing references to it
-    member __.Stop() = cts.Cancel()
+    member _.Stop() = cts.Cancel()

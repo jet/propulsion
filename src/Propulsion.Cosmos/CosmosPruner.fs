@@ -78,9 +78,9 @@ module Pruner =
             Equinox.Cosmos.Store.Log.InternalMetrics.dump log
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneUntil (stream, span: StreamSpan<_>) = async {
+    let handle pruneUntil struct (stream, span: StreamSpan<_>) = async {
         // The newest event eligible for deletion defines the cutoff point
-        let untilIndex = span.events[span.events.Length - 1].Index
+        let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
         // 1. All requested events already deleted, no writes took place
         //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideWritePosition)
@@ -91,20 +91,20 @@ module Pruner =
         //    in this case, we mark the event as handled and await a successor event triggering another attempt
         let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream) untilIndex
         // Categorize the outcome so the stats handler can summarize the work being carried out
-        let res = if deleted = 0 && deferred = 0 then Nop span.events.Length else Ok (deleted, deferred)
+        let res = if deleted = 0 && deferred = 0 then Nop span.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
         let writePos = max trimmedPos (untilIndex + 1L)
-        return writePos, res
+        return struct (writePos, res)
     }
 
     type StreamSchedulingEngine =
 
         static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay)
-            : Scheduling.StreamSchedulingEngine<_, _, _> =
-            let interpret (stream, span) =
-                let stats = Buffering.StreamSpan.stats span
-                stats, (stream, span)
-            let dispatcher = Scheduling.MultiDispatcher<_, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
+            : Scheduling.StreamSchedulingEngine<_, _, _, _> =
+            let interpret struct (stream, span) =
+                let metrics = StreamSpan.metrics Default.eventSize span
+                struct (metrics, struct (stream, span))
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                 dispatcher,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
@@ -114,7 +114,7 @@ module Pruner =
 type CosmosPruner =
 
     /// DANGER: this API DELETES events - use with care
-    /// Starts a <c>StreamsProjectorPipeline</c> that prunes _all submitted events from the supplied <c>context</c>_
+    /// Starts a <c>Sink</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
         (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
             // Default 5m
@@ -122,24 +122,20 @@ type CosmosPruner =
             // Default 5m
             ?stateInterval,
             ?maxSubmissionsPerPartition,
-            ?maxBatches, ?purgeInterval, ?wakeForResults,
-            // Delay when no items available. Default 10ms.
-            ?idleDelay,
+            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
-        : Propulsion.ProjectorPipeline<_> =
-        let idleDelay = defaultArg idleDelay (TimeSpan.FromMilliseconds 10.)
+        : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Scheduling.ItemDispatcher<_>(maxConcurrentStreams)
-        let dumpStreams struct (s : Scheduling.StreamStates<_>, totalPruned) log =
-            s.Dump(log, totalPruned, Buffering.StreamState.eventsSize)
+        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
+        let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let pruneUntil stream index = Equinox.Cosmos.Core.Events.pruneUntil context stream index
         let streamScheduler =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, idleDelay = idleDelay)
-        Projector.StreamsProjectorPipeline.Start(
+                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+        Projector.Pipeline.Start(
             log, dispatcher.Pump, streamScheduler.Pump, maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
             ?ingesterStatsInterval = ingesterStatsInterval)

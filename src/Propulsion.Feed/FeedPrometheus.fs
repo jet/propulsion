@@ -74,7 +74,7 @@ module private Histogram =
     let latencyBuckets = [| 0.0005; 0.001; 0.002; 0.004; 0.008; 0.016; 0.5; 1.; 2.; 4.; 8.; 16. |]
     let latency = create' latencyBuckets secondsStat latencyDesc
 
-open Propulsion.Feed.Internal.Log
+open Propulsion.Feed.Core.Log
 
 /// <summary>An ILogEventSink that publishes to Prometheus</summary>
 /// <param name="customTags">Custom tags to annotate the metric we're publishing where such tag manipulation cannot better be achieved via the Prometheus scraper config.</param>

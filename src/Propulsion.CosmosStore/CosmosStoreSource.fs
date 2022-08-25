@@ -11,6 +11,7 @@ open Microsoft.Azure.Cosmos
 #endif
 
 open Equinox.Core // Stopwatch.Time
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
@@ -52,19 +53,19 @@ module Log =
 #if COSMOSV2
 type CosmosSource =
 
-    static member CreateObserver<'Items,'Batch>
+    static member CreateObserver<'Items>
         (   log : ILogger, context : ChangeFeedObserverContext,
-            createIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,
+            startIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
             mapContent : IReadOnlyList<Microsoft.Azure.Documents.Document> -> 'Items) =
         let mutable rangeIngester = Unchecked.defaultof<_>
-        let init rangeLog partitionId = rangeIngester <- createIngester (rangeLog, partitionId)
+        let init rangeLog partitionId = rangeIngester <- startIngester (rangeLog, partitionId)
         let dispose () = rangeIngester.Stop()
         let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
         let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs.[docs.Count-1].Timestamp
-            let! pt, (cur,max) = rangeIngester.Submit(epoch, ctx.Checkpoint(), mapContent docs) |> Stopwatch.Time
-            let readS, postS, rc = float sw.ElapsedMilliseconds / 1000., (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
+            let! pt, (cur,max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore } |> Stopwatch.Time
+            let readS, postS, rc = sw.ElapsedSeconds, (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
                 token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
@@ -78,16 +79,16 @@ type CosmosSource =
 #else
 type CosmosStoreSource =
 
-    static member private CreateTrancheObserver<'Items,'Batch>
+    static member private CreateTrancheObserver<'Items>
         (   log : ILogger,
-            trancheIngester : Propulsion.Ingestion.Ingester<'Items,'Batch>,
+            trancheIngester : Propulsion.Ingestion.Ingester<'Items>,
             mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
         let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = async {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
-            let! pt, (cur,max) = trancheIngester.Submit(ctx.epoch, checkpoint, mapContent docs) |> Stopwatch.Time
+            let! pt, struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore } |> Stopwatch.Time
             let postElapsed = pt.Elapsed
             let m = Log.Metric.Read {
                 database = ctx.source.Database.Id; container = ctx.source.Id; group = ctx.group; rangeId = int ctx.rangeId
@@ -103,9 +104,9 @@ type CosmosStoreSource =
           interface IDisposable with
             member _.Dispose() = trancheIngester.Stop() }
 
-    static member CreateObserver<'Items,'Batch>
+    static member CreateObserver<'Items>
         (   log : ILogger,
-            startIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items,'Batch>,
+            startIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
             mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
@@ -121,7 +122,7 @@ type CosmosStoreSource =
         { new IChangeFeedObserver with
             member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
           interface IDisposable with
-            member _.Dispose() = dispose() }
+            member _.Dispose() = dispose () }
 #endif
 
 #if COSMOSV2
@@ -138,14 +139,14 @@ type CosmosStoreSource =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
-            let synced, lagged, count, total = ResizeArray(), ResizeArray(), ref 0, ref 0L
+            let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
             for partitionId, gap as partitionAndGap in remainingWork do
-                total := !total + gap
-                incr count
+                total <- total + gap
+                count <- count + 1
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
             let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
             (log |> Log.metric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-                processorName, !count, !total, lagged, synced)
+                processorName, count, total, lagged, synced)
             return! Async.Sleep interval }
         let maybeLogLag = lagReportFreq |> Option.map logLag
 #if COSMOSV2

@@ -1,7 +1,5 @@
 ﻿namespace Propulsion.DynamoStore
 
-type StreamEvent = Propulsion.Streams.StreamEvent<byte[]>
-
 open Equinox.DynamoStore
 open FSharp.Control
 open System.Collections.Concurrent
@@ -58,18 +56,18 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch checkpoint isTail items : Propulsion.Feed.Internal.Batch<_> =
+    let mkBatch checkpoint isTail items : Propulsion.Feed.Core.Batch<_> =
         { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.ofEpochAndOffset epochId offset) false items
-    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Internal.Batch<_> =
+    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Core.Batch<_> =
         mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<System.TimeSpan * Propulsion.Feed.Internal.Batch<byte[]>> = asyncSeq {
+        : AsyncSeq<struct (System.TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = System.Diagnostics.Stopwatch.StartNew()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
@@ -93,7 +91,7 @@ module private Impl =
                             sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
-        let materializeSpans : Async<StreamEvent array> = async {
+        let materializeSpans : Async<Propulsion.Streams.Default.StreamEvent array> = async {
             let loadsRequired =
                 buffer
                 |> Seq.distinctBy (fun x -> x.p)
@@ -110,12 +108,12 @@ module private Impl =
                 for span in buffer do
                     match cache.TryGetValue span.p with
                     | false, _ -> ()
-                    | true, (items : FsCodec.ITimelineEvent<_>[]) ->
+                    | true, (items : FsCodec.ITimelineEvent<_> array) ->
                         // NOTE this could throw if a span has been indexed, but the stream read is from a replica that does not yet have it
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
                         // TOCONSIDER revise logic to share session key etc to rule this out
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
-                        for e in events do ({ stream = IndexStreamId.toStreamName span.p; event = e } : StreamEvent) |] }
+                        for e in events -> IndexStreamId.toStreamName span.p, e |] }
         let mutable prevLoaded, batchIndex = 0L, 0
         let report (i : int option) len =
             if largeEnough && hydrating then
@@ -132,7 +130,7 @@ module private Impl =
             if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
                 let! hydrated = materializeSpans
                 report (Some i) hydrated.Length
-                yield sw.Elapsed, sliceBatch epochId i hydrated // not i + 1 as the batch does not include these changes
+                yield struct (sw.Elapsed, sliceBatch epochId i hydrated) // not i + 1 as the batch does not include these changes
                 sw.Reset()
                 buffer.Clear()
             buffer.AddRange(pending)
@@ -149,9 +147,7 @@ type LoadMode =
                   * /// Defines the Context to use when loading the bodies
                     storeContext : DynamoStoreContext
 module internal LoadMode =
-    let private mapTimelineEvent =
-        let mapBodyToBytes = (fun (x : System.ReadOnlyMemory<byte>) -> x.ToArray())
-        FsCodec.Core.TimelineEvent.Map (FsCodec.Deflate.EncodedToUtf8 >> mapBodyToBytes) // TODO replace with FsCodec.Deflate.EncodedToByteArray
+    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
         fun sn (i, cs : string array) ->
             if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
@@ -171,8 +167,7 @@ module internal LoadMode =
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore,
-        sink : Propulsion.ProjectorPipeline<Propulsion.Ingestion.Ingester<seq<StreamEvent>, Propulsion.Submission.SubmissionBatch<int, StreamEvent>>>,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // If the Handler does not utilize the bodies of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
@@ -182,7 +177,7 @@ type DynamoStoreSource
         ?readFailureSleepInterval,
         ?sourceId,
         ?trancheIds) =
-    inherit Propulsion.Feed.Internal.TailingFeedSource
+    inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
