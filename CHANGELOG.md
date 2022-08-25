@@ -10,6 +10,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
+- `Feed`: `Monitor.AwaitCompletion` enables **quasi** deterministic waiting for the processing of async reactions within integration tests [#170](https://github.com/jet/propulsion/pull/170)
 - `Scheduler`: `purgeInterval` to control memory usage [#97](https://github.com/jet/propulsion/pull/97)
 - `Scheduler`: `wakeForResults` option to maximize throughput (without having to drop sleep interval to zero) [#161](https://github.com/jet/propulsion/pull/161)
 - `Ingester`: Expose optional `ingesterStatsInterval` control [#154](https://github.com/jet/propulsion/pull/154)
@@ -17,7 +18,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.EventStoreDb`: Ported `EventStore` to target `Equinox.EventStore` >= `4.0.0` (using the gRPC interface)  [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore3`: Special cased version of `Propulsion.CosmosStore` to target `Equinox.CosmosStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.CosmosStore` by updating `Equinox.CosmosStore` dependencies to `4.0.0`** [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.DynamoStore`: `Equinox.CosmosStore`-equivalent functionality for `Equinox.DynamoStore`. Combines elements of `CosmosStore`, `SqlStreamStore`, `Feed` [#140](https://github.com/jet/propulsion/pull/140)
-- `Propulsion.MemoryStore`: `MemoryStoreSource` to align with other sources for integration testing [#165](https://github.com/jet/propulsion/pull/165)
+- `Propulsion.MemoryStore`: `MemoryStoreSource` to align with other sources for integration testing. Includes *deterministic* `AwaitCompletion` as per `Propulsion.Feed`-based Sources [#165](https://github.com/jet/propulsion/pull/165)
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
 

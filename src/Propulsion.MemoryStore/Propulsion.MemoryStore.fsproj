@@ -5,7 +5,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="MemoryStoreLogger.fs" />
     <Compile Include="MemoryStoreSource.fs" />
+    <Compile Include="ReactorInternal.fs" />
+    <Compile Include="ReactorMonitor.fs" />
   </ItemGroup>
 
   <ItemGroup>
