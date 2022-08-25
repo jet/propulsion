@@ -87,9 +87,9 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                 let current = positions.Current()
                 current |> choose (fun v -> v.read), current |> choose (fun v -> v.completed)
             if includeSubsequent then
-                log.Information("FeedSource Awaiting All. Current {current} Completed {completed} Starting {starting}",
+                log.Information("FeedMonitor Awaiting All. Current {current} Completed {completed} Starting {starting}",
                                 currentRead, completed, starting)
-            else log.Information("FeedSource Awaiting Starting {starting} Completed {completed}", starting, completed)
+            else log.Information("FeedMonitor Awaiting Starting {starting} Completed {completed}", starting, completed)
         let isComplete () =
             let current = positions.Current()
             let completed = current |> choose (fun v -> v.completed)
@@ -132,8 +132,8 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
             let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
-            if propagationDelay = TimeSpan.Zero then log.Debug("Feed Wait Skipped; no processing pending. Completed Epochs {completed}", currentCompleted)
-            else log.Information("FeedSource Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
+            if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
+            else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
             let propUsed = sw.Elapsed
             let includeSubsequent = ignoreSubsequent <> Some true
@@ -149,17 +149,17 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
-                log.Write(ll, "FeedSource Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Starting {starting} Completed {completed}",
+                log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Starting {starting} Completed {completed}",
                                 sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, starting, completed)
             let swLinger = System.Diagnostics.Stopwatch.StartNew()
             if not skipLinger then
                 match! awaitPropagation linger delayMs with
                 | [||] ->
-                    log.Information("FeedSource Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {linger:n1}s. Starting {starting} Completed {completed}",
+                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {linger:n1}s. Starting {starting} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, starting, originalCompleted)
                 | lingering ->
                     do! awaitCompletion lingering delayMs includeSubsequent logInterval
-                    log.Information("FeedSource Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n0}s. Starting {starting} Lingering {lingering} Completed {completed}",
+                    log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n0}s. Starting {starting} Lingering {lingering} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then

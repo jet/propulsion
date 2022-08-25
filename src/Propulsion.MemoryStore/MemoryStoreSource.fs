@@ -91,8 +91,8 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
         match positions.Prepared with
-        | -1L -> log.Information "No events submitted; completing immediately"
-        | epoch when epoch = positions.Completed -> log.Information("No processing pending. Completed Epoch {epoch}", positions.Completed)
+        | -1L -> log.Information "FeedMonitor Wait No events submitted; completing immediately"
+        | epoch when epoch = positions.Completed -> log.Information("FeedMonitor Wait No processing pending. Completed Epoch {epoch}", positions.Completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
@@ -102,9 +102,9 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
             let logStatus () =
                 let completed = match positions.Completed with -1L -> Nullable() | x -> Nullable x
                 if includeSubsequent then
-                    log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
+                    log.Information("FeedMonitor Wait Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
                                     startingEpoch, positions.Prepared, completed)
-                else log.Information("Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
+                else log.Information("FeedMonitor Wait Awaiting Completion of Starting Epoch {startingEpoch} Completed Epoch {completed}", startingEpoch, completed)
             let isComplete () =
                 let currentCompleted = positions.Completed
                 positions.Prepared = currentCompleted // All submitted work (including follow-on work), completed
