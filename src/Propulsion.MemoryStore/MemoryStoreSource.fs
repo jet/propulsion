@@ -106,22 +106,22 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
     /// 2. At the point where the caller triggers AwaitCompletion, we can infer that all reactions have been processed
     ///      when checkpointing/completion has passed beyond our starting point
     member _.AwaitCompletion
-        (   // sleep interval while awaiting completion. Default 1ms.
+        (   // sleep time while awaiting completion
             ?delay,
-            // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
+            // interval at which to log progress of Projector loop
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent) = async {
         match Volatile.Read &prepared with
         | -1L -> log.Information "No events submitted; completing immediately"
-        | epoch when epoch = Volatile.Read(&completed) -> log.Information("No processing pending. Completed Epoch {epoch}", completed)
+        | epoch when epoch = Volatile.Read(&completed) -> log.Verbose("No processing pending. Completed Epoch {epoch}", completed)
         | startingEpoch ->
             let includeSubsequent = ignoreSubsequent <> Some true
             let delayMs =
-                let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
+                let delay = defaultArg delay TimeSpan.FromMilliseconds 1.
                 int delay.TotalMilliseconds
             let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
-            let logStatus () =
+            let logStatus =
                 let completed = match Volatile.Read &completed with -1L -> Nullable() | x -> Nullable x
                 if includeSubsequent then
                     log.Information("Awaiting Completion of all Batches. Starting Epoch {epoch} Current Epoch {current} Completed Epoch {completed}",
