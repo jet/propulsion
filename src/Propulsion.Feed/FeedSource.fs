@@ -15,9 +15,9 @@ type FeedSourceBase internal
         sink : Propulsion.Streams.Default.Sink,
         renderPos : Position -> string,
         ?logCommitFailure) =
-
     let log = log.ForContext("source", sourceId)
     let positions = TranchePositions()
+    let feedWaiter = lazy FeedMonitor(log, positions, sink)
 
     let pumpPartition crawl partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
@@ -31,14 +31,43 @@ type FeedSourceBase internal
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
             return! Async.Raise e }
-    let pump readTranches crawl = async {
-        try let! (tranches : TrancheId array) = readTranches ()
 
+    /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
+    member internal _.Pump
+        (   readTranches : unit -> Async<TrancheId[]>,
+            // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
+            crawl : TrancheId -> bool * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>) = async {
+        // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
+        // TODO when that's done, remove workaround in readTranches
+        try let! (tranches : TrancheId array) = readTranches ()
             log.Information("Starting {tranches} tranche readers...", tranches.Length)
             return! Async.Parallel(tranches |> Seq.mapi (pumpPartition crawl)) |> Async.Ignore<unit[]>
         with e ->
             log.Warning(e, "Exception encountered while running source, exiting loop")
             return! Async.Raise e }
+
+    member _.Monitor = feedWaiter.Value
+
+/// Intercepts receipt and completion of batches, recording the read and completion positions
+and internal TranchePositions() =
+    let positions = System.Collections.Concurrent.ConcurrentDictionary<TrancheId, TrancheState>()
+
+    member _.Intercept(trancheId) =
+        positions.GetOrAdd(trancheId, fun _trancheId -> { read = ValueNone; completed = ValueNone }) |> ignore
+        fun (batch : Ingestion.Batch<_>) ->
+            positions[trancheId].read <- ValueSome batch.epoch
+            let onCompletion () =
+                batch.onCompletion()
+                positions[trancheId].completed <- ValueSome batch.epoch
+            { batch with onCompletion = onCompletion }
+    member _.Current() = positions.ToArray()
+
+/// Represents the current state of a tranche of the source's processing
+and internal TrancheState =
+    { mutable read : int64 voption; mutable completed : int64 voption }
+    member x.IsEmpty = x.completed = x.read
+
+and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink) =
 
     let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
     let checkForActivity () =
@@ -78,15 +107,6 @@ type FeedSourceBase internal
             do! Async.Sleep delayMs }
     let defaultLinger (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
         max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
-
-    /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
-    member internal _.Pump
-        (   readTranches : unit -> Async<TrancheId[]>,
-            // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>) =
-        // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
-        // TODO when that's done, remove workaround in readTranches
-        pump readTranches crawl
 
     /// Waits (for up to the <c>propagationDelay</c>) for events to be observed
     /// If at least one event has been observed, waits for the completion of the Sink's processing
@@ -141,24 +161,6 @@ type FeedSourceBase internal
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown() }
-
-/// Intercepts receipt and completion of batches, recording the read and completion positions
-and TranchePositions() =
-    let positions = System.Collections.Concurrent.ConcurrentDictionary<TrancheId, TrancheState>()
-
-    member _.Intercept(trancheId) =
-        positions.GetOrAdd(trancheId, fun _trancheId -> { read = ValueNone; completed = ValueNone }) |> ignore
-        fun (batch : Ingestion.Batch<_>) ->
-            positions[trancheId].read <- ValueSome batch.epoch
-            let onCompletion () =
-                batch.onCompletion()
-                positions[trancheId].completed <- ValueSome batch.epoch
-            { batch with onCompletion = onCompletion }
-    member _.Current() = positions.ToArray()
-/// Represents the current state of a tranche of the source's processing
-and TrancheState =
-    { mutable read : int64 voption; mutable completed : int64 voption }
-    member x.IsEmpty = x.completed = x.read
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
 /// it may have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc
