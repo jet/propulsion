@@ -8,17 +8,7 @@ module TimeSpan =
 
 module Stopwatch =
 
-    let inline ticksNow () = System.Diagnostics.Stopwatch.GetTimestamp()
     let inline start () = System.Diagnostics.Stopwatch.StartNew()
-    let inline elapsedTicks (sw : System.Diagnostics.Stopwatch) = sw.ElapsedTicks
-
-    module Ticks =
-
-        let ticksPerSecond = System.Diagnostics.Stopwatch.Frequency
-        let inline toMs ticks = ticks / ticksPerSecond / 1000L |> int
-        let inline toS ticks = if ticks = 0L then 0. else double ticks / double ticksPerSecond
-        let inline toTimeSpan ticks = if ticks = 0L then TimeSpan.Zero else toS ticks |> TimeSpan.FromSeconds
-        let internal ofTimeSpan (ts : TimeSpan) = ts.TotalSeconds * double ticksPerSecond |> int64
 
 type System.Diagnostics.Stopwatch with
 
@@ -29,21 +19,23 @@ type System.Diagnostics.Stopwatch with
 type IntervalTimer(period : TimeSpan) =
 
     let sw = Stopwatch.start ()
-    let periodTicks = Stopwatch.Ticks.ofTimeSpan period
+    let periodMs = period.TotalMilliseconds |> int64
     let mutable force = false
 
-    member val Period = period
+    member _.Trigger() =
+        force <- true
+    member _.Reset() =
+        force <- false
+        sw.Restart()
 
-    member _.HasExpired = sw.ElapsedTicks > periodTicks || force
-    member _.RemainingMs =
-        match periodTicks - sw.ElapsedTicks with
-        | t when t <= 0 -> 0
-        | t -> Stopwatch.Ticks.toMs t
-    member _.Trigger() = force <- true
-    member _.Reset() = sw.Restart(); force <- false
+    member val Period = period
+    member _.HasExpired = sw.ElapsedMilliseconds > periodMs || force
+    member _.RemainingMs = match periodMs - sw.ElapsedMilliseconds with t when t <= 0L -> 0 | t -> int t
 
     // NOTE asking the question is destructive - the timer is reset as a side effect
-    member x.IfExpiredReset() = if x.HasExpired then x.Reset(); true else false
+    member x.IfExpiredReset() =
+        if x.HasExpired then x.Reset(); true
+        else false
 
 module Channel =
 

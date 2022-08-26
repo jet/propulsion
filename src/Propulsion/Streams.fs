@@ -275,7 +275,7 @@ module Dispatch =
         // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
         let tryFillDispatcher (potential : seq<Item<'F>>) markStarted project markBusy =
             let xs = potential.GetEnumerator()
-            let startTimestamp = Stopwatch.ticksNow ()
+            let startTimestamp = System.Diagnostics.Stopwatch.GetTimestamp()
             let mutable hasCapacity, dispatched = true, false
             while xs.MoveNext() && hasCapacity do
                 let item = xs.Current
@@ -432,6 +432,11 @@ module Scheduling =
 
     type [<Struct>] BufferState = Idle | Active | Full | Slipstreaming
 
+    module StopwatchTicks =
+
+        let inline elapsed (sw : System.Diagnostics.Stopwatch) = sw.ElapsedTicks
+        let inline toTimeSpan ticks = TimeSpan.FromSeconds(double ticks / double System.Diagnostics.Stopwatch.Frequency)
+
     module Stats =
 
         /// Manages state used to generate metrics (and summary logs) regarding streams currently being processed by a Handler
@@ -440,8 +445,8 @@ module Scheduling =
             type private StreamState = { ts : int64; mutable count : int }
             let private walkAges (state : Dictionary<_, _>) =
                 if state.Count = 0 then Seq.empty else
-                let now = Stopwatch.ticksNow ()
-                seq { for x in state.Values -> struct (now - x.ts, x.count) }
+                let currentTimestamp = System.Diagnostics.Stopwatch.GetTimestamp()
+                seq { for x in state.Values -> struct (currentTimestamp - x.ts, x.count) }
             let private renderState agesAndCounts =
                 let mutable oldest, newest, streams, attempts = Int64.MinValue, Int64.MaxValue, 0, 0
                 for struct (diff, count) in agesAndCounts do
@@ -450,7 +455,7 @@ module Scheduling =
                     streams <- streams + 1
                     attempts <- attempts + count
                 if streams = 0 then oldest <- 0L; newest <- 0L
-                struct (streams, attempts), struct (Stopwatch.Ticks.toTimeSpan oldest, Stopwatch.Ticks.toTimeSpan newest)
+                struct (streams, attempts), struct (StopwatchTicks.toTimeSpan oldest, StopwatchTicks.toTimeSpan newest)
             /// Manages the list of currently dispatched Handlers
             /// NOTE we are guaranteed we'll hear about a Start before a Finish (or another Start) per stream by the design of the Dispatcher
             type private Active() =
@@ -499,15 +504,15 @@ module Scheduling =
 
         type [<NoComparison; NoEquality>] Timers() =
             let mutable results, dispatch, merge, ingest, stats, sleep = 0L, 0L, 0L, 0L, 0L, 0L
-            member _.RecordResults sw = results <- results + Stopwatch.elapsedTicks sw
-            member _.RecordDispatch sw = dispatch <- dispatch + Stopwatch.elapsedTicks sw
-            member _.RecordMerge sw = merge <- merge + Stopwatch.elapsedTicks sw
-            member _.RecordIngest sw = ingest <- ingest + Stopwatch.elapsedTicks sw
-            member _.RecordStats sw = stats <- stats + Stopwatch.elapsedTicks sw
-            member _.RecordSleep sw = sleep <- sleep + Stopwatch.elapsedTicks sw
+            member _.RecordResults sw = results <- results + StopwatchTicks.elapsed sw
+            member _.RecordDispatch sw = dispatch <- dispatch + StopwatchTicks.elapsed sw
+            member _.RecordMerge sw = merge <- merge + StopwatchTicks.elapsed sw
+            member _.RecordIngest sw = ingest <- ingest + StopwatchTicks.elapsed sw
+            member _.RecordStats sw = stats <- stats + StopwatchTicks.elapsed sw
+            member _.RecordSleep sw = sleep <- sleep + StopwatchTicks.elapsed sw
             member _.Dump(log : ILogger) =
-                let dt, ft, mt = Stopwatch.Ticks.toTimeSpan results, Stopwatch.Ticks.toTimeSpan dispatch, Stopwatch.Ticks.toTimeSpan merge
-                let it, st, zt = Stopwatch.Ticks.toTimeSpan ingest, Stopwatch.Ticks.toTimeSpan stats, Stopwatch.Ticks.toTimeSpan sleep
+                let dt, ft, mt = StopwatchTicks.toTimeSpan results, StopwatchTicks.toTimeSpan dispatch, StopwatchTicks.toTimeSpan merge
+                let it, st, zt = StopwatchTicks.toTimeSpan ingest, StopwatchTicks.toTimeSpan stats, StopwatchTicks.toTimeSpan sleep
                 let m = Log.Metric.SchedulerCpu (mt, it, ft, dt, st)
                 (log |> Log.withMetric m).Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s Sleep {zt:n1}s",
                                                       mt.TotalSeconds, it.TotalSeconds, ft.TotalSeconds, dt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds)
@@ -624,12 +629,12 @@ module Scheduling =
                     interpretProgress, stats, dumpStreams) =
                 let project struct (startTicks, item : Dispatch.Item<'F>) (ct : CancellationToken) = task {
                     let! progressed, res = project (item.stream, item.span) ct
-                    return struct (Stopwatch.ticksNow () - startTicks |> Stopwatch.Ticks.toTimeSpan, item.stream, progressed, res) }
+                    return struct (System.Diagnostics.Stopwatch.GetTimestamp() - startTicks |> StopwatchTicks.toTimeSpan, item.stream, progressed, res) }
                 MultiDispatcher<_, _, _, _>(inner, project, interpretProgress, stats, dumpStreams)
             static member Create(inner, handle, interpret, toIndex, stats, dumpStreams) =
                 let project item ct = task {
                     let struct (met, (struct (_sn, span : StreamSpan<'F>) as ss)) = interpret item
-                    try let! struct (spanResult, outcome) = Async.StartAsTask(handle ss, cancellationToken = ct)
+                    try let! struct (spanResult, outcome) = Async.StartImmediateAsTask(handle ss, cancellationToken = ct)
                         let index' = toIndex span spanResult
                         return struct (index' > span[0].Index, Choice1Of2 struct (index', met, outcome))
                     with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -1213,7 +1218,7 @@ module Sync =
                 let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
                 let prepareSw = Stopwatch.start ()
                 try let req = struct (stream, span')
-                    let! res, outcome = Async.StartAsTask(handle req, cancellationToken = ct)
+                    let! res, outcome = Async.StartImmediateAsTask(handle req, cancellationToken = ct)
                     let index' = SpanResult.toIndex span' res
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', struct (met, prepareSw.Elapsed), outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
