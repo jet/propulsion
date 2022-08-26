@@ -69,9 +69,8 @@ module Fold =
 
 let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
 let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
-    let freq = int interval.TotalSeconds
-    let next = at.AddSeconds(float freq)
-    { checkpointFreqS = freq }, mkCheckpoint at next pos
+    let next = at.Add interval
+    { checkpointFreqS = int interval.TotalSeconds }, mkCheckpoint at next pos
 let private configFreq (config : Events.Config) =
     config.checkpointFreqS |> float |> TimeSpan.FromSeconds
 

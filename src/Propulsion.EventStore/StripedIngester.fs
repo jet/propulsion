@@ -29,8 +29,7 @@ module StripedIngesterImpl =
             | ActivateSeries _ | CloseSeries _ -> ()
         member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
-            if interval.IfDueRestart() then
-                dumpStats activeSeries (readingAhead, ready) readMaxState
+            if interval.IfExpiredReset() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
         | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
@@ -51,7 +50,7 @@ type StripedIngester
     (   log : ILogger, inner : Propulsion.Ingestion.Ingester<Default.StreamEvent seq>,
         maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
-    let pumpInterval = defaultArg pumpInterval (TimeSpan.FromMilliseconds 5.)
+    let pumpIntervalMs = pumpInterval |> Option.map TimeSpan.toMs |> Option.defaultValue 5
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
     let maxInFlightBatches = Sem maxInFlightBatches
     let stats = Stats(log, statsInterval)
@@ -126,7 +125,7 @@ type StripedIngester
             while pending.Count <> 0 do
                 let! _, _ = inner.Ingest(pending.Dequeue()) in ()
             stats.TryDump(activeSeries, readingAhead, ready, maxInFlightBatches.State)
-            do! Async.Sleep pumpInterval }
+            do! Async.Sleep pumpIntervalMs }
 
     /// Yields (used, maximum) of in-flight batches limit
     /// return can be delayed where we're over the limit until such time as the background processing ingests the batch

@@ -1,6 +1,7 @@
 ﻿namespace Propulsion.Kafka
 
 open Confluent.Kafka // required for shimming
+open Propulsion.Internal
 open Serilog
 open System
 
@@ -28,7 +29,7 @@ type Producer
     // - the theory is that because each producer gets a dedicated rdkafka context, compression thread and set of sockets, better throughput can be attained
     // - we should consider removing the degreeOfParallelism argument and this associated logic unless we actually get to the point of leaning on this
     let producers = Array.init (defaultArg degreeOfParallelism 1) (fun _i -> FsKafka.KafkaProducer.Create(log, cfg, topic))
-    let produceStats = Propulsion.Internal.Stats.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
+    let produceStats = Stats.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
     let mutable robin = 0
 
     member _.DumpStats log = produceStats.Dump log
@@ -37,7 +38,7 @@ type Producer
     /// NOTE: the `execute` function is expected to throw in the event of a failure to produce (this is the standard semantic for all Confluent.Kafka ProduceAsync APIs)
     member _.Produce(execute : FsKafka.KafkaProducer -> Async<'r>) : Async<'r> = async {
         let producer = producers[System.Threading.Interlocked.Increment(&robin) % producers.Length]
-        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let sw = Stopwatch.start ()
         let! res = execute producer
         produceStats.Record sw.Elapsed
         return res }

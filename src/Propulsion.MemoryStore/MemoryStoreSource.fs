@@ -62,7 +62,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
         let supervise () = task {
             // external cancellation (via Stop()) should yield a success result
             use _ = ct.Register(setSuccess)
-            Task.start(fun () -> x.Pump ct)
+            Task.start (fun () -> x.Pump ct)
             do! awaitCompletion ()
             storeCommitsSubscription.Dispose() }
         new Pipeline(Task.run supervise, stop)
@@ -110,7 +110,7 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
                 positions.Prepared = currentCompleted // All submitted work (including follow-on work), completed
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
-                if logInterval.IfDueRestart() then logStatus ()
+                if logInterval.IfExpiredReset() then logStatus ()
                 do! Async.Sleep delayMs // TODO this should really be driven by a condition variable / event flipped when `Volatile.Write completed` happens
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then

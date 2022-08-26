@@ -2,26 +2,48 @@ module Propulsion.Internal
 
 open System
 
+module TimeSpan =
+
+    let toMs (ts : TimeSpan) : int = ts.TotalMilliseconds |> int
+
+module Stopwatch =
+
+    let inline ticksNow () = System.Diagnostics.Stopwatch.GetTimestamp()
+    let inline start () = System.Diagnostics.Stopwatch.StartNew()
+    let inline elapsedTicks (sw : System.Diagnostics.Stopwatch) = sw.ElapsedTicks
+
+    module Ticks =
+
+        let ticksPerSecond = System.Diagnostics.Stopwatch.Frequency
+        let inline toMs ticks = ticks / ticksPerSecond / 1000L |> int
+        let inline toS ticks = if ticks = 0L then 0. else double ticks / double ticksPerSecond
+        let inline toTimeSpan ticks = if ticks = 0L then TimeSpan.Zero else toS ticks |> TimeSpan.FromSeconds
+        let internal ofTimeSpan (ts : TimeSpan) = ts.TotalSeconds * double ticksPerSecond |> int64
+
+type System.Diagnostics.Stopwatch with
+
+    member x.ElapsedSeconds = float x.ElapsedMilliseconds / 1000.
+    member x.ElapsedMinutes = x.ElapsedSeconds / 60.
+
 /// Manages a time cycle defined by `period`. Can be explicitly Trigger()ed prematurely
 type IntervalTimer(period : TimeSpan) =
 
-    let timer, periodMs = System.Diagnostics.Stopwatch.StartNew(), int64 period.TotalMilliseconds
+    let sw = Stopwatch.start ()
+    let periodTicks = Stopwatch.Ticks.ofTimeSpan period
     let mutable force = false
 
     member val Period = period
-    member _.RemainingMs = periodMs - timer.ElapsedMilliseconds |> int |> max 0
 
+    member _.HasExpired = sw.ElapsedTicks > periodTicks || force
+    member _.RemainingMs =
+        match periodTicks - sw.ElapsedTicks with
+        | t when t <= 0 -> 0
+        | t -> Stopwatch.Ticks.toMs t
     member _.Trigger() = force <- true
+    member _.Reset() = sw.Restart(); force <- false
 
     // NOTE asking the question is destructive - the timer is reset as a side effect
-    member _.IfDueRestart() =
-        let due = force || timer.ElapsedMilliseconds > periodMs
-        if due then timer.Restart(); force <- false
-        due
-
-let inline mb x = float x / 1024. / 1024.
-
-type System.Diagnostics.Stopwatch with member x.ElapsedSeconds = float x.ElapsedMilliseconds / 1000.
+    member x.IfExpiredReset() = if x.HasExpired then x.Reset(); true else false
 
 module Channel =
 
@@ -61,7 +83,7 @@ type Sem(max) =
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
 
-/// Helpers for use in Propulsion.Tool
+/// Helper for use in Propulsion.Tool and/or equivalent apps; needs to be (informally) exposed
 type Async with
 
     /// Asynchronously awaits the next keyboard interrupt event, throwing a TaskCanceledException
@@ -76,12 +98,17 @@ type Async with
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
         return! Async.AwaitTaskCorrect tcs.Task }
 
+module ValueTuple =
+
+    let inline fst struct (f, _s) = f
+    let inline snd struct (_f, s) = s
+    let inline ofKvp (x : System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
+
 module Stats =
 
     open System.Collections.Generic
 
-    let toValueTuple (x : KeyValuePair<_, _>) = struct (x.Key, x.Value)
-    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map toValueTuple |> Seq.sortByDescending ValueTuple.snd
+    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map ValueTuple.ofKvp |> Seq.sortByDescending ValueTuple.snd
 
     /// Gathers stats relating to how many items of a given category have been observed
     type CatStats() =
@@ -109,7 +136,7 @@ module Stats =
 
     open MathNet.Numerics.Statistics
     let private dumpStats (kind : string) (xs : TimeSpan seq) (log : Serilog.ILogger) =
-        let sortedLatencies = xs |> Seq.map (fun r -> r.TotalSeconds) |> Seq.sort |> Seq.toArray
+        let sortedLatencies = xs |> Seq.map (fun ts -> ts.TotalSeconds) |> Seq.sort |> Seq.toArray
 
         let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
         let l = {
@@ -124,10 +151,9 @@ module Stats =
             p50 = pc 50
             p95 = pc 95
             p99 = pc 99 }
-        let inline sec (t : TimeSpan) = t.TotalSeconds
-        let stdDev = match l.stddev with None -> Double.NaN | Some d -> sec d
+        let stdDev = match l.stddev with None -> Double.NaN | Some d -> d.TotalSeconds
         log.Information(" {kind} {count} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
-            kind, sortedLatencies.Length, sec l.max, sec l.p99, sec l.p95, sec l.p50, sec l.min, sec l.avg, stdDev)
+            kind, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
 
     /// Operations on an instance are safe cross-thread
     type ConcurrentLatencyStats(kind) =
@@ -146,3 +172,17 @@ module Stats =
             if buffer.Count <> 0 then
                 dumpStats kind buffer log
                 buffer.Clear()
+
+module Log =
+
+    let inline miB x = float x / 1024. / 1024.
+
+    /// Attach a property to the captured event record to hold the metric information
+    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
+    let withScalarProperty (key: string) (value : 'T) (log : Serilog.ILogger) =
+        let enrich (e : Serilog.Events.LogEvent) =
+            e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(key, Serilog.Events.ScalarValue(value)))
+        log.ForContext({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = enrich evt })
+    let [<return: Struct>] (|ScalarValue|_|) : Serilog.Events.LogEventPropertyValue -> obj voption = function
+        | :? Serilog.Events.ScalarValue as x -> ValueSome x.Value
+        | _ -> ValueNone

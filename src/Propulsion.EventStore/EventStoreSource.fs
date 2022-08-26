@@ -33,7 +33,7 @@ module Mapping =
     open EventStore.ClientAPI
 
     type RecordedEvent with
-        member __.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(__.CreatedEpoch)
+        member x.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(x.CreatedEpoch)
 
     let (|PropulsionTimelineEvent|) (x : RecordedEvent) : FsCodec.ITimelineEvent<_> =
         let inline len0ToNull (x : _[]) = match x with null -> null | x when x.Length = 0 -> null | x -> x
@@ -80,7 +80,8 @@ type EventStoreSource =
         let ingester = sink.StartIngester(log.ForContext("Tranche", "Ingester"), 0)
 
         let initialSeriesId, conns, dop =
-            log.Information("Tailing every {intervalS:n1}s TODO with {streamReaders} stream catchup-readers", spec.tailInterval.TotalSeconds, spec.streamReaders)
+            log.Information("Tailing every {intervalS:n1}s TODO with {streamReaders} stream catchup-readers",
+                            spec.tailInterval.TotalSeconds, spec.streamReaders)
             match spec.gorge with
             | Some factor ->
                 log.Information("Commencing Gorging with {stripes} $all reader stripes covering a 256MB chunk each", factor)

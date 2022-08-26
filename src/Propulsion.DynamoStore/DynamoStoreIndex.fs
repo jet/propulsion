@@ -1,5 +1,7 @@
 module Propulsion.DynamoStore.DynamoStoreIndex
 
+open Propulsion.Internal
+
 /// Represents a (potentially coalesced) span of events as loaded from either the Index or a DynamoDB Export
 type [<Struct>] EventSpan =
     { i : int; c : string array }
@@ -94,14 +96,14 @@ module Reader =
     // Returns flattened list of all spans, and flag indicating whether tail reached
     let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) trancheId epochId
         : Async<AppendsEpoch.Events.StreamSpan array * bool * int64> = async {
-        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let sw = Stopwatch.start ()
         let! maybeStreamBytes, _version, state = epochs.Read(trancheId, epochId, 0)
-        let sizeB, t = defaultArg maybeStreamBytes 0L, sw.Elapsed
+        let sizeB, loadS = defaultArg maybeStreamBytes 0L, sw.ElapsedSeconds
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length
         log.Information("Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
-                        string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Propulsion.Internal.mb sizeB, t.TotalSeconds)
+                        string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Log.miB sizeB, loadS)
         return spans, state.closed, sizeB }
 
     let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<struct (Buffer * int64)> = async {
@@ -118,11 +120,14 @@ module Reader =
                 let ok, writePos = state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
                 if not ok then
                     invalidSpans <- invalidSpans + 1
-                    if invalidSpans = gapsLimit then log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
-                    elif invalidSpans < gapsLimit then log.Warning("Gapped Span in {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
-                                                                   stream, writePos, x.i - int64 writePos, x.c)
+                    if invalidSpans = gapsLimit then
+                        log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+                    elif invalidSpans < gapsLimit then
+                        log.Warning("Gapped Span in {stream}@{wp}: Missing {gap} events before {successorEventTypes}",
+                                    stream, writePos, x.i - int64 writePos, x.c)
                  else totalSpans <- totalSpans + 1L
             more <- closed
             epochId <- AppendsEpochId.next epochId
-        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans", string trancheId, Propulsion.Internal.mb totalB, invalidSpans)
+        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans",
+                        string trancheId, Log.miB totalB, invalidSpans)
         return state, totalSpans }

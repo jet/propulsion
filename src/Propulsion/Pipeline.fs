@@ -1,5 +1,6 @@
 ﻿namespace Propulsion
 
+open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
@@ -61,7 +62,7 @@ type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
                 with e ->
                     log.Fatal(e, "Abend from {name}", name)
                     triggerStop () }
-            Internal.Task.start wrap
+            Task.start wrap
 
         let supervise () = task {
             // external cancellation should yield a success result

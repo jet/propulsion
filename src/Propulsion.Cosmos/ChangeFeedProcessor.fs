@@ -14,8 +14,8 @@ module IChangeFeedObserverContextExtensions =
     /// Provides F#-friendly wrapping for the `CheckpointAsync` function, which typically makes sense to pass around in `Async` form
     type Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing.IChangeFeedObserverContext with
         /// Triggers `CheckpointAsync()`; Mark the the full series up to and including this batch as having been confirmed consumed.
-        member __.Checkpoint() = async {
-            return! __.CheckpointAsync() |> Async.AwaitTaskCorrect }
+        member x.Checkpoint() = async {
+            return! x.CheckpointAsync() |> Async.AwaitTaskCorrect }
 
 type ContainerId = { database : string; container : string }
 
@@ -114,9 +114,8 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
-        let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+                        leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds)
 
         let builder =
             let feedProcessorOptions =
@@ -162,5 +161,5 @@ type ChangeFeedProcessor =
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         let processName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
         let processId = System.Diagnostics.Process.GetCurrentProcess().Id
-        let hostName = System.Environment.MachineName
+        let hostName = Environment.MachineName
         sprintf "%s-%s-%d" hostName processName processId

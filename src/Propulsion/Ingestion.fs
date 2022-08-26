@@ -1,6 +1,6 @@
 ﻿module Propulsion.Ingestion
 
-open Propulsion.Internal // Helpers
+open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
@@ -31,8 +31,8 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
 
     member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
-    member _.Pump ct = task {
-        while true do
+    member _.Pump(ct : CancellationToken) = task {
+        while not ct.IsCancellationRequested do
             do! commitIfDirty ct
             do! Task.Delay(commitInterval, ct) }
 
@@ -112,7 +112,7 @@ type Ingester<'Items> private
         while not ct.IsCancellationRequested do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
-            if stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
+            if stats.Interval.IfExpiredReset() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(stats.Interval.RemainingMs)) :> Task }
             // arguably the impl should be submitting while unpacking but
             // - maintaining consistency between incoming order and submit order is required
@@ -125,10 +125,10 @@ type Ingester<'Items> private
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts)
-        let pump () = task {
+        let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("Exiting {name}", "ingester") }
-        Task.start pump
+        Task.start startPump
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit

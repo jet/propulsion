@@ -1,54 +1,26 @@
 ﻿/// Holds batches from the Ingestion pipe, feeding them continuously to the scheduler in an appropriate order
 module Propulsion.Submission
 
-open Propulsion.Internal // Helpers
+open Propulsion.Internal
 open Serilog
-open System
 open System.Collections.Generic
-open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
-
-[<AutoOpen>]
-module Helpers =
-
-    let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
-
-    /// Gathers stats relating to how many items of a given partition have been observed
-    type PartitionStats<'S when 'S : equality>() =
-        let partitions = Dictionary<'S, int64>()
-
-        member _.Record(partitionId, ?weight) =
-            let weight = defaultArg weight 1L
-            match partitions.TryGetValue partitionId with
-            | true, catCount -> partitions[partitionId] <- catCount + weight
-            | false, _ -> partitions[partitionId] <- weight
-
-        member _.Clear() = partitions.Clear()
-        member _.StatsDescending = Stats.statsDescending partitions
-
-    let atTimedIntervals (period : TimeSpan) =
-        let timer, max = Stopwatch.StartNew(), int64 period.TotalMilliseconds
-        let remNow () = max - timer.ElapsedMilliseconds |> int
-        fun f ->
-            match remNow () with
-            | rem when rem <= 0 -> f (); timer.Restart(); remNow ()
-            | rem -> rem
 
 /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
 [<NoComparison; NoEquality>]
 type Batch<'S, 'M> = { source : 'S; onCompletion : unit -> unit; messages : 'M [] }
 
 /// Holds the queue for a given partition, together with a semaphore we use to ensure the number of in-flight batches per partition is constrained
-[<NoComparison>]
-type PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
+[<NoComparison; NoEquality>]
+type private PartitionQueue<'B> = { submissions : Sem; queue : Queue<'B> } with
     member x.Append(batch) = x.queue.Enqueue batch
     static member Create(maxSubmits) = { submissions = Sem maxSubmits; queue = Queue(maxSubmits) }
 
 type internal Stats<'S when 'S : equality>(log : ILogger, interval) =
 
     let mutable cycles, ingested, completed, compacted = 0, 0, 0, 0
-    let submittedBatches,submittedMessages = PartitionStats<'S>(), PartitionStats<'S>()
+    let submittedBatches, submittedMessages = PartitionStats<'S>(), PartitionStats<'S>()
 
     member val Interval = IntervalTimer interval
 
@@ -68,6 +40,19 @@ type internal Stats<'S when 'S : equality>(log : ILogger, interval) =
         submittedMessages.Record(pi, count)
     member _.RecordCycle() =
         cycles <- cycles + 1
+
+/// Gathers stats relating to how many items of a given partition have been observed
+and PartitionStats<'S when 'S : equality>() =
+    let partitions = Dictionary<'S, int64>()
+
+    member _.Record(partitionId, ?weight) =
+        let weight = defaultArg weight 1L
+        let mutable catCount = Unchecked.defaultof<_>
+        if partitions.TryGetValue(partitionId, &catCount) then partitions[partitionId] <- catCount + weight
+        else partitions[partitionId] <- weight
+
+    member _.Clear() = partitions.Clear()
+    member _.StatsDescending = Stats.statsDescending partitions
 
 /// Holds the stream of incoming batches, grouping by partition
 /// Manages the submission of batches into the Scheduler in a fair manner
@@ -132,7 +117,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         while not ct.IsCancellationRequested do
             while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
             stats.RecordCycle()
-            if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
+            if stats.Interval.IfExpiredReset() then stats.Dump(queueStats)
             do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(stats.Interval.RemainingMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time

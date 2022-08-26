@@ -99,9 +99,8 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
-        let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            processorName, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds)
         let processorName_ = processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =

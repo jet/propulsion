@@ -123,7 +123,7 @@ type LogSink(customTags: seq<string * string>, ?defaultGroup: string) =
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
             | MetricEvent (e, maybeContextGroup) ->
-                let group = maybeContextGroup |> Option.defaultWith defaultGroup
+                let group = maybeContextGroup |> ValueOption.defaultWith defaultGroup
                 match e with
                 | Metric.BufferReport m ->
                     observeState group "ingesting" m

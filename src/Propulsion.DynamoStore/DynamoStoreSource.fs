@@ -2,6 +2,7 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
+open Propulsion.Internal
 open System.Collections.Concurrent
 
 module private Impl =
@@ -69,7 +70,7 @@ module private Impl =
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
         : AsyncSeq<struct (System.TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
-        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let sw = Stopwatch.start ()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
         let totalChanges = state.changes.Length
         sw.Stop()

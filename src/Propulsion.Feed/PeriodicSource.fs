@@ -5,6 +5,7 @@
 namespace Propulsion.Feed
 
 open FSharp.Control
+open Propulsion.Internal
 open System
 
 /// Int64.MaxValue = 9223372036854775807
@@ -59,7 +60,7 @@ type PeriodicSource
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
-        | waitTime when waitTime.Ticks > 0L -> do! Async.Sleep waitTime
+        | waitTime when waitTime.Ticks > 0L -> do! Async.Sleep(TimeSpan.toMs waitTime)
         | _ -> ()
 
         let basePosition = DateTimeOffset.UtcNow |> DateTimeOffsetPosition.ofDateTimeOffset
