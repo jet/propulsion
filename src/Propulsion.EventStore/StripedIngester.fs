@@ -29,7 +29,7 @@ module StripedIngesterImpl =
             | ActivateSeries _ | CloseSeries _ -> ()
         member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
-            if interval.IfExpiredReset() then dumpStats activeSeries (readingAhead, ready) readMaxState
+            if interval.IfExpiredRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
         | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq

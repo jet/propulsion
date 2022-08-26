@@ -102,7 +102,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             current |> Array.forall (fun kv -> kv.Value.IsEmpty) // All submitted work (including follow-on work), completed
             || (not includeSubsequent && originalStartedAreAllCompleted ())
         while not (isComplete ()) && not sink.IsCompleted do
-            if logInterval.IfExpiredReset() then logStatus()
+            if logInterval.IfExpiredRestart() then logStatus()
             do! Async.Sleep delayMs }
     let defaultLinger (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
         max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds

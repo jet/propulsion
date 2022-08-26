@@ -32,7 +32,7 @@ type OverallStats(?statsInterval) =
 
     member _.DumpIfIntervalExpired(?force) =
         if defaultArg force false then interval.Trigger()
-        if interval.IfExpiredReset() && totalEvents <> 0L then
+        if interval.IfExpiredRestart() && totalEvents <> 0L then
             let totalMb = Log.miB totalBytes
             Log.Information("Reader Throughput {events} events {gb:n1}GB {mb:n2}MB/s",
                 totalEvents, totalMb / 1024., totalMb * 1000. / float overallStart.ElapsedMilliseconds)
@@ -57,7 +57,7 @@ type SliceStatsBuffer(?interval) =
 
     member _.DumpIfIntervalExpired(?force) =
         if defaultArg force false then interval.Trigger()
-        if interval.IfExpiredReset() then
+        if interval.IfExpiredRestart() then
             lock recentCats <| fun () ->
                 let log kind limit xs =
                     let cats =
@@ -263,7 +263,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
             let slicesStats, stats = SliceStatsBuffer(), OverallStats()
             let progressInterval = IntervalTimer statsInterval
             while true do
-                if progressInterval.IfExpiredReset() then
+                if progressInterval.IfExpiredRestart() then
                     let currentPos = range.Current
                     Log.Information("Tailed {count} times @ {pos} (chunk {chunk})",
                         count, currentPos.CommitPosition, chunk currentPos)

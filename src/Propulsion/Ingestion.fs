@@ -112,7 +112,7 @@ type Ingester<'Items> private
         while not ct.IsCancellationRequested do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
-            if stats.Interval.IfExpiredReset() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
+            if stats.Interval.IfExpiredRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(stats.Interval.RemainingMs)) :> Task }
             // arguably the impl should be submitting while unpacking but
             // - maintaining consistency between incoming order and submit order is required

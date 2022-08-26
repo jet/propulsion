@@ -110,7 +110,7 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
                 positions.Prepared = currentCompleted // All submitted work (including follow-on work), completed
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
-                if logInterval.IfExpiredReset() then logStatus ()
+                if logInterval.IfExpiredRestart() then logStatus ()
                 do! Async.Sleep delayMs // TODO this should really be driven by a condition variable / event flipped when `Volatile.Write completed` happens
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then

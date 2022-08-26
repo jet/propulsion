@@ -24,7 +24,7 @@ type IntervalTimer(period : TimeSpan) =
 
     member _.Trigger() =
         force <- true
-    member _.Reset() =
+    member _.Restart() =
         force <- false
         sw.Restart()
 
@@ -33,8 +33,8 @@ type IntervalTimer(period : TimeSpan) =
     member _.RemainingMs = match periodMs - sw.ElapsedMilliseconds with t when t <= 0L -> 0 | t -> int t
 
     // NOTE asking the question is destructive - the timer is reset as a side effect
-    member x.IfExpiredReset() =
-        if x.HasExpired then x.Reset(); true
+    member x.IfExpiredRestart() =
+        if x.HasExpired then x.Restart(); true
         else false
 
 module Channel =

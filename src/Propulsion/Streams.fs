@@ -504,6 +504,7 @@ module Scheduling =
 
         type [<NoComparison; NoEquality>] Timers() =
             let mutable results, dispatch, merge, ingest, stats, sleep = 0L, 0L, 0L, 0L, 0L, 0L
+            let sw = Stopwatch.start()
             member _.RecordResults sw = results <- results + StopwatchTicks.elapsed sw
             member _.RecordDispatch sw = dispatch <- dispatch + StopwatchTicks.elapsed sw
             member _.RecordMerge sw = merge <- merge + StopwatchTicks.elapsed sw
@@ -514,9 +515,11 @@ module Scheduling =
                 let dt, ft, mt = StopwatchTicks.toTimeSpan results, StopwatchTicks.toTimeSpan dispatch, StopwatchTicks.toTimeSpan merge
                 let it, st, zt = StopwatchTicks.toTimeSpan ingest, StopwatchTicks.toTimeSpan stats, StopwatchTicks.toTimeSpan sleep
                 let m = Log.Metric.SchedulerCpu (mt, it, ft, dt, st)
-                (log |> Log.withMetric m).Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s Sleep {zt:n1}s",
-                                                      mt.TotalSeconds, it.TotalSeconds, ft.TotalSeconds, dt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds)
+                let tot = StopwatchTicks.toTimeSpan (results + dispatch + merge + ingest + stats + sleep)
+                (log |> Log.withMetric m).Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s Sleep {zt:n1}s Total {tot:n1}s Interval {int:n1}s",
+                                                      mt.TotalSeconds, it.TotalSeconds, ft.TotalSeconds, dt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds, tot.TotalSeconds, sw.ElapsedSeconds)
                 results <- 0L; dispatch <- 0L; merge <- 0L; ingest <- 0L; stats <- 0L; sleep <- 0L
+                sw.Restart()
 
         type StateStats() =
             let mutable idle, active, full, slip = 0, 0, 0, 0
@@ -562,12 +565,12 @@ module Scheduling =
 
         member x.RecordStats() =
             cycles <- cycles + 1
-            x.StatsInterval.IfExpiredReset()
+            x.StatsInterval.IfExpiredRestart()
 
         member x.RecordState(state) =
             fullCycles <- fullCycles + 1
             stateStats.Ingest(state)
-            x.StateInterval.IfExpiredReset()
+            x.StateInterval.IfExpiredRestart()
 
         /// Allows an ingester or projector to wire in custom stats (typically based on data gathered in a `Handle` override)
         abstract DumpStats : unit -> unit
@@ -599,7 +602,7 @@ module Scheduling =
                 let m = Log.Metric.HandlerResult (outcomeKind, duration.TotalSeconds)
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
                                                              outcomeKind, duration.TotalMilliseconds, progressed)
-                if monitorInterval.IfExpiredReset() then monitor.EmitMetrics metricsLog
+                if monitorInterval.IfExpiredRestart() then monitor.EmitMetrics metricsLog
 
         member _.HandleStarted(stream, stopwatchTicks) =
             monitor.HandleStarted(stream, stopwatchTicks)
@@ -792,7 +795,7 @@ module Scheduling =
             ?enableSlipstreaming) =
         let purgeDue =
             match purgeInterval with
-            | Some ts -> IntervalTimer(ts).IfExpiredReset
+            | Some ts -> IntervalTimer(ts).IfExpiredRestart
             | None -> fun () -> false
         let sleepIntervalMs = match idleDelay with Some ts -> TimeSpan.toMs ts | None -> 1000
         let wakeForResults = defaultArg wakeForResults false

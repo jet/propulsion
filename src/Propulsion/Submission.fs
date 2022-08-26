@@ -117,7 +117,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         while not ct.IsCancellationRequested do
             while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
             stats.RecordCycle()
-            if stats.Interval.IfExpiredReset() then stats.Dump(queueStats)
+            if stats.Interval.IfExpiredRestart() then stats.Dump(queueStats)
             do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(stats.Interval.RemainingMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
