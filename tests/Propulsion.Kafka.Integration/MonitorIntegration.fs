@@ -45,7 +45,7 @@ let startTimeout () = IntervalTimer(TimeSpan.FromMinutes 14)
 
 type IntervalTimer with
     member x.AwaitTimeoutOr(cond) = async {
-        while not (cond()) && not x.HasExpired do
+        while not (cond()) && not x.IsDue do
             do! Async.Sleep 1000 }
 
 type T1(testOutputHelper) =

@@ -1,5 +1,6 @@
 namespace Propulsion.Cosmos
 
+open System.Threading.Tasks
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client
 open Microsoft.Azure.Documents.ChangeFeedProcessor
@@ -31,7 +32,7 @@ type ChangeFeedObserver =
         /// - ceding control as soon as commencement of the next batch retrieval is desired
         /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
         /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
-        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Async<unit>,
+        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Task<unit>,
         /// Called when this Observer is being created (triggered before `assign`)
         ?init : ILogger -> int -> unit,
         /// Called when a lease is won and the observer is being spun up (0 or more `ingest` calls will follow). Overriding inhibits default logging.
@@ -51,7 +52,7 @@ type ChangeFeedObserver =
             | Some f -> return! f log rangeId
             | None -> log.Information("Reader {partitionId} Assigned", ctx.PartitionKeyRangeId) }
         let _process (ctx, docs) = async {
-            try do! ingest log ctx docs
+            try do! ingest log ctx docs |> Async.AwaitTaskCorrect
             with e ->
                 log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
                 do! Async.Raise e }

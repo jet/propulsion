@@ -19,7 +19,8 @@ type System.Diagnostics.Stopwatch with
 type IntervalTimer(period : TimeSpan) =
 
     let sw = Stopwatch.start ()
-    let periodMs = period.TotalMilliseconds |> int64
+    let periodMs = int64 period.TotalMilliseconds
+    let periodT = periodMs / 1000L * System.Diagnostics.Stopwatch.Frequency
     let mutable force = false
 
     member _.Trigger() =
@@ -29,12 +30,13 @@ type IntervalTimer(period : TimeSpan) =
         sw.Restart()
 
     member val Period = period
-    member _.HasExpired = sw.ElapsedMilliseconds > periodMs || force
+    member _.IsDue = sw.ElapsedTicks > periodT || force
+    member _.IsTriggered = force
     member _.RemainingMs = match periodMs - sw.ElapsedMilliseconds with t when t <= 0L -> 0 | t -> int t
 
     // NOTE asking the question is destructive - the timer is reset as a side effect
-    member x.IfExpiredRestart() =
-        if x.HasExpired then x.Restart(); true
+    member x.IfDueRestart() =
+        if x.IsDue then x.Restart(); true
         else false
 
 module Channel =
@@ -70,6 +72,7 @@ type Sem(max) =
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = struct(max - inner.CurrentCount, max)
     member _.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
+    member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
     member x.AwaitButRelease() = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
         inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     member _.Release() = inner.Release() |> ignore
@@ -95,6 +98,20 @@ module ValueTuple =
     let inline fst struct (f, _s) = f
     let inline snd struct (_f, s) = s
     let inline ofKvp (x : System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
+
+module ValueOption =
+
+    let inline ofOption x = match x with Some x -> ValueSome x | None -> ValueNone
+    let inline toOption x = match x with ValueSome x -> Some x | ValueNone -> None
+
+module Seq =
+
+    let tryPickV f xs = Seq.tryPick (f >> ValueOption.toOption) xs |> ValueOption.ofOption
+    let inline chooseV f = Seq.choose (f >> ValueOption.toOption)
+
+module Array =
+
+    let inline chooseV f = Array.choose (f >> ValueOption.toOption)
 
 module Stats =
 

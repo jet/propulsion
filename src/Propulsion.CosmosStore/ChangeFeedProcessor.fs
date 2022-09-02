@@ -23,7 +23,7 @@ type IChangeFeedObserver =
 #if COSMOSV2 || COSMOSV3
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 #else
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Async<unit>
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Task<unit>
 #endif
 
 type internal SourcePipeline =
@@ -122,7 +122,11 @@ type ChangeFeedProcessor =
 #endif
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
+#if COSMOSV2 || COSMOSV3
                         return! observer.Ingest(ctx, checkpoint, changes)
+#else
+                        return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTask
+#endif
                     with e ->
                         log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }

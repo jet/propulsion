@@ -19,9 +19,9 @@ open System.Threading
 module private StreamSpan =
 
 #if EVENTSTORE_LEGACY
-    let private nativeToDefault_ = FsCodec.Core.TimelineEvent.Map (fun (xs : byte array) -> ReadOnlyMemory xs)
+    let private nativeToDefault_ x = FsCodec.Core.TimelineEvent.Map<ReadOnlyMemory<byte>> (fun (xs : byte array) -> ReadOnlyMemory xs) x
     let inline nativeToDefault span = Array.map nativeToDefault_ span
-    let defaultToNative_ = FsCodec.Core.TimelineEvent.Map (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
+    let defaultToNative_ = FsCodec.Core.TimelineEvent.Map<byte array> (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
     let inline defaultToNative span = Array.map defaultToNative_ span
 #else
     let nativeToDefault = id

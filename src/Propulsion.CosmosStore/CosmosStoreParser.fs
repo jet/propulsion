@@ -39,7 +39,7 @@ module EquinoxSystemTextJsonParser =
         match tryProp "p" with
         | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String && hasProp "i" && hasProp "n" && hasProp "e" ->
              let streamName = je.GetString() |> FsCodec.StreamName.parse // we expect all Equinox data to adhere to "{category}-{aggregateId}" form (or we'll throw)
-             if streamFilter streamName then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
+             if streamFilter (FsCodec.StreamName.splitCategoryAndStreamId streamName) then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
         | _ -> ValueNone
 
     /// Enumerates the events represented within a batch

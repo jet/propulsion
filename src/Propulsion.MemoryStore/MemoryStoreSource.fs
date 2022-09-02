@@ -14,28 +14,29 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
     let monitor = lazy MemoryStoreMonitor(log, positions, sink)
+    let debug, verbose = log.IsEnabled Serilog.Events.LogEventLevel.Debug, log.IsEnabled Serilog.Events.LogEventLevel.Verbose
     // epoch index of most recently prepared submission - conceptually events arrive concurrently though V4 impl makes them serial
     let mutable prepared = -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<_> seq>> in let r, w = c.Reader, c.Writer
-        Channel.write w, Channel.awaitRead r, r.TryRead
+        Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
-    let handleStoreCommitted (stream, events : FsCodec.ITimelineEvent<_> []) =
+    let handleStoreCommitted struct (categoryName, aggregateId, events : FsCodec.ITimelineEvent<_> []) =
         let epoch = Interlocked.Increment &prepared
         positions.Prepared <- epoch
-        MemoryStoreLogger.renderSubmit log (epoch, stream, events)
+        if debug then MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, events)
         // Completion notifications are guaranteed to be delivered deterministically, in order of submission
         let markCompleted () =
-            MemoryStoreLogger.renderCompleted log (epoch, stream)
+            if verbose then MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
             positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
-        enqueueSubmission { epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> stream, e); onCompletion = markCompleted }
+        enqueueSubmission { epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> FsCodec.StreamName.create categoryName aggregateId, e); onCompletion = markCompleted }
 
     let storeCommitsSubscription =
-        let mapBody (s, e) = s, e |> Array.map mapTimelineEvent
+        let mapBody struct (categoryName, streamId, es) = struct (categoryName, streamId, es |> Array.map mapTimelineEvent)
         store.Committed
-        |> Observable.filter (fst >> streamFilter)
+        |> Observable.filter (fun struct (categoryName, streamId, _es) -> streamFilter struct (categoryName, streamId))
         |> Observable.subscribe (mapBody >> handleStoreCommitted)
 
     member private _.Pump(ct : CancellationToken) = task {
@@ -43,8 +44,8 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
             let mutable more = true
             while more do
                 match tryDequeueSubmission () with
-                | false, _ -> more <- false
-                | true, batch -> do! ingester.Ingest(batch) |> Async.Ignore
+                | ValueNone -> more <- false
+                | ValueSome batch -> do! ingester.Ingest batch :> Task
             do! awaitSubmissions ct :> Task }
 
     member x.Start() =
@@ -72,8 +73,11 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
 /// Intercepts receipt and completion of batches, recording the read and completion positions
 and internal TranchePositions() =
 
+    let mutable completed = -1L
+    member val CompletedMonitor = obj ()
     member val Prepared : int64 = -1L with get, set
-    member val Completed : int64 = -1L with get, set
+    member x.Completed with get () = completed
+                       and set value = lock x.CompletedMonitor (fun () -> completed <- value; Monitor.Pulse x.CompletedMonitor)
 
 and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink) =
 
@@ -94,10 +98,8 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
         | -1L -> log.Information "FeedMonitor Wait No events submitted; completing immediately"
         | epoch when epoch = positions.Completed -> log.Information("FeedMonitor Wait No processing pending. Completed Epoch {epoch}", positions.Completed)
         | startingEpoch ->
-            let includeSubsequent = ignoreSubsequent <> Some true
-            let delayMs =
-                let delay = defaultArg delay (TimeSpan.FromMilliseconds 1.)
-                int delay.TotalMilliseconds
+            let includeSubsequent = defaultArg ignoreSubsequent false
+            let timeoutMs = match delay with None -> 1 | Some ts -> TimeSpan.toMs ts
             let logInterval = IntervalTimer(defaultArg logInterval (TimeSpan.FromSeconds 10.))
             let logStatus () =
                 let completed = match positions.Completed with -1L -> Nullable() | x -> Nullable x
@@ -110,8 +112,8 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
                 positions.Prepared = currentCompleted // All submitted work (including follow-on work), completed
                 || (currentCompleted >= startingEpoch && not includeSubsequent) // At or beyond starting point
             while not (isComplete ()) && not sink.IsCompleted do
-                if logInterval.IfExpiredRestart() then logStatus ()
-                do! Async.Sleep delayMs // TODO this should really be driven by a condition variable / event flipped when `Volatile.Write completed` happens
+                if logInterval.IfDueRestart() then logStatus ()
+                lock positions.CompletedMonitor <| fun () -> Monitor.Wait(positions.CompletedMonitor, timeoutMs) |> ignore
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown() }

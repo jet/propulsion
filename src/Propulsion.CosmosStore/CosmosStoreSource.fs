@@ -9,6 +9,7 @@ namespace Propulsion.CosmosStore
 open Microsoft.Azure.Cosmos
 #endif
 
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Serilog
 open System
@@ -52,11 +53,11 @@ type CosmosSource =
         let init rangeLog partitionId = rangeIngester <- startIngester (rangeLog, partitionId)
         let dispose () = rangeIngester.Stop()
         let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
+        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs[docs.Count-1].Timestamp
             let pt = Stopwatch.start()
-            let! cur, max = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore }
+            let! struct (cur, max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore }
             let readS, postS, rc = sw.ElapsedSeconds, pt.ElapsedSeconds, ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
@@ -77,7 +78,7 @@ type CosmosStoreSource =
             mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = async {
+        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
             let pt = Stopwatch.start ()
@@ -92,7 +93,11 @@ type CosmosStoreSource =
         }
 
         { new IChangeFeedObserver with
+#if COSMOSV3
+            member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs |> Async.AwaitTaskCorrect
+#else
             member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
+#endif
           interface IDisposable with
             member _.Dispose() = trancheIngester.Stop() }
 

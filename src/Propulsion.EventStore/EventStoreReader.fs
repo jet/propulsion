@@ -32,7 +32,7 @@ type OverallStats(?statsInterval) =
 
     member _.DumpIfIntervalExpired(?force) =
         if defaultArg force false then interval.Trigger()
-        if interval.IfExpiredRestart() && totalEvents <> 0L then
+        if interval.IfDueRestart() && totalEvents <> 0L then
             let totalMb = Log.miB totalBytes
             Log.Information("Reader Throughput {events} events {gb:n1}GB {mb:n2}MB/s",
                 totalEvents, totalMb / 1024., totalMb * 1000. / float overallStart.ElapsedMilliseconds)
@@ -57,7 +57,7 @@ type SliceStatsBuffer(?interval) =
 
     member _.DumpIfIntervalExpired(?force) =
         if defaultArg force false then interval.Trigger()
-        if interval.IfExpiredRestart() then
+        if interval.IfDueRestart() then
             lock recentCats <| fun () ->
                 let log kind limit xs =
                     let cats =
@@ -154,9 +154,9 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
         let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
         streams.Clear(); cats.Clear()
-        for struct (stream, _) in events do
-            if streams.Add stream then
-                cats.Add (StreamName.categorize stream) |> ignore
+        for struct (sn, _) in events do
+            if streams.Add sn then
+                cats.Add (StreamName.categorize sn) |> ignore
         let! cur, max = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
                         range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), Log.miB batchBytes,
@@ -263,7 +263,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
             let slicesStats, stats = SliceStatsBuffer(), OverallStats()
             let progressInterval = IntervalTimer statsInterval
             while true do
-                if progressInterval.IfExpiredRestart() then
+                if progressInterval.IfDueRestart() then
                     let currentPos = range.Current
                     Log.Information("Tailed {count} times @ {pos} (chunk {chunk})",
                         count, currentPos.CommitPosition, chunk currentPos)

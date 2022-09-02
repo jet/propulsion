@@ -103,7 +103,7 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch : Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Async<struct (int * int)>,
+        submitBatch : Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Task<struct (int * int)>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -127,7 +127,7 @@ type FeedReader
             match logCommitFailure with None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position) | Some l -> l e
             return! Async.Raise e }
 
-    let submitPage (readLatency, batch : Batch<_>) = async {
+    let submitPage (readLatency, batch : Batch<_>) = task {
         stats.RecordBatch(readLatency, batch)
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
@@ -137,7 +137,7 @@ type FeedReader
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
         let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq = int64 batch.checkpoint, Seq.ofArray batch.items
         let ingestTimer = Stopwatch.start ()
-        let! cur, max = submitBatch { epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
+        let! struct (cur, max) = submitBatch { epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }
 
     member _.Pump(initialPosition : Position) = async {
@@ -149,6 +149,6 @@ type FeedReader
         let mutable currentPos, lastWasTail = initialPosition, false
         while not ct.IsCancellationRequested do
             for readLatency, batch in crawl (lastWasTail, currentPos) do
-                do! submitPage (readLatency, batch)
+                do! submitPage (readLatency, batch) |> Async.AwaitTaskCorrect
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail }

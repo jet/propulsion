@@ -8,7 +8,7 @@ and [<Measure>] checkpointSeriesId
 module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag groupName
 
 let [<Literal>] Category = "Sync"
-let streamName (id : CheckpointSeriesId) = FsCodec.StreamName.create Category %id
+let streamName (id : CheckpointSeriesId) = struct (Category, %id)
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
@@ -113,16 +113,14 @@ type Service internal (resolve : CheckpointSeriesId -> Equinox.Decider<Events.Ev
         let stream = resolve series
         stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
 
-let create log resolve =
-    let resolve id = Equinox.Decider(log, resolve (streamName id), maxAttempts = 3)
-    Service resolve
+let create resolve = Service(streamName >> resolve)
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
 type CheckpointSeries(groupName, resolve, ?log) =
     let seriesId = CheckpointSeriesId.ofGroupName groupName
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
-    let inner = create log resolve
+    let inner = create (resolve log ())
 
     member _.Read = inner.Read seriesId
     member _.Start(freq, pos) = inner.Start(seriesId, freq, pos)

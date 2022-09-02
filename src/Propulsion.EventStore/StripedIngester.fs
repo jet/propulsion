@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.EventStore
 
+open Propulsion.Infrastructure
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
@@ -29,7 +30,7 @@ module StripedIngesterImpl =
             | ActivateSeries _ | CloseSeries _ -> ()
         member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
             cycles <- cycles + 1
-            if interval.IfExpiredRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
+            if interval.IfDueRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
         | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
@@ -123,7 +124,7 @@ type StripedIngester
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
                 | false, _ -> itemLimit <- 0
             while pending.Count <> 0 do
-                let! _, _ = inner.Ingest(pending.Dequeue()) in ()
+                do! inner.Ingest(pending.Dequeue()) |> Async.AwaitTaskCorrect |> Async.Ignore
             stats.TryDump(activeSeries, readingAhead, ready, maxInFlightBatches.State)
             do! Async.Sleep pumpIntervalMs }
 

@@ -165,7 +165,7 @@ module Internal =
             Scheduling.StreamSchedulingEngine(
                 dispatcher,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                enableSlipstreaming = true, prioritizeStreamsBy = Default.eventDataSize)
+                enableSlipstreaming = true, prioritizeStreamsBy = Default.eventSize)
 
 type CosmosSink =
 

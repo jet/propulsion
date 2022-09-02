@@ -61,7 +61,7 @@ type KafkaIngestionEngine<'Info>
         intervalMsgs <- 0L; intervalChars <- 0L
     let maybeLogStats =
         let interval = IntervalTimer statsInterval
-        fun () -> if interval.IfExpiredRestart() then dumpStats ()
+        fun () -> if interval.IfDueRestart() then dumpStats ()
     let mkSubmission topicPartition span : Submission.Batch<'S, 'M> =
         let checkpoint () =
             counter.Delta(-span.reservation) // counterbalance Delta(+) per ingest, below
@@ -101,7 +101,7 @@ type KafkaIngestionEngine<'Info>
                         submit()
                         maybeLogStats()
                     counter.AwaitThreshold(ct, consumer, busyWork)
-                elif ingestionWindow.IfExpiredRestart() then
+                elif ingestionWindow.IfDueRestart() then
                     submit ()
                     maybeLogStats ()
                 else

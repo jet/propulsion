@@ -22,7 +22,7 @@ module Retry =
         while not finished do
             try do! computation
                 finished <- true
-            with e when not timeout.HasExpired ->
+            with e when not timeout.IsDue ->
                 exceptions.Add e
                 do! Async.Sleep(TimeSpan.toMs backoff)
         return exceptions.ToArray() }

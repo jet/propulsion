@@ -199,7 +199,7 @@ type CosmosStoreSink =
             Internal.StreamSchedulingEngine.Create(
                 log, eventsContext, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?maxEvents = maxEvents, ?maxBytes = maxBytes, prioritizeStreamsBy = Default.eventDataSize)
+                ?maxEvents = maxEvents, ?maxBytes = maxBytes, prioritizeStreamsBy = Default.eventSize)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
             ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,

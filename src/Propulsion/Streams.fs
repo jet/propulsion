@@ -104,41 +104,43 @@ module StreamSpan =
         let trimmed = span |> Array.takeWhile withinLimits
         metrics eventSize trimmed, trimmed
 
-    let (|Ver|) (span : StreamSpan<'F>) = span[0].Index + span.LongLength
+    let inline idx (span : StreamSpan<'F>) = span[0].Index
+    let inline ver (span : StreamSpan<'F>) = idx span + span.LongLength
     let dropBeforeIndex min : FsCodec.ITimelineEvent<_> array -> FsCodec.ITimelineEvent<_> array = function
         | xs when xs.Length = 0 -> null
-        | xs when xs[0].Index >= min -> xs // don't adjust if min not within
-        | xs when (|Ver|) xs <= min -> null // throw away if before min
-        | xs -> xs |> Array.skip (min - xs[0].Index |> int) // slice
+        | xs when idx xs >= min -> xs // don't adjust if min not within
+        | v when ver v <= min -> null // throw away if before min
+        | xs -> xs |> Array.skip (min - idx xs |> int) // slice
 
-    let merge min (spans : FsCodec.ITimelineEvent<_> array seq) =
-        let candidates = ResizeArray()
-        for span in spans do
-            let trimmed = if span = null then null else dropBeforeIndex min span
-            if trimmed <> null then
-                if trimmed.Length = 0 then invalidOp "Cant add empty"
-                candidates.Add trimmed
-        let mutable buffer = null
-        let mutable curr = ValueNone
-        for x in candidates |> Seq.sortBy (fun x -> x[0].Index) do
-            match curr with
-            // Not overlapping, no data buffered -> buffer
-            | ValueNone ->
-                curr <- ValueSome x
-            // Gap
-            | ValueSome (Ver nextIndex as c) when x[0].Index > nextIndex ->
-                if buffer = null then buffer <- ResizeArray()
-                buffer.Add c
-                curr <- ValueSome x
-            // Overlapping, join
-            | ValueSome (Ver nextIndex as c) when (|Ver|) x > nextIndex ->
-                curr <- ValueSome (Array.append c (dropBeforeIndex nextIndex x))
-            | _ -> () // drop
-        match curr, buffer with
-        | ValueSome x, null -> Array.singleton x
-        | ValueSome x, b -> b.Add x; b.ToArray()
-        | ValueNone, null -> null
-        | ValueNone, b -> b.ToArray()
+    let merge min (spans : FsCodec.ITimelineEvent<_> array array) =
+        let candidates = [|
+            for span in spans do
+                if span <> null then
+                    match dropBeforeIndex min span with
+                    | null -> ()
+                    | trimmed when trimmed.Length = 0 -> invalidOp "Cant add empty"
+                    | trimmed -> trimmed |]
+        if candidates.Length = 0 then null
+        elif candidates.Length = 1 then candidates
+        else
+            candidates |> Array.sortInPlaceBy idx
+
+            // no data buffered -> buffer first item
+            let mutable curr = candidates[0]
+            let mutable buffer = null
+            for i in 1 .. candidates.Length - 1 do
+                let x = candidates[i]
+                let index = idx x
+                let currNext = ver curr
+                if index > currNext then // Gap
+                    if buffer = null then buffer <- ResizeArray(candidates.Length)
+                    buffer.Add curr
+                    curr <- x
+                // Overlapping, join
+                elif index + x.LongLength > currNext then
+                    curr <- Array.append curr (dropBeforeIndex currNext x)
+            if buffer = null then Array.singleton curr
+            else buffer.Add curr; buffer.ToArray()
 
 /// A Single Event from an Ordered stream being supplied for ingestion into the internal data structures
 type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
@@ -174,7 +176,7 @@ module Buffer =
             let any1 = not (isNull s1.queue)
             let any2 = not (isNull s2.queue)
             if any1 || any2 then
-                let items = if any1 && any2 then Seq.append s1.queue s2.queue elif any1 then s1.queue else s2.queue
+                let items = if any1 && any2 then Array.append s1.queue s2.queue elif any1 then s1.queue else s2.queue
                 StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultValueArg writePos 0L) items, malformed)
             else StreamState<'Format>.Create(writePos, null, malformed)
 
@@ -250,7 +252,7 @@ module Dispatch =
         let dop = Sem maxDop
 
         // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
-        let wrap struct (computation : CancellationToken -> Task<'R>, ct) = task {
+        let runHandler struct (computation : CancellationToken -> Task<'R>, ct) = task {
             let! res = computation ct
             dop.Release()
             result.Trigger res }
@@ -265,7 +267,7 @@ module Dispatch =
             while not ct.IsCancellationRequested do
                 try do! wait ct :> Task
                 with :? OperationCanceledException -> ()
-                let run (f : CancellationToken -> Task<'R>) = Task.start (fun () -> wrap (f, ct))
+                let run (f : CancellationToken -> Task<'R>) = Task.start (fun () -> runHandler (f, ct))
                 apply run }
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
@@ -430,7 +432,7 @@ module Scheduling =
         /// Result of processing on stream - result (with basic stats) or the `exn` encountered
         | Result of duration : TimeSpan * stream : FsCodec.StreamName * progressed : bool * result : 'R
 
-    type [<Struct>] BufferState = Idle | Active | Full | Slipstreaming
+    type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full | Slipstreaming
 
     module StopwatchTicks =
 
@@ -565,12 +567,12 @@ module Scheduling =
 
         member x.RecordStats() =
             cycles <- cycles + 1
-            x.StatsInterval.IfExpiredRestart()
+            x.StatsInterval.IsDue
 
         member x.RecordState(state) =
             fullCycles <- fullCycles + 1
             stateStats.Ingest(state)
-            x.StateInterval.IfExpiredRestart()
+            x.StateInterval.IfDueRestart()
 
         /// Allows an ingester or projector to wire in custom stats (typically based on data gathered in a `Handle` override)
         abstract DumpStats : unit -> unit
@@ -602,7 +604,7 @@ module Scheduling =
                 let m = Log.Metric.HandlerResult (outcomeKind, duration.TotalSeconds)
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
                                                              outcomeKind, duration.TotalMilliseconds, progressed)
-                if monitorInterval.IfExpiredRestart() then monitor.EmitMetrics metricsLog
+                if monitorInterval.IfDueRestart() then monitor.EmitMetrics metricsLog
 
         member _.HandleStarted(stream, stopwatchTicks) =
             monitor.HandleStarted(stream, stopwatchTicks)
@@ -656,6 +658,7 @@ module Scheduling =
                 override _.RecordStats pendingCount =
                     if stats.RecordStats() then
                         stats.Serialize(fun () -> stats.DumpStats(inner.State, pendingCount))
+                        stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
                 override _.RecordState(dispatcherState, streams, totalPurged) =
                     if stats.RecordState(dispatcherState) then
                         let log = stats.Log
@@ -705,7 +708,8 @@ module Scheduling =
                 override _.RecordResultStats msg = stats.Handle msg
                 override _.RecordStats pendingCount =
                     if stats.RecordStats() then
-                        stats.DumpStats(dop.State, pendingCount)
+                        stats.Serialize(fun () -> stats.DumpStats(dop.State, pendingCount))
+                        stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
                 override _.RecordState(dispatcherState, streams, totalPurged) =
                     if stats.RecordState(dispatcherState) then
                         let log = stats.Log
@@ -766,7 +770,7 @@ module Scheduling =
     (* These would otherwise be individually allocated FSharpRef cells allocated for every cycle; see https://github.com/fsharp/fslang-suggestions/issues/732 we do this... *)
     type [<Struct; NoComparison; NoEquality>] private State =
         { mutable idle : bool; mutable dispatcherState : BufferState; mutable remaining : int; mutable waitForCapacity : bool; mutable waitForPending : bool }
-        member x.IsSlipStreaming = x.dispatcherState = Slipstreaming
+        member x.IsSlipStreaming = match x.dispatcherState with Slipstreaming -> true | _ -> false
 
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
@@ -795,7 +799,7 @@ module Scheduling =
             ?enableSlipstreaming) =
         let purgeDue =
             match purgeInterval with
-            | Some ts -> IntervalTimer(ts).IfExpiredRestart
+            | Some ts -> IntervalTimer(ts).IfDueRestart
             | None -> fun () -> false
         let sleepIntervalMs = match idleDelay with Some ts -> TimeSpan.toMs ts | None -> 1000
         let wakeForResults = defaultArg wakeForResults false
@@ -968,8 +972,8 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             badCats.Clear()
 
     override this.Handle message =
-        let inline addStream x (set : HashSet<_>) = set.Add x |> ignore
-        let inline addBadStream x (set : HashSet<_>) = badCats.Ingest(StreamName.categorize x); addStream x set
+        let inline addStream sn (set : HashSet<_>) = set.Add sn |> ignore
+        let inline addBadStream sn (set : HashSet<_>) = badCats.Ingest(StreamName.categorize sn); addStream sn set
         base.Handle message
         match message with
         | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
@@ -1254,11 +1258,8 @@ module Default =
     type StreamSpan = StreamSpan<EventBody>
     /// A Single Event from an Ordered stream, using the Canonical Data/Meta type
     type StreamEvent = StreamEvent<EventBody>
-    let inline private eventBodyBytes (x : EventBody) = x.Length
-    let inline private stringBytes (x : string) = match x with null -> 0 | x -> x.Length * sizeof<char>
-    let eventDataSize (x : FsCodec.IEventData<EventBody>) = eventBodyBytes x.Data + stringBytes x.EventType + 16
-    let eventSize (x : FsCodec.IEventData<EventBody>) = eventDataSize x + eventBodyBytes x.Meta
-    let jsonSize (x : FsCodec.IEventData<EventBody>) = eventSize x + 80
+    let eventSize (x : FsCodec.ITimelineEvent<EventBody>) = x.Size
+    let jsonSize (x : FsCodec.ITimelineEvent<EventBody>) = eventSize x + 80
 
     type Sink = Sink<Ingestion.Ingester<StreamEvent seq>>
 

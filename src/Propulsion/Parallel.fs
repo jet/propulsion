@@ -112,7 +112,7 @@ module Scheduling =
             let timer = IntervalTimer statsInterval
             fun () ->
                 cycles <- cycles + 1
-                if timer.IfExpiredRestart() then dumpStats (); true else false
+                if timer.IfDueRestart() then dumpStats (); true else false
 
         /// Inspects the oldest in-flight batch per partition to determine if it's reached a terminal state; if it has, remove and trigger completion callback
         let drainCompleted abend =
