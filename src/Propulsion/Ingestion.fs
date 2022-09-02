@@ -1,6 +1,6 @@
 ﻿module Propulsion.Ingestion
 
-open Propulsion.Internal // Helpers
+open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
@@ -20,8 +20,8 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
             try do! Async.StartAsTask(f, cancellationToken = ct)
                 Volatile.Write(&committedEpoch, Some v)
-                result.Trigger (Choice1Of2 v)
-            with e -> result.Trigger (Choice2Of2 e)
+                result.Trigger(Choice1Of2 v)
+            with e -> result.Trigger(Choice2Of2 e)
         | _ -> () }
 
     [<CLIEvent>] member _.Result = result.Publish
@@ -31,8 +31,8 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
 
     member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
-    member _.Pump ct = task {
-        while true do
+    member _.Pump(ct : CancellationToken) = task {
+        while not ct.IsCancellationRequested do
             do! commitIfDirty ct
             do! Task.Delay(commitInterval, ct) }
 
@@ -125,19 +125,19 @@ type Ingester<'Items> private
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
         let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts)
-        let pump () = task {
+        let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("Exiting {name}", "ingester") }
-        Task.start pump
+        Task.start startPump
         instance
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
     /// Returns (reads in flight, maximum reads in flight)
-    member _.Ingest(batch : Batch<'Items>) = async {
+    member _.Ingest(batch : Batch<'Items>) = task {
         // It's been read... feed it into the queue for unpacking
         enqueueIncoming batch
         // ... but we might hold off on yielding if we're at capacity
-        do! maxRead.Await(cts.Token)
+        do! maxRead.Wait(cts.Token)
         return maxRead.State }
 
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it

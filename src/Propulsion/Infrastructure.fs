@@ -1,12 +1,6 @@
 [<AutoOpen>]
 module internal Propulsion.Infrastructure
 
-module ValueTuple =
-
-    let inline fst struct (f, _s) = f
-    let inline snd struct (_f, s) = s
-
-open System
 open System.Threading.Tasks
 
 // http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect
@@ -50,8 +44,6 @@ type Async with
                 else
                     sc ())
             |> ignore)
-
-    static member Sleep(t : TimeSpan) : Async<unit> = Async.Sleep(int t.TotalMilliseconds)
 
     /// Re-raise an exception so that the current stacktrace is preserved
     static member Raise(e : #exn) : Async<'T> = Async.FromContinuations (fun (_,ec,_) -> ec e)

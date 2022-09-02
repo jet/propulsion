@@ -1,8 +1,7 @@
 ﻿namespace Propulsion.Parallel
 
 open Propulsion
-open Propulsion.Submission.Helpers
-open Propulsion.Internal // Helpers
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Concurrent
@@ -32,8 +31,8 @@ module Scheduling =
             dop.TryTake() && tryWrite computation
 
         /// Loop that continuously drains the work queue
-        member _.Pump ct = task {
-            while true do
+        member _.Pump(ct : CancellationToken) = task {
+            while not ct.IsCancellationRequested do
                 do! wait ct :> Task
                 apply (wrap >> Async.Start) |> ignore }
 
@@ -51,24 +50,22 @@ module Scheduling =
             mutable faults : ConcurrentStack<exn> // exceptions, order is not relevant and use is infrequent hence ConcurrentStack
             batch: Batch<'S, 'M> }
 
-        member private __.RecordOk(duration : TimeSpan) =
+        member private x.RecordOk(duration : TimeSpan) =
             // need to record stats first as remaining = 0 is used as completion gate
-            Interlocked.Add(&__.elapsedMs, int64 duration.TotalMilliseconds + 1L) |> ignore
-            Interlocked.Decrement(&__.remaining) |> ignore
-        member private __.RecordExn(_duration, exn) =
-            __.faults.Push exn
+            Interlocked.Add(&x.elapsedMs, int64 duration.TotalMilliseconds + 1L) |> ignore
+            Interlocked.Decrement(&x.remaining) |> ignore
+        member private x.RecordExn(_duration, exn) =
+            x.faults.Push exn
 
         /// Prepares an initial set of shared state for a batch of tasks, together with the Async<unit> computations that will feed their results into it
         static member Create(batch : Batch<'S, 'M>, handle) : WipBatch<'S, 'M> * seq<Async<unit>> =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> async {
-                    let sw = System.Diagnostics.Stopwatch.StartNew()
-                    try let! res = handle item
-                        let elapsed = sw.Elapsed
-                        match res with
-                        | Choice1Of2 () -> x.RecordOk elapsed
-                        | Choice2Of2 exn -> x.RecordExn(elapsed, exn)
+                    let sw = Stopwatch.start ()
+                    try match! handle item with
+                        | Choice1Of2 () -> x.RecordOk sw.Elapsed
+                        | Choice2Of2 exn -> x.RecordExn(sw.Elapsed, exn)
                     // This exception guard _should_ technically not be necessary per the interface contract, but cannot risk an orphaned batch
                     with exn -> x.RecordExn(sw.Elapsed, exn) } }
 
@@ -91,11 +88,13 @@ module Scheduling =
         let active = Dictionary<'S(*partitionId*),Queue<WipBatch<'S, 'M>>>()
         (* accumulators for periodically emitted statistics info *)
         let mutable cycles, processingDuration = 0, TimeSpan.Zero
-        let startedBatches, completedBatches, startedItems, completedItems = PartitionStats(), PartitionStats(), PartitionStats(), PartitionStats()
+        let startedBatches, completedBatches = Submission.PartitionStats(), Submission.PartitionStats()
+        let startedItems, completedItems = Submission.PartitionStats(), Submission.PartitionStats()
 
         let dumpStats () =
             let startedB, completedB = Array.ofSeq startedBatches.StatsDescending, Array.ofSeq completedBatches.StatsDescending
             let startedI, completedI = Array.ofSeq startedItems.StatsDescending, Array.ofSeq completedItems.StatsDescending
+            let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
             let totalItemsCompleted = statsTotal completedI
             let latencyMs = match totalItemsCompleted with 0L -> null | cnt -> box (processingDuration.TotalMilliseconds / float cnt)
             log.Information("Scheduler {cycles} cycles Started {startedBatches}b {startedItems}i Completed {completedBatches}b {completedItems}i latency {completedLatency:f1}ms Ready {readyitems} Waiting {waitingBatches}b",
@@ -168,13 +167,13 @@ module Scheduling =
             worked
 
         /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controller can use to shut down the processing
-        member _.Pump abend (ct : CancellationToken) = task {
+        member _.Pump(abend, ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 let hadResults = drainCompleted abend
                 let queuedWork = reprovisionDispatcher ()
                 let loggedStats = maybeLogStats ()
                 if not hadResults && not queuedWork && not loggedStats then
-                    Thread.Sleep 1 } // not Async.Sleep, we like this context and/or cache state if nobody else needs it
+                    do! Task.Delay(1, ct) }
 
         /// Feeds a batch of work into the queue; the caller is expected to ensure submissions are timely to avoid starvation, but throttled to ensure fair ordering
         member _.Submit(batches : Batch<'S, 'M>) =
@@ -215,4 +214,4 @@ type ParallelSink =
 
         let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-        Sink.Start(log, dispatcher.Pump, scheduler.Pump, submitter.Pump, startIngester)
+        Sink.Start(log, dispatcher.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), submitter.Pump, startIngester)

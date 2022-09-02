@@ -50,8 +50,6 @@ module internal Config =
 
     open Equinox.DynamoStore
 
-    let createDecider log stream = Equinox.Decider(log, stream, maxAttempts = 3)
-
     let private create codec initial fold accessStrategy (context, cache) =
         let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
         DynamoStoreCategory(context, codec, fold, initial, cs, accessStrategy)
@@ -82,7 +80,7 @@ module internal EventCodec =
         let down (_ : 'e) = failwith "Unexpected"
         FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Deflate.EncodeTryDeflate
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<struct (int64 * 'c), _, _> =
-        let up (raw : FsCodec.ITimelineEvent<_>, e) = struct (raw.Index, e)
+        let up struct (raw : FsCodec.ITimelineEvent<_>, e) = struct (raw.Index, e)
         withUpconverter<'c, struct (int64 * 'c)> up
 
 module internal Async =

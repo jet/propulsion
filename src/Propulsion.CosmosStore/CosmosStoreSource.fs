@@ -1,7 +1,6 @@
 ﻿#if COSMOSV2
 namespace Propulsion.Cosmos
 
-open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
 open Propulsion.Cosmos.Infrastructure // AwaitKeyboardInterrupt
 #else
@@ -10,12 +9,11 @@ namespace Propulsion.CosmosStore
 open Microsoft.Azure.Cosmos
 #endif
 
-open Equinox.Core // Stopwatch.Time
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
-open System.Diagnostics
 
 module Log =
 
@@ -38,17 +36,11 @@ module Log =
 #else
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
 #endif
-    let internal metric (value : Metric) (log : ILogger) =
-        let enrich (e : Serilog.Events.LogEvent) =
-            e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(PropertyTag, Serilog.Events.ScalarValue(value)))
-        log.ForContext({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = enrich evt })
-    let internal (|SerilogScalar|_|) : Serilog.Events.LogEventPropertyValue -> obj option = function
-        | :? Serilog.Events.ScalarValue as x -> Some x.Value
-        | _ -> None
-    let (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric option =
-        match logEvent.Properties.TryGetValue PropertyTag with
-        | true, SerilogScalar (:? Metric as e) -> Some e
-        | _ -> None
+    let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
+    let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
+        let mutable p = Unchecked.defaultof<_>
+        logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
+        match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
 #if COSMOSV2
 type CosmosSource =
@@ -60,18 +52,19 @@ type CosmosSource =
         let mutable rangeIngester = Unchecked.defaultof<_>
         let init rangeLog partitionId = rangeIngester <- startIngester (rangeLog, partitionId)
         let dispose () = rangeIngester.Stop()
-        let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = async {
+        let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
+        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
-            let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs.[docs.Count-1].Timestamp
-            let! pt, (cur,max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore } |> Stopwatch.Time
-            let readS, postS, rc = sw.ElapsedSeconds, (let e = pt.Elapsed in e.TotalSeconds), ctx.FeedResponse.RequestCharge
+            let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs[docs.Count-1].Timestamp
+            let pt = Stopwatch.start()
+            let! struct (cur, max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore }
+            let readS, postS, rc = sw.ElapsedSeconds, pt.ElapsedSeconds, ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
                 token = epoch; latency = sw.Elapsed; rc = rc; age = age; docs = docs.Count
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
-            (log |> Log.metric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
-                ctx.PartitionKeyRangeId, epoch, age, docs.Count, rc, readS, postS, cur, max)
+            (log |> Log.withMetric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
+                                                  ctx.PartitionKeyRangeId, epoch, age, docs.Count, rc, readS, postS, cur, max)
             sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
         }
         ChangeFeedObserver.Create(log, ingest, init=init, dispose=dispose)
@@ -84,23 +77,27 @@ type CosmosStoreSource =
             trancheIngester : Propulsion.Ingestion.Ingester<'Items>,
             mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
-        let sw = Stopwatch.StartNew() // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = async {
+        let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
+        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
-            let! pt, struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore } |> Stopwatch.Time
-            let postElapsed = pt.Elapsed
+            let pt = Stopwatch.start ()
+            let! struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore }
             let m = Log.Metric.Read {
                 database = ctx.source.Database.Id; container = ctx.source.Id; group = ctx.group; rangeId = int ctx.rangeId
                 token = ctx.epoch; latency = readElapsed; rc = ctx.requestCharge; age = age; docs = docs.Count
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
-            (log |> Log.metric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
-                ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, postElapsed.TotalSeconds, cur, max)
+            (log |> Log.withMetric m).Information("Reader {partitionId} {token,9} age {age:dd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
+                                                  ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, pt.ElapsedMilliseconds, cur, max)
             sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
         }
 
         { new IChangeFeedObserver with
+#if COSMOSV3
+            member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs |> Async.AwaitTaskCorrect
+#else
             member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
+#endif
           interface IDisposable with
             member _.Dispose() = trancheIngester.Stop() }
 
@@ -145,9 +142,9 @@ type CosmosStoreSource =
                 count <- count + 1
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
             let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
-            (log |> Log.metric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-                processorName, count, total, lagged, synced)
-            return! Async.Sleep interval }
+            (log |> Log.withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
+                                                  processorName, count, total, lagged, synced)
+            return! Async.Sleep(TimeSpan.toMs interval) }
         let maybeLogLag = lagReportFreq |> Option.map logLag
 #if COSMOSV2
         let! _feedEventHost =

@@ -2,6 +2,7 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
+open Propulsion.Internal
 open System.Collections.Concurrent
 
 module private Impl =
@@ -69,7 +70,7 @@ module private Impl =
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
         : AsyncSeq<struct (System.TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
-        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let sw = Stopwatch.start ()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
         let totalChanges = state.changes.Length
         sw.Stop()
@@ -79,11 +80,11 @@ module private Impl =
             let mutable chosenEvents = 0
             let chooseStream (span : AppendsEpoch.Events.StreamSpan) =
                 match maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) with
-                | Some f ->
+                | ValueSome f ->
                     chosenEvents <- chosenEvents + span.c.Length
-                    Some (span.p, f)
-                | None -> None
-            let streamEvents = all |> Seq.choose chooseStream |> dict
+                    ValueSome (span.p, f)
+                | ValueNone -> ValueNone
+            let streamEvents = all |> Seq.chooseV chooseStream |> dict
             all.Length, chosenEvents, totalEvents, streamEvents
         let largeEnough = streamEvents.Count > batchCutoff
         if largeEnough then
@@ -141,8 +142,8 @@ module private Impl =
 [<NoComparison; NoEquality>]
 type LoadMode =
     | All
-    | Filtered of filter : (FsCodec.StreamName -> bool)
-    | Hydrated of filter : (FsCodec.StreamName -> bool)
+    | Filtered of filter : (struct (string * string) -> bool)
+    | Hydrated of filter : (struct (string * string) -> bool)
                   * degreeOfParallelism : int
                   * /// Defines the Context to use when loading the bodies
                     storeContext : DynamoStoreContext
@@ -150,13 +151,14 @@ module internal LoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
         fun sn (i, cs : string array) ->
-            if filter sn then Some (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
-                                            return events |> Array.map mapTimelineEvent })
-            else None
+            if filter (FsCodec.StreamName.splitCategoryAndStreamId sn) then
+                ValueSome (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
+                                   return events |> Array.map mapTimelineEvent })
+            else ValueNone
     let private withoutBodies filter =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
-            if filter sn then Some (async { return cs |> Array.mapi renderEvent }) else None
+            if filter (FsCodec.StreamName.splitCategoryAndStreamId sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
     let map storeLog : LoadMode -> _ = function
         | All -> false, withoutBodies (fun _ -> true), 1
         | Filtered filter -> false, withoutBodies filter, 1

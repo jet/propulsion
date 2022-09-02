@@ -8,7 +8,7 @@ and [<Measure>] checkpointSeriesId
 module CheckpointSeriesId = let ofGroupName (groupName : string) = UMX.tag groupName
 
 let [<Literal>] Category = "Sync"
-let streamName (id : CheckpointSeriesId) = FsCodec.StreamName.create Category %id
+let streamName (id : CheckpointSeriesId) = struct (Category, %id)
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
@@ -67,9 +67,8 @@ type Command =
 let interpret command (state : Fold.State) =
     let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
     let mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
-        let freq = int interval.TotalSeconds
-        let next = at.AddSeconds(float freq)
-        { checkpointFreqS = freq }, mkCheckpoint at next pos
+        let next = at.Add interval
+        { checkpointFreqS = int interval.TotalSeconds }, mkCheckpoint at next pos
 
     match command, state with
     | Start (at, freq, pos), Fold.NotStarted ->
@@ -92,40 +91,38 @@ let interpret command (state : Fold.State) =
 type Service internal (resolve : CheckpointSeriesId -> Equinox.Decider<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
-    member __.Read(series) =
+    member _.Read(series) =
         let stream = resolve series
         stream.Query id
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member __.Start(series, freq : TimeSpan, pos : int64) =
+    member _.Start(series, freq : TimeSpan, pos : int64) =
         let stream = resolve series
         stream.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)))
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member __.Override(series, freq : TimeSpan, pos : int64) =
+    member _.Override(series, freq : TimeSpan, pos : int64) =
         let stream = resolve series
         stream.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)))
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-    member __.Commit(series, pos : int64) =
+    member _.Commit(series, pos : int64) =
         let stream = resolve series
         stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
 
-let create log resolve =
-    let resolve id = Equinox.Decider(log, resolve (streamName id), maxAttempts = 3)
-    Service resolve
+let create resolve = Service(streamName >> resolve)
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
 type CheckpointSeries(groupName, resolve, ?log) =
     let seriesId = CheckpointSeriesId.ofGroupName groupName
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
-    let inner = create log resolve
+    let inner = create (resolve log ())
 
-    member __.Read = inner.Read seriesId
-    member __.Start(freq, pos) = inner.Start(seriesId, freq, pos)
-    member __.Override(freq, pos) = inner.Override(seriesId, freq, pos)
-    member __.Commit(pos) = inner.Commit(seriesId, pos)
+    member _.Read = inner.Read seriesId
+    member _.Start(freq, pos) = inner.Start(seriesId, freq, pos)
+    member _.Override(freq, pos) = inner.Override(seriesId, freq, pos)
+    member _.Commit(pos) = inner.Commit(seriesId, pos)

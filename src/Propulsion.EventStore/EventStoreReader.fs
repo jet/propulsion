@@ -1,6 +1,5 @@
 ﻿module Propulsion.EventStore.Reader
 
-open Equinox.Core // Stopwatch.Time
 open EventStore.ClientAPI
 open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal // Sem
@@ -8,7 +7,6 @@ open Propulsion.Streams
 open Serilog // NB Needs to shadow ILogger
 open System
 open System.Collections.Generic
-open System.Diagnostics
 open System.Threading
 
 let inline arrayBytes (x : byte[]) = match x with null -> 0 | x -> x.Length
@@ -22,8 +20,7 @@ let private categorizeEventStoreStreamId (eventStoreStreamId : string) =
 
 /// Maintains ingestion stats (thread safe via lock free data structures so it can be used across multiple overlapping readers)
 type OverallStats(?statsInterval) =
-    let intervalMs = let t = defaultArg statsInterval (TimeSpan.FromMinutes 5.) in t.TotalMilliseconds |> int64
-    let overallStart, progressStart = Stopwatch.StartNew(), Stopwatch.StartNew()
+    let overallStart, interval = Stopwatch.start (), IntervalTimer(defaultArg statsInterval (TimeSpan.FromMinutes 5.))
     let mutable totalEvents, totalBytes = 0L, 0L
 
     member _.Ingest(batchEvents, batchBytes) =
@@ -34,19 +31,18 @@ type OverallStats(?statsInterval) =
     member _.Events = totalEvents
 
     member _.DumpIfIntervalExpired(?force) =
-        if progressStart.ElapsedMilliseconds > intervalMs || force = Some true then
-            if totalEvents <> 0L then
-                let totalMb = mb totalBytes
-                Log.Information("Reader Throughput {events} events {gb:n1}GB {mb:n2}MB/s",
-                    totalEvents, totalMb/1024., totalMb*1000./float overallStart.ElapsedMilliseconds)
-            progressStart.Restart()
+        if defaultArg force false then interval.Trigger()
+        if interval.IfDueRestart() && totalEvents <> 0L then
+            let totalMb = Log.miB totalBytes
+            Log.Information("Reader Throughput {events} events {gb:n1}GB {mb:n2}MB/s",
+                totalEvents, totalMb / 1024., totalMb * 1000. / float overallStart.ElapsedMilliseconds)
 
 /// Maintains stats for traversals of $all; Threadsafe [via naive locks] so can be used by multiple stripes reading concurrently
 type SliceStatsBuffer(?interval) =
-    let intervalMs = let t = defaultArg interval (TimeSpan.FromMinutes 5.) in t.TotalMilliseconds |> int64
-    let recentCats, accStart = Dictionary<string, int * int>(), Stopwatch.StartNew()
+    let interval = IntervalTimer(defaultArg interval (TimeSpan.FromMinutes 5.))
+    let recentCats = Dictionary<string, int * int>()
 
-    member __.Ingest(slice : AllEventsSlice) =
+    member x.Ingest(slice : AllEventsSlice) =
         lock recentCats <| fun () ->
             let mutable batchBytes = 0
             for x in slice.Events do
@@ -56,16 +52,17 @@ type SliceStatsBuffer(?interval) =
                 | true, (currCount, currSize) -> recentCats[cat] <- (currCount + 1, currSize + eventBytes)
                 | false, _ -> recentCats[cat] <- (1, eventBytes)
                 batchBytes <- batchBytes + eventBytes
-            __.DumpIfIntervalExpired()
+            x.DumpIfIntervalExpired()
             slice.Events.Length, int64 batchBytes
 
     member _.DumpIfIntervalExpired(?force) =
-        if accStart.ElapsedMilliseconds > intervalMs || defaultArg force false then
+        if defaultArg force false then interval.Trigger()
+        if interval.IfDueRestart() then
             lock recentCats <| fun () ->
                 let log kind limit xs =
                     let cats =
                         [| for KeyValue (s, (c, b)) in xs |> Seq.sortBy (fun (KeyValue (_, (_, b))) -> -b) ->
-                            mb (int64 b) |> round, s, c |]
+                            Log.miB (int64 b) |> round, s, c |]
                     if (not << Array.isEmpty) cats then
                         let mb, events, top = Array.sumBy (fun (mb, _, _) -> mb) cats, Array.sumBy (fun (_, _, c) -> c) cats, Seq.truncate limit cats
                         Log.Information("Reader {kind} {mb:n0}MB {events:n0} events categories: {@cats} (MB/cat/count)", kind, mb, events, top)
@@ -73,26 +70,25 @@ type SliceStatsBuffer(?interval) =
                 recentCats |> Seq.where (fun x -> x.Key.StartsWith "$" |> not) |> log "payload" 100
                 recentCats |> Seq.where (fun x -> x.Key.StartsWith "$") |> log "meta" 100
                 recentCats.Clear()
-                accStart.Restart()
 
 /// Defines a tranche of a traversal of a stream (or the store as a whole)
 type Range(start, sliceEnd : Position option, ?max : Position) =
     member val Current = start with get, set
 
-    member __.TryNext(pos : Position) =
-        __.Current <- pos
-        __.IsCompleted
+    member x.TryNext(pos : Position) =
+        x.Current <- pos
+        x.IsCompleted
 
-    member __.IsCompleted =
+    member x.IsCompleted =
         match sliceEnd with
-        | Some send when __.Current.CommitPosition >= send.CommitPosition -> false
+        | Some send when x.Current.CommitPosition >= send.CommitPosition -> false
         | _ -> true
 
-    member __.PositionAsRangePercentage =
+    member x.PositionAsRangePercentage =
         match max with
         | None -> Double.NaN
         | Some max ->
-            match __.Current.CommitPosition, max.CommitPosition with
+            match x.Current.CommitPosition, max.CommitPosition with
             | p,m when p > m -> Double.NaN
             | p,m -> float p / float m
 
@@ -115,7 +111,7 @@ let posFromPercentage (pct, max : Position) =
 let fetchMax (conn : IEventStoreConnection) = async {
     let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false) |> Async.AwaitTaskCorrect
     let max = lastItemBatch.FromPosition
-    Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, mb max.CommitPosition/1024.)
+    Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, Log.miB max.CommitPosition/1024.)
     return max }
 
 /// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
@@ -149,22 +145,22 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : i
 type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
         (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) (postBatch : Position -> StreamEvent<_>[] -> Async<struct (int * int)>) =
-    let sw = Stopwatch.StartNew() // we'll report the warmup/connect time on the first batch
+    let sw = Stopwatch.start () // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
         let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.AwaitTaskCorrect
         sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
-        let postSw = Stopwatch.StartNew()
+        let postSw = Stopwatch.start ()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
         let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
         streams.Clear(); cats.Clear()
-        for struct (stream, _) in events do
-            if streams.Add stream then
-                cats.Add (StreamName.categorize stream) |> ignore
+        for struct (sn, _) in events do
+            if streams.Add sn then
+                cats.Add (StreamName.categorize sn) |> ignore
         let! cur, max = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
-            range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), mb batchBytes,
-            batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
+                        range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), Log.miB batchBytes,
+                        batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
         if not (range.TryNext currentSlice.NextPosition && not once && not currentSlice.IsEndOfStream) then
             if currentSlice.IsEndOfStream then return Eof
             else return EndOfTranche
@@ -221,7 +217,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
         //    with e ->
         //        let bs = adjust batchSize
         //        Log.Warning(e, "Could not read stream, retrying with batch size {bs}", bs)
-        //        __.AddStreamPrefix(name, pos, len, bs)
+        //        x.AddStreamPrefix(name, pos, len, bs)
         //    return false
         //| Stream (name, batchSize) ->
         //    use _ = Serilog.Context.LogContext.PushProperty("Tranche", name)
@@ -231,21 +227,21 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
         //    with e ->
         //        let bs = adjust batchSize
         //        Log.Warning(e, "Could not read stream, retrying with batch size {bs}", bs)
-        //        __.AddStream(name, bs)
+        //        x.AddStream(name, bs)
         //    return false
 
         | Chunk (series, range, batchSize) ->
             let postBatch pos items = post (Res.Batch (series, pos, items))
             use _ = Serilog.Context.LogContext.PushProperty("Tranche", series)
             Log.Information("Commencing tranche, batch size {bs}", batchSize)
-            let! t, res = pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent postBatch |> Stopwatch.Time
-            match res with
+            let t = Stopwatch.start ()
+            match! pullAll (slicesStats, overallStats) (conn, batchSize) (range, false) tryMapEvent postBatch with
             | PullResult.Eof ->
-                Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", let e = t.Elapsed in e.TotalMinutes)
+                Log.Warning("completed tranche AND REACHED THE END in {ms:n3}m", t.ElapsedMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
                 work.Enqueue EofDetected
             | PullResult.EndOfTranche ->
-                Log.Information("completed tranche in {ms:n1}m", let e = t.Elapsed in e.TotalMinutes)
+                Log.Information("completed tranche in {ms:n1}m", t.ElapsedMinutes)
                 let! _ = post (Res.EndOfChunk series) in ()
             | PullResult.Exn e ->
                 let abs = adjust batchSize
@@ -257,21 +253,20 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
             use _ = Serilog.Context.LogContext.PushProperty("Tranche", "Tail")
             let mutable count, batchSize, range = 0, batchSize, Range(pos, None, max)
             let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
-            let progressIntervalMs, tailIntervalMs = int64 statsInterval.TotalMilliseconds, int64 interval.TotalMilliseconds
-            let tailSw = Stopwatch.StartNew()
+            let tailIntervalMs = int64 interval.TotalMilliseconds
+            let tailSw = Stopwatch.start ()
             let awaitInterval = async {
-                match tailIntervalMs - tailSw.ElapsedMilliseconds with
-                | waitTimeMs when waitTimeMs > 0L -> do! Async.Sleep (int waitTimeMs)
+                match tailIntervalMs - tailSw.ElapsedMilliseconds |> int with
+                | waitTimeMs when waitTimeMs > 0 -> do! Async.Sleep waitTimeMs
                 | _ -> ()
                 tailSw.Restart() }
             let slicesStats, stats = SliceStatsBuffer(), OverallStats()
-            let progressSw = Stopwatch.StartNew()
+            let progressInterval = IntervalTimer statsInterval
             while true do
-                let currentPos = range.Current
-                if progressSw.ElapsedMilliseconds > progressIntervalMs then
+                if progressInterval.IfDueRestart() then
+                    let currentPos = range.Current
                     Log.Information("Tailed {count} times @ {pos} (chunk {chunk})",
                         count, currentPos.CommitPosition, chunk currentPos)
-                    progressSw.Restart()
                 count <- count + 1
                 let! res = pullAll (slicesStats, stats) (conn, batchSize) (range, true) tryMapEvent postBatch
                 do! awaitInterval

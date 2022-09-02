@@ -23,7 +23,7 @@ type IChangeFeedObserver =
 #if COSMOSV2 || COSMOSV3
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
 #else
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Async<unit>
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Task<unit>
 #endif
 
 type internal SourcePipeline =
@@ -99,9 +99,8 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
-        let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            processorName, s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds)
         let processorName_ = processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =
@@ -123,7 +122,11 @@ type ChangeFeedProcessor =
 #endif
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
+#if COSMOSV2 || COSMOSV3
                         return! observer.Ingest(ctx, checkpoint, changes)
+#else
+                        return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTask
+#endif
                     with e ->
                         log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }

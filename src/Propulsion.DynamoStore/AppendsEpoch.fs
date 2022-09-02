@@ -5,13 +5,14 @@
 /// The Checkpoint per Index consists of the pair of 1. EpochId 2. Event Index within that Epoch (see `module Checkpoint` for detail)
 module Propulsion.DynamoStore.AppendsEpoch
 
+open Propulsion.Internal
 open System.Collections.Generic
 open System.Collections.Immutable
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
 let [<Literal>] MaxItemsPerEpoch = 1_000_000
 let [<Literal>] Category = "$AppendsEpoch"
-let streamName (tid, eid) = FsCodec.StreamName.compose Category [AppendsTrancheId.toString tid; AppendsEpochId.toString eid]
+let streamName struct (tid, eid) = struct (Category, FsCodec.StreamName.createStreamId [AppendsTrancheId.toString tid; AppendsEpochId.toString eid])
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -102,24 +103,22 @@ module Ingest =
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, []
 
-type Service internal (shouldClose, resolve : AppendsTrancheId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (shouldClose, resolve : struct (AppendsTrancheId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
 
     member _.Ingest(trancheId, epochId, spans : Events.StreamSpan[], ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (trancheId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
-        let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndId |> fst = Category
+        let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndStreamId |> ValueTuple.fst = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         decider.TransactEx((fun c -> (Ingest.decide (shouldClose (c.StreamEventBytes, c.Version))) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 
 module Config =
 
-    let private resolveStream (context, cache) =
-        let cat = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
-        cat.Resolve
+    let private createCategory (context, cache) = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes : int, maxVersion : int64, maxStreams : int) store =
-        let resolve = streamName >> resolveStream store >> Config.createDecider log
-        let shouldClose (totalBytes : int64 option, version) totalStreams =
+        let resolve = streamName >> (createCategory store |> Equinox.Decider.resolve log)
+        let shouldClose (totalBytes : int64 voption, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
@@ -147,7 +146,7 @@ module Reader =
 
     type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 option * int64 * State> =
+        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 voption * int64 * State> =
             let decider = resolve (trancheId, epochId, minIndex)
             decider.QueryEx(fun c -> c.StreamEventBytes, c.Version, c.State)
 
@@ -157,9 +156,7 @@ module Reader =
 
     module Config =
 
-        let private resolveStream context minIndex =
-            let cat = Config.createWithOriginIndex codec initial fold context minIndex
-            cat.Resolve
+        let private createCategory context minIndex = Config.createWithOriginIndex codec initial fold context minIndex
         let create log context =
-            let resolve minIndex = streamName >> resolveStream context minIndex >> Config.createDecider log
-            Service(fun (tid, eid, minIndex) -> resolve minIndex (tid, eid) )
+            let resolve minIndex = Equinox.Decider.resolve log (createCategory context minIndex)
+            Service(fun (tid, eid, minIndex) -> streamName (tid, eid) |> resolve minIndex)

@@ -74,9 +74,9 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>)  -> kv.Value.IsEmpty) -> Array.empty
         | originals -> originals |> choose (fun v -> v.read)
     let awaitPropagation (propagationDelay : TimeSpan) (delayMs : int) = async {
-        let sw, max = System.Diagnostics.Stopwatch.StartNew(), int64 propagationDelay.TotalMilliseconds
+        let timeout = IntervalTimer propagationDelay
         let mutable startPositions = checkForActivity ()
-        while Array.isEmpty startPositions && not sink.IsCompleted && sw.ElapsedMilliseconds < max do
+        while Array.isEmpty startPositions && not sink.IsCompleted && not timeout.IsDue do
             do! Async.Sleep delayMs
             startPositions <- checkForActivity ()
         return startPositions }
@@ -127,7 +127,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             // - propagationDelay / 4
             // - (observed propagation delay + observed processing time) / 3
             ?linger) = async {
-        let sw = System.Diagnostics.Stopwatch.StartNew()
+        let sw = Stopwatch.start ()
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
@@ -138,7 +138,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let propUsed = sw.Elapsed
             let includeSubsequent = ignoreSubsequent <> Some true
             let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 5.)
-            let swProcessing = System.Diagnostics.Stopwatch.StartNew()
+            let swProcessing = Stopwatch.start ()
             do! awaitCompletion starting delayMs includeSubsequent logInterval
             let procUsed = swProcessing.Elapsed
             let lingerF = defaultArg linger defaultLinger
@@ -151,7 +151,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                 let completed = positions.Current() |> choose (fun v -> v.completed)
                 log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Starting {starting} Completed {completed}",
                                 sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, starting, completed)
-            let swLinger = System.Diagnostics.Stopwatch.StartNew()
+            let swLinger = Stopwatch.start ()
             if not skipLinger then
                 match! awaitPropagation linger delayMs with
                 | [||] ->
@@ -186,7 +186,7 @@ type TailingFeedSource
                 yield batch
         with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
             match logReadFailure with None -> log.ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
-            match readFailureSleepInterval with None -> () | Some interval -> do! Async.Sleep interval }
+            match readFailureSleepInterval with None -> () | Some interval -> do! Async.Sleep(TimeSpan.toMs interval) }
 
     member _.Pump(readTranches) =
         base.Pump(readTranches, crawl)
@@ -229,21 +229,22 @@ type AllFeedSource
     inherit TailingFeedSource
         (   log, statsInterval, sourceId, tailSleepInterval,
             (fun (_trancheId, pos) -> asyncSeq {
-                  let sw = System.Diagnostics.Stopwatch.StartNew()
+                  let sw = Stopwatch.start ()
                   let! b = readBatch pos
                   yield sw.Elapsed, b } ),
             checkpoints, establishOrigin, sink,
             renderPos = defaultArg renderPos string)
 
-    member _.Pump() =
+    member _.Pump =
         let readTranches () = async { return [| TrancheId.parse "0" |] }
         base.Pump(readTranches)
 
-    member x.Start() = base.Start(x.Pump())
+    member x.Start() = base.Start x.Pump
 
 namespace Propulsion.Feed
 
 open FSharp.Control
+open Propulsion.Internal
 open System
 
 [<NoComparison; NoEquality>]
@@ -265,8 +266,8 @@ type FeedSource
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
         fun (wasLast, pos) -> asyncSeq {
             if wasLast then
-                do! Async.Sleep tailSleepInterval
-            let sw = System.Diagnostics.Stopwatch.StartNew()
+                do! Async.Sleep(TimeSpan.toMs tailSleepInterval)
+            let sw = Stopwatch.start ()
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
             yield struct (sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>))

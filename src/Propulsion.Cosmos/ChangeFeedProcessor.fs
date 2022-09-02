@@ -1,5 +1,6 @@
 namespace Propulsion.Cosmos
 
+open System.Threading.Tasks
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client
 open Microsoft.Azure.Documents.ChangeFeedProcessor
@@ -14,8 +15,8 @@ module IChangeFeedObserverContextExtensions =
     /// Provides F#-friendly wrapping for the `CheckpointAsync` function, which typically makes sense to pass around in `Async` form
     type Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing.IChangeFeedObserverContext with
         /// Triggers `CheckpointAsync()`; Mark the the full series up to and including this batch as having been confirmed consumed.
-        member __.Checkpoint() = async {
-            return! __.CheckpointAsync() |> Async.AwaitTaskCorrect }
+        member x.Checkpoint() = async {
+            return! x.CheckpointAsync() |> Async.AwaitTaskCorrect }
 
 type ContainerId = { database : string; container : string }
 
@@ -31,7 +32,7 @@ type ChangeFeedObserver =
         /// - ceding control as soon as commencement of the next batch retrieval is desired
         /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
         /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
-        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Async<unit>,
+        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Task<unit>,
         /// Called when this Observer is being created (triggered before `assign`)
         ?init : ILogger -> int -> unit,
         /// Called when a lease is won and the observer is being spun up (0 or more `ingest` calls will follow). Overriding inhibits default logging.
@@ -51,7 +52,7 @@ type ChangeFeedObserver =
             | Some f -> return! f log rangeId
             | None -> log.Information("Reader {partitionId} Assigned", ctx.PartitionKeyRangeId) }
         let _process (ctx, docs) = async {
-            try do! ingest log ctx docs
+            try do! ingest log ctx docs |> Async.AwaitTaskCorrect
             with e ->
                 log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
                 do! Async.Raise e }
@@ -114,9 +115,8 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
-        let inline s (x : TimeSpan) = x.TotalSeconds
         log.Information("ChangeFeed Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-            s leaseAcquireInterval, s leaseTtl, s leaseRenewInterval, s feedPollDelay)
+                        leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds)
 
         let builder =
             let feedProcessorOptions =
@@ -162,5 +162,5 @@ type ChangeFeedProcessor =
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         let processName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
         let processId = System.Diagnostics.Process.GetCurrentProcess().Id
-        let hostName = System.Environment.MachineName
+        let hostName = Environment.MachineName
         sprintf "%s-%s-%d" hostName processName processId

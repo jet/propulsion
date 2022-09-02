@@ -11,22 +11,11 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 
 [<AutoOpen>]
 module private Impl =
-
-    /// Maintains a Stopwatch used to drive a periodic loop, computing the remaining portion of the period per invocation
-    /// - `Some remainder` if the interval has time remaining
-    /// - `None` if the interval has expired (and triggers restarting the timer)
-    let intervalTimer (period : TimeSpan) =
-        let timer = Stopwatch.StartNew()
-        fun () ->
-            match period - timer.Elapsed with
-            | remainder when remainder.Ticks > 0L -> Some remainder
-            | _ -> timer.Restart(); None
 
     /// Retains the messages we've accumulated for a given Partition
     [<NoComparison>]
@@ -63,7 +52,7 @@ type KafkaIngestionEngine<'Info>
         mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.Batch<TopicPartition, 'Info>[] -> unit,
         maxBatchSize, emitInterval, statsInterval) =
     let acc = Dictionary<TopicPartition, _>()
-    let remainingIngestionWindow = intervalTimer emitInterval
+    let ingestionWindow = IntervalTimer emitInterval
     let mutable intervalMsgs, intervalChars, totalMessages, totalChars = 0L, 0L, 0L, 0L
     let dumpStats () =
         totalMessages <- totalMessages + intervalMsgs; totalChars <- totalChars + intervalChars
@@ -107,20 +96,19 @@ type KafkaIngestionEngine<'Info>
     member _.Pump(ct : CancellationToken) = task {
         use _ = consumer // Dispose it at the end (NB but one has to Close first or risk AccessViolations etc)
         try while not ct.IsCancellationRequested do
-                match counter.IsOverLimitNow(), remainingIngestionWindow () with
-                | true, _ ->
+                if counter.IsOverLimitNow() then
                     let busyWork () =
                         submit()
                         maybeLogStats()
                     counter.AwaitThreshold(ct, consumer, busyWork)
-                | false, None ->
+                elif ingestionWindow.IfDueRestart() then
                     submit ()
                     maybeLogStats ()
-                | false, Some intervalRemainder ->
-                    try match consumer.Consume(intervalRemainder) with
+                else
+                    try match consumer.Consume(millisecondsTimeout = ingestionWindow.RemainingMs) with
                         | null -> ()
                         | message -> ingest message
-                    with| :? OperationCanceledException -> log.Warning("Consuming... cancelled")
+                    with  :? OperationCanceledException -> log.Warning("Consuming... cancelled")
                         | :? ConsumeException as e -> log.Warning(e, "Consuming... exception")
         finally
             submit () // We don't want to leak our reservations against the counter and want to pass of messages we ingested
@@ -141,10 +129,10 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let maxDelay, maxItems = config.Buffering.maxBatchDelay, config.Buffering.maxBatchSize
         log.Information("Consuming... {bootstrapServers} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s maxBatchSize={maxBatchSize}",
             config.Inner.BootstrapServers, config.Topics, config.Inner.GroupId, (let x = config.Inner.AutoOffsetReset in x.Value), config.Inner.FetchMaxBytes,
-            float config.Buffering.maxInFlightBytes / 1024. / 1024. / 1024., maxDelay.TotalSeconds, maxItems)
+            Log.miB config.Buffering.maxInFlightBytes / 1024., maxDelay.TotalSeconds, maxItems)
         let limiterLog = log.ForContext(Serilog.Core.Constants.SourceContextPropertyName, Core.Constants.messageCounterSourceContext)
         let limiter = Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
-        let consumer = ConsumerBuilder.WithLogging(log, config.Inner) // teardown is managed by ingester.Pump()
+        let consumer = ConsumerBuilder.WithLogging(log, config.Inner) // teardown is managed by ingester.Pump
         consumer.Subscribe config.Topics
         let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
         let cts = new CancellationTokenSource()
@@ -209,7 +197,7 @@ type ParallelConsumer private () =
             scheduler.Submit x
             x.messages.Length
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
-        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump, scheduler.Pump, dispatcher.Pump, statsInterval)
+        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), dispatcher.Pump, statsInterval)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
@@ -252,7 +240,7 @@ module Core =
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
                         ?disableCompaction=maximizeOffsetWriting)
-            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)
+            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, (fun _abend -> streamsScheduler.Pump), dispatcher.Pump, statsInterval)
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
@@ -351,13 +339,13 @@ type StreamNameSequenceGenerator() =
         | false, _ -> let x = 0L in indices[streamName] <- x; x
 
     /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
-    member __.ConsumeResultToStreamEvent
+    member x.ConsumeResultToStreamEvent
         (   toStreamName : ConsumeResult<_, _> -> StreamName,
             toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
         : ConsumeResult<_, _> -> Default.StreamEvent seq =
         fun consumeResult ->
             let sn = toStreamName consumeResult
-            let e = toTimelineEvent (consumeResult, __.GenerateIndex sn)
+            let e = toTimelineEvent (consumeResult, x.GenerateIndex sn)
             Seq.singleton (sn, e)
 
     /// Enables customizing of mapping from ConsumeResult to<br/>
@@ -475,9 +463,9 @@ type BatchesConsumer =
             logStreamStates Default.eventSize
         let handle (items : Dispatch.Item<Default.EventBody>[]) ct
             : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
-            let sw = Stopwatch.StartNew()
+            let sw = Stopwatch.start ()
             let avgElapsed () =
-                let tot = let e = sw.Elapsed in e.TotalMilliseconds
+                let tot = float sw.ElapsedMilliseconds
                 TimeSpan.FromMilliseconds(tot / float items.Length)
             try let! results = handle items |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
                 let ae = avgElapsed ()
@@ -506,4 +494,4 @@ type BatchesConsumer =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
         let submitter = Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
-        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, streamsScheduler.Pump, dispatcher.Pump, statsInterval)
+        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, (fun abend -> streamsScheduler.Pump), dispatcher.Pump, statsInterval)
