@@ -25,7 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MinVer" Version="4.0.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
 	<PackageReference Include="Argu" Version="6.1.1" />
     <!-- Required or there'll be an exception at runtime re missing support DLLs when using RBAC -->
