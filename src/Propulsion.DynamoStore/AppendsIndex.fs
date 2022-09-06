@@ -14,7 +14,7 @@ module Events =
         | Started of {| tranche : AppendsTrancheId; epoch : AppendsEpochId |}
         | Snapshotted of {| active : Map<AppendsTrancheId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
-    let codec = EventCodec.create<Event>()
+    let codec = EventCodec.gen<Event>
 
 module Fold =
 
@@ -52,10 +52,9 @@ type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.Stat
 
 module Config =
 
-    let private createCategory store =
-        Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
-    let resolveDecider log store = createCategory store |> Equinox.Decider.resolve log
-    let create log (context, cache) = Service(streamName >> resolveDecider log (context, Some cache))
+    let private createCategory store = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
+    let resolve log store = createCategory store |> Equinox.Decider.resolve log
+    let create log (context, cache) = Service(streamName >> resolve log (context, Some cache))
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
@@ -80,4 +79,4 @@ module Reader =
             let decider = resolve ()
             decider.Query(readIngestionEpochId trancheId)
 
-    let create log context = Service(streamName >> Config.resolveDecider log (context, None))
+    let create log context = Service(streamName >> Config.resolve log (context, None))

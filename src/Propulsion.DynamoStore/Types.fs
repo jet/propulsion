@@ -50,8 +50,10 @@ module internal Config =
 
     open Equinox.DynamoStore
 
+    let private defaultCacheDuration = System.TimeSpan.FromMinutes 20.
+
     let private create codec initial fold accessStrategy (context, cache) =
-        let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, System.TimeSpan.FromMinutes 20.)
+        let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
         DynamoStoreCategory(context, codec, fold, initial, cs, accessStrategy)
 
     let createSnapshotted codec initial fold (isOrigin, toSnapshot) (context, cache) =
@@ -74,7 +76,7 @@ module internal Config =
 
 module internal EventCodec =
 
-    let create<'t when 't :> TypeShape.UnionContract.IUnionContract> () =
+    let gen<'t when 't :> TypeShape.UnionContract.IUnionContract> =
         FsCodec.SystemTextJson.Codec.Create<'t>() |> FsCodec.Deflate.EncodeTryDeflate
     let private withUpconverter<'c, 'e when 'c :> TypeShape.UnionContract.IUnionContract> up : FsCodec.IEventCodec<'e, _, _> =
         let down (_ : 'e) = failwith "Unexpected"

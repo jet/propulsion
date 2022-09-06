@@ -143,7 +143,7 @@ module DynamoStore =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let cat = DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolve = Equinox.Decider.resolve log cat
-        Service(streamName4 >>  resolve, consumerGroupName, defaultCheckpointFrequency)
+        Service(streamName4 >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 #if !COSMOSV2 && !COSMOSV3
 module CosmosStore =

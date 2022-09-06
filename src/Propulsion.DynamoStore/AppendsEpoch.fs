@@ -27,7 +27,7 @@ module Events =
         | Ingested of           Ingested
         | Closed
         interface TypeShape.UnionContract.IUnionContract
-    let codec = EventCodec.create<Event>()
+    let codec = EventCodec.gen<Event>
 
 let next (x : Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
