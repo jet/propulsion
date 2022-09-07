@@ -16,8 +16,9 @@ module private Impl =
     let toItems categoryFilter (events : EventRecord array) : Propulsion.Streams.Default.StreamEvent array = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
-            let (FsCodec.StreamName.CategoryAndId (categoryName, _)) = sn
-            if categoryFilter categoryName then
+            // TODO replace with FsCodec.StreamName.category
+            let fsCodec_StreamName_category sn = let (FsCodec.StreamName.CategoryAndId (categoryName, _)) = sn in categoryName
+            if categoryFilter (fsCodec_StreamName_category sn) then
                 yield sn, toTimelineEvent e |]
     let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
@@ -60,9 +61,9 @@ type EventStoreSource
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?hydrateBodies,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
-        ?fromTail,
+        ?startFromTail,
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.readBatch (hydrateBodies = Some true) batchSize categoryFilter store, checkpoints, sink,
-            ?establishOrigin = if fromTail <> Some true then None else Some (Impl.readTailPositionForTranche log store))
+            ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log store))

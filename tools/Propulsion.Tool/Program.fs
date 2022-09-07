@@ -349,11 +349,11 @@ module Project =
                     match maybeHydrate with
                     | Some (context, streamsDop) ->
                         Propulsion.DynamoStore.LoadMode.Hydrated (nullFilter, streamsDop, context)
-                    | None -> Propulsion.DynamoStore.LoadMode.All
+                    | None -> Propulsion.DynamoStore.LoadMode.WithoutEventBodies (fun _categoryName -> true)
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, loadMode, fromTail = startFromTail, storeLog = Log.forMetrics,
+                    checkpoints, sink, loadMode, startFromTail = startFromTail, storeLog = Log.forMetrics,
                     ?trancheIds = indexFilter
                 ).Start()
         let work = [
