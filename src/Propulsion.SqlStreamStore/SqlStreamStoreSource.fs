@@ -45,7 +45,7 @@ type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        ?categoryFilter : string -> bool,
+        categoryFilter : string -> bool,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?hydrateBodies,
         ?startFromTail,
