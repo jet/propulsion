@@ -145,7 +145,7 @@ type LoadMode =
     | Filtered of filter : (struct (string * string) -> bool)
     | Hydrated of filter : (struct (string * string) -> bool)
                   * degreeOfParallelism : int
-                  * /// Defines the Context to use when loading the bodies
+                  * /// Defines the Context to use when loading the Event Data/Meta
                     storeContext : DynamoStoreContext
 module internal LoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
@@ -170,7 +170,7 @@ type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        // If the Handler does not utilize the bodies of the events, we can avoid loading them from the Store
+        // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
         ?fromTail,

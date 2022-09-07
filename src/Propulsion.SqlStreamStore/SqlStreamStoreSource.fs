@@ -16,7 +16,7 @@ module private Impl =
     let readWithDataAsStreamEvent (msg : SqlStreamStore.Streams.StreamMessage) = async {
         let! json = msg.GetJsonData() |> Async.AwaitTaskCorrect
         return toStreamEvent json msg }
-    let readBatch hydrateBodies batchSize (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
+    let readBatch hydrateBodies batchSize categoryFilter (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, hydrateBodies, ct) |> Async.AwaitTaskCorrect
         let! items =
@@ -24,15 +24,30 @@ module private Impl =
             else async { return page.Messages |> Array.map (toStreamEvent null) }
         return { checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } }
 
+    let private fetchMax (log : Serilog.ILogger) (store : SqlStreamStore.IStreamStore) ct : Async<Propulsion.Feed.Position> =
+        let rec aux () = async { // Note can't be a Task as tail recursion will blow stack
+            try let! lastEventPos = store.ReadHeadPosition(cancellationToken = ct) |> Async.AwaitTaskCorrect
+                log.Information("SqlStreamStore Tail Position: @ {pos}", lastEventPos)
+                return Propulsion.Feed.Position.parse(lastEventPos + 1L)
+            with e ->
+                log.Warning(e, "Could not establish max position; Waiting...")
+                do! Async.Sleep 1000
+                return! aux () }
+        aux ()
+    let readTailPositionForTranche log store _trancheId : Propulsion.Feed.Position Async = async {
+        let! ct = Async.CancellationToken
+        return! fetchMax log store ct }
+
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        // If the Handler does not require the bodies of the events, we can save significant Read Capacity by not having to load them. Default: false
+        categoryFilter : string -> bool,
+        // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?hydrateBodies,
-        // TODO borrow impl of determining tail from Propulsion.EventStoreDb
-        // ?fromTail,
+        ?fromTail,
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (hydrateBodies = Some true) batchSize store, checkpoints, sink)
+            Impl.readBatch (hydrateBodies = Some true) batchSize categoryFilter store, checkpoints, sink,
+            ?establishOrigin = if fromTail <> Some true then None else Some (Impl.readTailPositionForTranche log store))
