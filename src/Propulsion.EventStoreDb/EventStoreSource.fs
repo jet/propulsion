@@ -31,17 +31,18 @@ module private Impl =
     let private fetchMax (log : Serilog.ILogger) (client : EventStoreClient) ct : Async<Propulsion.Feed.Position> =
         let rec aux () = async { // Note can't be a Task as tail recursion will blow stack
             try let lastItemBatch = client.ReadAllAsync(Direction.Backwards, Position.End, maxCount = 1, cancellationToken = ct)
-                let! _dummy = AsyncSeq.ofAsyncEnum lastItemBatch.Messages |> AsyncSeq.toArrayAsync // decompiling shows LastPosition is populated lazily as a side effect
-                let lp = lastItemBatch.LastPosition
-                let max = lp.Value
-                if not lp.HasValue then
+                let! items = AsyncSeq.ofAsyncEnum lastItemBatch |> AsyncSeq.toArrayAsync
+                match items |> Array.tryLast with
+                | None ->
                     log.Warning "No events in Store yet; Waiting..."
                     do! Async.Sleep 1000
                     return! aux ()
-                else
+                | Some le ->
+                    let pos = le.Event.Position
+                    let max = int64 pos.CommitPosition
                     log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)",
-                                    max.CommitPosition, chunk max, Propulsion.Internal.Log.miB max.CommitPosition / 1024.)
-                    return Propulsion.Feed.Position.parse (int64 max.CommitPosition)
+                                    pos, chunk pos, Propulsion.Internal.Log.miB (float max / 1024.))
+                    return Propulsion.Feed.Position.parse max
             with e ->
                 log.Warning(e, "Could not establish tail position; Waiting...")
                 do! Async.Sleep 1000
