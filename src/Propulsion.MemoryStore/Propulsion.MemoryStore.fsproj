@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
+    <DefineConstants>MEMORYSTORE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -9,6 +10,9 @@
     <Compile Include="MemoryStoreSource.fs" />
     <Compile Include="ReactorInternal.fs" />
     <Compile Include="ReactorMonitor.fs" />
+    <Compile Include="..\Propulsion.CosmosStore\ReaderCheckpoint.fs">
+      <Link>ReaderCheckpoint.fs</Link>
+    </Compile>
   </ItemGroup>
 
   <ItemGroup>
