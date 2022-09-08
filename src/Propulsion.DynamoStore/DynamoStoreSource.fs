@@ -141,39 +141,39 @@ module private Impl =
 
 [<NoComparison; NoEquality>]
 type LoadMode =
-    | All
-    | Filtered of filter : (struct (string * string) -> bool)
-    | Hydrated of filter : (struct (string * string) -> bool)
+    /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
+    | WithoutEventBodies of categoryFilter : (string -> bool)
+    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
+    | Hydrated of categoryFilter : (string -> bool)
                   * degreeOfParallelism : int
-                  * /// Defines the Context to use when loading the bodies
+                  * /// Defines the Context to use when loading the Event Data/Meta
                     storeContext : DynamoStoreContext
 module internal LoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
-    let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) filter =
+    let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
-            if filter (FsCodec.StreamName.splitCategoryAndStreamId sn) then
+            if categoryFilter (FsCodec.StreamName.category sn) then
                 ValueSome (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
                                    return events |> Array.map mapTimelineEvent })
             else ValueNone
-    let private withoutBodies filter =
+    let private withoutBodies categoryFilter =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
-            if filter (FsCodec.StreamName.splitCategoryAndStreamId sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
+            if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
     let map storeLog : LoadMode -> _ = function
-        | All -> false, withoutBodies (fun _ -> true), 1
-        | Filtered filter -> false, withoutBodies filter, 1
-        | Hydrated (filter, dop, storeContext) ->
+        | WithoutEventBodies categoryFilter -> false, withoutBodies categoryFilter, 1
+        | Hydrated (categoryFilter, dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
-            true, withBodies eventsContext filter, dop
+            true, withBodies eventsContext categoryFilter, dop
 
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        // If the Handler does not utilize the bodies of the events, we can avoid loading them from the Store
+        // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
         // Override default start position to be at the tail of the index (Default: Always replay all events)
-        ?fromTail,
+        ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
         ?storeLog,
         ?readFailureSleepInterval,
@@ -185,7 +185,7 @@ type DynamoStoreSource
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                 (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
-            (   if fromTail <> Some true then None
+            (   if startFromTail <> Some true then None
                 else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
             sink,
             Impl.renderPos,

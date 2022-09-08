@@ -131,7 +131,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
+            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed ) }
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
@@ -145,7 +145,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let linger = lingerF propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, kv.Value.completed) }
+            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)

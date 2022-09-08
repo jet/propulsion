@@ -8,7 +8,7 @@ open System.Threading.Tasks
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, streamFilter,
+type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
                            mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Streams.Default.EventBody>,
                            sink : Propulsion.Streams.Default.Sink) =
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
@@ -36,7 +36,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, s
     let storeCommitsSubscription =
         let mapBody struct (categoryName, streamId, es) = struct (categoryName, streamId, es |> Array.map mapTimelineEvent)
         store.Committed
-        |> Observable.filter (fun struct (categoryName, streamId, _es) -> streamFilter struct (categoryName, streamId))
+        |> Observable.filter (fun struct (categoryName, _streamId, _es) -> categoryFilter categoryName)
         |> Observable.subscribe (mapBody >> handleStoreCommitted)
 
     member private _.Pump(ct : CancellationToken) = task {
@@ -124,5 +124,5 @@ module TimelineEvent =
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, filter, sink) =
-    inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>)>(log, store, filter, TimelineEvent.mapEncoded, sink)
+type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, categoryFilter, sink) =
+    inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>)>(log, store, categoryFilter, TimelineEvent.mapEncoded, sink)

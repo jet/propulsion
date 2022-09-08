@@ -29,7 +29,7 @@ module EquinoxSystemTextJsonParser =
         unixEpoch.AddSeconds(ts.GetDouble())
 
     /// Sanity check to determine whether the Document represents an `Equinox.Cosmos` >= 1.0 based batch
-    let tryParseEquinoxBatch streamFilter (d : System.Text.Json.JsonDocument) =
+    let tryParseEquinoxBatch categoryFilter (d : System.Text.Json.JsonDocument) =
         let r = d.RootElement
         let tryProp (id : string) : ValueOption<System.Text.Json.JsonElement> =
             let mutable p = Unchecked.defaultof<_>
@@ -39,7 +39,7 @@ module EquinoxSystemTextJsonParser =
         match tryProp "p" with
         | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String && hasProp "i" && hasProp "n" && hasProp "e" ->
              let streamName = je.GetString() |> FsCodec.StreamName.parse // we expect all Equinox data to adhere to "{category}-{aggregateId}" form (or we'll throw)
-             if streamFilter (FsCodec.StreamName.splitCategoryAndStreamId streamName) then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
+             if categoryFilter (FsCodec.StreamName.category streamName) then ValueSome (struct (streamName, d.Cast<Batch>())) else ValueNone
         | _ -> ValueNone
 
     /// Enumerates the events represented within a batch
@@ -47,8 +47,8 @@ module EquinoxSystemTextJsonParser =
         batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp = x.t))
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumStreamEvents streamFilter d : Default.StreamEvent seq =
-        tryParseEquinoxBatch streamFilter d |> ValueOption.map enumEquinoxCosmosEvents |> ValueOption.defaultValue Seq.empty
+    let enumStreamEvents categoryFilter d : Default.StreamEvent seq =
+        tryParseEquinoxBatch categoryFilter d |> ValueOption.map enumEquinoxCosmosEvents |> ValueOption.defaultValue Seq.empty
 #else
 #if COSMOSV2
 module EquinoxCosmosParser =

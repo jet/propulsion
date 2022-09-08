@@ -132,7 +132,7 @@ type CosmosStoreSource =
     static member Start
         (   log : ILogger,
             monitored : Container, leases : Container, processorName, observer,
-            startFromTail, ?maxItems, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) =
+            ?maxItems, ?tailSleepInterval, ?startFromTail, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
@@ -158,7 +158,8 @@ type CosmosStoreSource =
         let source =
             ChangeFeedProcessor.Start
               ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
-                startFromTail=startFromTail, ?reportLagAndAwaitNextEstimation=maybeLogLag, ?maxItems=maxItems,
+                ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation=maybeLogLag,
+                startFromTail = defaultArg startFromTail false,
                 leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         source

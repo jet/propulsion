@@ -35,13 +35,17 @@ module Events =
         | Updated       of Updated
         | Snapshotted   of Snapshotted
         interface TypeShape.UnionContract.IUnionContract
+#if MEMORYSTORE
+    let codec = FsCodec.Box.Codec.Create<Event>()
+#else
 #if DYNAMOSTORE
-    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Deflate.EncodeTryDeflate
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Deflate.EncodeUncompressed
 #else
 #if !COSMOSV3 && !COSMOSV2
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()
 #else
     let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
+#endif
 #endif
 #endif
 
@@ -133,6 +137,16 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         let decider = resolve (source, tranche, consumerGroupName)
         decider.Transact(decideOverride DateTimeOffset.UtcNow defaultCheckpointFrequency pos)
 
+#if MEMORYSTORE
+module MemoryStore =
+
+    open Equinox.MemoryStore
+
+    let create log (consumerGroupName, defaultCheckpointFrequency) context =
+        let cat = MemoryStoreCategory(context, Events.codec, Fold.fold, Fold.initial)
+        let resolve = Equinox.Decider.resolve log cat
+        Service(streamName4 >> resolve, consumerGroupName, defaultCheckpointFrequency)
+#else
 #if DYNAMOSTORE
 module DynamoStore =
 
@@ -143,7 +157,7 @@ module DynamoStore =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
         let cat = DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolve = Equinox.Decider.resolve log cat
-        Service(streamName4 >>  resolve, consumerGroupName, defaultCheckpointFrequency)
+        Service(streamName4 >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 #if !COSMOSV2 && !COSMOSV3
 module CosmosStore =
@@ -184,6 +198,7 @@ module CosmosStore =
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log defaultCheckpointFrequency resolveStream
+#endif
 #endif
 #endif
 #endif
