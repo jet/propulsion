@@ -16,6 +16,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
     1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.Sink`, in order to enable maximum speed integration testing.
     2. `Monitor.AwaitCompletion`: Enables efficient deterministic waits for Reaction processing within an integration test.
+    3. `ReaderCheckpoint`: ephemeral checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` in test contexts.
 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
