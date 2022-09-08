@@ -76,17 +76,11 @@ module StreamName =
     /// Guard against inputs that don't adhere to "{category}-{aggregateId}" by prefixing with `-`  })
     let internalParseSafe rawStreamName : FsCodec.StreamName = parseWithDefaultCategory "" rawStreamName
 
-    // TODO replace with StreamName.Category
-    let category (x : FsCodec.StreamName) =
-        let raw = FsCodec.StreamName.toString x
-        raw.Substring(0, raw.IndexOf '-')
-    let (|Category|) = category
-
     /// Because we coerce all stream names to be well-formed, we can split it too
     /// where there's no category, we use the full streamId instead
     let categorize : FsCodec.StreamName -> string = function
-        | Category "" as sid -> (FsCodec.StreamName.toString sid).Substring(1)
-        | Category cat -> cat
+        | FsCodec.StreamName.Category "" as sid -> (FsCodec.StreamName.toString sid).Substring(1)
+        | FsCodec.StreamName.Category cat -> cat
 
 /// A contiguous set of Events from a Ordered stream, as held internally within this module
 type StreamSpan<'Format> = FsCodec.ITimelineEvent<'Format> array

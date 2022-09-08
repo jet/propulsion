@@ -31,7 +31,7 @@
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
     <PackageReference Include="Equinox.Cosmos" Version="[2.6.0, 2.99.0]" />
-    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.7" />
+    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.7.1" />
     <PackageReference Include="Microsoft.Azure.DocumentDB.ChangeFeedProcessor" Version="2.4.0" />
   </ItemGroup>
 

@@ -22,7 +22,7 @@ module private Impl =
         let filtered = page.Messages
                        |> Seq.choose (fun (msg : SqlStreamStore.Streams.StreamMessage) ->
                            let sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
-                           if categoryFilter (Propulsion.Streams.StreamName.category sn) then Some struct (sn, msg) else None)
+                           if categoryFilter (FsCodec.StreamName.category sn) then Some struct (sn, msg) else None)
         let! items = if hydrateBodies then filtered |> Seq.map readWithDataAsStreamEvent |> Async.Sequential
                      else async { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
         return { checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } }

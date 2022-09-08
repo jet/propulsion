@@ -16,9 +16,7 @@ module private Impl =
     let toItems categoryFilter (events : EventRecord array) : Propulsion.Streams.Default.StreamEvent array = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
-            // TODO replace with FsCodec.StreamName.category
-            let fsCodec_StreamName_category sn = let (FsCodec.StreamName.CategoryAndId (categoryName, _)) = sn in categoryName
-            if categoryFilter (fsCodec_StreamName_category sn) then
+            if categoryFilter (FsCodec.StreamName.category sn) then
                 yield sn, toTimelineEvent e |]
     let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
@@ -55,7 +53,7 @@ module private Impl =
 
 type EventStoreSource
     (   log : Serilog.ILogger, statsInterval,
-        store : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
+        client : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         categoryFilter : string -> bool,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
@@ -65,5 +63,5 @@ type EventStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (hydrateBodies = Some true) batchSize categoryFilter store, checkpoints, sink,
-            ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log store))
+            Impl.readBatch (hydrateBodies = Some true) batchSize categoryFilter client, checkpoints, sink,
+            ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log client))

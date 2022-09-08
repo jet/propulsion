@@ -109,7 +109,7 @@ type Service internal (shouldClose, resolve : struct (AppendsTrancheId * Appends
         let decider = resolve (trancheId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
-        let isSelf p = IndexStreamId.toStreamName p |> FsCodec.StreamName.splitCategoryAndStreamId |> ValueTuple.fst = Category
+        let isSelf p = match IndexStreamId.toStreamName p with FsCodec.StreamName.Category c -> c = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         decider.TransactEx((fun c -> (Ingest.decide (shouldClose (c.StreamEventBytes, c.Version))) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AllowStale)
 

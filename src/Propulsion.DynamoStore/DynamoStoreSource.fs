@@ -152,14 +152,14 @@ module internal LoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
-            if categoryFilter (Propulsion.Streams.StreamName.category sn) then
+            if categoryFilter (FsCodec.StreamName.category sn) then
                 ValueSome (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
                                    return events |> Array.map mapTimelineEvent })
             else ValueNone
     let private withoutBodies categoryFilter =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
-            if categoryFilter (Propulsion.Streams.StreamName.category sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
+            if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
     let map storeLog : LoadMode -> _ = function
         | WithoutEventBodies categoryFilter -> false, withoutBodies categoryFilter, 1
         | Hydrated (categoryFilter, dop, storeContext) ->
