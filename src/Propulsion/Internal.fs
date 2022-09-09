@@ -19,9 +19,9 @@ type System.Diagnostics.Stopwatch with
 type IntervalTimer(period : TimeSpan) =
 
     let sw = Stopwatch.start ()
-    let periodMs = int64 period.TotalMilliseconds
-    let periodT = periodMs / 1000L * System.Diagnostics.Stopwatch.Frequency
     let mutable force = false
+    let periodT = period.TotalSeconds * double System.Diagnostics.Stopwatch.Frequency |> int64
+    let periodMs = int64 period.TotalMilliseconds
 
     member _.Trigger() =
         force <- true
