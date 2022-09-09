@@ -111,6 +111,7 @@ module Seq =
 
 module Array =
 
+    let inline any xs = (not << Array.isEmpty) xs
     let inline chooseV f = Array.choose (f >> ValueOption.toOption)
 
 module Stats =

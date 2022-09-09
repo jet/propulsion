@@ -63,7 +63,7 @@ type SliceStatsBuffer(?interval) =
                     let cats =
                         [| for KeyValue (s, (c, b)) in xs |> Seq.sortBy (fun (KeyValue (_, (_, b))) -> -b) ->
                             Log.miB (int64 b) |> round, s, c |]
-                    if (not << Array.isEmpty) cats then
+                    if Array.any cats then
                         let mb, events, top = Array.sumBy (fun (mb, _, _) -> mb) cats, Array.sumBy (fun (_, _, c) -> c) cats, Seq.truncate limit cats
                         Log.Information("Reader {kind} {mb:n0}MB {events:n0} events categories: {@cats} (MB/cat/count)", kind, mb, events, top)
                 recentCats |> log "Total" 3

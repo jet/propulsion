@@ -73,12 +73,25 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         match positions.Current() with
         | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>)  -> kv.Value.IsEmpty) -> Array.empty
         | originals -> originals |> choose (fun v -> v.read)
-    let awaitPropagation (propagationDelay : TimeSpan) (delayMs : int) = async {
+    // Waits for up to propagationDelay, returning the opening position (or empty if the wait has timed out)
+    let awaitPropagation (propagationDelay : TimeSpan) (sleepMs : int) = async {
         let timeout = IntervalTimer propagationDelay
         let mutable startPositions = checkForActivity ()
         while Array.isEmpty startPositions && not sink.IsCompleted && not timeout.IsDue do
-            do! Async.Sleep delayMs
+            do! Async.Sleep sleepMs
             startPositions <- checkForActivity ()
+        return startPositions }
+    // Waits for up to the lingerTime for any additional activity to clear
+    // If the lingerTime elapses before activity quiesces, the first observed position is returned
+    let awaitLinger (lingerTime : TimeSpan) (sleepMs : int) = async {
+        let timeout = IntervalTimer lingerTime
+        let mutable startPositions = checkForActivity ()
+        let mutable worked = false
+        while (not worked || Array.any startPositions) && not sink.IsCompleted && not timeout.IsDue do
+            do! Async.Sleep sleepMs
+            let current = checkForActivity ()
+            if worked && Array.isEmpty current then startPositions <- current // Finished now; clear starting position record
+            elif not worked && Array.any current then startPositions <- current; worked <- true // Record starting pos in case we time out
         return startPositions }
     let awaitCompletion starting (delayMs : int) includeSubsequent logInterval = async {
         let logInterval = IntervalTimer logInterval
@@ -104,9 +117,6 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         while not (isComplete ()) && not sink.IsCompleted do
             if logInterval.IfDueRestart() then logStatus()
             do! Async.Sleep delayMs }
-    let defaultLinger (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
-        max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
-
     /// Waits quasi-deterministically for events to be observed, (for up to the <c>propagationDelay</c>)
     /// If at least one event has been observed, waits for the completion of the Sink's processing
     /// NOTE: Best used in conjunction with MemoryStoreSource.AwaitCompletion, which is deterministic.
@@ -122,16 +132,19 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
             ?ignoreSubsequent,
-            // Time to wait subsequent to processing for trailing events.
-            // Default algorithm takes the higher of:
-            // - propagationDelay / 4
-            // - (observed propagation delay + observed processing time) / 3
-            ?linger) = async {
+            // Compute time to wait subsequent to processing for trailing events, based on:
+            // - propagationTimeout: the propagationDelay as supplied
+            // - propagation: the observed propagation time
+            // - processing: the observed processing time
+            // Example:
+            //   let lingerTime (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
+            //      max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
+            ?lingerTime : TimeSpan -> TimeSpan -> TimeSpan -> TimeSpan) = async {
         let sw = Stopwatch.start ()
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
+        let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed ) }
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
@@ -141,11 +154,9 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let swProcessing = Stopwatch.start ()
             do! awaitCompletion starting delayMs includeSubsequent logInterval
             let procUsed = swProcessing.Elapsed
-            let lingerF = defaultArg linger defaultLinger
-            let linger = lingerF propagationDelay propUsed procUsed
+            let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
@@ -153,13 +164,13 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                                 sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, starting, completed)
             let swLinger = Stopwatch.start ()
             if not skipLinger then
-                match! awaitPropagation linger delayMs with
+                match! awaitLinger linger delayMs with
                 | [||] ->
-                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {linger:n1}s. Starting {starting} Completed {completed}",
-                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, starting, originalCompleted)
+                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s. Starting {starting} Completed {completed}",
+                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, starting, originalCompleted)
                 | lingering ->
                     do! awaitCompletion lingering delayMs includeSubsequent logInterval
-                    log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n0}s. Starting {starting} Lingering {lingering} Completed {completed}",
+                    log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s. Starting {starting} Lingering {lingering} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
