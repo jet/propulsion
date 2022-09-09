@@ -139,12 +139,12 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             // Example:
             //   let lingerTime (propagationTimeout : TimeSpan) (propagation : TimeSpan) (processing : TimeSpan) =
             //      max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
-            ?lingerTime : (TimeSpan -> TimeSpan -> TimeSpan -> TimeSpan)) = async {
+            ?lingerTime : TimeSpan -> TimeSpan -> TimeSpan -> TimeSpan) = async {
         let sw = Stopwatch.start ()
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
+        let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
         match! awaitPropagation propagationDelay delayMs with
         | [||] ->
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed ) }
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
@@ -157,7 +157,6 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
-            let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
