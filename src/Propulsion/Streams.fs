@@ -681,8 +681,7 @@ module Scheduling =
             let trySelect (potential : seq<Dispatch.Item<'F>>) markBusy =
                 let mutable hasCapacity, dispatched = true, false
                 let streams : Dispatch.Item<'F>[] = select potential
-                let succeeded = (not << Array.isEmpty) streams
-                if succeeded then
+                if Array.any streams then
                     let res = dop.TryAdd(handle streams)
                     if not res then failwith "Checked we can add, what gives?"
                     for x in streams do
