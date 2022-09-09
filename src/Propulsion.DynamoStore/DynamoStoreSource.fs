@@ -172,7 +172,7 @@ type DynamoStoreSource
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
-        // Override default start position to be at the tail of the index (Default: Always replay all events)
+        // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
         ?storeLog,
