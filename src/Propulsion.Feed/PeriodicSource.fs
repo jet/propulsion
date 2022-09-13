@@ -72,7 +72,7 @@ type PeriodicSource
         let mutable elapsed = TimeSpan.Zero
         for ts, xs in crawl trancheId do
             elapsed <- elapsed + ts
-            let streamEvents : Propulsion.Streams.StreamEvent<_> seq = seq {
+            let streamEvents : Propulsion.Streams.Default.StreamEvent seq = seq {
                 for si in xs ->
                     let i = index
                     index <- index + 1L

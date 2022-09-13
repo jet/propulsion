@@ -996,13 +996,13 @@ module Projector =
     type StreamsIngester =
 
         static member Start(log, partitionId, maxRead, submit, statsInterval) =
-            let submitBatch (items : StreamEvent<_> seq, onCompletion) =
+            let submitBatch (items : StreamEvent<'F> seq, onCompletion) =
                 let items = Array.ofSeq items
                 let streams = items |> Seq.map ValueTuple.fst |> HashSet
                 let batch : Submission.Batch<_, _> = { source = partitionId; onCompletion = onCompletion; messages = items }
                 submit batch
                 struct (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<_> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
+            Ingestion.Ingester<StreamEvent<'F> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
     type StreamsSubmitter =
 

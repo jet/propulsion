@@ -135,7 +135,7 @@ type FeedReader
                    let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
-        let epoch, streamEvents : int64 * Propulsion.Streams.StreamEvent<_> seq = int64 batch.checkpoint, Seq.ofArray batch.items
+        let epoch, streamEvents : int64 * Propulsion.Streams.Default.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items
         let ingestTimer = Stopwatch.start ()
         let! struct (cur, max) = submitBatch { epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }

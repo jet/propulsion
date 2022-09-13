@@ -19,7 +19,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
     let mutable prepared = -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
-        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.StreamEvent<_> seq>> in let r, w = c.Reader, c.Writer
+        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq>> in let r, w = c.Reader, c.Writer
         Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
     let handleStoreCommitted struct (categoryName, aggregateId, events : FsCodec.ITimelineEvent<_> []) =

@@ -287,7 +287,7 @@ module Core =
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
-                keyValueToStreamEvents : KeyValuePair<string, string> -> StreamEvent<_> seq,
+                keyValueToStreamEvents : KeyValuePair<string, string> -> Default.StreamEvent seq,
                 handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
@@ -379,12 +379,12 @@ type StreamNameSequenceGenerator() =
     /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
     member x.ConsumeResultToStreamEvent(
             // Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
-            ?defaultCategory) : ConsumeResult<string, string> -> StreamEvent<Default.EventBody> seq =
+            ?defaultCategory) : ConsumeResult<string, string> -> Default.StreamEvent seq =
         let defaultCategory = defaultArg defaultCategory ""
         x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
     /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
-    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : StreamEvent<Default.EventBody> seq =
+    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Default.StreamEvent seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
         Seq.singleton (sn, e)
@@ -401,7 +401,7 @@ type StreamsConsumer =
     static member Start<'Outcome>
         (   log : ILogger, config : KafkaConsumerConfig,
             // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
-            consumeResultToStreamEvents : ConsumeResult<_, _> -> StreamEvent<_> seq,
+            consumeResultToStreamEvents : ConsumeResult<_, _> -> Default.StreamEvent seq,
             // Handler responses:
             // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
