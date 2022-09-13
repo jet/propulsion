@@ -14,7 +14,7 @@ module private Impl =
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
             if categoryFilter (FsCodec.StreamName.category sn) then
-                yield sn, toTimelineEvent e |]
+                yield sn, Equinox.EventStoreDb.ClientCodec.timelineEvent e |]
     let private checkpointPos (xs : EventRecord array) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse

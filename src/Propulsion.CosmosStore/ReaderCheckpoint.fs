@@ -70,11 +70,17 @@ module Fold =
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
     /// So, we post-process the events to remove `Updated` events (as opposed to `Checkpointed` ones),
     /// knowing that the state already has that Updated event folded into it when we snapshot
+#if COSMOSV2 || COSMOSV3
     let transmute events state : Events.Event list * Events.Event list =
         match events, state with
         | [Events.Updated _], state -> [], [toSnapshot state]
         | xs, state ->                 xs, [toSnapshot state]
-
+#else
+    let transmute events state : Events.Event array * Events.Event array =
+        match events, state with
+        | [| Events.Updated _ |], state -> [||], [|toSnapshot state|]
+        | xs, state ->                     xs, [|toSnapshot state|]
+#endif
 let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
 let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
     let next = at.Add interval
