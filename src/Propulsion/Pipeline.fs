@@ -34,12 +34,7 @@ type Pipeline (task : Task<unit>, triggerStop) =
         use _ = ct.Register(fun () -> x.Stop())
         return! x.AwaitShutdown() }
 
-type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
-    inherit Pipeline(task, triggerStop)
-
-    member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
-
-    static member Start(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
+    static member Prepare(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, ?pumpIngester) =
         let cts = new CancellationTokenSource()
         let triggerStop () =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
@@ -72,11 +67,20 @@ type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
             start "scheduler" (pumpScheduler abend)
             start "submitter" pumpSubmitter
+            pumpIngester |> Option.iter (start "ingester")
 
             // await for either handler-driven abend or external cancellation via Stop()
             try return! tcs.Task
             finally log.Information("... projector stopped") }
 
         let task = Task.Run<unit>(supervise)
+        task, triggerStop
 
+type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
+    inherit Pipeline(task, triggerStop)
+
+    member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
+
+    static member Start(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
+        let task, triggerStop = Pipeline.Prepare(log, pumpDispatcher, pumpScheduler, pumpSubmitter, ?pumpIngester = None)
         new Sink<'Ingester>(task, triggerStop, startIngester)

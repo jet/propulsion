@@ -5,11 +5,6 @@ module private Impl =
     open EventStore.Client
     open FSharp.Control
 
-    let private toTimelineEvent (e : EventRecord) =
-        // TOCONSIDER wire e.Metadata["$correlationId"] and ["$causationId"] into correlationId and causationId
-        // https://eventstore.org/docs/server/metadata-and-reserved-names/index.html#event-metadata
-        let n, d, m, eu, ts = e.EventNumber, e.Data, e.Metadata, e.EventId, System.DateTimeOffset e.Created
-        FsCodec.Core.TimelineEvent.Create(n.ToInt64(), e.EventType, d, m, eu.ToGuid(), correlationId = null, causationId = null, timestamp = ts)
     let private toItems categoryFilter (events : EventRecord array) : Propulsion.Streams.Default.StreamEvent array = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId

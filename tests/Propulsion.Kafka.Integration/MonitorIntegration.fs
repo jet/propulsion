@@ -66,7 +66,7 @@ type T1(testOutputHelper) =
         use consumer = startConsumer log broker topic group onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(observeErrorsMonitorHandler)
-        use _ = monitor.Start(consumer.Inner, group)
+        use _ = monitor.Start(consumer.Consumer, group)
         do! startTimeout().AwaitTimeoutOr(fun () -> Volatile.Read(&errorObserved))
         errorObserved =! true }
 
@@ -88,7 +88,7 @@ type T2(testOutputHelper) =
         use consumerOne = startConsumer log broker topic group onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(partitionsObserver)
-        use _ = monitor.Start(consumerOne.Inner, group)
+        use _ = monitor.Start(consumerOne.Consumer, group)
         // first consumer is only member of group, should have all partitions
         let timeout = startTimeout ()
         do! timeout.AwaitTimeoutOr(fun () -> Volatile.Read(&numPartitions) = testPartitionCount)
@@ -117,11 +117,11 @@ type T3(testOutputHelper) =
         use consumer = startConsumerFromConfig log config onlyConsumeFirstBatchHandler
         let monitor = mkMonitor log
         use _ = monitor.OnStatus.Subscribe(noopObserver)
-        use _ = monitor.Start(consumer.Inner, group)
-        do! startTimeout().AwaitTimeoutOr(fun () -> consumer.Inner.Assignment.Count = testPartitionCount)
+        use _ = monitor.Start(consumer.Consumer, group)
+        do! startTimeout().AwaitTimeoutOr(fun () -> consumer.Consumer.Assignment.Count = testPartitionCount)
 
         // consumer should have all partitions assigned to it
-        testPartitionCount =! consumer.Inner.Assignment.Count
+        testPartitionCount =! consumer.Consumer.Assignment.Count
 
         let acc = AdminClientConfig(config.Inner)
         let ac = AdminClientBuilder(acc).Build()

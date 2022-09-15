@@ -19,7 +19,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName * StreamSpan<_> -> Async<(string*string) option * 'Outcome>,
+            prepare : struct (StreamName * Default.StreamSpan) -> Async<struct ((struct (string * string)) voption * 'Outcome)>,
             producer : Producer,
             stats : Sync.Stats<'Outcome>, statsInterval,
             // Default 1 ms
@@ -36,16 +36,16 @@ type StreamsProducerSink =
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : Default.Sink =
-            let maxBytes =  (defaultArg maxBytes (1024*1024 - (*fudge*)4096))
+            let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
             let handle struct (stream : StreamName, span) = async {
                 let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
                 match maybeMsg with
-                | Some (key : string, message : string) ->
+                | ValueSome (key : string, message : string) ->
                     match message.Length with
                     | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.Length)
                     | _ -> ()
                     do! producer.Produce(key, message)
-                | None -> ()
+                | ValueNone -> ()
                 return struct (SpanResult.AllProcessed, outcome)
             }
             Sync.StreamsSync.Start
@@ -56,7 +56,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : struct (StreamName * StreamSpan<_>) -> Async<struct (string*string)>,
+            prepare : struct (StreamName * Default.StreamSpan) -> Async<struct (string * string)>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
             // Default 1 ms
@@ -73,9 +73,9 @@ type StreamsProducerSink =
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : Default.Sink =
-            let prepare (stream, span) = async {
-                let! k, v = prepare (stream, span)
-                return Some (k, v), ()
+            let prepare struct (stream, span) = async {
+                let! kv = prepare (stream, span)
+                return struct (ValueSome kv, ())
             }
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,

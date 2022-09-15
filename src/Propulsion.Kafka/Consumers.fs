@@ -115,17 +115,10 @@ type KafkaIngestionEngine<'Info>
             dumpStats () // Unconditional logging when completing
             closeConsumer () (* Orderly Close() before Dispose() is critical *) }
 
-/// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
-/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
-type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
-    inherit Pipeline(task, triggerStop)
+module Consumer =
 
-    /// Provides access to the Confluent.Kafka interface directly
-    member _.Inner = inner
-
-    /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
-    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
-    static member Start(log : ILogger, config : KafkaConsumerConfig, mapResult, submit, pumpSubmitter, pumpScheduler, pumpDispatcher, statsInterval) =
+    /// Starts a Kafka Consumer, submitting to the supplied Sink via `submit`
+    let start (log : ILogger, config : KafkaConsumerConfig, mapResult, submit, statsInterval) =
         let maxDelay, maxItems = config.Buffering.maxBatchDelay, config.Buffering.maxBatchSize
         log.Information("Consuming... {bootstrapServers} {topics} {groupId} autoOffsetReset {autoOffsetReset} fetchMaxBytes={fetchMaxB} maxInFlight={maxInFlightGB:n1}GB maxBatchDelay={maxBatchDelay}s maxBatchSize={maxBatchSize}",
             config.Inner.BootstrapServers, config.Topics, config.Inner.GroupId, (let x = config.Inner.AutoOffsetReset in x.Value), config.Inner.FetchMaxBytes,
@@ -134,43 +127,19 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let limiter = Core.InFlightMessageCounter(limiterLog, config.Buffering.minInFlightBytes, config.Buffering.maxInFlightBytes)
         let consumer = ConsumerBuilder.WithLogging(log, config.Inner) // teardown is managed by ingester.Pump
         consumer.Subscribe config.Topics
-        let ingester = KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval=statsInterval)
-        let cts = new CancellationTokenSource()
-        let triggerStop () =
-            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-            log.Write(level, "Consuming... Stopping {name}", consumer.Name)
-            cts.Cancel()
-        let ct = cts.Token
-        let tcs = TaskCompletionSource<unit>()
-        // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
-        let abend (exns : AggregateException) =
-            if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
-            else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)
-            // NB cancel needs to be after TSE or the Register(TSE) will win
-            cts.Cancel()
-        let start (name : string) (f : CancellationToken -> Task<unit>) =
-            let wrap () = task {
-                try do! f ct
-                    log.Information("Exiting pipeline component {name}", name)
-                with e ->
-                    log.Fatal(e, "Abend from pipeline component {name}", name)
-                    triggerStop () }
-            Task.start wrap
+        consumer, KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval = statsInterval)
 
-        let supervise () = task {
-            // external cancellation should yield a success result
-            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
+/// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
+/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
+type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
+    inherit Pipeline(task, triggerStop)
 
-            start "dispatcher" pumpDispatcher
-            // ... fault results from dispatched tasks result in the `machine` concluding with an exception
-            start "scheduler" (pumpScheduler abend)
-            start "submitter" pumpSubmitter
-            start "ingester" ingester.Pump
+    /// Provides access to the Confluent.Kafka interface directly
+    member _.Consumer = inner
 
-            // await for either handler-driven abend or external cancellation via Stop()
-            return! tcs.Task
-        }
-        let task = Task.Run<unit>(supervise)
+    static member Start(log, pumpDispatcher, pumpScheduler, pumpSubmitter, config, consumeResultToInfo, submit, statsInterval) =
+        let consumer, ingester = Consumer.start (log, config, consumeResultToInfo, submit, statsInterval)
+        let task, triggerStop = Pipeline.Prepare(log, pumpDispatcher, pumpScheduler, pumpSubmitter, ingester.Pump)
         new ConsumerPipeline(consumer, task, triggerStop)
 
 type ParallelConsumer private () =
@@ -197,7 +166,7 @@ type ParallelConsumer private () =
             scheduler.Submit x
             x.messages.Length
         let submitter = Submission.SubmissionEngine(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
-        ConsumerPipeline.Start(log, config, mapResult, submitter.Ingest, submitter.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), dispatcher.Pump, statsInterval)
+        ConsumerPipeline.Start(log, dispatcher.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), submitter.Pump, config, mapResult, submitter.Ingest, statsInterval)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
@@ -217,7 +186,7 @@ module Core =
     type StreamsConsumer =
 
         static member Start<'Info, 'Outcome>
-            (   log : ILogger, config : KafkaConsumerConfig, resultToInfo, infoToStreamEvents,
+            (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
                 prepare, handle, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?maxSubmissionsPerPartition, ?logExternalState,
@@ -240,7 +209,7 @@ module Core =
                     (   log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch,
                         streamsScheduler.Submit, statsInterval,
                         ?disableCompaction=maximizeOffsetWriting)
-            ConsumerPipeline.Start(log, config, resultToInfo, submitter.Ingest, submitter.Pump, (fun _abend -> streamsScheduler.Pump), dispatcher.Pump, statsInterval)
+            ConsumerPipeline.Start(log, dispatcher.Pump, (fun _abend -> streamsScheduler.Pump), submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
@@ -494,4 +463,4 @@ type BatchesConsumer =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages) |> ValueTuple.fst
         let submitter = Projector.StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapConsumedMessagesToStreamsBatch, streamsScheduler.Submit, statsInterval)
-        ConsumerPipeline.Start(log, config, consumeResultToInfo, submitter.Ingest, submitter.Pump, (fun abend -> streamsScheduler.Pump), dispatcher.Pump, statsInterval)
+        ConsumerPipeline.Start(log, dispatcher.Pump, (fun _abend -> streamsScheduler.Pump), submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)

@@ -82,7 +82,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks,
     - CosmosDB/DynamoStore/EventStoreDB: walk change feeds/indexes and/or project to Kafka
     - DynamoStore: validate and/or reindex DynamoStore Index
 
-## Backward compatability components
+## Deprecated components
 
 Propulsion supports recent versions of Equinox and other Store Clients within reason - the aim is to provide a clean way to manage phased updates from older
 clients to current ones by means of adjusting package references while retaining source compatibility to the maximum degree possible.   

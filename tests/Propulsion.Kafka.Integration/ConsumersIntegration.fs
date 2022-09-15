@@ -41,7 +41,7 @@ module Helpers =
         | x when String.IsNullOrEmpty x -> invalidOp "missing environment variable 'TEST_KAFKA_BROKER'"
         | x -> x
 
-    let newId () = let g = System.Guid.NewGuid() in g.ToString("N")
+    let newId () = let g = Guid.NewGuid() in g.ToString("N")
 
     type ConsumerPipeline with
         member c.StopAfter(delay : TimeSpan) =
