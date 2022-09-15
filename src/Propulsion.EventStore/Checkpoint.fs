@@ -93,25 +93,25 @@ type Service internal (resolve : CheckpointSeriesId -> Equinox.Decider<Events.Ev
     /// Determines the present state of the CheckpointSequence
     member _.Read(series) =
         let stream = resolve series
-        stream.Query id
+        stream.Query(id, load = Equinox.AllowStale)
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
     member _.Start(series, freq : TimeSpan, pos : int64) =
         let stream = resolve series
-        stream.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)))
+        stream.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AllowStale)
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
     member _.Override(series, freq : TimeSpan, pos : int64) =
         let stream = resolve series
-        stream.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)))
+        stream.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AllowStale)
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
     member _.Commit(series, pos : int64) =
         let stream = resolve series
-        stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)))
+        stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AllowStale)
 
 let create resolve = Service(streamName >> resolve)
 

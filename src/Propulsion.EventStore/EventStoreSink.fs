@@ -16,19 +16,6 @@ open System.Collections.Generic
 open System
 open System.Threading
 
-module private StreamSpan =
-
-#if EVENTSTORE_LEGACY
-    let private nativeToDefault_ x = FsCodec.Core.TimelineEvent.Map<ReadOnlyMemory<byte>> (fun (xs : byte array) -> ReadOnlyMemory xs) x
-    let inline nativeToDefault span = Array.map nativeToDefault_ span
-    let defaultToNative_ = FsCodec.Core.TimelineEvent.Map<byte array> (fun (xs : ReadOnlyMemory<byte>) -> xs.ToArray())
-    let inline defaultToNative span = Array.map defaultToNative_ span
-#else
-    let nativeToDefault = id
-    let defaultToNative_ = id
-    let defaultToNative = id
-#endif
-
 module Internal =
 
     [<AutoOpen>]
@@ -55,21 +42,13 @@ module Internal =
 
         let write (log : ILogger) (context : EventStoreContext) stream (span : Default.StreamSpan) = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
-            let! res = context.Sync(log, stream, span[0].Index - 1L, (span |> Array.map (fun span -> StreamSpan.defaultToNative_ span :> _)))
+            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
             let ress =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->
-#if EVENTSTORE_LEGACY
-                    Ok (pos'.pos.streamVersion + 1L)
-#else
                     Ok (pos'.streamVersion + 1L)
-#endif
                 | GatewaySyncResult.ConflictUnknown (Token.Unpack pos) ->
-#if EVENTSTORE_LEGACY
-                    match pos.pos.streamVersion + 1L with
-#else
                     match pos.streamVersion + 1L with
-#endif
                     | actual when actual < span[0].Index -> PrefixMissing (span, actual)
                     | actual when actual >= span[0].Index + span.LongLength -> Duplicate actual
                     | actual -> PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))

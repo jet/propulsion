@@ -107,10 +107,11 @@ clients to current ones by means of adjusting package references while retaining
 
   (Reading and position metrics are exposed via `Propulsion.CosmosStore.Prometheus`)
 
-- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `3.0.7`, `Serilog`
+- `Propulsion.EventStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStore.svg)](https://www.nuget.org/packages/Propulsion.EventStore/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStore) on `Equinox.EventStore` v `4.0.0`, `Serilog`
 
     - **Deprecated as reading (and writing) relies on the legacy EventStoreDB TCP interface**
     - Contains ultra-high throughput striped reader implementation
+    - Presently Used by [`proSync` template](https://github.com/jet/dotnet-templates/tree/master/propulsion-sync)
 
   (Reading and position metrics are emitted to Console / Serilog; no Prometheus support)
 

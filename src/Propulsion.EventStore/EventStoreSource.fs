@@ -36,7 +36,7 @@ module Mapping =
         member x.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(x.CreatedEpoch)
 
     let (|PropulsionTimelineEvent|) (x : RecordedEvent) : FsCodec.ITimelineEvent<_> =
-        let inline len0ToNull (x : _[]) = match x with null -> null | x when x.Length = 0 -> null | x -> x
+        let inline len0ToNull (x : _[]) = match x with null -> ReadOnlyMemory.Empty | x when x.Length = 0 -> ReadOnlyMemory.Empty | x -> ReadOnlyMemory x
         FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp) :> _
 
     let (|PropulsionStreamEvent|) (x : RecordedEvent) : StreamEvent<_> =
