@@ -42,7 +42,12 @@ module Internal =
 
         let write (log : ILogger) (context : EventStoreContext) stream (span : Default.StreamSpan) = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
-            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
+#if EVENTSTORE_LEGACY
+            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _)) |> Async.AwaitTaskCorrect
+#else
+            let! ct = Async.CancellationToken
+            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _), ct) |> Async.AwaitTaskCorrect
+#endif
             let ress =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->
