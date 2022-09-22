@@ -96,9 +96,9 @@ module Reader =
     // Returns flattened list of all spans, and flag indicating whether tail reached
     let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) trancheId epochId
         : Async<AppendsEpoch.Events.StreamSpan array * bool * int64> = async {
-        let sw = Stopwatch.start ()
+        let ts = Stopwatch.timestamp ()
         let! maybeStreamBytes, _version, state = epochs.Read(trancheId, epochId, 0)
-        let sizeB, loadS = defaultValueArg maybeStreamBytes 0L, sw.ElapsedSeconds
+        let sizeB, loadS = defaultValueArg maybeStreamBytes 0L, Stopwatch.elapsedSeconds ts
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length

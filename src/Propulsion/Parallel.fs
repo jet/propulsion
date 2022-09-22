@@ -62,12 +62,12 @@ module Scheduling =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> async {
-                    let sw = Stopwatch.start ()
+                    let ts = Stopwatch.timestamp ()
                     try match! handle item with
-                        | Choice1Of2 () -> x.RecordOk sw.Elapsed
-                        | Choice2Of2 exn -> x.RecordExn(sw.Elapsed, exn)
+                        | Choice1Of2 () -> x.RecordOk(Stopwatch.elapsed ts)
+                        | Choice2Of2 exn -> x.RecordExn(Stopwatch.elapsed ts, exn)
                     // This exception guard _should_ technically not be necessary per the interface contract, but cannot risk an orphaned batch
-                    with exn -> x.RecordExn(sw.Elapsed, exn) } }
+                    with exn -> x.RecordExn(Stopwatch.elapsed ts, exn) } }
 
     /// Infers whether a WipBatch is in a terminal state
     let (|Busy|Completed|Faulted|) = function

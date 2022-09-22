@@ -278,10 +278,10 @@ type FeedSource
         fun (wasLast, pos) -> asyncSeq {
             if wasLast then
                 do! Async.Sleep(TimeSpan.toMs tailSleepInterval)
-            let sw = Stopwatch.start ()
+            let readTs = Stopwatch.timestamp ()
             let! page = readPage (trancheId, pos)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield struct (sw.Elapsed, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>))
+            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>))
         }
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>

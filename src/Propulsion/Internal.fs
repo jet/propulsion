@@ -9,6 +9,13 @@ module TimeSpan =
 module Stopwatch =
 
     let inline start () = System.Diagnostics.Stopwatch.StartNew()
+    let inline timestamp () = System.Diagnostics.Stopwatch.GetTimestamp()
+    let inline ticksToSeconds ticks = double ticks / double System.Diagnostics.Stopwatch.Frequency
+    let inline ticksToTimeSpan ticks = ticksToSeconds ticks |> TimeSpan.FromSeconds
+
+    let inline elapsedTicks (ts : int64) = timestamp () - ts
+    let inline elapsedSeconds (ts : int64) = elapsedTicks ts |> ticksToSeconds
+    let inline elapsed (ts : int64) = elapsedTicks ts |> ticksToTimeSpan // equivalent to .NET 7 System.Diagnostics.Stopwatch.GetElapsedTime()
 
 type System.Diagnostics.Stopwatch with
 

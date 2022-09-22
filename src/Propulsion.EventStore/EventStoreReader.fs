@@ -150,7 +150,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
     let rec aux () = async {
         let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.AwaitTaskCorrect
         sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
-        let postSw = Stopwatch.start ()
+        let postTs = Stopwatch.timestamp ()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
         let events = currentSlice.Events |> Seq.choose tryMapEvent |> Array.ofSeq
         streams.Clear(); cats.Clear()
@@ -160,7 +160,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
         let! cur, max = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
                         range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), Log.miB batchBytes,
-                        batchEvents, cats.Count, streams.Count, events.Length, (let e = postSw.Elapsed in e.TotalSeconds), cur, max)
+                        batchEvents, cats.Count, streams.Count, events.Length, Stopwatch.elapsedSeconds postTs, cur, max)
         if not (range.TryNext currentSlice.NextPosition && not once && not currentSlice.IsEndOfStream) then
             if currentSlice.IsEndOfStream then return Eof
             else return EndOfTranche

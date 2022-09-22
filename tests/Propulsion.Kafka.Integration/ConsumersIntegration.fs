@@ -202,8 +202,6 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-#nowarn "1182" // From hereon in, we may have some 'unused' privates (the tests)
-
 type BatchesConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, false)
 
