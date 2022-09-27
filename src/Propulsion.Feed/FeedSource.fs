@@ -33,9 +33,11 @@ type FeedSourceBase internal
             return! Async.Raise e }
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
-    member _.FlushProgress() = async {
+    /// Yields current Tranche Positions
+    member _.Checkpoint() : Async<IReadOnlyDictionary<TrancheId, Position>> = async {
         let! ct = Async.CancellationToken
-        return! Async.Parallel(seq { for x in ingesters -> Async.AwaitTask(x.FlushProgress ct) }) |> Async.Ignore<unit array> }
+        do! Async.Parallel(seq { for x in ingesters -> Async.AwaitTask(x.FlushProgress ct) }) |> Async.Ignore<unit array>
+        return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
@@ -66,6 +68,9 @@ and internal TranchePositions() =
                 positions[trancheId].completed <- ValueSome batch.epoch
             { batch with onCompletion = onCompletion }
     member _.Current() = positions.ToArray()
+    member x.Completed() : IReadOnlyDictionary<TrancheId, Position> =
+        seq { for kv in x.Current() do match kv.Value.completed with ValueNone -> () | ValueSome c -> (kv.Key, Position.parse c) }
+        |> readOnlyDict
 
 /// Represents the current state of a tranche of the source's processing
 and internal TrancheState =
@@ -123,9 +128,6 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         while not (isComplete ()) && not sink.IsCompleted do
             if logInterval.IfDueRestart() then logStatus()
             do! Async.Sleep delayMs }
-    member _.CompletedPositions() =
-        seq { for kv in positions.Current() do match kv.Value.completed with ValueNone -> () | ValueSome c -> (kv.Key, Position.parse c) }
-        |> readOnlyDict
 
     /// Waits quasi-deterministically for events to be observed, (for up to the <c>propagationDelay</c>)
     /// If at least one event has been observed, waits for the completion of the Sink's processing
