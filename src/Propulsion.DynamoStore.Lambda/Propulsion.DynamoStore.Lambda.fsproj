@@ -20,7 +20,7 @@
         <Compile Include="..\Propulsion\Infrastructure.fs">
             <Link>PropulsionInfrastructure.fs</Link>
         </Compile>
-        <Compile Include="DynamoStreamsLambda.fs" />
+        <Compile Include="Handler.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>
     
@@ -30,7 +30,7 @@
       <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
-      <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
       <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
     </ItemGroup>
     

@@ -53,7 +53,7 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
     let fn : Function = Function(stack, "Indexer", FunctionProps(
         Role = role,
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
-        Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Lambda.Function::FunctionHandler",
+        Handler = "Propulsion.DynamoStore.Lambda::Propulsion.DynamoStore.Indexer.Function::Handle",
         MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,
         Environment = dict [
             "EQUINOX_DYNAMO_SYSTEM_NAME", props.regionName
