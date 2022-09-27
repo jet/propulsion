@@ -51,6 +51,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Cons
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MemoryStore", "src\Propulsion.MemoryStore\Propulsion.MemoryStore.fsproj", "{A2BE56FF-42DC-4B74-8228-95A1DE1759C4}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Integration", "tests\Propulsion.DynamoStore.Integration\Propulsion.DynamoStore.Integration.fsproj", "{BD085BF8-2C51-43B9-8A68-4AE80D16B259}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Notifier", "src\Propulsion.DynamoStore.Notifier\Propulsion.DynamoStore.Notifier.fsproj", "{0B6E39F3-5604-4238-AF03-912BADDBF8B8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -125,6 +129,14 @@ Global
 		{A2BE56FF-42DC-4B74-8228-95A1DE1759C4}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A2BE56FF-42DC-4B74-8228-95A1DE1759C4}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A2BE56FF-42DC-4B74-8228-95A1DE1759C4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BD085BF8-2C51-43B9-8A68-4AE80D16B259}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BD085BF8-2C51-43B9-8A68-4AE80D16B259}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BD085BF8-2C51-43B9-8A68-4AE80D16B259}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BD085BF8-2C51-43B9-8A68-4AE80D16B259}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0B6E39F3-5604-4238-AF03-912BADDBF8B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0B6E39F3-5604-4238-AF03-912BADDBF8B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0B6E39F3-5604-4238-AF03-912BADDBF8B8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0B6E39F3-5604-4238-AF03-912BADDBF8B8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
