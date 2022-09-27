@@ -30,22 +30,29 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 - `Propulsion.DynamoStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore/) Provides bindings to `Equinox.DynamoStore`. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore) on `Equinox.DynamoStore` v `4.0.0`
 
     1. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the Index Event Store 
-    2. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Lambda`)
-    3. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Lambda` via `DynamoStoreIndexer`)
+    2. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Indexer`)
+    3. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (which is populated by `Propulsion.DynamoStore.Indexer` via `DynamoStoreIndexer`)
     4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
     5. `Monitor.AwaitCompletion`: See `Propulsion.Feed`
 
   (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
 
-- `Propulsion.DynamoStore.Lambda` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Lambda.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Lambda/) AWS Lambda. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Lambda) on `Propulsion.DynamoStore`, `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`
+- `Propulsion.DynamoStore.Indexer` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Indexer.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Indexer/) AWS Lambda to index appends into an Index Table. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Indexer) on `Propulsion.DynamoStore`, `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`
 
-    1. `DynamoStreamsLambda`: parses Dynamo DB Streams Trigger input, feeds into `Propulsion.DynamoStore.DynamoStoreIndexer`
+    1. `Handler`: parses Dynamo DB Streams Trigger input, feeds into `Propulsion.DynamoStore.DynamoStoreIndexer`
     2. `Connector`: Store / environment variables wiring to connect `DynamoStreamsLambda` to the `Equinox.DynamoStore` Index Event Store
-    3. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which it pases to `DynamoStreamsLambda`
+    3. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which it passes to `Handler`
 
   (Diagnostics are exposed via Console to CloudWatch)
 
-- `Propulsion.DynamoStore.Constructs` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Constructs.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Constructs/) AWS Lambda CDK deploy logic. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Constructs) on `Amazon.CDK.Lib` (and, indirectly, on the binary assets included as content in `Propulsion.DynamoStore.Lambda`)
+- `Propulsion.DynamoStore.Notifier` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Notifier.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Notifier/) AWS Lambda to report new events indexed by the Indexer to an SNS Topic, in order to enable triggering AWS Lambdas to service Reactions without requiring a long-lived host application. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Notifier) on `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`, `AWSSDK.SimpleNotificationService`
+
+    1. `Handler`: parses Dynamo DB Streams Trigger input, generates a message per updated Tranche in the batch
+    2. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which passes to `Handler`
+
+  (Diagnostics are exposed via Console to CloudWatch)
+
+- `Propulsion.DynamoStore.Constructs` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Constructs.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Constructs/) AWS Lambda CDK deploy logic. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Constructs) on `Amazon.CDK.Lib` (and, indirectly, on the binary assets included as content in `Propulsion.DynamoStore.Indexer`/`Propulsion.DynamoStore.Notifier`)
 
 - `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStoreDb) on `Equinox.EventStoreDb` v `4.0.0`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.Sink` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`

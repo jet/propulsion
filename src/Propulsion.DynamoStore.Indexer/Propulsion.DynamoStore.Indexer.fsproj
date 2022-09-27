@@ -17,9 +17,6 @@
         <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludePublishedInPackAsTool</TargetsForTfmSpecificBuildOutput>
     </PropertyGroup>
     <ItemGroup>
-        <Compile Include="..\Propulsion\Infrastructure.fs">
-            <Link>PropulsionInfrastructure.fs</Link>
-        </Compile>
         <Compile Include="Handler.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>

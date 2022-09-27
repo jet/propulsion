@@ -15,9 +15,9 @@
     <Exec Command="dotnet pack src/Propulsion $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.CosmosStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.DynamoStore $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.DynamoStore.Lambda $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.DynamoStore.Notifier $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.DynamoStore.Constructs $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.DynamoStore.Indexer $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.DynamoStore.Notifier $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStoreDb $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Feed $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
