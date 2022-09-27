@@ -59,7 +59,7 @@ module Config =
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownTranches (state : Fold.State) : AppendsTrancheId[] =
+    let readKnownTranches (state : Fold.State) : AppendsTrancheId array =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
     let readIngestionEpochId trancheId (state : Fold.State) =
@@ -71,7 +71,7 @@ module Reader =
             let decider = resolve ()
             decider.Query(id)
 
-        member _.ReadKnownTranches() : Async<AppendsTrancheId[]> =
+        member _.ReadKnownTranches() : Async<AppendsTrancheId array> =
             let decider = resolve ()
             decider.Query(readKnownTranches)
 

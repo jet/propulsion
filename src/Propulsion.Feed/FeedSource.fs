@@ -17,10 +17,11 @@ type FeedSourceBase internal
     let log = log.ForContext("source", sourceId)
     let positions = TranchePositions()
     let feedWaiter = lazy FeedMonitor(log, positions, sink)
-
+    let ingesters = System.Collections.Concurrent.ConcurrentQueue()
     let pumpPartition crawl partitionId trancheId = async {
         let log = log.ForContext("tranche", trancheId)
         let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, partitionId)
+        ingesters.Enqueue ingester
         let ingest = positions.Intercept(trancheId) >> ingester.Ingest
         let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingest, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
         try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
@@ -30,6 +31,11 @@ type FeedSourceBase internal
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
             return! Async.Raise e }
+
+    /// Runs checkpointing functions for any batches with unwritten checkpoints
+    member _.FlushProgress() = async {
+        let! ct = Async.CancellationToken
+        return! Async.Parallel(seq { for x in ingesters -> Async.AwaitTask(x.FlushProgress ct) }) |> Async.Ignore<unit array> }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal _.Pump
@@ -117,6 +123,10 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         while not (isComplete ()) && not sink.IsCompleted do
             if logInterval.IfDueRestart() then logStatus()
             do! Async.Sleep delayMs }
+    member _.CompletedPositions() =
+        seq { for kv in positions.Current() do match kv.Value.completed with ValueNone -> () | ValueSome c -> (kv.Key, Position.parse c) }
+        |> readOnlyDict
+
     /// Waits quasi-deterministically for events to be observed, (for up to the <c>propagationDelay</c>)
     /// If at least one event has been observed, waits for the completion of the Sink's processing
     /// NOTE: Best used in conjunction with MemoryStoreSource.AwaitCompletion, which is deterministic.

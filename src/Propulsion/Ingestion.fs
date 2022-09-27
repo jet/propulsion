@@ -8,17 +8,16 @@ open System.Threading.Tasks
 
 /// Manages writing of progress
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)
-/// - retries until success or a new item is posted
-type ProgressWriter<'Res when 'Res : equality>(?period) =
-    let commitInterval = defaultArg period (TimeSpan.FromSeconds 5.)
+/// - a failed commit will be retried on the next CommitIfDirty (unless a new checkpoint has been posted that supersedes it)
+type ProgressWriter<'Res when 'Res : equality>() =
     let mutable committedEpoch = None
     let mutable validatedPos = None
     let result = Event<Choice<'Res, exn>>()
 
-    let commitIfDirty ct = task {
+    member _.CommitIfDirty ct = task {
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
-            try do! Async.StartAsTask(f, cancellationToken = ct)
+            try do! Async.StartImmediateAsTask(f, cancellationToken = ct)
                 Volatile.Write(&committedEpoch, Some v)
                 result.Trigger(Choice1Of2 v)
             with e -> result.Trigger(Choice2Of2 e)
@@ -30,11 +29,6 @@ type ProgressWriter<'Res when 'Res : equality>(?period) =
         Volatile.Write(&validatedPos, Some (version, f))
 
     member _.CommittedEpoch = Volatile.Read(&committedEpoch)
-
-    member _.Pump(ct : CancellationToken) = task {
-        while not ct.IsCancellationRequested do
-            do! commitIfDirty ct
-            do! Task.Delay(commitInterval, ct) }
 
 [<NoComparison; NoEquality>]
 type private InternalMessage =
@@ -85,7 +79,8 @@ type Ingester<'Items> private
     (   stats : Stats, maxReadAhead,
         // forwards a set of items and the completion callback, yielding streams count * event count
         submitBatch : 'Items * (unit -> unit) -> struct (int * int),
-        cts : CancellationTokenSource) =
+        cts : CancellationTokenSource,
+        ?commitInterval) =
 
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
@@ -95,6 +90,7 @@ type Ingester<'Items> private
         let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
         Channel.awaitRead r, Channel.apply r, Channel.write w
 
+    let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
     let progressWriter = ProgressWriter<_>()
 
     let handleIncoming (batch : Batch<'Items>) =
@@ -106,9 +102,17 @@ type Ingester<'Items> private
         let struct (streamCount, itemCount) = submitBatch (batch.items, markCompleted)
         enqueueMessage <| Added (streamCount, itemCount)
 
-    member private _.Pump(ct) = task {
+    member _.FlushProgress ct =
+        progressWriter.CommitIfDirty ct
+
+    member private x.CheckpointPeriodically(ct : CancellationToken) = task {
+        while not ct.IsCancellationRequested do
+            do! x.FlushProgress ct
+            do! Task.Delay(commitInterval, ct) }
+
+    member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
-        Task.start (fun () -> progressWriter.Pump ct)
+        Task.start (fun () -> x.CheckpointPeriodically ct)
         while not ct.IsCancellationRequested do
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
@@ -121,10 +125,10 @@ type Ingester<'Items> private
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Items>(log, partitionId, maxRead, submitBatch, statsInterval) =
+    static member Start<'Items>(log, partitionId, maxRead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts)
+        let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts, ?commitInterval = commitInterval)
         let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("Exiting {name}", "ingester") }

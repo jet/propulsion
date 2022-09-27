@@ -10,9 +10,12 @@ open System.Collections.Generic
 open System.Collections.Immutable
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
-let [<Literal>] MaxItemsPerEpoch = 1_000_000
+let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
 let [<Literal>] Category = "$AppendsEpoch"
 let streamName struct (tid, eid) = struct (Category, FsCodec.StreamName.createStreamId [AppendsTrancheId.toString tid; AppendsEpochId.toString eid])
+let [<return: Struct>] (|StreamName|_|) = function
+    | FsCodec.StreamName.CategoryAndIds (Category, [| tid; eid |]) -> ValueSome struct (Propulsion.Feed.TrancheId.parse tid, AppendsEpochId.parse eid)
+    | _ -> ValueNone
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -28,6 +31,7 @@ module Events =
         | Closed
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.gen<Event>
+    let isEventTypeClosed (et : string) = et = nameof Closed
 
 let next (x : Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
@@ -105,7 +109,7 @@ module Ingest =
 
 type Service internal (shouldClose, resolve : struct (AppendsTrancheId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    member _.Ingest(trancheId, epochId, spans : Events.StreamSpan[], ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
+    member _.Ingest(trancheId, epochId, spans : Events.StreamSpan array, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (trancheId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 

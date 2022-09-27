@@ -32,7 +32,7 @@ module internal AppendsEpochId =
     let toString : AppendsEpochId -> string = UMX.untag >> string
     let value : AppendsEpochId -> int = UMX.untag
     let next (value : AppendsEpochId) : AppendsEpochId = % (%value + 1)
-    let parse : int -> AppendsEpochId = int >> UMX.tag
+    let parse : string -> AppendsEpochId = int >> UMX.tag
 
 /// Identifies an Equinox Store Stream; used within an AppendsEpoch
 type IndexStreamId = string<indexStreamId>
@@ -45,6 +45,30 @@ module IndexStreamId =
 module internal FeedSourceId =
 
     let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamoStore"
+
+type [<Measure>] checkpoint
+type Checkpoint = int64<checkpoint>
+module Checkpoint =
+
+    /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
+    let [<Literal>] MaxItemsPerEpoch = 1_000_000
+    let private maxItemsPerEpoch = int64 MaxItemsPerEpoch
+    let private ofPosition : Propulsion.Feed.Position -> Checkpoint = Propulsion.Feed.Position.toInt64 >> UMX.tag
+
+    let internal positionOfEpochAndOffset (epoch : AppendsEpochId) offset : Propulsion.Feed.Position =
+        int64 (AppendsEpochId.value epoch) * maxItemsPerEpoch + int64 offset |> UMX.tag
+
+    let positionOfEpochClosedAndVersion (epoch : AppendsEpochId) isClosed version : Propulsion.Feed.Position =
+        let epoch, offset =
+            if isClosed then AppendsEpochId.next epoch, 0L
+            else epoch, version
+        positionOfEpochAndOffset epoch offset
+
+    let private toEpochAndOffset (value : Checkpoint) : struct (AppendsEpochId * int) =
+        let d, r = System.Math.DivRem(%value, maxItemsPerEpoch)
+        (%int %d : AppendsEpochId), int r
+
+    let internal (|Parse|) : Propulsion.Feed.Position -> struct (AppendsEpochId * int) = ofPosition >> toEpochAndOffset
 
 module internal Config =
 
