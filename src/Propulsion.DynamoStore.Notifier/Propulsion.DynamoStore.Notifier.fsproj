@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
+        <DefineConstants>PROPULSION_DYNAMOSTORE_NOTIFIER</DefineConstants>
         
         <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
         <AWSProjectType>Lambda</AWSProjectType>
@@ -17,6 +18,15 @@
         <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludePublishedInPackAsTool</TargetsForTfmSpecificBuildOutput>
     </PropertyGroup>
     <ItemGroup>
+        <Compile Include="..\Propulsion.DynamoStore\Types.fs">
+            <Link>PropulsionDynamoStore\Types.fs</Link>
+        </Compile>
+        <Compile Include="..\Propulsion.DynamoStore\AppendsEpoch.fs">
+            <Link>PropulsionDynamoStore\AppendsEpoch.fs</Link>
+        </Compile>
+        <Compile Include="..\Propulsion.DynamoStore\AppendsIndex.fs">
+            <Link>PropulsionDynamoStore\AppendsIndex.fs</Link>
+        </Compile>
         <Compile Include="Handler.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>
@@ -29,7 +39,7 @@
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
       <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.4.10" />
       <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
-      <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
+      <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
     </ItemGroup>
     
     <!-- The Notifier dotnet new template extracts the published binaries from the tools folder using logic in https://github.com/jet/propulsion/pull/143 -->

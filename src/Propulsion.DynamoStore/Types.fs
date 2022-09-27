@@ -2,13 +2,16 @@ namespace Propulsion.DynamoStore
 
 open FSharp.UMX
 
-/// Identifies an Index within a given store
-type [<Measure>] indexId
-type internal IndexId = string<indexId>
-module internal IndexId =
+/// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
+type internal AppendsEpochId = int<appendsEpochId>
+and [<Measure>] appendsEpochId
+module internal AppendsEpochId =
 
-    let wellKnownId : IndexId = UMX.tag "0"
-    let toString : IndexId -> string = UMX.untag
+    let initial : AppendsEpochId = UMX.tag 0
+    let toString : AppendsEpochId -> string = UMX.untag >> string
+    let value : AppendsEpochId -> int = UMX.untag
+    let next (value : AppendsEpochId) : AppendsEpochId = % (%value + 1)
+    let parse : string -> AppendsEpochId = int >> UMX.tag
 
 /// Identifies a chain of epochs within an index that's to be ingested and/or read in sequence
 /// Multiple tranches within an index are analogous to how the Table's data is split into shards
@@ -22,29 +25,6 @@ module AppendsTrancheId =
     let internal toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
     let parse : int -> AppendsTrancheId = int >> UMX.tag
     let internal (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
-
-/// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
-type internal AppendsEpochId = int<appendsEpochId>
-and [<Measure>] appendsEpochId
-module internal AppendsEpochId =
-
-    let initial : AppendsEpochId = UMX.tag 0
-    let toString : AppendsEpochId -> string = UMX.untag >> string
-    let value : AppendsEpochId -> int = UMX.untag
-    let next (value : AppendsEpochId) : AppendsEpochId = % (%value + 1)
-    let parse : string -> AppendsEpochId = int >> UMX.tag
-
-/// Identifies an Equinox Store Stream; used within an AppendsEpoch
-type IndexStreamId = string<indexStreamId>
-and [<Measure>] indexStreamId
-module IndexStreamId =
-
-    let ofP : string -> IndexStreamId = UMX.tag
-    let internal toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
-
-module internal FeedSourceId =
-
-    let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamoStore"
 
 type [<Measure>] checkpoint
 type Checkpoint = int64<checkpoint>
@@ -69,6 +49,27 @@ module Checkpoint =
         (%int %d : AppendsEpochId), int r
 
     let internal (|Parse|) : Propulsion.Feed.Position -> struct (AppendsEpochId * int) = ofPosition >> toEpochAndOffset
+
+#if !PROPULSION_DYNAMOSTORE_NOTIFIER
+/// Identifies an Index within a given store
+type [<Measure>] indexId
+type internal IndexId = string<indexId>
+module internal IndexId =
+
+    let wellKnownId : IndexId = UMX.tag "0"
+    let toString : IndexId -> string = UMX.untag
+
+/// Identifies an Equinox Store Stream; used within an AppendsEpoch
+type IndexStreamId = string<indexStreamId>
+and [<Measure>] indexStreamId
+module IndexStreamId =
+
+    let ofP : string -> IndexStreamId = UMX.tag
+    let internal toStreamName : IndexStreamId -> FsCodec.StreamName = UMX.untag >> Propulsion.Streams.StreamName.internalParseSafe
+
+module internal FeedSourceId =
+
+    let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamoStore"
 
 module internal Config =
 
@@ -135,3 +136,4 @@ module internal Async =
             |> Async.Parallel
         return Array.concat allResults
     }
+#endif

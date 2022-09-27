@@ -21,6 +21,9 @@ let [<return: Struct>] (|StreamName|_|) = function
 [<RequireQualifiedAccess>]
 module Events =
 
+#if PROPULSION_DYNAMOSTORE_NOTIFIER
+    let isEventTypeClosed (et : string) = et = "Closed"
+#else
     // NOTE while the `i` values in `app` could be inferred, we redundantly store them to enable optimal tailing
     //      without having to read and/or process/cache all preceding events
     type Ingested =             { add : StreamSpan array; app : StreamSpan array }
@@ -32,7 +35,9 @@ module Events =
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.gen<Event>
     let isEventTypeClosed (et : string) = et = nameof Closed
+#endif
 
+#if !PROPULSION_DYNAMOSTORE_NOTIFIER
 let next (x : Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
 let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
@@ -164,3 +169,4 @@ module Reader =
         let create log context =
             let resolve minIndex = Equinox.Decider.resolve log (createCategory context minIndex)
             Service(fun (tid, eid, minIndex) -> streamName (tid, eid) |> resolve minIndex)
+#endif

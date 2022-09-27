@@ -4,6 +4,7 @@
 module Propulsion.DynamoStore.AppendsIndex
 
 let [<Literal>] Category = "$AppendsIndex"
+#if !PROPULSION_DYNAMOSTORE_NOTIFIER
 let streamName () = struct (Category, IndexId.toString IndexId.wellKnownId)
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
@@ -80,3 +81,4 @@ module Reader =
             decider.Query(readIngestionEpochId trancheId)
 
     let create log context = Service(streamName >> Config.resolve log (context, None))
+#endif
