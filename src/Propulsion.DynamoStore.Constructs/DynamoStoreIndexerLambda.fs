@@ -27,31 +27,27 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
     inherit Constructs.Construct(scope, id)
 
     let role =
-        let role = Role(stack, "LambdaRole", RoleProps(
+        let role = Role(stack, "IndexerLambdaRole", RoleProps(
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,
             // Basic required permissions, chiefly CloudWatch access
             ManagedPolicies = [| ManagedPolicy.FromAwsManagedPolicyName "service-role/AWSLambdaBasicExecutionRole" |]))
-//        // Enable access to DDB Streams Top Level Streams List
-//        do  let topLevel = PolicyStatement()
-//            topLevel.AddActions("dynamodb:ListStreams")
-//            topLevel.AddAllResources()
-//            role.AddToPolicy(topLevel) |> ignore
-        // For the specific stream being indexed, enable access to walk the DDB Streams Data
-        do  let streamLevel = PolicyStatement()
-            streamLevel.AddActions("dynamodb:DescribeStream", "dynamodb:GetShardIterator", "dynamodb:GetRecords")
-            streamLevel.AddResources(props.streamArn)
-            role.AddToPolicy(streamLevel) |> ignore
+        // For the Store Table being indexed, enable access to walk the DDB Streams Data
+        do  let streamsPolicy = PolicyStatement()
+            streamsPolicy.AddActions("dynamodb:DescribeStream", "dynamodb:GetShardIterator", "dynamodb:GetRecords")
+            streamsPolicy.AddResources props.streamArn
+            role.AddToPolicy streamsPolicy |> ignore
+        // For the Index Table, we'll be doing Equinox Transact operations, i.e. both Get/Query + Put/Update
         let indexTable = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, "indexTable", props.tableName)
-        do  let indexTableLevel = PolicyStatement()
-            indexTableLevel.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
-            indexTableLevel.AddResources([| indexTable.TableArn |])
-            role.AddToPolicy(indexTableLevel) |> ignore
+        do  let indexTablePolicy = PolicyStatement()
+            indexTablePolicy.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
+            indexTablePolicy.AddResources indexTable.TableArn
+            role.AddToPolicy indexTablePolicy |> ignore
         role
 
-    // See .Cdk project file for logic to extract content from tools section of .Lambda nupgk file
+    // See dotnet-templates/propulsion-indexer-cdk project file for logic to extract content from tools section of .Lambda nupkg file
     let code = Code.FromAsset(props.codePath)
     let fn : Function = Function(stack, "Indexer", FunctionProps(
-        Role = role,
+        Role = role, Description="Propulsion DynamoStore Indexer",
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Indexer::Propulsion.DynamoStore.Indexer.Function::Handle",
         MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,

@@ -23,6 +23,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
             | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
             | x -> invalidOp (sprintf "Unexpected StreamViewType %O" x)
 
+            if summary.Length <> 0 then summary.Append ' ' |> ignore
             summary.Append(record.EventName.Value[0]) |> ignore
 
             let updated = record.Dynamodb.NewImage
@@ -37,7 +38,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
                     | appendedLen ->
                         let n = int64 updated["n"].N
                         let i = n - appendedLen
-                        summary.Append(trancheId).Append('/').Append(epochId).Append(appendedLen).Append('@').Append(i) |> ignore
+                        summary.Append(trancheId).Append('/').Append(epochId).Append(' ').Append(appendedLen).Append('@').Append(i) |> ignore
                         let eventTypes = updated["c"].L
                         let isClosed = eventTypes[eventTypes.Count - 1].S |> AppendsEpoch.Events.isEventTypeClosed
                         let checkpoint = Checkpoint.positionOfEpochClosedAndVersion epochId isClosed n
@@ -46,7 +47,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
                     if p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
             | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
-        log.Information("Index {indexCount} Other {otherCount} NoEvents {noEventCount} Tails {tails} {summary}",
+        log.Information("Index {indexCount} Other {otherCount} NoEvents {noEventCount} Tails {tails} {summary:l}",
                         indexStream, otherStream, noEvents, Seq.map ValueTuple.ofKvp tails, summary)
         Array.ofSeq tails
     with e ->
@@ -59,11 +60,12 @@ type SnsClient(topicArn) =
 
     let mkRequest messages =
         let req = PublishBatchRequest(TopicArn = topicArn)
-        for struct (trancheId, pos) in messages do
-            let entry = PublishBatchRequestEntry(Subject = trancheId, Message = pos, MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos)
-            entry.MessageAttributes.Add("TrancheId", MessageAttributeValue(StringValue = trancheId))
-            entry.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos))
-            req.PublishBatchRequestEntries.Add(entry)
+        messages |> Seq.iteri (fun i struct (trancheId, pos) ->
+            let e = PublishBatchRequestEntry(Id = string i, Subject = trancheId, Message = pos)
+            // For SNS FIFO, also: MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos
+            e.MessageAttributes.Add("TrancheId", MessageAttributeValue(StringValue = trancheId, DataType="String"))
+            e.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos, DataType="String"))
+            req.PublishBatchRequestEntries.Add(e))
         req
 
     let publishBatch (log : Serilog.ILogger) ct (req : PublishBatchRequest) = task {
