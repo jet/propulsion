@@ -57,11 +57,18 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,
             // Basic required permissions, chiefly CloudWatch access
             ManagedPolicies = [| ManagedPolicy.FromAwsManagedPolicyName "service-role/AWSLambdaBasicExecutionRole" |]))
-        // // Configure publish access on the output SNS topic
-        // do  let snsPolicy = PolicyStatement()
-        //     snsPolicy.AddActions "SNS:Publish"
-        //     snsPolicy.AddResources topic.TopicArn
-        //     role.AddToPolicy snsPolicy |> ignore
+        let grantReadWriteOnTable constructName tableName =
+            let table = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, constructName, tableName)
+            let tablePolicy = PolicyStatement()
+            tablePolicy.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
+            tablePolicy.AddResources table.TableArn
+            role.AddToPolicy tablePolicy |> ignore
+        // For the Index Table, we:
+        // 1) Read/Query the index content
+        // 2) we'll be doing Equinox Transact operations for the Checkpoints, i.e. both Get/Query + Put/Update
+        grantReadWriteOnTable "indexTable" props.indexTableName
+        // For the Store Table, we'll be doing Transact operations, i.e. both Get/Query + Put/Update
+        grantReadWriteOnTable "storeTable" props.storeTableName
         role
     let code = Code.FromAsset(props.codePath)
     let fn : Function = Function(stack, "Reactor", FunctionProps(

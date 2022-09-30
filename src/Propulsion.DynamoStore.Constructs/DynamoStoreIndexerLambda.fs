@@ -37,12 +37,14 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
             streamsPolicy.AddActions("dynamodb:DescribeStream", "dynamodb:GetShardIterator", "dynamodb:GetRecords")
             streamsPolicy.AddResources props.storeStreamArn
             role.AddToPolicy streamsPolicy |> ignore
+        let grantReadWriteOnTable constructName tableName =
+            let table = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, constructName, tableName)
+            let tablePolicy = PolicyStatement()
+            tablePolicy.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
+            tablePolicy.AddResources table.TableArn
+            role.AddToPolicy tablePolicy |> ignore
         // For the Index Table, we'll be doing Equinox Transact operations, i.e. both Get/Query + Put/Update
-        let indexTable = Amazon.CDK.AWS.DynamoDB.Table.FromTableName(stack, "indexTable", props.indexTableName)
-        do  let indexTablePolicy = PolicyStatement()
-            indexTablePolicy.AddActions("dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem", "dynamodb:PutItem")
-            indexTablePolicy.AddResources indexTable.TableArn
-            role.AddToPolicy indexTablePolicy |> ignore
+        grantReadWriteOnTable "indexTable" props.indexTableName
         role
 
     // See dotnet-templates/propulsion-dynamostore-cdk project file for MSBuild logic extracting content from tools folder of the nupkg file
