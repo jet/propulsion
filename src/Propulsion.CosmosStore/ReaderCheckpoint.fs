@@ -136,7 +136,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position) : Async<unit> =
             let decider = resolve (source, tranche, consumerGroupName)
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
 
     /// Override a checkpointing series with the supplied parameters
     member _.Override(source, tranche, pos : Position) =
