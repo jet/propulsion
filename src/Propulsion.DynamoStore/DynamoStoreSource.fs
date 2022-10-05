@@ -153,13 +153,13 @@ type DynamoStoreSource
         ?trancheIds) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.materializeIndexEpochAsBatchesOfStreamEvents
-                (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
             (   if startFromTail <> Some true then None
                 else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
             sink,
+            Impl.materializeIndexEpochAsBatchesOfStreamEvents
+                (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
+                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
@@ -179,5 +179,5 @@ type DynamoStoreSource
     abstract member Pump : unit -> Async<unit>
     default x.Pump() = base.Pump(x.ListTranches)
 
-    abstract member Start : unit -> Propulsion.Pipeline
+    abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump())

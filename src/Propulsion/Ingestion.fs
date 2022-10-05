@@ -40,7 +40,7 @@ type private InternalMessage =
     | Added of streams : int * events : int
 
 [<Struct; NoComparison; NoEquality>]
-type Batch<'Items> = { isTail : bool; epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : Async<unit> }
+type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : Async<unit>; isTail : bool }
 
 type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None

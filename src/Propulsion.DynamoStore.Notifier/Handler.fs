@@ -54,30 +54,29 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
         log.Warning(e, "Failed {summary}", summary)
         reraise ()
 
+let private mkRequest topicArn messages =
+    let req = PublishBatchRequest(TopicArn = topicArn)
+    messages |> Seq.iteri (fun i struct (trancheId, pos) ->
+        let e = PublishBatchRequestEntry(Id = string i, Subject = trancheId, Message = pos, MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos)
+        e.MessageAttributes.Add("TrancheId", MessageAttributeValue(StringValue = trancheId, DataType="String"))
+        e.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos, DataType="String"))
+        req.PublishBatchRequestEntries.Add(e))
+    req
+
+let private publishBatch (client : IAmazonSimpleNotificationService) (log : Serilog.ILogger) ct (req : PublishBatchRequest) = task {
+    let! res = client.PublishBatchAsync(req, ct)
+    if res.HttpStatusCode <> HttpStatusCode.OK || res.Failed.Count <> 0 then
+        let fails = [| for x in res.Failed -> struct (x.Code, x.SenderFault, x.Message) |]
+        log.Warning("PublishBatchAsync {res}. Fails: {fails}", res.HttpStatusCode, fails)
+        failwithf "PublishBatchAsync result %A %A" res.HttpStatusCode fails }
+
 type SnsClient(topicArn) =
 
     let client : IAmazonSimpleNotificationService = new AmazonSimpleNotificationServiceClient()
 
-    let mkRequest messages =
-        let req = PublishBatchRequest(TopicArn = topicArn)
-        messages |> Seq.iteri (fun i struct (trancheId, pos) ->
-            let e = PublishBatchRequestEntry(Id = string i, Subject = trancheId, Message = pos)
-            // For SNS FIFO, also: MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos
-            e.MessageAttributes.Add("TrancheId", MessageAttributeValue(StringValue = trancheId, DataType="String"))
-            e.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos, DataType="String"))
-            req.PublishBatchRequestEntries.Add(e))
-        req
-
-    let publishBatch (log : Serilog.ILogger) ct (req : PublishBatchRequest) = task {
-        let! res = client.PublishBatchAsync(req, ct)
-        if res.HttpStatusCode <> HttpStatusCode.OK || res.Failed.Count <> 0 then
-            let fails = [| for x in res.Failed -> struct (x.Code, x.SenderFault, x.Message) |]
-            log.Warning("PublishBatchAsync {res}. Fails: {fails}", res.HttpStatusCode, fails)
-            failwithf "PublishBatchAsync result %A %A" res.HttpStatusCode fails }
-
     member _.Publish(log : Serilog.ILogger, messageGroupsAndMessages) = task {
-        for b in messageGroupsAndMessages |> Seq.chunkBySize 10 |> Seq.map mkRequest do
-           do! publishBatch log CancellationToken.None b }
+        for b in messageGroupsAndMessages |> Seq.chunkBySize 10 |> Seq.map (mkRequest topicArn) do
+           do! publishBatch client log CancellationToken.None b }
 
 let handle log (client : SnsClient) dynamoEvent = task {
     match parse log dynamoEvent with

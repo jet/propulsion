@@ -77,7 +77,7 @@ type StripedIngester
                         // - yield a null function as the onCompleted callback to be triggered when the batch's processing has concluded
                         id
             let batchInfo : Propulsion.Ingestion.Batch<_ seq> =
-                { epoch = epoch; items = Array.ofSeq items; checkpoint = checkpoint; onCompletion = onCompletion }
+                { isTail = false; epoch = epoch; items = Array.ofSeq items; checkpoint = checkpoint; onCompletion = onCompletion }
 
             if isForActiveStripe then
                 pending.Enqueue batchInfo

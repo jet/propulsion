@@ -10,7 +10,7 @@ type DynamoStoreNotifierLambdaProps =
     {   /// DynamoDB Streams Source ARN
         indexStreamArn : string
 
-        /// SNS Topic Arn to publish to (Default: Assign a fresh one)
+        /// SNS FIFO Topic Arn to publish to (Default: Assign a fresh one)
         updatesTopicArn : string option
 
         /// Lambda memory allocation
@@ -29,7 +29,7 @@ type DynamoStoreNotifierLambda(scope, id, props : DynamoStoreNotifierLambdaProps
     let topic =
         match props.updatesTopicArn with
         | Some ta -> Topic.FromTopicArn(stack, "Output", ta)
-        | None -> Topic(stack, "Updates", TopicProps(DisplayName = "Tranche Position updates topic"))
+        | None -> Topic(stack, "Updates", TopicProps(DisplayName = "Tranche Position updates topic", TopicName = "Updates", Fifo = true))
     let role =
         let role = Role(stack, "LambdaRole", RoleProps(
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,

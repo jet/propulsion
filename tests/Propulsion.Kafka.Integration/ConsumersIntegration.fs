@@ -5,6 +5,7 @@ open FsCodec
 open FsKafka
 open Newtonsoft.Json
 open Propulsion.Kafka
+open Propulsion.Tests
 open Serilog
 open Swensen.Unquote
 open System
@@ -18,23 +19,6 @@ open Xunit
 [<AutoOpen>]
 [<EditorBrowsable(EditorBrowsableState.Never)>]
 module Helpers =
-
-    // Derived from https://github.com/damianh/CapturingLogOutputWithXunit2AndParallelTests
-    // NB VS does not surface these atm, but other test runners / test reports do
-    type TestOutputAdapter(testOutput : Xunit.Abstractions.ITestOutputHelper) =
-        let formatter = Serilog.Formatting.Display.MessageTemplateTextFormatter("{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level}] {Message}{NewLine}{Exception}", null);
-        let writeSerilogEvent logEvent =
-            use writer = new System.IO.StringWriter()
-            formatter.Format(logEvent, writer);
-            writer |> string |> testOutput.WriteLine
-            writer |> string |> System.Diagnostics.Debug.Write
-        interface Serilog.Core.ILogEventSink with member x.Emit logEvent = writeSerilogEvent logEvent
-
-    let createLogger sink =
-        LoggerConfiguration()
-            .WriteTo.Sink(sink)
-            .WriteTo.Seq("http://localhost:5341")
-            .CreateLogger()
 
     let getTestBroker() =
         match Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" with
@@ -217,7 +201,7 @@ and StreamsConsumer(testOutputHelper) =
 and ParallelConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, true)
 
-    let log, bootstrapServers = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, bootstrapServers = TestOutputLogger.forTestOutput testOutputHelper, getTestBroker ()
 
     override _.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
         runConsumersParallel log config numConsumers timeout consumerCallback
@@ -238,7 +222,7 @@ and ParallelConsumer(testOutputHelper) =
     }
 
 and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentScheduling) =
-    let log, bootstrapServers = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, bootstrapServers = TestOutputLogger.forTestOutput testOutputHelper, getTestBroker ()
 
     member _.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer) : Async<unit> =
         runProducers log bootstrapServers topic numProducers messagesPerProducer |> Async.Ignore

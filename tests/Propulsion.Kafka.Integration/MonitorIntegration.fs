@@ -7,6 +7,7 @@ open Propulsion.Kafka
 open Propulsion.Kafka.Integration
 open System
 open System.Threading
+open Propulsion.Tests
 open Swensen.Unquote
 
 let mkProducer log broker topic =
@@ -49,7 +50,7 @@ type IntervalTimer with
             do! Async.Sleep 1000 }
 
 type T1(testOutputHelper) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, broker = TestOutputLogger.forTestOutput(testOutputHelper), getTestBroker ()
 
     [<FactIfBroker>]
     let ``Monitor should detect stalled consumer`` () = async {
@@ -71,7 +72,7 @@ type T1(testOutputHelper) =
         errorObserved =! true }
 
 type T2(testOutputHelper) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, broker = TestOutputLogger.forTestOutput(testOutputHelper), getTestBroker ()
 
     [<FactIfBroker>]
     let ``Monitor should continue checking progress after rebalance`` () = async {
@@ -107,7 +108,7 @@ type T2(testOutputHelper) =
     }
 
 type T3(testOutputHelper) =
-    let log, broker = createLogger (TestOutputAdapter testOutputHelper), getTestBroker ()
+    let log, broker = TestOutputLogger.forTestOutput(testOutputHelper), getTestBroker ()
 
     [<FactIfBroker>]
     let ``Monitor should not join consumer group`` () = async {

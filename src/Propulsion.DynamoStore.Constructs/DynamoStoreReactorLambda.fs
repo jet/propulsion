@@ -9,7 +9,7 @@ open System
 
 [<NoComparison; NoEquality>]
 type DynamoStoreReactorLambdaProps =
-    {   /// SNS Topic Arn to trigger execution from
+    {   /// SNS/SQS FIFO Topic Arn to trigger execution from
         updatesSource : UpdatesSource
 
         /// DynamoDB Region
@@ -48,9 +48,8 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
         | UpdatesQueue queueArn -> Queue.FromQueueArn(stack, "Input", queueArn)
         | UpdatesTopic topicArn ->
             let topic = Topic.FromTopicArn(stack, "updates", topicArn)
-            let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout))
-            topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(
-                RawMessageDelivery = true))) // need MessageAttributes to transfer
+            let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout, Fifo = true))
+            topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(RawMessageDelivery = true))) // need MessageAttributes to transfer
             queue
     let role =
         let role = Role(stack, "LambdaRole", RoleProps(

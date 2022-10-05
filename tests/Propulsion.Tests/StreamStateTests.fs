@@ -1,4 +1,4 @@
-﻿module StreamStateTests
+﻿module Propulsion.Tests.StreamStateTests
 
 open Propulsion.Streams
 open Swensen.Unquote

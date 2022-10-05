@@ -6,6 +6,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Propulsion.Tests\TestOutputLogger.fs">
+      <Link>TestOutputLogger.fs</Link>
+    </Compile>
     <Compile Include="ConsumersIntegration.fs" />
     <Compile Include="MonitorIntegration.fs" />
   </ItemGroup>

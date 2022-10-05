@@ -130,13 +130,21 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         member _.Start(source, tranche, ?establishOrigin) : Async<struct (TimeSpan * Position)> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> f
+#if COSMOSV2 || COSMOSV3
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
+#else
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AllowStale)
+#endif
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position) : Async<unit> =
             let decider = resolve (source, tranche, consumerGroupName)
+#if COSMOSV2 || COSMOSV3
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
+#else
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
+#endif
 
     /// Override a checkpointing series with the supplied parameters
     member _.Override(source, tranche, pos : Position) =

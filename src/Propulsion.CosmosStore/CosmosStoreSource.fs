@@ -57,7 +57,7 @@ type CosmosSource =
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs[docs.Count-1].Timestamp
             let pt = Stopwatch.start()
-            let! struct (cur, max) = rangeIngester.Ingest {epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore }
+            let! struct (cur, max) = rangeIngester.Ingest { epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore; isTail = false }
             let readS, postS, rc = sw.ElapsedSeconds, pt.ElapsedSeconds, ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
@@ -82,7 +82,7 @@ type CosmosStoreSource =
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
             let pt = Stopwatch.start ()
-            let! struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore }
+            let! struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore; isTail = false }
             let m = Log.Metric.Read {
                 database = ctx.source.Database.Id; container = ctx.source.Id; group = ctx.group; rangeId = int ctx.rangeId
                 token = ctx.epoch; latency = readElapsed; rc = ctx.requestCharge; age = age; docs = docs.Count

@@ -73,6 +73,7 @@ module Task =
 
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
+    let inline isCompleted (task : Task) = let s = task.Status in s = TaskStatus.RanToCompletion || s = TaskStatus.Faulted
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)

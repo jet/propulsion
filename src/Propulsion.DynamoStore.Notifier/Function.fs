@@ -13,7 +13,7 @@ type Configuration(?tryGet) =
 
     let [<Literal>] SNS_ARN =           "SNS_TOPIC_ARN"
 
-    member _.SnsTopicArn =              get SNS_ARN
+    member val SnsTopicArn =            get SNS_ARN
 
 type Function() =
 
