@@ -45,15 +45,12 @@ type FeedSourceBase internal
             crawl : TrancheId -> bool * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>) = async {
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
-        try let! (tranches : TrancheId array) = readTranches ()
-            log.Information("Starting {tranches} tranche readers...", tranches.Length)
-            try tranches |> Array.iteri (fun partitionId _ -> sink.StartIngester(log, partitionId) |> ingesters.Add)
-                let trancheWorkflows = (ingesters, tranches) ||> Seq.map2 (pumpPartition crawl)
-                return! Async.Parallel trancheWorkflows |> Async.Ignore<unit[]>
-            finally ingesters |> Seq.iter (fun ingester -> ingester.Stop())
-        with e ->
-            log.Warning(e, "Exception encountered while running source, exiting loop")
-            return! Async.Raise e }
+        let! (tranches : TrancheId array) = readTranches ()
+        log.Information("Starting {tranches} tranche readers...", tranches.Length)
+        try tranches |> Array.iteri (fun partitionId _ -> sink.StartIngester(log, partitionId) |> ingesters.Add)
+            let trancheWorkflows = (ingesters, tranches) ||> Seq.map2 (pumpPartition crawl)
+            return! Async.Parallel trancheWorkflows |> Async.Ignore<unit[]>
+        finally ingesters |> Seq.iter (fun ingester -> ingester.Stop()) }
 
     member x.Start(pump) =
         let ct, stop =
@@ -67,7 +64,11 @@ type FeedSourceBase internal
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
             let recordExn (e : exn) = tcs.TrySetException e |> ignore
             // first exception from a supervised task becomes the outcome if that happens
-            let supervise inner = async { try do! inner with e -> recordExn e }
+            let supervise inner = async {
+                try do! inner
+                with e ->
+                    log.Warning(e, "Exception encountered while running source, exiting loop")
+                    recordExn e }
             supervise, (fun () -> tcs.TrySetResult () |> ignore), tcs.Task
 
         let supervise () = task {
