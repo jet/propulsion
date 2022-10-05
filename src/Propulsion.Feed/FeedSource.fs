@@ -27,8 +27,8 @@ type FeedSourceBase internal
         with e ->
             log.Warning(e, "Exception encountered while running reader, exiting loop")
             return! Async.Raise e }
-
     let ingesters = ResizeArray<Ingestion.Ingester<_>>()
+
     member val internal Positions = positions
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
@@ -210,25 +210,25 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                 | _ -> OriginalWorkOnly
             do! awaitCompletion (delayMs , logInterval) swProcessing starting waitMode
             let procUsed = swProcessing.Elapsed
-            let isDrained = positions.Current() |> isDrained
-            let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF isDrained propagationDelay propUsed procUsed
+            let isDrainedNow () = positions.Current() |> isDrained
+            let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)
-                log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Starting {starting} Completed {completed}",
-                          sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, starting, completed)
+                log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Tail {allAtTail} Starting {starting} Completed {completed}",
+                          sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then
                 let swLinger = Stopwatch.start ()
                 match! awaitLinger delayMs linger with
                 | [||] ->
-                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s. Starting {starting} Completed {completed}",
-                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, starting, originalCompleted)
+                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Completed {completed}",
+                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, isDrainedNow (), starting, originalCompleted)
                 | lingering ->
                     do! awaitCompletion (delayMs, logInterval) swProcessing lingering waitMode
                     log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Lingering {lingering} Completed {completed}",
-                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, isDrained, starting, lingering, currentCompleted)
+                                    sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, isDrainedNow (), starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown() }
