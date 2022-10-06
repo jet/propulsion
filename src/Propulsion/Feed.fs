@@ -22,6 +22,7 @@ module Position =
     let initial : Position = %0L
     let parse (value : int64) : Position = %value
     let toInt64 (value : Position) : int64 = %value
+    let toString (value : Position) : string = string value
 
 type IFeedCheckpointStore =
 

@@ -3,34 +3,9 @@
 open Equinox.DynamoStore
 open FSharp.Control
 open Propulsion.Internal
-open System.Collections.Concurrent
+open System
 
 module private Impl =
-
-    type [<Measure>] checkpoint
-    type Checkpoint = int64<checkpoint>
-    module internal Checkpoint =
-
-        open FSharp.UMX
-
-        let private maxItemsPerEpoch = int64 AppendsEpoch.MaxItemsPerEpoch
-        let private ofPosition : Propulsion.Feed.Position -> Checkpoint = Propulsion.Feed.Position.toInt64 >> UMX.tag
-        let toPosition : Checkpoint -> Propulsion.Feed.Position = UMX.untag >> Propulsion.Feed.Position.parse
-
-        let ofEpochAndOffset (epoch : AppendsEpochId) offset : Checkpoint =
-            int64 (AppendsEpochId.value epoch) * maxItemsPerEpoch + int64 offset |> UMX.tag
-
-        let ofEpochClosedAndVersion (epoch : AppendsEpochId) isClosed version : Checkpoint =
-            let epoch, offset =
-                if isClosed then AppendsEpochId.next epoch, 0L
-                else epoch, version
-            ofEpochAndOffset epoch offset
-
-        let private toEpochAndOffset (value : Checkpoint) : AppendsEpochId * int =
-            let d, r = System.Math.DivRem(%value, maxItemsPerEpoch)
-            (%int %d : AppendsEpochId), int r
-
-        let (|Parse|) : Propulsion.Feed.Position -> AppendsEpochId * int = ofPosition >> toEpochAndOffset
 
     let renderPos (Checkpoint.Parse (epochId, offset)) = sprintf"%s@%d" (AppendsEpochId.toString epochId) offset
 
@@ -43,7 +18,7 @@ module private Impl =
         let! epochId = index.ReadIngestionEpochId(trancheId)
         let epochs = AppendsEpoch.Reader.Config.create log context
         let! version = epochs.ReadVersion(trancheId, epochId)
-        return Checkpoint.ofEpochAndOffset epochId version |> Checkpoint.toPosition }
+        return Checkpoint.positionOfEpochAndOffset epochId version }
 
     let logReadFailure (storeLog : Serilog.ILogger) =
         let force = storeLog.IsEnabled Serilog.Events.LogEventLevel.Verbose
@@ -57,12 +32,12 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch checkpoint isTail items : Propulsion.Feed.Core.Batch<_> =
-        { items = items; checkpoint = Checkpoint.toPosition checkpoint; isTail = isTail }
+    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<_> =
+        { items = items; checkpoint = position; isTail = isTail }
     let sliceBatch epochId offset items =
-        mkBatch (Checkpoint.ofEpochAndOffset epochId offset) false items
+        mkBatch (Checkpoint.positionOfEpochAndOffset epochId offset) false items
     let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Core.Batch<_> =
-        mkBatch (Checkpoint.ofEpochClosedAndVersion epochId state.closed version) (not state.closed) items
+        mkBatch (Checkpoint.positionOfEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
@@ -86,24 +61,22 @@ module private Impl =
                 | ValueNone -> ValueNone
             let streamEvents = all |> Seq.chooseV chooseStream |> dict
             all.Length, chosenEvents, totalEvents, streamEvents
-        let largeEnough = streamEvents.Count > batchCutoff
-        if largeEnough then
+        let largeEnoughToLog = streamEvents.Count > batchCutoff
+        if largeEnoughToLog then
             log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
                             sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
-        let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), ConcurrentDictionary()
+
+        let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), System.Collections.Concurrent.ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
         let materializeSpans : Async<Propulsion.Streams.Default.StreamEvent array> = async {
             let loadsRequired =
-                buffer
-                |> Seq.distinctBy (fun x -> x.p)
-                |> Seq.filter (fun x -> not (cache.ContainsKey x.p))
-                |> Seq.map (fun x -> x.p, streamEvents[x.p])
-                |> Array.ofSeq
+                [| let streamsToLoad = seq { for span in buffer do if not (cache.ContainsKey(span.p)) then span.p }
+                   for p in Seq.distinct streamsToLoad -> async {
+                        let! items = streamEvents[p]
+                        cache.TryAdd(p, items) |> ignore } |]
             if loadsRequired.Length <> 0 then
                 sw.Start()
-                do! seq { for sn, load in loadsRequired -> async { let! items = load in cache.TryAdd(sn, items) |> ignore } }
-                    |> Async.parallelThrottled loadDop
-                    |> Async.Ignore<unit[]>
+                do! loadsRequired |> Async.parallelThrottled loadDop |> Async.Ignore<unit array>
                 sw.Stop()
             return [|
                 for span in buffer do
@@ -117,7 +90,7 @@ module private Impl =
                         for e in events -> IndexStreamId.toStreamName span.p, e |] }
         let mutable prevLoaded, batchIndex = 0L, 0
         let report (i : int option) len =
-            if largeEnough && hydrating then
+            if largeEnoughToLog && hydrating then
                 match cache.Count with
                 | loadedNow when prevLoaded <> loadedNow ->
                     prevLoaded <- loadedNow
@@ -181,13 +154,13 @@ type DynamoStoreSource
         ?trancheIds) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.materializeIndexEpochAsBatchesOfStreamEvents
-                (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             checkpoints,
             (   if startFromTail <> Some true then None
                 else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
             sink,
+            Impl.materializeIndexEpochAsBatchesOfStreamEvents
+                (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
+                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
@@ -207,5 +180,27 @@ type DynamoStoreSource
     abstract member Pump : unit -> Async<unit>
     default x.Pump() = base.Pump(x.ListTranches)
 
-    abstract member Start : unit -> Propulsion.Pipeline
+    abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump())
+
+    /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
+    member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
+        let sw = Stopwatch.start ()
+        // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
+        use pipeline = x.Start()
+
+        try // In the case of sustained activity and/or catch-up scenarios, proactively trigger an orderly shutdown of the Source
+            // in advance of the Lambda being killed (no point starting new work or incurring DynamoDB CU consumption that won't finish)
+            System.Threading.Tasks.Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+
+            // If for some reason we're not provisioned well enough to read something within 1m, no point for paying for a full lambda timeout
+            let initialReaderTimeout = TimeSpan.FromMinutes 1.
+            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)
+            // Shut down all processing (we create a fresh Source per Lambda invocation)
+            pipeline.Stop()
+
+            if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
+            // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
+            return! x.Checkpoint()
+        finally statsInterval.SleepUntilTriggerCleared() }
+

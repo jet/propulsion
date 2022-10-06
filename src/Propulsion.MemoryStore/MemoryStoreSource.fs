@@ -31,7 +31,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
             if verbose then MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
             positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
-        enqueueSubmission { epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> FsCodec.StreamName.create categoryName aggregateId, e); onCompletion = markCompleted }
+        enqueueSubmission { isTail = true; epoch = epoch; checkpoint = async.Zero (); items = events |> Array.map (fun e -> FsCodec.StreamName.create categoryName aggregateId, e); onCompletion = markCompleted }
 
     let storeCommitsSubscription =
         let mapBody struct (categoryName, streamId, es) = struct (categoryName, streamId, es |> Array.map mapTimelineEvent)

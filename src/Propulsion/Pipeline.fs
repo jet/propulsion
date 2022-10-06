@@ -8,7 +8,7 @@ open System.Threading.Tasks
 
 /// Represents a running Pipeline as triggered by a `Start` method , until `Stop()` is requested or the pipeline becomes Faulted for any reason
 /// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
-type Pipeline (task : Task<unit>, triggerStop) =
+type Pipeline(task : Task<unit>, triggerStop) =
 
     interface IDisposable with member x.Dispose() = x.Stop()
 
@@ -16,7 +16,7 @@ type Pipeline (task : Task<unit>, triggerStop) =
     member _.Status = task.Status
 
     /// Determines whether processing has completed, be that due to an intentional Stop(), or due to a Fault (see also RanToCompletion)
-    member _.IsCompleted = let s = task.Status in s = TaskStatus.RanToCompletion || s = TaskStatus.Faulted
+    member _.IsCompleted = Task.isCompleted task
 
     /// After AwaitShutdown (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via AwaitShutdown)
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
@@ -75,6 +75,11 @@ type Pipeline (task : Task<unit>, triggerStop) =
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop
+
+type SourcePipeline<'M>(task, triggerStop, monitor : Lazy<'M>) =
+    inherit Pipeline(task, triggerStop)
+
+    member _.Monitor = monitor.Value
 
 type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)

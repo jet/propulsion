@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+        <DefineConstants>PROPULSION_DYNAMOSTORE_NOTIFIER</DefineConstants>
+        
+        <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
+        <AWSProjectType>Lambda</AWSProjectType>
+        <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
+        <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+        <!-- NOTE PublishReadyToRun needs to be disabled or `dotnet lambda package -farch arm64 lambda.zip` content will fail at runtime due to missing FSharp.Core -->
+        <!-- Generate ready to run images during publishing to improve cold start time -->
+        <!-- <PublishReadyToRun>true</PublishReadyToRun>-->
+
+        <!-- Needs to be explicitly managed here as we chain the Publish step into the Pack -->
+        <RuntimeIdentifier>linux-arm64</RuntimeIdentifier>
+        <!-- As we dotnet pack, we slip in a publish step and include that in the NuGet package's tools/ folder -->
+        <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludePublishedInPackAsTool</TargetsForTfmSpecificBuildOutput>
+    </PropertyGroup>
+    <ItemGroup>
+        <Compile Include="..\Propulsion.DynamoStore\Types.fs">
+            <Link>PropulsionDynamoStore\Types.fs</Link>
+        </Compile>
+        <Compile Include="..\Propulsion.DynamoStore\AppendsEpoch.fs">
+            <Link>PropulsionDynamoStore\AppendsEpoch.fs</Link>
+        </Compile>
+        <Compile Include="..\Propulsion.DynamoStore\AppendsIndex.fs">
+            <Link>PropulsionDynamoStore\AppendsIndex.fs</Link>
+        </Compile>
+        <Compile Include="Handler.fs" />
+        <Compile Include="Function.fs" />
+    </ItemGroup>
+    
+    <ItemGroup>
+      <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
+
+      <PackageReference Include="Amazon.Lambda.Core" Version="2.1.0" />
+      <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
+      <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
+      <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.4.10" />
+      <PackageReference Include="Serilog.Sinks.Console" Version="4.1.0" />
+      <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    </ItemGroup>
+    
+    <!-- The Notifier dotnet new template extracts the published binaries from the tools folder using logic in https://github.com/jet/propulsion/pull/143 -->
+    <Target Name="IncludePublishedInPackAsTool" DependsOnTargets="Publish">
+        <ItemGroup>
+            <PublishedFiles Include="$(PublishDir)\**\*.*" />
+            <TfmSpecificPackageFile Include="@(PublishedFiles)" PackagePath="tools/pub/$(TargetFramework)/$(RuntimeIdentifier)/%(RecursiveDir)%(FileName)%(Extension)" />
+        </ItemGroup>
+    </Target>
+</Project>

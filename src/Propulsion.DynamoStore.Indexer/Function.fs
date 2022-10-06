@@ -1,4 +1,4 @@
-﻿namespace Propulsion.DynamoStore.Lambda
+﻿namespace Propulsion.DynamoStore.Indexer
 
 open Amazon.Lambda.Core
 open Amazon.Lambda.DynamoDBEvents
@@ -6,8 +6,7 @@ open Equinox.DynamoStore
 open Propulsion.DynamoStore
 open Serilog
 
-[<assembly: LambdaSerializer(typeof<Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer>)>]
-()
+[<assembly: LambdaSerializer(typeof<Amazon.Lambda.Serialization.SystemTextJson.DefaultLambdaJsonSerializer>)>] ()
 
 type Configuration(?tryGet) =
     let envVarTryGet = System.Environment.GetEnvironmentVariable >> Option.ofObj
@@ -54,10 +53,10 @@ type Function() =
     let template = "{Level:u1} {Message} {Properties}{NewLine}{Exception}"
     let log =
         LoggerConfiguration()
-            .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = removeMetrics evt })
+            .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt, _) = removeMetrics evt })
             .WriteTo.Console(outputTemplate = template)
             .CreateLogger()
     let ingester = DynamoStoreIngester(log, store.Context)
 
-    member _.FunctionHandler(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) =
-        DynamoStreamsLambda.ingest log ingester.Service dynamoEvent |> Async.StartImmediateAsTask
+    member _.Handle(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) : System.Threading.Tasks.Task =
+        Handler.handle log ingester.Service dynamoEvent

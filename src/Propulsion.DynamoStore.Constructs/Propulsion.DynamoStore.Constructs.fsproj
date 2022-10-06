@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <Compile Include="DynamoStoreIndexerLambda.fs" />
+    <Compile Include="DynamoStoreNotifierLambda.fs" />
+    <Compile Include="DynamoStoreReactorLambda.fs" />
   </ItemGroup>
 
   <ItemGroup>

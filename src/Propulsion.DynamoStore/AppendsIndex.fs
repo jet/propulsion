@@ -4,6 +4,7 @@
 module Propulsion.DynamoStore.AppendsIndex
 
 let [<Literal>] Category = "$AppendsIndex"
+#if !PROPULSION_DYNAMOSTORE_NOTIFIER
 let streamName () = struct (Category, IndexId.toString IndexId.wellKnownId)
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
@@ -59,7 +60,7 @@ module Config =
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownTranches (state : Fold.State) : AppendsTrancheId[] =
+    let readKnownTranches (state : Fold.State) : AppendsTrancheId array =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
     let readIngestionEpochId trancheId (state : Fold.State) =
@@ -71,7 +72,7 @@ module Reader =
             let decider = resolve ()
             decider.Query(id)
 
-        member _.ReadKnownTranches() : Async<AppendsTrancheId[]> =
+        member _.ReadKnownTranches() : Async<AppendsTrancheId array> =
             let decider = resolve ()
             decider.Query(readKnownTranches)
 
@@ -80,3 +81,4 @@ module Reader =
             decider.Query(readIngestionEpochId trancheId)
 
     let create log context = Service(streamName >> Config.resolve log (context, None))
+#endif
