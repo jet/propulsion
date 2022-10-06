@@ -15,19 +15,21 @@ type FeedSourceBase internal
         renderPos : Position -> string,
         ?logCommitFailure) =
     let log = log.ForContext("source", sourceId)
+    let logForTranche trancheId = log.ForContext("tranche", trancheId)
     let positions = TranchePositions()
     let pumpPartition crawl (ingester : Ingestion.Ingester<_>) trancheId = async {
-        let log = log.ForContext("tranche", trancheId)
+        let log = logForTranche trancheId
         let ingest = positions.Intercept(trancheId) >> ingester.Ingest
         let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingest, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
-        try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
-            log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
-                            sourceId, trancheId, renderPos pos, freq.TotalMinutes)
-            return! reader.Pump(pos)
-        with e ->
-            log.Warning(e, "Exception encountered while running reader, exiting loop")
-            return! Async.Raise e }
-    let ingesters = ResizeArray<Ingestion.Ingester<_>>()
+        try try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
+                log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
+                                sourceId, trancheId, renderPos pos, freq.TotalMinutes)
+                return! reader.Pump(pos)
+            with e ->
+                log.Warning(e, "Exception encountered while running reader, exiting loop")
+                return! Async.Raise e
+        finally ingester.Stop() }
+    let mutable ingesters = Array.empty<Ingestion.Ingester<_>>
 
     member val internal Positions = positions
 
@@ -47,10 +49,9 @@ type FeedSourceBase internal
         // TODO when that's done, remove workaround in readTranches
         let! (tranches : TrancheId array) = readTranches ()
         log.Information("Starting {tranches} tranche readers...", tranches.Length)
-        try tranches |> Array.iteri (fun partitionId _ -> sink.StartIngester(log, partitionId) |> ingesters.Add)
-            let trancheWorkflows = (ingesters, tranches) ||> Seq.map2 (pumpPartition crawl)
-            return! Async.Parallel trancheWorkflows |> Async.Ignore<unit[]>
-        finally ingesters |> Seq.iter (fun ingester -> ingester.Stop()) }
+        ingesters <- tranches |> Array.mapi (fun partitionId trancheId -> sink.StartIngester(logForTranche trancheId, partitionId))
+        let trancheWorkflows = (ingesters, tranches) ||> Seq.map2 (pumpPartition crawl)
+        return! Async.Parallel trancheWorkflows |> Async.Ignore<unit[]> }
 
     member x.Start(pump) =
         let ct, stop =

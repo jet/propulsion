@@ -11,7 +11,7 @@ type DynamoStoreNotifierLambdaProps =
         indexStreamArn : string
 
         /// SNS FIFO Topic Arn to publish to (Default: Assign a fresh one)
-        updatesTopicArn : string option
+        updatesTarget : UpdatesTarget
 
         /// Lambda memory allocation
         memorySize : int
@@ -22,14 +22,26 @@ type DynamoStoreNotifierLambdaProps =
 
         /// Folder path for linux-arm64 publish output (can also be a link to a .zip file)
         codePath : string }
+and UpdatesTarget =
+    /// Establish a FIFO topic as part of the Stack
+    | Default
+    /// Target an existing topic - doesn't matter if it's FIFO
+    | ExistingTopic of topicArn : string
+    /// Establish a non-FIFO Topic (NOTE you'll want to constrain Reactor Lambdas to max one instance by assigning it Reserved capacity)
+    | NonFifoTopic
 
 type DynamoStoreNotifierLambda(scope, id, props : DynamoStoreNotifierLambdaProps) as stack =
     inherit Constructs.Construct(scope, id)
 
     let topic =
-        match props.updatesTopicArn with
-        | Some ta -> Topic.FromTopicArn(stack, "Output", ta)
-        | None -> Topic(stack, "Updates", TopicProps(DisplayName = "Tranche Position updates topic", TopicName = "Updates", Fifo = true))
+        let createTopic (fifo : bool) = Topic(stack, "Updates", TopicProps(
+            DisplayName = "Tranche Position updates topic",
+            TopicName = "Updates",
+            Fifo = fifo))
+        match props.updatesTarget with
+        | ExistingTopic fifoTopicArn -> Topic.FromTopicArn(stack, "Output", fifoTopicArn)
+        | Default -> createTopic true
+        | NonFifoTopic -> createTopic false
     let role =
         let role = Role(stack, "LambdaRole", RoleProps(
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,

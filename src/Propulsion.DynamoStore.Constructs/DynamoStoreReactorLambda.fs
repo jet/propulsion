@@ -34,7 +34,13 @@ type DynamoStoreReactorLambdaProps =
         lambdaRuntime : Runtime
         lambdaHandler : string }
 and UpdatesSource =
-    | UpdatesTopic of topicArn : string
+    /// Attach an SQS FIFO SNS Queue to a nominated FIFO topic
+    /// NOTE: this naturally constrains the parallelism of the Lambda to 1 per Tranche and is the recommended configuration
+    | UpdatesTopic of fifoTopicArn : string
+    /// Attach a non-FIFO SNS Queue to the nominated (non-FIFO) topic,
+    /// constraining parallel execution by using ReservedConcurrency for the Labda
+    | UpdatesNonFifoTopic of topicArn : string * reservedConcurrency : int
+    /// Use an existing queue without applying a ReservedConcurrency configuration for the Lambda
     | UpdatesQueue of queueArn : string
 
 type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) as stack =
@@ -43,14 +49,16 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
     let lambdaTimeout, queueVisibilityTimeout =
         let raw = props.timeout.TotalSeconds
         Amazon.CDK.Duration.Seconds raw, Amazon.CDK.Duration.Seconds (raw + 3.)
-    let queue =
-        match props.updatesSource with
-        | UpdatesQueue queueArn -> Queue.FromQueueArn(stack, "Input", queueArn)
-        | UpdatesTopic topicArn ->
-            let topic = Topic.FromTopicArn(stack, "updates", topicArn)
-            let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout, Fifo = true))
-            topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(RawMessageDelivery = true))) // need MessageAttributes to transfer
+    let queue, (reservedConcurrency : Nullable<float>) =
+        let attachQueueToTopic (fifo : bool) (topic : ITopic) =
+            let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout, Fifo = fifo))
+            topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(
+                RawMessageDelivery = true))) // need MessageAttributes to be included in the delivered message
             queue
+        match props.updatesSource with
+        | UpdatesQueue queueArn -> Queue.FromQueueArn(stack, "Input", queueArn), Nullable()
+        | UpdatesTopic topicArn -> Topic.FromTopicArn(stack, "updates", topicArn) |> attachQueueToTopic true :> _, Nullable()
+        | UpdatesNonFifoTopic (topicArn, dop) -> Topic.FromTopicArn(stack, "updates", topicArn) |> attachQueueToTopic false :> _, Nullable dop
     let role =
         let role = Role(stack, "LambdaRole", RoleProps(
             AssumedBy = ServicePrincipal "lambda.amazonaws.com" ,
@@ -73,11 +81,11 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
     let fn : Function = Function(stack, "Reactor", FunctionProps(
         Role = role, Description = props.lambdaDescription,
         Code = code, Architecture = props.lambdaArchitecture, Runtime = props.lambdaRuntime, Handler = props.lambdaHandler,
-        MemorySize = float props.memorySize, Timeout = lambdaTimeout,
+        MemorySize = float props.memorySize, Timeout = lambdaTimeout, ReservedConcurrentExecutions = reservedConcurrency,
         Environment = dict [
             "EQUINOX_DYNAMO_SYSTEM_NAME", props.regionName
             "EQUINOX_DYNAMO_TABLE",       props.storeTableName
             "EQUINOX_DYNAMO_TABLE_INDEX", props.indexTableName ]))
     do fn.AddEventSource(SqsEventSource(queue, SqsEventSourceProps(
-        ReportBatchItemFailures = true,
+        ReportBatchItemFailures = true, // Required so Lambda can requeue individual unhandled notification at message level
         BatchSize = float props.batchSize)))

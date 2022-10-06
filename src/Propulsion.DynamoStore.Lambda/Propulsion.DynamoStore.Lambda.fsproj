@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net6.0</TargetFramework>
+    </PropertyGroup>
+    
+    <ItemGroup>
+      <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
+
+      <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.1.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Include="SqsNotificationBatch.fs" />
+    </ItemGroup>
+</Project>

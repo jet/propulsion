@@ -3,6 +3,7 @@
 open Equinox.DynamoStore
 open FSharp.Control
 open Propulsion.Internal
+open System
 
 module private Impl =
 
@@ -181,3 +182,25 @@ type DynamoStoreSource
 
     abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump())
+
+    /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
+    member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
+        let sw = Stopwatch.start ()
+        // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
+        use pipeline = x.Start()
+
+        try // In the case of sustained activity and/or catch-up scenarios, proactively trigger an orderly shutdown of the Source
+            // in advance of the Lambda being killed (no point starting new work or incurring DynamoDB CU consumption that won't finish)
+            System.Threading.Tasks.Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+
+            // If for some reason we're not provisioned well enough to read something within 1m, no point for paying for a full lambda timeout
+            let initialReaderTimeout = TimeSpan.FromMinutes 1.
+            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)
+            // Shut down all processing (we create a fresh Source per Lambda invocation)
+            pipeline.Stop()
+
+            if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
+            // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
+            return! x.Checkpoint()
+        finally statsInterval.SleepUntilTriggerCleared() }
+

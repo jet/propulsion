@@ -131,7 +131,7 @@ type Ingester<'Items> private
         let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts, ?commitInterval = commitInterval)
         let startPump () = task {
             try do! instance.Pump cts.Token
-            finally log.Information("Exiting {name}", "ingester") }
+            finally log.Information("... ingester stopped") }
         Task.start startPump
         instance
 

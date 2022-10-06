@@ -46,6 +46,15 @@ type IntervalTimer(period : TimeSpan) =
         if x.IsDue then x.Restart(); true
         else false
 
+    /// Awaits reaction to a Trigger() invocation
+    member x.SleepUntilTriggerCleared(?timeout, ?sleepMs) =
+        if not x.IsTriggered then () else
+
+        // The processing loops run on 1s timers, so we busy-wait until they wake
+        let timeout = IntervalTimer(defaultArg timeout (TimeSpan.FromSeconds 2))
+        while x.IsTriggered && not timeout.IsDue do
+            System.Threading.Thread.Sleep (defaultArg sleepMs 1)
+
 module Channel =
 
     open System.Threading.Channels
