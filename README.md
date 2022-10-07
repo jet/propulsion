@@ -184,7 +184,7 @@ While Equinox focuses on the **Consistent Processing** element of building an ev
 
 The overall territory is laid out here in this [C4](https://c4model.com) System Context Diagram:
 
-![Propulsion c4model.com Context Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/context.puml&fmt=svg)
+![Propulsion c4model.com Context Diagram](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/docs/diagrams/context.puml&fmt=svg)
 
 <!-- ## [C4](https://c4model.com) Container diagram
 
@@ -231,7 +231,7 @@ propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 
 ### 3. Use `propulsion` tool to inspect DynamoStoreSource Index
 
-Summarize current state of the index being prepared by `Propulsion.DynamoStore.Lambda`
+Summarize current state of the index being prepared by `Propulsion.DynamoStore.Indexer`
 
     propulsion index dynamo -t equinox-test
 
@@ -243,7 +243,7 @@ Example output:
 
 ### 4. Use `propulsion` tool to validate DynamoStoreSource Index  
 
-Validate `Propulsion.DynamoStore.Lambda` has not missed any events (normally you guarantee this by having alerting on Lambda failures) 
+Validate `Propulsion.DynamoStore.Indexer` has not missed any events (normally you guarantee this by having alerting on Lambda failures) 
  
     propulsion index -t 0 dynamo -t equinox-test
 
