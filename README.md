@@ -1,22 +1,38 @@
 # Propulsion [![Build Status](https://dev.azure.com/jet-opensource/opensource/_apis/build/status/jet.Propulsion)](https://dev.azure.com/jet-opensource/opensource/_build/latest?definitionId=16) [![release](https://img.shields.io/github/release/jet/propulsion.svg)](https://github.com/jet/propulsion/releases) [![NuGet](https://img.shields.io/nuget/vpre/Propulsion.svg?logo=nuget)](https://www.nuget.org/packages/Propulsion/) [![license](https://img.shields.io/github/license/jet/propulsion.svg)](LICENSE) ![code size](https://img.shields.io/github/languages/code-size/jet/propulsion.svg) [<img src="https://img.shields.io/badge/discord-DDD--CQRS--ES%20%23equinox-yellow.svg?logo=discord">](https://github.com/ddd-cqrs-es/community) [![docs status](https://img.shields.io/badge/DOCUMENTATION-WIP-important.svg?style=popout)](DOCUMENTATION.md) [![Gitpod ready-to-code](https://img.shields.io/badge/Gitpod-ready--to--code-908a85?logo=gitpod)](https://gitpod.io/#https://github.com/jet/propulsion)
 
-While the bulk of this code is mature and running in production in Walmart and outside, the [documentation](DOCUMENTATION.md) is very much a work in progress (ideally there'd be a nice [summary of various projection patterns](https://github.com/jet/propulsion/issues/21), but also much [broader information discussing the tradeoffs implied in an event-centric system as a whole](https://github.com/ylorph/The-Inevitable-Event-Centric-Book/issues)
+Propulsion provides a granular suite of .NET NuGet packages for building Reactive event processing pipelines. It caters for:
+
+- **Event Sourcing Reactions**: Handling projections and reactions based on event feeds from stores such as EventStoreDB and the Equinox Stores (DynamoStore, CosmosStore, MemoryStore)
+- **Generic Ingestion and Publishing pipelines**: The same abstractions can also be used for consuming and/or publishing to any target.
+- **Serverless event pipelines**: The core components do not assume a long-lived process.
+  The `DynamoStore`-related components implement support for running an end-to-end event sourced system on Amazon DynamoDB and Lambda.
+- **Unit and Integration testing support**: The `AwaitCompletion` mechanisms in `MemoryStore` and `FeedSource` provide a clean way to structure test suites in a manner that achieves good test coverage without flaky tests or slow tests.
+- **Strong metrics support**: Feed Sources and Projectors provide comprehensive logging and metrics. At present, the primary integration is with Prometheus.
 
 If you're looking for a good discussion forum on these kinds of topics, look no further than the [DDD-CQRS-ES Discord](https://github.com/ddd-cqrs-es/community)'s [#equinox channel](https://discord.com/channels/514783899440775168/1002635005429825657) ([invite link](https://discord.gg/sEZGSHNNbH)).
 
-## Components
+## Core Components
 
-The components within this repository are delivered as a multi-targeted Nuget package targeting `net6.0`
+- `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
 
-- `Propulsion` [![NuGet](https://img.shields.io/nuget/v/Propulsion.svg)](https://www.nuget.org/packages/Propulsion/) Implements core functionality in a channel-independent fashion including `ParallelProjector`, `StreamsProjector`. [Depends](https://www.fuget.org/packages/Propulsion) on `MathNet.Numerics`, `Serilog`
+    1. `StreamsProjector`: High performance pipeline that handles parallelized event processing. Ingestion of events, and checkpointing of progress are handled asynchronously. Each aspect of the pipeline is decoupled such that it can be customized as desired, with good testing support. 
+    2. `Streams.Prometheus`: Helper that exposes per-scheduler metrics for Prometheus scraping.
+    3. `ParallelProjector`: Scaled down variant of `StreamsProjector` that does not preserve stream level ordering semantics
 
-    1. `Streams.Prometheus`: Exposes per-scheduler metrics.
+- `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.CosmosStore` or `Propulsion.DynamoStore`)
+
+    1. `FeedSource`: Handles continual reading and checkpointing of events from a set of feeds ('tranches' of a 'source') that collectively represent a change data capture source from a custom system (roughly analogous to how a CosmosDB Container presents a changefeed). A `readTranches` function is expected to yield a `TrancheId` list; the Feed Source operates a logical reader thread per such tranche. Each individual Tranche is required to be able to represent its content as an incrementally retrievable change feed with a monotonically increasing `Index` per `FsCodec.ITimelineEvent` read from a given tranche.
+    2. `Monitor.AwaitCompletion`: Enables efficient waiting for completion of reaction processing within an integration test
+    3. `PeriodicSource`: Handles regular crawling of an external datasource (such as a SQL database) where there is no way to isolate the changes since a given checkpoint (based on either the intrinsic properties of the data, or of the store itself). The source is expected to present its content as an `AsyncSeq` of `FsCodec.StreamName * FsCodec.IEventData * context`. Checkpointing occurs only when all events have been completely ingested by the Sink.
+    4. `Prometheus`: Exposes reading statistics to Prometheus (including metrics from `DynamoStore.DynamoStoreSource`, `EventStoreDb.EventStoreSource` and `SqlStreamStore.SqlStreamStoreSource`)
 
 - `Propulsion.MemoryStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.MemoryStore.svg)](https://www.nuget.org/packages/Propulsion.MemoryStore/). Provides bindings to `Equinox.MemoryStore`. [Depends](https://www.fuget.org/packages/Propulsion.MemoryStore) on `Equinox.MemoryStore` v `4.0.0`, `FsCodec.Box`, `Propulsion`
 
     1. `MemoryStoreSource`: Forwarding from an `Equinox.MemoryStore` into a `Propulsion.Sink`, in order to enable maximum speed integration testing.
-    2. `Monitor.AwaitCompletion`: Enables efficient deterministic waits for Reaction processing within an integration test.
+    2. `Monitor.AwaitCompletion`: Enables efficient **deterministic** waits for Reaction processing within an integration test.
     3. `ReaderCheckpoint`: ephemeral checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` in test contexts.
+
+## Store-specific Components
 
 - `Propulsion.CosmosStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore) on `Equinox.CosmosStore` v `4.0.0`
 
@@ -39,7 +55,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.DynamoStore.Indexer` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Indexer.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Indexer/) AWS Lambda to index appends into an Index Table. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Indexer) on `Propulsion.DynamoStore`, `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`
 
-    1. `Handler`: parses Dynamo DB Streams Trigger input, feeds into `Propulsion.DynamoStore.DynamoStoreIndexer`
+    1. `Handler`: parses Dynamo DB Streams Source Mapping input, feeds into `Propulsion.DynamoStore.DynamoStoreIndexer`
     2. `Connector`: Store / environment variables wiring to connect `DynamoStreamsLambda` to the `Equinox.DynamoStore` Index Event Store
     3. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which it passes to `Handler`
 
@@ -47,7 +63,7 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.DynamoStore.Notifier` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Notifier.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Notifier/) AWS Lambda to report new events indexed by the Indexer to an SNS Topic, in order to enable triggering AWS Lambdas to service Reactions without requiring a long-lived host application. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Notifier) on `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`, `AWSSDK.SimpleNotificationService`
 
-    1. `Handler`: parses Dynamo DB Streams Trigger input, generates a message per updated Tranche in the batch
+    1. `Handler`: parses Dynamo DB Streams Source Mapping input, generates a message per updated Tranche in the batch
     2. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Trigger, which passes to `Handler`
 
   (Diagnostics are exposed via Console to CloudWatch)
@@ -60,10 +76,10 @@ The components within this repository are delivered as a multi-targeted Nuget pa
 
 - `Propulsion.DynamoStore.Lambda` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Lambda.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Lambda/) Helpers for implementing Lambda Reactors. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Lambda) on `Amazon.Lambda.SQSEvents`, `Propulsion.Feed`
 
-    1. `SqsNotificationBatch.parse`: parses a batch of notification events (queued by the `Notifier`) in a `Amazon.Lambda.SQSEvents.SQSEvent`
+    1. `SqsNotificationBatch.parse`: parses a batch of notification events (queued by a `Notifier`) in a `Amazon.Lambda.SQSEvents.SQSEvent`
     2. `SqsNotificationBatch.batchResponseWithFailuresForPositionsNotReached`: Correlates the updated checkpoints with the input `SQSEvent`, generating a `SQSBatchResponse` that will requeue any notifications that have not yet been serviced.
 
-  (Used by `eqxShipping` template)
+  (Used by [`eqxShipping` template](https://github.com/jet/dotnet-templates/tree/master/equinox-shipping))
 
 - `Propulsion.EventStoreDb` [![NuGet](https://img.shields.io/nuget/v/Propulsion.EventStoreDb.svg)](https://www.nuget.org/packages/Propulsion.EventStoreDb/). Provides bindings to [EventStore](https://www.eventstore.org), writing via `Propulsion.EventStore.EventStoreSink` [Depends](https://www.fuget.org/packages/Propulsion.EventStoreDb) on `Equinox.EventStoreDb` v `4.0.0`, `Serilog`
     1. `EventStoreSource`: reading from an EventStoreDB >= `20.10` `$all` stream into a `Propulsion.Sink` using the gRPC interface. Provides throughput metrics via `Propulsion.Feed.Prometheus`
@@ -71,13 +87,6 @@ The components within this repository are delivered as a multi-targeted Nuget pa
     3. `Monitor.AwaitCompletion`: See `Propulsion.Feed`
 
     (Reading and position metrics are exposed via `Propulsion.Feed.Prometheus`)
-
-- `Propulsion.Feed` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Feed.svg)](https://www.nuget.org/packages/Propulsion.Feed/) Provides helpers for streamwise consumption of a feed of information with an arbitrary interface (e.g. a third-party Feed API), including the maintenance of checkpoints within such a feed. [Depends](https://www.fuget.org/packages/Propulsion.Feed) on `Propulsion`, a `IFeedCheckpointStore` implementation (from e.g., `Propulsion.Cosmos` or `Propulsion.CosmosStore`)
-
-  1. `FeedSource`: Handles continual reading and checkpointing of events from a set of feeds ('tranches' of a 'source') that collectively represent a change data capture source from a custom system (roughly analogous to how a CosmosDB Container presents a changefeed). A `readTranches` function is expected to yield a `TrancheId` list; the Feed Source operates a logical reader thread per such tranche. Each individual Tranche is required to be able to represent its content as an incrementally retrievable change feed with a monotonically increasing `Index` per `FsCodec.ITimelineEvent` read from a given tranche.
-  2. `PeriodicSource`: Handles regular crawling of an external datasource (such as a SQL database) where there is no way to isolate the changes since a given checkpoint (based on either the intrinsic properties of the data, or of the store itself). The source is expected to present its content as an `AsyncSeq` of `FsCodec.StreamName * FsCodec.IEventData * context`. Checkpointing occurs only when all events have been completely ingested by the Sink.   
-  3. `Prometheus`: Exposes reading statistics to Prometheus (including metrics from `SqlStreamStore.SqlStreamStoreSource` and `EventStoreDb.EventStoreSource`)   
-  4. `Monitor.AwaitCompletion`: Enables efficient waiting for completion of reaction processing within an integration test
 
 - `Propulsion.Kafka` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Kafka.svg)](https://www.nuget.org/packages/Propulsion.Kafka/) Provides bindings for producing and consuming both streamwise and in parallel. Includes a standard codec for use with streamwise projection and consumption, `Propulsion.Kafka.Codec.NewtonsoftJson.RenderedSpan`. [Depends](https://www.fuget.org/packages/Propulsion.Kafka) on `FsKafka` v `1.7.0`-`1.9.99`, `Serilog`
 
@@ -145,8 +154,9 @@ clients to current ones by means of adjusting package references while retaining
       - `proConsumer` template for example consumer logic using `ParallelConsumer` and `StreamsConsumer` etc.
       
     - [Propulsion+Equinox templates](https://github.com/jet/dotnet-templates#producerreactor-templates-combining-usage-of-equinox-and-propulsion):
-      - `proReactor` template, which includes multiple sources and multiple processing modes
-      - `proCosmosReactor` more legible version of `proReactor` template, currently only supports `Propulsion.CosmosStore` 
+      - `eqxShipping`: Event Sourced example with a Process Manager. Includes a `Watchdog` component that uses a `StreasProjector`, with example wiring for `CosmosStore`, `DynamoStore` and `EventStoreDb`  
+      - `proCosmosReactor`. Simple single-source `StreamsProjector` based Reactor. More legible version of `proReactor` template, currently only supports `Propulsion.CosmosStore`
+      - `proReactor` generic template, which includes multiple sources and multiple processing modes
       - `summaryConsumer` template, consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
       - `trackingConsumer`template, which consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
       - `proSync` template is a fully fledged store <-> store synchronization tool syncing from a `CosmosStoreSource` or `EventStoreSource` to a `CosmosStoreSink` or `EventStoreSink`
