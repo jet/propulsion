@@ -66,7 +66,7 @@ type DynamoStoreNotifierLambda(scope, id, props : DynamoStoreNotifierLambdaProps
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Notifier::Propulsion.DynamoStore.Notifier.Function::Handle",
         MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,
-        Environment = dict [ "SNS_TOPIC_ARN", topic.TopicArn ]))
+        Environment = dict [ Propulsion.DynamoStore.Lambda.Args.Sns.TOPIC_ARN, topic.TopicArn ]))
     do fn.AddEventSourceMapping("IndexSource", EventSourceMappingOptions(
         EventSourceArn = props.indexStreamArn,
         StartingPosition = StartingPosition.TRIM_HORIZON,

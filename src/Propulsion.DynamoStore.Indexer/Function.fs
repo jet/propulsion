@@ -13,17 +13,11 @@ type Configuration(?tryGet) =
     let tryGet = defaultArg tryGet envVarTryGet
     let get key = match tryGet key with Some value -> value | None -> failwithf "Missing Argument/Environment Variable %s" key
 
-    let [<Literal>] SYSTEM_NAME =       "EQUINOX_DYNAMO_SYSTEM_NAME"
-    let [<Literal>] SERVICE_URL =       "EQUINOX_DYNAMO_SERVICE_URL"
-    let [<Literal>] ACCESS_KEY =        "EQUINOX_DYNAMO_ACCESS_KEY_ID"
-    let [<Literal>] SECRET_KEY =        "EQUINOX_DYNAMO_SECRET_ACCESS_KEY"
-    let [<Literal>] TABLE_INDEX =       "EQUINOX_DYNAMO_TABLE_INDEX"
-
-    member _.DynamoSystemName =         tryGet SYSTEM_NAME
-    member _.DynamoServiceUrl =         get SERVICE_URL
-    member _.DynamoAccessKey =          get ACCESS_KEY
-    member _.DynamoSecretKey =          get SECRET_KEY
-    member _.DynamoIndexTable =         get TABLE_INDEX
+    member _.DynamoRegion =             tryGet Propulsion.DynamoStore.Lambda.Args.Dynamo.REGION
+    member _.DynamoServiceUrl =         get Propulsion.DynamoStore.Lambda.Args.Dynamo.SERVICE_URL
+    member _.DynamoAccessKey =          get Propulsion.DynamoStore.Lambda.Args.Dynamo.ACCESS_KEY
+    member _.DynamoSecretKey =          get Propulsion.DynamoStore.Lambda.Args.Dynamo.SECRET_KEY
+    member _.DynamoIndexTable =         get Propulsion.DynamoStore.Lambda.Args.Dynamo.INDEX_TABLE
 
 type Store(connector : DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
     let queryMaxItems = 100
@@ -34,7 +28,7 @@ type Store(connector : DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
 
     new (c : Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
         let conn =
-            match c.DynamoSystemName with
+            match c.DynamoRegion with
             | Some r -> DynamoStoreConnector(r, requestTimeout, retries)
             | None -> DynamoStoreConnector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, requestTimeout, retries)
         Store(conn, c.DynamoIndexTable, dynamoItemSizeCutoffBytes)

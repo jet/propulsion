@@ -11,9 +11,7 @@ type Configuration(?tryGet) =
     let tryGet = defaultArg tryGet envVarTryGet
     let get key = match tryGet key with Some value -> value | None -> failwithf "Missing Argument/Environment Variable %s" key
 
-    let [<Literal>] SNS_ARN =           "SNS_TOPIC_ARN"
-
-    member val SnsTopicArn =            get SNS_ARN
+    member val SnsTopicArn =            get Propulsion.DynamoStore.Lambda.Args.Sns.TOPIC_ARN
 
 type Function() =
 

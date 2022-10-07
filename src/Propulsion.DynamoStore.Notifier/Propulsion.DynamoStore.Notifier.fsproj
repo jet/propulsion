@@ -27,6 +27,9 @@
         <Compile Include="..\Propulsion.DynamoStore\AppendsIndex.fs">
             <Link>PropulsionDynamoStore\AppendsIndex.fs</Link>
         </Compile>
+        <Compile Include="..\Propulsion.DynamoStore.Lambda\Args.fs">
+            <Link>PropulsionDynamoStoreLambda\Args.fs</Link>
+        </Compile>
         <Compile Include="Handler.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>

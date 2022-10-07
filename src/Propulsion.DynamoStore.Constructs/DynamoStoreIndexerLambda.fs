@@ -55,8 +55,8 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
         Handler = "Propulsion.DynamoStore.Indexer::Propulsion.DynamoStore.Indexer.Function::Handle",
         MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,
         Environment = dict [
-            "EQUINOX_DYNAMO_SYSTEM_NAME", props.regionName
-            "EQUINOX_DYNAMO_TABLE_INDEX", props.indexTableName ]))
+            Propulsion.DynamoStore.Lambda.Args.Dynamo.REGION, props.regionName
+            Propulsion.DynamoStore.Lambda.Args.Dynamo.INDEX_TABLE, props.indexTableName ]))
     do fn.AddEventSourceMapping("EquinoxSource", EventSourceMappingOptions(
         EventSourceArn = props.storeStreamArn,
         StartingPosition = StartingPosition.TRIM_HORIZON,

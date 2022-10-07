@@ -83,9 +83,9 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
         Code = code, Architecture = props.lambdaArchitecture, Runtime = props.lambdaRuntime, Handler = props.lambdaHandler,
         MemorySize = float props.memorySize, Timeout = lambdaTimeout, ReservedConcurrentExecutions = reservedConcurrency,
         Environment = dict [
-            "EQUINOX_DYNAMO_SYSTEM_NAME", props.regionName
-            "EQUINOX_DYNAMO_TABLE",       props.storeTableName
-            "EQUINOX_DYNAMO_TABLE_INDEX", props.indexTableName ]))
+            Propulsion.DynamoStore.Lambda.Args.Dynamo.REGION,      props.regionName
+            Propulsion.DynamoStore.Lambda.Args.Dynamo.TABLE,       props.storeTableName
+            Propulsion.DynamoStore.Lambda.Args.Dynamo.INDEX_TABLE, props.indexTableName ]))
     do fn.AddEventSource(SqsEventSource(queue, SqsEventSourceProps(
         ReportBatchItemFailures = true, // Required so Lambda can requeue individual unhandled notification at message level
         BatchSize = float props.batchSize)))

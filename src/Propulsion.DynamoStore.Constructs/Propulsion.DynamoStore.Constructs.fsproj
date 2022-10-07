@@ -5,6 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Propulsion.DynamoStore.Lambda\Args.fs">
+      <Link>PropulsionDynamoStoreLambda\Args.fs</Link>
+    </Compile>
     <Compile Include="DynamoStoreIndexerLambda.fs" />
     <Compile Include="DynamoStoreNotifierLambda.fs" />
     <Compile Include="DynamoStoreReactorLambda.fs" />

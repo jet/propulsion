@@ -17,6 +17,9 @@
         <TargetsForTfmSpecificBuildOutput>$(TargetsForTfmSpecificBuildOutput);IncludePublishedInPackAsTool</TargetsForTfmSpecificBuildOutput>
     </PropertyGroup>
     <ItemGroup>
+        <Compile Include="..\Propulsion.DynamoStore.Lambda\Args.fs">
+            <Link>PropulsionDynamoStoreLambda\Args.fs</Link>
+        </Compile>
         <Compile Include="Handler.fs" />
         <Compile Include="Function.fs" />
     </ItemGroup>
