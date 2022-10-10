@@ -33,15 +33,15 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ## Container diagram: Ingesters
 
-![Propulsion c4model.com Container Diagram: Ingesters](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/IngestersContainer.puml&fmt=svg)
+![Propulsion c4model.com Container Diagram: Ingesters](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/docs/diagrams/IngestersContainer.puml&fmt=svg)
 
 ## Container diagram: Publishers
 
-![Propulsion c4model.com Container Diagram: Publishers](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/PublishersContainer.puml&fmt=svg)
+![Propulsion c4model.com Container Diagram: Publishers](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/docs/diagrams/PublishersContainer.puml&fmt=svg)
 
 ## Container diagram: Reactors
 
-![Propulsion c4model.com Container Diagram: Reactors](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/ReactorsContainer.puml&fmt=svg)
+![Propulsion c4model.com Container Diagram: Reactors](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/docs/diagrams/ReactorsContainer.puml&fmt=svg)
 
 # Projectors
 
