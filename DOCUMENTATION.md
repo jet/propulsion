@@ -78,7 +78,7 @@ See the [PR that added the initial support for CosmosDb Projections](https://git
 
 The term 'event sourcing' is frequently used in proximity to Kafka. It's important to note that [despite the regular stream of articles that appear to suggest to the contrary](https://github.com/oskardudycz/EventSourcing.NetCore#this-is-not-event-sourcing), the fundamental features of Kafka don't align with the requirements as well as some messaging would have you believe. 
 
-## Using Kafka to compensate for read amplification effects of the CosmosDB ChangeFeed
+## Using Kafka to reduce RU amplification effects of the CosmosDB ChangeFeed
 
 As noted in the [Effect of ChangeFeed on Request Charges](https://github.com/jet/propulsion/blob/master/DOCUMENTATION.md#effect-of-changefeed-on-request-charges) section, in some systems the RU consumption load placed on a given Container can be significant. One way of reducing that effect is to have a single consumer replicate the events onto a Kafka Topic, and have Reactors and/or Publishers consume the events from that source instead.
 
