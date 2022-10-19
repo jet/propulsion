@@ -30,7 +30,7 @@ type internal SourcePipeline =
 
     static member Start(log : ILogger, start, maybeStartChild, stop, observer : IDisposable) =
         let cts = new CancellationTokenSource()
-        let triggerStop () =
+        let triggerStop _disposing =
             let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
             log.Write(level, "Source stopping...")
             observer.Dispose()

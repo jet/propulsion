@@ -57,21 +57,25 @@ type FeedSourceBase internal
     member x.Start(pump) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
-            let stop () =
-                if not cts.IsCancellationRequested then log.Information "Source stopping..."
+            let stop disposing =
+                if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
                 cts.Cancel()
             cts.Token, stop
 
         let supervise, markCompleted, outcomeTask =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
+            let markCompleted () = tcs.TrySetResult () |> ignore
             let recordExn (e : exn) = tcs.TrySetException e |> ignore
             // first exception from a supervised task becomes the outcome if that happens
             let supervise inner = async {
                 try do! inner
+                    // If the source completes all reading cleanly, declare completion
+                    log.Information "Source drained..."
+                    markCompleted ()
                 with e ->
                     log.Warning(e, "Exception encountered while running source, exiting loop")
                     recordExn e }
-            supervise, (fun () -> tcs.TrySetResult () |> ignore), tcs.Task
+            supervise, markCompleted, tcs.Task
 
         let supervise () = task {
             // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
@@ -297,7 +301,7 @@ type SinglePassFeedSource
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         renderPos,
         ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
-    inherit TailingFeedSource(log, statsInterval, sourceId, TimeSpan.Zero, checkpoints, None, sink, crawl, renderPos,
+    inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink, crawl, renderPos,
                               ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
                               stopAtTail = true)
 
