@@ -114,7 +114,9 @@ type FeedReader
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Async<unit>,
         renderPos,
-        ?logCommitFailure) =
+        ?logCommitFailure,
+        // Stop processing when the crawl function yields a Batch that isTail. Default false.
+        ?stopAtTail) =
 
     let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
     let stats = Stats(log, statsInterval, sourceId, trancheId, renderPos)
@@ -147,7 +149,7 @@ type FeedReader
         let! ct = Async.CancellationToken
         Task.start (fun () -> stats.Pump ct)
         let mutable currentPos, lastWasTail = initialPosition, false
-        while not ct.IsCancellationRequested do
+        while not (ct.IsCancellationRequested || (lastWasTail && defaultArg stopAtTail false)) do
             for readLatency, batch in crawl (lastWasTail, currentPos) do
                 do! submitPage (readLatency, batch) |> Async.AwaitTaskCorrect
                 currentPos <- batch.checkpoint

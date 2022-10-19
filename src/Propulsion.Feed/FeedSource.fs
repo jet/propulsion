@@ -13,14 +13,15 @@ type FeedSourceBase internal
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
         sink : Propulsion.Streams.Default.Sink,
         renderPos : Position -> string,
-        ?logCommitFailure) =
+        ?logCommitFailure, ?stopAtTail) =
     let log = log.ForContext("source", sourceId)
     let logForTranche trancheId = log.ForContext("tranche", trancheId)
     let positions = TranchePositions()
     let pumpPartition crawl (ingester : Ingestion.Ingester<_>) trancheId = async {
         let log = logForTranche trancheId
         let ingest = positions.Intercept(trancheId) >> ingester.Ingest
-        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingest, checkpoints.Commit, renderPos, ?logCommitFailure = logCommitFailure)
+        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingest, checkpoints.Commit, renderPos,
+                                ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
         try try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
                 log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                                 sourceId, trancheId, renderPos pos, freq.TotalMinutes)
@@ -235,18 +236,15 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.AwaitShutdown() }
 
-/// Drives reading and checkpointing from a source that contains data from multiple streams. While a TrancheId is always required,
-/// it may have a default value of `"0"` if the underlying source representation does not involve autonomous shards/physical partitions etc
+/// Drives reading and checkpointing from a source that contains data from multiple streams
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         renderPos,
-        ?logReadFailure,
-        ?readFailureSleepInterval : TimeSpan,
-        ?logCommitFailure) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure)
+        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure, ?stopAtTail) =
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
         if wasLast then
@@ -289,6 +287,19 @@ type AllFeedSource
 
     member x.Start() =
         base.Start x.Pump
+
+/// Drives reading from the Source until the Tail of each Tranche has been reached
+/// Useful for ingestion
+type SinglePassFeedSource
+    (   log : Serilog.ILogger, statsInterval : TimeSpan,
+        sourceId,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
+        renderPos,
+        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
+    inherit TailingFeedSource(log, statsInterval, sourceId, TimeSpan.Zero, checkpoints, None, sink, crawl, renderPos,
+                              ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
+                              stopAtTail = true)
 
 namespace Propulsion.Feed
 
