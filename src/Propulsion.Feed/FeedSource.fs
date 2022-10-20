@@ -204,11 +204,11 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             | Some true, _ -> IncludeSubsequent
             | _ -> OriginalWorkOnly
         let requireTail = match waitMode with AwaitFullyCaughtUp -> true | _ -> false
-        let active () =
+        let activeTranches () =
             match positions.Current() with
             | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>) -> kv.Value.IsEmpty && (not requireTail || kv.Value.isTail)) -> Array.empty
             | originals -> originals |> choose (fun v -> v.read)
-        match! awaitPropagation delayMs propagationDelay active with
+        match! awaitPropagation delayMs propagationDelay activeTranches with
         | [||] ->
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
@@ -229,7 +229,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                           sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then
                 let swLinger = Stopwatch.start ()
-                match! awaitLinger delayMs linger active with
+                match! awaitLinger delayMs linger activeTranches with
                 | [||] ->
                     log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, isDrainedNow (), starting, originalCompleted)
