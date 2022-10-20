@@ -10,7 +10,7 @@ open System.Threading.Tasks
 /// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
 type Pipeline(task : Task<unit>, triggerStop) =
 
-    interface IDisposable with member x.Dispose() = x.Stop()
+    interface IDisposable with member x.Dispose() = triggerStop true
 
     /// Inspects current status of task representing the Pipeline's overall state
     member _.Status = task.Status
@@ -22,7 +22,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
     /// Request completion of processing and shutdown of the Pipeline
-    member _.Stop() = triggerStop ()
+    member _.Stop() = triggerStop false
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
     member _.AwaitShutdown() = Async.AwaitTaskCorrect task
@@ -36,9 +36,9 @@ type Pipeline(task : Task<unit>, triggerStop) =
 
     static member Prepare(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, ?pumpIngester) =
         let cts = new CancellationTokenSource()
-        let triggerStop () =
-            let level = if cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
-            log.Write(level, "Projector stopping...")
+        let triggerStop disposing =
+            let level = if disposing || cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            log.Write(level, "Sink stopping...")
             cts.Cancel()
         let ct = cts.Token
 
@@ -53,10 +53,10 @@ type Pipeline(task : Task<unit>, triggerStop) =
         let start (name : string) (f : CancellationToken -> Task<unit>) =
             let wrap () = task {
                 try do! f ct
-                    log.Information("Exiting {name}", name)
+                    log.Information("... {name} stopped", name)
                 with e ->
                     log.Fatal(e, "Abend from {name}", name)
-                    triggerStop () }
+                    triggerStop false }
             Task.start wrap
 
         let supervise () = task {
@@ -71,7 +71,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
 
             // await for either handler-driven abend or external cancellation via Stop()
             try return! tcs.Task
-            finally log.Information("... projector stopped") }
+            finally log.Information("... sink stopped") }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop

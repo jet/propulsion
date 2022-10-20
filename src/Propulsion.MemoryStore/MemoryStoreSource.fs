@@ -51,7 +51,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
     member x.Start() =
         let ct, stop =
             let cts = new CancellationTokenSource()
-            cts.Token, fun () -> log.Information "Source stopping..."; cts.Cancel()
+            cts.Token, fun _disposing -> log.Information "Source stopping..."; cts.Cancel()
 
         let setSuccess, awaitCompletion =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
