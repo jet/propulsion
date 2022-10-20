@@ -20,6 +20,9 @@ type Scenario(testOutput) =
                        member _.HandleOk x = () }
     let handle _ = async { return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     let sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
+    let dispose () =
+        sink.Stop()
+        sink.AwaitShutdown() |> Async.RunSynchronously
 
     [<Fact>]
     let ``TailingFeedSource Stop / AwaitCompletion semantics`` () = async {
@@ -37,9 +40,8 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let SinglePassSource () = async {
-        let crawl _  : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> = asyncSeq {
-            yield struct (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
-        }
+        let crawl _ : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> =
+            AsyncSeq.singleton (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
         let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", checkpoints, sink, crawl, string)
         use src = source.Start(source.Pump(fun _ -> async { return [| TrancheId.parse "tid" |] }))
         // Yields sink exception, if any
@@ -49,4 +51,4 @@ type Scenario(testOutput) =
         test <@ src.RanToCompletion @>
     }
 
-    interface IDisposable with member _.Dispose() = sink.Stop(); sink.AwaitShutdown() |> Async.RunSynchronously
+    interface IDisposable with member _.Dispose() = dispose ()

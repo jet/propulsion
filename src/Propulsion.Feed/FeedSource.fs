@@ -119,27 +119,23 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
 
     let notEol () = not sink.IsCompleted && not (completed ())
     let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
-    let activeReadPositions () =
-        match positions.Current() with
-        | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>)  -> kv.Value.IsEmpty) -> Array.empty
-        | originals -> originals |> choose (fun v -> v.read)
     // Waits for up to propagationDelay, returning the opening tranche positions observed (or empty if the wait has timed out)
-    let awaitPropagation (sleepMs : int) (propagationDelay : TimeSpan) = async {
+    let awaitPropagation (sleepMs : int) (propagationDelay : TimeSpan) positions = async {
         let timeout = IntervalTimer propagationDelay
-        let mutable startPositions = activeReadPositions ()
+        let mutable startPositions = positions ()
         while Array.isEmpty startPositions && not timeout.IsDue && notEol () do
             do! Async.Sleep sleepMs
-            startPositions <- activeReadPositions ()
+            startPositions <- positions ()
         return startPositions }
     // Waits for up to lingerTime for work to arrive. If any work arrives, it waits for activity (including extra work that arrived during the wait) to quiesce.
     // If the lingerTime expires without work having completed, returns the start positions from when activity commenced
-    let awaitLinger (sleepMs : int) (lingerTime : TimeSpan) = async {
+    let awaitLinger (sleepMs : int) (lingerTime : TimeSpan) positions = async {
         let timeout = IntervalTimer lingerTime
-        let mutable startPositions = activeReadPositions ()
+        let mutable startPositions = positions ()
         let mutable worked = false
         while (Array.any startPositions || not worked) && not timeout.IsDue && notEol () do
             do! Async.Sleep sleepMs
-            let current = activeReadPositions ()
+            let current = positions ()
             if not worked && Array.any current then startPositions <- current; worked <- true // Starting: Record start position (for if we exit due to timeout)
             elif worked && Array.isEmpty current then startPositions <- current // Finished now: clear starting position record, triggering normal exit of loop
         return startPositions }
@@ -201,7 +197,18 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         let sw = Stopwatch.start ()
         let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
         let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
-        match! awaitPropagation delayMs propagationDelay with
+        let waitMode =
+            match ignoreSubsequent, awaitFullyCaughtUp with
+            | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) "cannot be combine with ignoreSubsequent"
+            | _, Some true -> AwaitFullyCaughtUp
+            | Some true, _ -> IncludeSubsequent
+            | _ -> OriginalWorkOnly
+        let requireTail = match waitMode with AwaitFullyCaughtUp -> true | _ -> false
+        let active () =
+            match positions.Current() with
+            | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>) -> kv.Value.IsEmpty && (not requireTail || kv.Value.isTail)) -> Array.empty
+            | originals -> originals |> choose (fun v -> v.read)
+        match! awaitPropagation delayMs propagationDelay active with
         | [||] ->
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
@@ -209,13 +216,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let propUsed = sw.Elapsed
             let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 5.)
             let swProcessing = Stopwatch.start ()
-            let waitMode =
-                match ignoreSubsequent, awaitFullyCaughtUp with
-                | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) "cannot be combine with ignoreSubsequent"
-                | _, Some true -> AwaitFullyCaughtUp
-                | Some true, _ -> IncludeSubsequent
-                | _ -> OriginalWorkOnly
-            do! awaitCompletion (delayMs , logInterval) swProcessing starting waitMode
+            do! awaitCompletion (delayMs, logInterval) swProcessing starting waitMode
             let procUsed = swProcessing.Elapsed
             let isDrainedNow () = positions.Current() |> isDrained
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
@@ -228,7 +229,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                           sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then
                 let swLinger = Stopwatch.start ()
-                match! awaitLinger delayMs linger with
+                match! awaitLinger delayMs linger active with
                 | [||] ->
                     log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, isDrainedNow (), starting, originalCompleted)
