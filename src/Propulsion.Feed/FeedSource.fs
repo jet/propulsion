@@ -293,18 +293,21 @@ type AllFeedSource
     member x.Start() =
         base.Start x.Pump
 
-/// Drives reading from the Source until the Tail of each Tranche has been reached
-/// Useful for ingestion
+/// Drives reading from the Source, stopping when the Tail of each of the Tranches has been reached
 type SinglePassFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
-        renderPos,
-        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
-    inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink, crawl, renderPos,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        ?renderPos, ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
+    inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink,
+                              crawl,
+                              renderPos = defaultArg renderPos string,
                               ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
                               stopAtTail = true)
+
+    member _.Start(readTranches) =
+        base.Start(base.Pump(readTranches))
 
 namespace Propulsion.Feed
 

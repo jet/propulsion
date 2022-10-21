@@ -42,8 +42,8 @@ type Scenario(testOutput) =
     let SinglePassSource () = async {
         let crawl _ : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> =
             AsyncSeq.singleton (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
-        let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", checkpoints, sink, crawl, string)
-        use src = source.Start(source.Pump(fun _ -> async { return [| TrancheId.parse "tid" |] }))
+        let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
+        use src = source.Start(fun () -> async { return [| TrancheId.parse "tid" |] })
         // Yields sink exception, if any
         do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
         // Yields source exception, if any
