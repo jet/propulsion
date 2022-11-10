@@ -1029,10 +1029,10 @@ module Projector =
                 ?ingesterStatsInterval) =
             let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
             let mapBatch onCompletion (x : Submission.Batch<_, StreamEvent<'F>>) : Buffer.Batch<'F> =
-                let onCompletion () = x.onCompletion(); onCompletion()
+                let onCompletion () = x.onCompletion (); onCompletion ()
                 Buffer.Batch.Create(onCompletion, x.messages) |> fun struct (f, _s) -> f
             let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition (maxReadAhead - maxReadAhead/5) // NOTE needs to handle overflow if maxReadAhead is Int32.MaxValue
-            let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, statsInterval)
+            let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, ingesterStatsInterval)
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
             Sink.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump, startIngester)
 

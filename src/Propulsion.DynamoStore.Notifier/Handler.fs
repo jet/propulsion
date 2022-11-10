@@ -58,7 +58,7 @@ let private mkRequest topicArn messages =
     let req = PublishBatchRequest(TopicArn = topicArn)
     messages |> Seq.iteri (fun i struct (trancheId, pos) ->
         let e = PublishBatchRequestEntry(Id = string i, Subject = trancheId, Message = pos, MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos)
-        e.MessageAttributes.Add("TrancheId", MessageAttributeValue(StringValue = trancheId, DataType="String"))
+        e.MessageAttributes.Add("Tranche", MessageAttributeValue(StringValue = trancheId, DataType="String"))
         e.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos, DataType="String"))
         req.PublishBatchRequestEntries.Add(e))
     req

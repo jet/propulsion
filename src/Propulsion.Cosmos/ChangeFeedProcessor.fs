@@ -50,17 +50,17 @@ type ChangeFeedObserver =
             | None ->  ()
             match assign with
             | Some f -> return! f log rangeId
-            | None -> log.Information("Reader {partitionId} Assigned", ctx.PartitionKeyRangeId) }
+            | None -> log.Information("Reader {partition} Assigned", ctx.PartitionKeyRangeId) }
         let _process (ctx, docs) = async {
             try do! ingest log ctx docs |> Async.AwaitTaskCorrect
             with e ->
-                log.Error(e, "Reader {partitionId} Handler Threw", ctx.PartitionKeyRangeId)
+                log.Error(e, "Reader {partition} Handler Threw", ctx.PartitionKeyRangeId)
                 do! Async.Raise e }
         let _close (ctx : IChangeFeedObserverContext, reason) = async {
             log.Warning "Closing" // Added to enable diagnosing underlying CFP issues; will be removed eventually
             match revoke with
             | Some f -> return! f log
-            | None -> log.Information("Reader {partitionId} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
+            | None -> log.Information("Reader {partition} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
         { new IChangeFeedObserver with
             member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
             member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _

@@ -15,22 +15,21 @@ type FeedSourceBase internal
         renderPos : Position -> string,
         ?logCommitFailure, ?stopAtTail) =
     let log = log.ForContext("source", sourceId)
-    let logForTranche trancheId = log.ForContext("tranche", trancheId)
     let positions = TranchePositions()
-    let pumpPartition crawl (ingester : Ingestion.Ingester<_>) trancheId = async {
-        let log = logForTranche trancheId
-        let ingest = positions.Intercept(trancheId) >> ingester.Ingest
-        let reader = FeedReader(log, sourceId, trancheId, statsInterval, crawl trancheId, ingest, checkpoints.Commit, renderPos,
-                                ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
+    let pumpPartition (partitionId : int) trancheId struct (ingester : Ingestion.Ingester<_>, reader : FeedReader) = async {
         try try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
-                log.Information("Reading {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
-                                sourceId, trancheId, renderPos pos, freq.TotalMinutes)
+                reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
+                                       partitionId, sourceId, trancheId, renderPos pos, freq.TotalMinutes)
                 return! reader.Pump(pos)
             with e ->
-                log.Warning(e, "Exception encountered while running reader, exiting loop")
+                reader.Log.Warning(e, "Finishing {partition}", partitionId)
                 return! Async.Raise e
         finally ingester.Stop() }
-    let mutable ingesters = Array.empty<Ingestion.Ingester<_>>
+    let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
+    let rec pumpStats () = async {
+        do! Async.Sleep statsInterval
+        for _i, r in partitions do r.DumpStats()
+        return! pumpStats () }
 
     member val internal Positions = positions
 
@@ -38,7 +37,7 @@ type FeedSourceBase internal
     /// Yields current Tranche Positions
     member _.Checkpoint() : Async<IReadOnlyDictionary<TrancheId, Position>> = async {
         let! ct = Async.CancellationToken
-        do! Async.Parallel(seq { for x in ingesters -> Async.AwaitTask(x.FlushProgress ct) }) |> Async.Ignore<unit array>
+        do! Async.Parallel(seq { for i, _r in partitions -> Async.AwaitTask(i.FlushProgress ct) }) |> Async.Ignore<unit array>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
@@ -50,9 +49,16 @@ type FeedSourceBase internal
         // TODO when that's done, remove workaround in readTranches
         let! (tranches : TrancheId array) = readTranches ()
         log.Information("Starting {tranches} tranche readers...", tranches.Length)
-        ingesters <- tranches |> Array.mapi (fun partitionId trancheId -> sink.StartIngester(logForTranche trancheId, partitionId))
-        let trancheWorkflows = (ingesters, tranches) ||> Seq.map2 (pumpPartition crawl)
-        return! Async.Parallel trancheWorkflows |> Async.Ignore<unit[]> }
+        partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
+            let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
+            let ingester = sink.StartIngester(log, partitionId)
+            let ingest = positions.Intercept(trancheId) >> ingester.Ingest
+            let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
+                                    ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
+            ingester, reader)
+        let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
+        let logWorkflow = pumpStats () |> Seq.singleton
+        return! Async.Parallel(Seq.append trancheWorkflows logWorkflow) |> Async.Ignore<unit[]> }
 
     member x.Start(pump) =
         let ct, stop =
@@ -151,7 +157,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Current {current} Completed {completed} Starting {starting}",
                                                     sw.ElapsedSeconds, currentRead, completed, startReadPositions)
             | AwaitFullyCaughtUp -> let catchingUp = current |> choose (fun v -> if not v.isTail then ValueSome () else ValueNone) |> Array.map ValueTuple.fst
-                                    log.Information("FeedMonitor {totalTime:n1}s Awaiting Catchup {tranches}. Current {current} Completed {completed} Starting {starting}",
+                                    log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Current {current} Completed {completed} Starting {starting}",
                                                     sw.ElapsedSeconds, catchingUp, currentRead, completed, startReadPositions)
         let busy () =
             let current = positions.Current()
@@ -258,7 +264,7 @@ type TailingFeedSource
             for batch in batches do
                 yield batch
         with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
-            match logReadFailure with None -> log.ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
+            match logReadFailure with None -> log.ForContext("tranche", trancheId).ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
             match readFailureSleepInterval with None -> () | Some interval -> do! Async.Sleep(TimeSpan.toMs interval) }
 
     member _.Pump(readTranches) =

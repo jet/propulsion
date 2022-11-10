@@ -24,9 +24,9 @@ type internal Stats<'S when 'S : equality>(log : ILogger, interval) =
 
     member val Interval = IntervalTimer interval
 
-    member _.Dump(waiting : seq<struct ('S * int)>) =
-        log.Information("Submitter ingested {ingested} compacted {compacted} completed {completed} Events {items} Batches {batches} Holding {holding} Cycles {cycles}",
-                        ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, cycles)
+    member _.Dump(waiting : seq<struct ('S * int)>, states : seq<struct ('S * int)>) =
+        log.Information("Submitter ingested {ingested} compacted {compacted} Completed {completed} events {items} batches {batches} Holding {holding} Capacity {space} Cycles {cycles}",
+                        ingested, compacted, completed, submittedMessages.StatsDescending, submittedBatches.StatsDescending, waiting, states, cycles)
         cycles <- 0; ingested <- 0; compacted <- 0; completed <- 0; submittedBatches.Clear(); submittedMessages.Clear()
 
     member _.RecordCompacted() =
@@ -65,6 +65,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         Channel.awaitRead r, Channel.apply r, Channel.write w
     let buffer = Dictionary<'S, PartitionQueue<'B>>()
     let queueStats = seq { for x in buffer do if x.Value.queue.Count <> 0 then struct (x.Key, x.Value.queue.Count) } |> Seq.sortByDescending ValueTuple.snd
+    let queueStates = seq { for x in buffer do if x.Value.queue.Count <> 0 then struct (x.Key, ValueTuple.fst x.Value.submissions.State) } |> Seq.sortByDescending ValueTuple.snd
     let stats = Stats<'S>(log, statsInterval)
 
     // Loop, submitting 0 or 1 item per partition per iteration to ensure
@@ -74,15 +75,18 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
         waiting.Clear()
         let mutable worked = false
         for kv in buffer do
-            let pi, pq = kv.Key, kv.Value
+            let pq = kv.Value
             if pq.queue.Count <> 0 then
                 if pq.submissions.TryTake() then
                     worked <- true
                     let count = submitBatch <| pq.queue.Dequeue()
-                    stats.RecordBatch(pi, count)
+                    stats.RecordBatch(let pi = kv.Key in pi, count)
                 else waiting.Add(pq.submissions)
         worked
 
+    let markCompleted releaseSubmitCapacity () =
+        stats.RecordBatchCompleted()
+        releaseSubmitCapacity ()
     let ingest (partitionBatches : Batch<'S, 'M>[]) =
         stats.RecordBatchIngested()
         for { source = pid } as batch in partitionBatches do
@@ -90,10 +94,7 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
             if not (buffer.TryGetValue(pid, &pq)) then
                 pq <- PartitionQueue<_>.Create(maxSubmitsPerPartition)
                 buffer[pid] <- pq
-            let markCompleted () =
-                stats.RecordBatchCompleted()
-                pq.submissions.Release()
-            let mapped = mapBatch markCompleted batch
+            let mapped = mapBatch (markCompleted pq.submissions.Release) batch
             pq.Append(mapped)
 
     /// We use timeslices where we're we've fully provisioned the scheduler to index any waiting Batches
@@ -112,12 +113,12 @@ type SubmissionEngine<'S, 'M, 'B when 'S : equality>
     /// Processing loop, continuously splitting `Submit`ted items into per-partition queues and ensuring enough items are provided to the Scheduler
     member _.Pump(ct : CancellationToken) = task {
         // Semaphores for partitions that have reached their submit limit; if capacity becomes available, we want to wake to submit
-        let waitingSubmissions = ResizeArray<Sem>()
-        let submitCapacityAvailable : seq<Task> = seq { for w in waitingSubmissions -> w.AwaitButRelease() }
+        let partitionsAtQuota = ResizeArray<Sem>()
+        let submitCapacityAvailable : seq<Task> = seq { for w in partitionsAtQuota -> w.AwaitButRelease() }
         while not ct.IsCancellationRequested do
-            while applyIncoming ingest || tryPropagate waitingSubmissions || maybeCompact () do ()
+            while applyIncoming ingest || tryPropagate partitionsAtQuota || maybeCompact () do ()
             stats.RecordCycle()
-            if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
+            if stats.Interval.IfDueRestart() then stats.Dump(queueStats, queueStates)
             do! Task.WhenAny[| awaitIncoming ct :> Task; yield! submitCapacityAvailable; Task.Delay(stats.Interval.RemainingMs) |] :> Task }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time

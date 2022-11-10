@@ -11,7 +11,7 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
         let epochs = AppendsEpoch.Config.create storeLog (epochBytesCutoff, maxVersion, maxStreams) (context, cache)
         let index = AppendsIndex.Config.create storeLog (context, cache)
         let createIngester trancheId =
-            let log = log.ForContext("trancheId", trancheId)
+            let log = log.ForContext("tranche", trancheId)
             let readIngestionEpoch () = index.ReadIngestionEpochId trancheId
             let markIngestionEpoch epochId = index.MarkIngestionEpochId(trancheId, epochId)
             let ingest (eid, items) = epochs.Ingest(trancheId, eid, items)

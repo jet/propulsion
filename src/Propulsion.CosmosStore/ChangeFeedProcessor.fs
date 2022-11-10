@@ -128,14 +128,14 @@ type ChangeFeedProcessor =
                         return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTask
 #endif
                     with e ->
-                        log.Error(e, "Reader {processorName}/{partitionId} Handler Threw", processorName, context.LeaseToken)
+                        log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }
                 fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> Task
-            let acquireAsync leaseToken = log.Information("Reader {partitionId} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
-            let releaseAsync leaseToken = log.Information("Reader {partitionId} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
+            let acquireAsync leaseToken = log.Information("Reader {partition} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
+            let releaseAsync leaseToken = log.Information("Reader {partition} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let notifyError =
                 notifyError
-                |> Option.defaultValue (fun i ex -> log.Error(ex, "Reader {partitionId} error", i))
+                |> Option.defaultValue (fun i ex -> log.Error(ex, "Reader {partition} error", i))
                 |> fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; Task.CompletedTask
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)

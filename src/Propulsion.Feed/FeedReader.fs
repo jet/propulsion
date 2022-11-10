@@ -38,7 +38,7 @@ module Log =
 [<AutoOpen>]
 module private Impl =
 
-    type Stats(log : ILogger, statsInterval : TimeSpan, source : SourceId, tranche : TrancheId, renderPos : Position -> string) =
+    type Stats(partition : int, source : SourceId, tranche : TrancheId, renderPos : Position -> string) =
 
         let mutable batchLastPosition = Position.parse -1L
         let mutable batchCaughtUp = false
@@ -50,7 +50,7 @@ module private Impl =
 
         let mutable lastCommittedPosition = Position.parse -1L
 
-        let report () =
+        member _.Dump(log : ILogger) =
             let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
             let m = Log.Metric.Read {
                 source = source; tranche = tranche
@@ -58,9 +58,9 @@ module private Impl =
                 ingestLatency = ingestLatency; ingestQueued = currentBatches }
             let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
             let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
-            (log |> Log.withMetric m).Information(
-                "Reader {source:l}/{tranche:l} Tail {caughtUp} Position {readPosition} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
-                source, tranche, batchCaughtUp, r batchLastPosition, r lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
+            (Log.withMetric m log).ForContext("tail", batchCaughtUp).Information(
+                "Reader {partition} {state} Position {readPosition} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
+                partition, (if batchCaughtUp then "Tail" else "Busy"), r batchLastPosition, r lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
             recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
 
@@ -84,13 +84,8 @@ module private Impl =
             currentBatches <- cur
             maxBatches <- max
 
-        member _.Pump(ct : CancellationToken) = task {
-            while not ct.IsCancellationRequested do
-                do! Task.Delay(TimeSpan.toMs statsInterval, ct)
-                report () }
-
 type FeedReader
-    (   log : ILogger, sourceId, trancheId, statsInterval : TimeSpan,
+    (   log : ILogger, partition, source, tranche,
         // Walk all content in the source. Responsible for managing exceptions, retries and backoff.
         // Implementation is expected to inject an appropriate sleep based on the supplied `Position`
         // Processing loop will abort if an exception is yielded
@@ -118,11 +113,10 @@ type FeedReader
         // Stop processing when the crawl function yields a Batch that isTail. Default false.
         ?stopAtTail) =
 
-    let log = log.ForContext("source", sourceId).ForContext("tranche", trancheId)
-    let stats = Stats(log, statsInterval, sourceId, trancheId, renderPos)
+    let stats = Stats(partition, source, tranche, renderPos)
 
     let commit position = async {
-        try do! commitCheckpoint (sourceId, trancheId, position)
+        try do! commitCheckpoint (source, tranche, position)
             stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
         with e ->
@@ -142,12 +136,13 @@ type FeedReader
         let! struct (cur, max) = submitBatch { isTail = batch.isTail; epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateCurMax(ingestTimer.Elapsed, cur, max) }
 
+    member _.Log = log
+    member _.DumpStats() = stats.Dump(log)
+
     member _.Pump(initialPosition : Position) = async {
         log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
-        // Commence reporting stats until such time as we quit pumping
         let! ct = Async.CancellationToken
-        Task.start (fun () -> stats.Pump ct)
         let mutable currentPos, lastWasTail = initialPosition, false
         while not (ct.IsCancellationRequested || (lastWasTail && defaultArg stopAtTail false)) do
             for readLatency, batch in crawl (lastWasTail, currentPos) do

@@ -63,7 +63,7 @@ module private Impl =
             all.Length, chosenEvents, totalEvents, streamEvents
         let largeEnoughToLog = streamEvents.Count > batchCutoff
         if largeEnoughToLog then
-            log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
+            log.Information("DynamoStoreSource {source}/{tranche}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
                             sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
 
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), System.Collections.Concurrent.ConcurrentDictionary()
@@ -95,7 +95,7 @@ module private Impl =
                 | loadedNow when prevLoaded <> loadedNow ->
                     prevLoaded <- loadedNow
                     let eventsLoaded = cache.Values |> Seq.sumBy Array.length
-                    log.Information("DynamoStoreSource {sourceId}/{trancheId}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
+                    log.Information("DynamoStoreSource {source}/{tranche}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
                                     sourceId, string tid, string epochId, Option.toNullable i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, eventsLoaded, chosenEvents)
                 | _ -> ()
             batchIndex <- batchIndex + 1
