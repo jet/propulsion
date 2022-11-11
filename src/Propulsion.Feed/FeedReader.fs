@@ -1,6 +1,5 @@
 namespace Propulsion.Feed.Core
 
-open System.Threading
 open FSharp.Control
 open Propulsion // Async.Raise
 open Propulsion.Feed

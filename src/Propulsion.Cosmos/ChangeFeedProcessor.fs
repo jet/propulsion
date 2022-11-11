@@ -25,7 +25,7 @@ type ChangeFeedObserverContext = { source : ContainerId; leasePrefix : string }
 /// Provides F#-friendly wrapping to compose a ChangeFeedObserver from functions
 type ChangeFeedObserver =
     static member Create
-      ( /// Base logger context; will be decorated with a `partitionId` property when passed to `assign`, `init` and `ingest`
+      ( /// Base logger context; will be decorated with a `partition` property when passed to `assign`, `init` and `ingest`
         log : ILogger,
         /// Callback responsible for
         /// - handling ingestion of a batch of documents (potentially offloading work to another control path)
@@ -43,7 +43,7 @@ type ChangeFeedObserver =
         ?dispose : unit -> unit) =
         let mutable log = log
         let _open (ctx : IChangeFeedObserverContext) = async {
-            log <- log.ForContext("partitionId",ctx.PartitionKeyRangeId)
+            log <- log.ForContext("partition", ctx.PartitionKeyRangeId)
             let rangeId = int ctx.PartitionKeyRangeId
             match init with
             | Some f -> f log rangeId
