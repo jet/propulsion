@@ -13,6 +13,7 @@ open Xunit
 open Propulsion.MessageDb
 open Swensen.Unquote
 open Propulsion.Infrastructure
+open Propulsion.Internal
 
 module Simple =
     type Hello = {name: string}
@@ -39,8 +40,9 @@ let writeMessagesToCategory category = task {
     do! batch.ExecuteNonQueryAsync() :> Task }
 
 module Array =
-    let chooseV f (arr: _ array) = [| for item in arr do match f item with ValueSome v -> yield v | ValueNone -> () |]
+
     let isAscending arr = Array.sort arr = arr
+
 [<Fact>]
 let ``It processes events for a category`` () = async {
     let log = Serilog.Log.Logger
