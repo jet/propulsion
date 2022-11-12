@@ -41,6 +41,7 @@ let writeMessagesToCategory category = task {
 
 module Array =
     let chooseV f (arr: _ array) = [| for item in arr do match f item with ValueSome v -> yield v | ValueNone -> () |]
+    let isAscending arr = Array.sort arr = arr
 [<Fact>]
 let ``It processes events for a category`` () = async {
     let log = Serilog.Log.Logger
@@ -56,7 +57,7 @@ let ``It processes events for a category`` () = async {
     let stop = ref (fun () -> ())
     let handled = HashSet<_>()
     let handle struct(stream, evts: StreamSpan<_>) = async {
-        lock handled (fun _ -> for evt in evts do handled.Add((stream, evt.EventId)) |> ignore)
+        lock handled (fun _ -> for evt in evts do handled.Add((stream, evt.Index)) |> ignore)
         test <@ Array.chooseV Simple.codec.TryDecode evts |> Array.forall ((=) (Simple.Hello {name = "world"})) @>
         if handled.Count >= 2000 then
             stop.contents()
@@ -74,4 +75,6 @@ let ``It processes events for a category`` () = async {
     test <@ handled.Count = 2000 @>
     // 20 in each stream
     test <@ handled |> Array.ofSeq |> Array.groupBy fst |> Array.map (snd >> Array.length) |> Array.forall ((=) 20) @>
+    // they were handled in order within streams
+    test <@ handled |> Array.ofSeq |> Array.groupBy fst |> Array.map snd |> Array.forall Array.isAscending @>
 }
