@@ -23,6 +23,7 @@
     <Exec Command="dotnet pack src/Propulsion.Feed $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.MemoryStore $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.MesageDb $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
     
