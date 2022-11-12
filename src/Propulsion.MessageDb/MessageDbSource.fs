@@ -13,20 +13,20 @@ open Propulsion.Feed
 type MessageDbCategoryReader(connectionString) =
     let readonly (bytes: byte array) = ReadOnlyMemory.op_Implicit(bytes)
     let readRow (reader: DbDataReader) =
-            let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
-            let timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc))
-            let streamName = reader.GetString(9)
-            let event =TimelineEvent.Create(
-               index = reader.GetInt64(0),
-               eventType = reader.GetString(1),
-               data = (reader.GetFieldValue<byte array>(2) |> readonly),
-               meta = (reader.GetFieldValue<byte array>(3) |> readonly),
-               eventId = reader.GetGuid(4),
-               ?correlationId = readNullableString 5,
-               ?causationId = readNullableString 6,
-               timestamp = timestamp)
+        let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
+        let timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc))
+        let streamName = reader.GetString(9)
+        let event =TimelineEvent.Create(
+           index = reader.GetInt64(0),
+           eventType = reader.GetString(1),
+           data = (reader.GetFieldValue<byte array>(2) |> readonly),
+           meta = (reader.GetFieldValue<byte array>(3) |> readonly),
+           eventId = reader.GetGuid(4),
+           ?correlationId = readNullableString 5,
+           ?causationId = readNullableString 6,
+           timestamp = timestamp)
 
-            struct(StreamName.parse streamName, event)
+        struct(StreamName.parse streamName, event)
     member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) = task {
         use conn = new NpgsqlConnection(connectionString)
         do! conn.OpenAsync(ct)
