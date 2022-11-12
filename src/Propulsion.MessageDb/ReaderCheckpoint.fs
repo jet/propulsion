@@ -6,8 +6,6 @@ open Propulsion.Feed
 open Propulsion.Infrastructure
 open System
 
-let createConnection connString = new NpgsqlConnection(connString)
-
 let createIfNotExists (conn : NpgsqlConnection, schema: string) =
     let cmd = conn.CreateCommand()
     cmd.CommandText <- $"
@@ -61,7 +59,7 @@ type Service(connString : string, schema: string, consumerGroupName, defaultChec
     interface IFeedCheckpointStore with
 
         member _.Start(source, tranche, ?establishOrigin) = async {
-            use conn = createConnection connString
+            use conn = new NpgsqlConnection(connString)
             let! maybePos = tryGetPosition (conn, schema) (streamName source tranche) consumerGroupName
             let! pos =
                 match maybePos, establishOrigin with
@@ -71,7 +69,7 @@ type Service(connString : string, schema: string, consumerGroupName, defaultChec
             return defaultCheckpointFrequency, pos }
 
         member _.Commit(source, tranche, pos) = async {
-            use conn = createConnection connString
+            use conn = new NpgsqlConnection(connString)
             return! commitPosition (conn, schema) (streamName source tranche) consumerGroupName (Position.toInt64 pos) }
 
 
