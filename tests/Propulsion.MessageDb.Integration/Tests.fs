@@ -60,8 +60,7 @@ let ``It processes events for a category`` () = async {
         test <@ Array.chooseV Simple.codec.TryDecode evts |> Array.forall ((=) (Simple.Hello {name = "world"})) @>
         if handled.Count >= 2000 then
             stop.contents()
-        return struct (Propulsion.Streams.SpanResult.AllProcessed, ())
-    }
+        return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(log, TimeSpan.FromMinutes 1, reader, 1000, TimeSpan.FromMilliseconds 100, checkpoints, sink)
     use src = source.Start(source.Pump(fun _ -> async { return [| TrancheId.parse category |] }))
