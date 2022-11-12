@@ -54,12 +54,16 @@ type Service(connString : string, schema: string, consumerGroupName, defaultChec
 
     member _.CreateSchemaIfNotExists() = async {
         use conn = new NpgsqlConnection(connString)
+        let! ct = Async.CancellationToken
+        do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
         return! createIfNotExists (conn, schema) }
 
     interface IFeedCheckpointStore with
 
         member _.Start(source, tranche, ?establishOrigin) = async {
             use conn = new NpgsqlConnection(connString)
+            let! ct = Async.CancellationToken
+            do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
             let! maybePos = tryGetPosition (conn, schema) (streamName source tranche) consumerGroupName
             let! pos =
                 match maybePos, establishOrigin with
@@ -70,6 +74,8 @@ type Service(connString : string, schema: string, consumerGroupName, defaultChec
 
         member _.Commit(source, tranche, pos) = async {
             use conn = new NpgsqlConnection(connString)
+            let! ct = Async.CancellationToken
+            do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
             return! commitPosition (conn, schema) (streamName source tranche) consumerGroupName (Position.toInt64 pos) }
 
 

@@ -15,7 +15,7 @@ type MessageDbCategoryReader(connectionString) =
     let readRow (reader: DbDataReader) =
         let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
         let timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc))
-        let streamName = reader.GetString(9)
+        let streamName = reader.GetString(8)
         let event =TimelineEvent.Create(
            index = reader.GetInt64(0),
            eventType = reader.GetString(1),
@@ -70,13 +70,13 @@ module private Impl =
         let! ct = Async.CancellationToken
         let positionInclusive = Position.toInt64 pos
         let! page = store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect
-        let checkpoint = match Array.tryLast page with Some struct(_, evt) -> evt.Index + 1L | None -> positionInclusive
+        let checkpoint = match Array.tryLast page with Some struct(_, evt) -> evt.Index | None -> positionInclusive
         return { checkpoint = Position.parse checkpoint; items = page; isTail = false } }
 
     let readTailPositionForTranche (store : MessageDbCategoryReader) trancheId : Async<Propulsion.Feed.Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
-        return Position.parse(lastEventPos + 1L) }
+        return Position.parse(lastEventPos) }
 
 type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,
