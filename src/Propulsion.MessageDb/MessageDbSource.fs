@@ -94,8 +94,4 @@ type MessageDbSource
                 let sw = Stopwatch.StartNew()
                 let! b = Impl.readBatch batchSize reader req
                 yield sw.Elapsed, b }),
-            string
-            )
-        // (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-        //     checkpoints, sink,
-        //     Impl.readPage (hydrateBodies = Some true) batchSize store)
+            string)
