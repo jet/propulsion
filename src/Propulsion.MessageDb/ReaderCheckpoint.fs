@@ -45,7 +45,7 @@ let tryGetPosition (conn : NpgsqlConnection, schema : string) (stream : string) 
     let! hasRow = reader.ReadAsync(ct) |> Async.AwaitTaskCorrect
     return if hasRow then Some (reader.GetInt64 0) else None }
 
-type Service(connString : string, schema: string, consumerGroupName, defaultCheckpointFrequency) =
+type NpgsqlCheckpointStore(connString : string, schema: string, consumerGroupName, defaultCheckpointFrequency) =
 
     let streamName source tranche =
         match SourceId.toString source, TrancheId.toString tranche with
