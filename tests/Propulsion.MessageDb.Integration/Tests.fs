@@ -2,7 +2,6 @@ module Tests
 
 open System
 open System.Collections.Generic
-open System.Threading
 open System.Threading.Tasks
 open FSharp.Control
 open Npgsql
