@@ -37,7 +37,7 @@ let commitPosition (conn : NpgsqlConnection, schema: string) (stream : string) (
 let tryGetPosition (conn : NpgsqlConnection, schema : string) (stream : string) (consumerGroup : string) = async {
     let cmd = conn.CreateCommand()
     cmd.CommandText <-
-        "select global_position from {schema}.propulsion_checkpoints where stream_name = @StreamName and consumer_group = @ConsumerGroup"
+        $"select global_position from {schema}.propulsion_checkpoints where stream_name = @StreamName and consumer_group = @ConsumerGroup"
 
     cmd.Parameters.AddWithValue("StreamName", NpgsqlDbType.Text, stream) |> ignore
     cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore
