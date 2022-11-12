@@ -53,7 +53,7 @@ let ``It processes events for a category`` () = async {
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                       with member _.HandleExn(log, x) = ()
                            member _.HandleOk x = () }
-    let stop = ref (fun () -> () )
+    let stop = ref (fun () -> ())
     let handled = HashSet<_>()
     let handle struct(stream, evts: StreamSpan<_>) = async {
         lock handled (fun _ -> for evt in evts do handled.Add((stream, evt.EventId)) |> ignore)
