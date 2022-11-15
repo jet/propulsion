@@ -205,9 +205,9 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
         let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
         let waitMode =
             match ignoreSubsequent, awaitFullyCaughtUp with
-            | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) "cannot be combine with ignoreSubsequent"
+            | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) "cannot be combined with ignoreSubsequent"
             | _, Some true -> AwaitFullyCaughtUp
-            | Some true, _ -> IncludeSubsequent
+            | Some true, _ -> OriginalWorkOnly
             | _ -> OriginalWorkOnly
         let requireTail = match waitMode with AwaitFullyCaughtUp -> true | _ -> false
         let activeTranches () =
