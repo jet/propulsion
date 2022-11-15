@@ -50,7 +50,8 @@ type MessageDbCategoryReader(connectionString) =
             events.Add(readRow reader)
             checkpoint <- reader.GetInt64(9)
 
-        return { checkpoint = Position.parse checkpoint; items = events.ToArray(); isTail = false } }
+        let events = events.ToArray()
+        return { checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } }
     member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
         use! conn = connect ct
         let command = conn.CreateCommand()
