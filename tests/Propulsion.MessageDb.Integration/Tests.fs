@@ -39,10 +39,6 @@ let writeMessagesToCategory category = task {
             batch.BatchCommands.Add(cmd)
     do! batch.ExecuteNonQueryAsync() :> Task }
 
-module Array =
-
-    let isAscending arr = Array.sort arr = arr
-
 [<Fact>]
 let ``It processes events for a category`` () = async {
     let log = Serilog.Log.Logger
@@ -77,5 +73,6 @@ let ``It processes events for a category`` () = async {
     // 20 in each stream
     test <@ handled |> Array.ofSeq |> Array.groupBy fst |> Array.map (snd >> Array.length) |> Array.forall ((=) 20) @>
     // they were handled in order within streams
-    test <@ handled |> Array.ofSeq |> Array.groupBy fst |> Array.map snd |> Array.forall Array.isAscending @>
+    let ordering = handled |> Array.ofSeq |> Array.groupBy fst |> Array.map (snd >> Array.map snd)
+    test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @>
 }
