@@ -26,7 +26,7 @@ let writeMessagesToCategory category = task {
     use conn = new NpgsqlConnection("Host=localhost; Port=5433; Username=message_store; Password=;")
     do! conn.OpenAsync()
     let batch = conn.CreateBatch()
-    for _ in 1..100 do
+    for _ in 1..50 do
         let streamName = $"{category}-{Guid.NewGuid():N}"
         for _ in 1..20 do
             let cmd = NpgsqlBatchCommand()
@@ -43,8 +43,10 @@ let writeMessagesToCategory category = task {
 let ``It processes events for a category`` () = async {
     let log = Serilog.Log.Logger
     let consumerGroup = $"{Guid.NewGuid():N}"
-    let category = $"{Guid.NewGuid():N}"
-    do! writeMessagesToCategory category |> Async.AwaitTaskCorrect
+    let category1 = $"{Guid.NewGuid():N}"
+    let category2 = $"{Guid.NewGuid():N}"
+    do! writeMessagesToCategory category1 |> Async.AwaitTaskCorrect
+    do! writeMessagesToCategory category2 |> Async.AwaitTaskCorrect
     let reader = MessageDbCategoryReader("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
@@ -60,7 +62,7 @@ let ``It processes events for a category`` () = async {
             stop.contents()
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
-    let source = MessageDbSource(log, [| category |], TimeSpan.FromMinutes 1, reader, 1000, TimeSpan.FromMilliseconds 100, checkpoints, sink)
+    let source = MessageDbSource(log, [| category1; category2 |], TimeSpan.FromMinutes 1, reader, 1000, TimeSpan.FromMilliseconds 100, checkpoints, sink)
     use src = source.Start()
     // who says you can't do backwards referencing in F#
     stop.contents <- src.Stop
