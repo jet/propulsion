@@ -4,53 +4,54 @@ open Npgsql
 open NpgsqlTypes
 open Propulsion.Feed
 open Propulsion.Infrastructure
-open System
 
 let createIfNotExists (conn : NpgsqlConnection, schema: string) =
     let cmd = conn.CreateCommand()
     cmd.CommandText <- $"
-      create table if not exists {schema}.propulsion_checkpoints (
-        stream_name text not null,
+      create table if not exists {schema}.propulsion_checkpoint (
+        source text not null,
+        tranche text not null,
         consumer_group text not null,
-        global_position bigint not null,
-        primary key (stream_name, consumer_group)
-      );
+        position bigint not null,
+        primary key (source, tranche, consumer_group)
+      )
     "
     cmd.ExecuteNonQueryAsync() |> Async.AwaitTaskCorrect |> Async.Ignore<int>
 
-let commitPosition (conn : NpgsqlConnection, schema: string) (stream : string) (consumerGroup : string) (position : int64) = async {
-     let cmd = conn.CreateCommand()
-     cmd.CommandText <-
-         $"insert into {schema}.propulsion_checkpoints(stream_name, consumer_group, global_position)
-           values (@StreamName, @ConsumerGroup, @GlobalPosition)
-           on conflict (stream_name, consumer_group)
-           do update set global_position = @GlobalPosition;"
-     cmd.Parameters.AddWithValue("StreamName", NpgsqlDbType.Text, stream) |> ignore
-     cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore
-     cmd.Parameters.AddWithValue("GlobalPosition", NpgsqlDbType.Bigint, position) |> ignore
-
-     let! ct = Async.CancellationToken
-     do! cmd.ExecuteNonQueryAsync(ct) |> Async.AwaitTaskCorrect |> Async.Ignore<int> }
-
-let tryGetPosition (conn : NpgsqlConnection, schema : string) (stream : string) (consumerGroup : string) = async {
+let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (consumerGroup : string) (position : int64)
+    = async {
     let cmd = conn.CreateCommand()
     cmd.CommandText <-
-        $"select global_position from {schema}.propulsion_checkpoints where stream_name = @StreamName and consumer_group = @ConsumerGroup"
+        $"insert into {schema}.propulsion_checkpoint(source, tranche, consumer_group, position)
+          values (@Source, @Tranche, @ConsumerGroup, @GlobalPosition)
+          on conflict (source, tranche, consumer_group)
+          do update set position = @Position;"
+    cmd.Parameters.AddWithValue("Source", NpgsqlDbType.Text, SourceId.toString source) |> ignore
+    cmd.Parameters.AddWithValue("Tranche", NpgsqlDbType.Text, TrancheId.toString tranche) |> ignore
+    cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore
+    cmd.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, position) |> ignore
 
-    cmd.Parameters.AddWithValue("StreamName", NpgsqlDbType.Text, stream) |> ignore
+    let! ct = Async.CancellationToken
+    do! cmd.ExecuteNonQueryAsync(ct) |> Async.AwaitTaskCorrect |> Async.Ignore<int> }
+
+let tryGetPosition (conn : NpgsqlConnection, schema : string) source tranche (consumerGroup : string) = async {
+    let cmd = conn.CreateCommand()
+    cmd.CommandText <-
+        $"select position from {schema}.propulsion_checkpoint
+          where source = @Source
+            and tranche = @Tranche
+            and consumer_group = @ConsumerGroup"
+
+    cmd.Parameters.AddWithValue("Source", NpgsqlDbType.Text, SourceId.toString source) |> ignore
+    cmd.Parameters.AddWithValue("Tranche", NpgsqlDbType.Text, TrancheId.toString tranche) |> ignore
     cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore
 
-    use reader = cmd.ExecuteReader()
     let! ct = Async.CancellationToken
-    let! hasRow = reader.ReadAsync(ct) |> Async.AwaitTaskCorrect
-    return if hasRow then Some (reader.GetInt64 0) else None }
+    use! reader = cmd.ExecuteReaderAsync(ct) |> Async.AwaitTaskCorrect
+    return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-type NpgsqlCheckpointStore(connString : string, schema: string, consumerGroupName, defaultCheckpointFrequency) =
-
-    let streamName source tranche =
-        match SourceId.toString source, TrancheId.toString tranche with
-        | s, null -> s
-        | s, tid -> String.Join("_", s, tid)
+type CheckpointStore(connString : string, schema: string, consumerGroupName, defaultCheckpointFrequency) =
+    let connect = Npgsql.connect connString
 
     member _.CreateSchemaIfNotExists() = async {
         use conn = new NpgsqlConnection(connString)
@@ -61,21 +62,19 @@ type NpgsqlCheckpointStore(connString : string, schema: string, consumerGroupNam
     interface IFeedCheckpointStore with
 
         member _.Start(source, tranche, ?establishOrigin) = async {
-            use conn = new NpgsqlConnection(connString)
             let! ct = Async.CancellationToken
-            do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
-            let! maybePos = tryGetPosition (conn, schema) (streamName source tranche) consumerGroupName
+            use! conn = connect ct |> Async.AwaitTaskCorrect
+            let! maybePos = tryGetPosition (conn, schema) source tranche consumerGroupName
             let! pos =
                 match maybePos, establishOrigin with
-                | Some pos, _ -> async { return Position.parse pos }
-                | None, Some f -> f
-                | None, None -> async { return Position.initial }
+                | ValueSome pos, _ -> async { return Position.parse pos }
+                | ValueNone, Some f -> f
+                | ValueNone, None -> async { return Position.initial }
             return defaultCheckpointFrequency, pos }
 
         member _.Commit(source, tranche, pos) = async {
-            use conn = new NpgsqlConnection(connString)
             let! ct = Async.CancellationToken
-            do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
-            return! commitPosition (conn, schema) (streamName source tranche) consumerGroupName (Position.toInt64 pos) }
+            use! conn = connect ct |> Async.AwaitTaskCorrect
+            return! commitPosition (conn, schema) source tranche consumerGroupName (Position.toInt64 pos) }
 
 

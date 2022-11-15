@@ -50,7 +50,7 @@ let ``It processes events for a category`` () = async {
     let category = $"{Guid.NewGuid():N}"
     do! writeMessagesToCategory category |> Async.AwaitTaskCorrect
     let reader = MessageDbCategoryReader("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
-    let checkpoints = ReaderCheckpoint.NpgsqlCheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
+    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                       with member _.HandleExn(log, x) = ()
@@ -69,7 +69,7 @@ let ``It processes events for a category`` () = async {
     // who says you can't do backwards referencing in F#
     stop.contents <- src.Stop
 
-    Task.Delay(TimeSpan.FromSeconds 20).ContinueWith(fun _ -> src.Stop()) |> ignore
+    Task.Delay(TimeSpan.FromSeconds 30).ContinueWith(fun _ -> src.Stop()) |> ignore
 
     do! src.AwaitShutdown()
     // 2000 total events

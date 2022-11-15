@@ -1,26 +1,28 @@
 namespace Propulsion.MessageDb
 
-open System
-open System.Data.Common
-open System.Diagnostics
 open FSharp.Control
 open FsCodec
 open FsCodec.Core
 open Npgsql
 open NpgsqlTypes
 open Propulsion.Feed
+open System
+open System.Data.Common
+open System.Diagnostics
+open Propulsion.Feed.Core
+
 
 type MessageDbCategoryReader(connectionString) =
-    let readonly (bytes: byte array) = ReadOnlyMemory.op_Implicit(bytes)
+    let connect = Npgsql.connect connectionString
     let readRow (reader: DbDataReader) =
         let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
         let timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc))
         let streamName = reader.GetString(8)
-        let event =TimelineEvent.Create(
+        let event = TimelineEvent.Create(
            index = reader.GetInt64(0),
            eventType = reader.GetString(1),
-           data = (reader.GetFieldValue<byte array>(2) |> readonly),
-           meta = (reader.GetFieldValue<byte array>(3) |> readonly),
+           data = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString 2)),
+           meta = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString 3)),
            eventId = reader.GetGuid(4),
            ?correlationId = readNullableString 5,
            ?causationId = readNullableString 6,
@@ -28,39 +30,35 @@ type MessageDbCategoryReader(connectionString) =
 
         struct(StreamName.parse streamName, event)
     member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) = task {
-        use conn = new NpgsqlConnection(connectionString)
-        do! conn.OpenAsync(ct)
+        use! conn = connect ct
         let command = conn.CreateCommand()
         command.CommandText <- "select
-                                   global_position, type, data, metadata, id::uuid,
+                                   position, type, data, metadata, id::uuid,
                                    (metadata::jsonb->>'$correlationId')::text,
                                    (metadata::jsonb->>'$causationId')::text,
-                                   time, stream_name
+                                   time, stream_name, global_position
                                  from get_category_messages(@Category, @Position, @BatchSize);"
         command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
         command.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
         command.Parameters.AddWithValue("BatchSize", NpgsqlDbType.Bigint, int64 batchSize) |> ignore
 
-        let! reader = command.ExecuteReaderAsync(ct)
-        let! hasRow = reader.ReadAsync(ct)
-        let mutable hasRow = hasRow
-
+        let mutable checkpoint = fromPositionInclusive
         let events = ResizeArray()
-        while hasRow do
+
+        use! reader = command.ExecuteReaderAsync(ct)
+        while reader.Read() do
             events.Add(readRow reader)
-            let! nextHasRow = reader.ReadAsync(ct)
-            hasRow <- nextHasRow
-        return events.ToArray() }
+            checkpoint <- reader.GetInt64(9)
+
+        return { checkpoint = Position.parse checkpoint; items = events.ToArray(); isTail = false } }
     member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
-        use conn = new NpgsqlConnection(connectionString)
-        do! conn.OpenAsync(ct)
+        use! conn = connect ct
         let command = conn.CreateCommand()
         command.CommandText <- "select max(global_position) from messages where category(stream_name) = @Category;"
         command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
 
-        let! reader = command.ExecuteReaderAsync(ct)
-        let! hasRow = reader.ReadAsync(ct)
-        return if hasRow then reader.GetInt64(0) else 0L
+        use! reader = command.ExecuteReaderAsync(ct)
+        return if reader.Read() then reader.GetInt64(0) else 0L
     }
 
 module private Impl =
@@ -69,14 +67,13 @@ module private Impl =
     let readBatch batchSize (store : MessageDbCategoryReader) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let positionInclusive = Position.toInt64 pos
-        let! page = store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect
-        let checkpoint = match Array.tryLast page with Some struct(_, evt) -> evt.Index | None -> positionInclusive
-        return { checkpoint = Position.parse checkpoint; items = page; isTail = false } }
+        let! x = store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect
+        return x }
 
     let readTailPositionForTranche (store : MessageDbCategoryReader) trancheId : Async<Propulsion.Feed.Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
-        return Position.parse(lastEventPos) }
+        return Position.parse lastEventPos }
 
 type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,

@@ -9,7 +9,7 @@
         <Compile Include="..\Propulsion\Infrastructure.fs">
             <Link>Infrastructure.fs</Link>
         </Compile>
-        <Compile Include="Types.fs" />
+        <Compile Include="Internal.fs" />
         <Compile Include="MessageDbSource.fs" />
         <Compile Include="ReaderCheckpoint.fs" />
     </ItemGroup>
