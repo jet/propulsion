@@ -9,7 +9,7 @@ open System.Collections.Generic
 type SqsNotificationBatch(event : SQSEvent) =
     let inputs = [|
         for r in event.Records ->
-            let trancheId = r.MessageAttributes["TrancheId"].StringValue |> Propulsion.Feed.TrancheId.parse
+            let trancheId = r.MessageAttributes["Tranche"].StringValue |> Propulsion.Feed.TrancheId.parse
             let position = r.MessageAttributes["Position"].StringValue |> int64 |> Propulsion.Feed.Position.parse
             struct (trancheId, position, r.MessageId) |]
 
