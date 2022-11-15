@@ -76,7 +76,7 @@ module private Impl =
         return Position.parse lastEventPos }
 
 type MessageDbSource
-    (   log : Serilog.ILogger, statsInterval,
+    (   log : Serilog.ILogger, categories, statsInterval,
         reader: MessageDbCategoryReader, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // Override default start position to be at the tail of the index. Default: Replay all events.
@@ -92,3 +92,12 @@ type MessageDbSource
                 let! b = Impl.readBatch batchSize reader req
                 yield sw.Elapsed, b }),
             string)
+
+    abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
+    default _.ListTranches() = async { return categories |> Array.map TrancheId.parse }
+
+    abstract member Pump : unit -> Async<unit>
+    default x.Pump() = base.Pump(x.ListTranches)
+
+    abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    default x.Start() = base.Start(x.Pump())
