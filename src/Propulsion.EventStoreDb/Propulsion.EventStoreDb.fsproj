@@ -22,7 +22,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\equinox\src\Equinox.EventStoreDb\Equinox.EventStoreDb.fsproj" />
     <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
   </ItemGroup>
 
