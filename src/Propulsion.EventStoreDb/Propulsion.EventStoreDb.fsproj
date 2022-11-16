@@ -18,10 +18,11 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-rc.1" />
+    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-rc.3" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\equinox\src\Equinox.EventStoreDb\Equinox.EventStoreDb.fsproj" />
     <ProjectReference Include="..\Propulsion.Feed\Propulsion.Feed.fsproj" />
   </ItemGroup>
 

@@ -66,14 +66,14 @@ module Log =
 module StreamName =
 
     /// Despite conventions, there's no guarantee that an arbitrary Kafka `key`, EventStore `StreamId` etc.
-    /// will necessarily adhere to the `{category}-{aggregateId}` form
+    /// will necessarily adhere to the `{category}-{streamId}` form
     /// This helper ensures there's always a dash (even if that means having a defaultStringId)
     let parseWithDefaultCategory defaultCategory (rawStreamName : string) : FsCodec.StreamName =
         if rawStreamName.IndexOf '-' = -1 then String.Concat(defaultCategory, "-", rawStreamName)
         else rawStreamName
         |> FSharp.UMX.UMX.tag
 
-    /// Guard against inputs that don't adhere to "{category}-{aggregateId}" by prefixing with `-`  })
+    /// Guard against inputs that don't adhere to "{category}-{streamId}" by prefixing with `-`  })
     let internalParseSafe rawStreamName : FsCodec.StreamName = parseWithDefaultCategory "" rawStreamName
 
     /// Because we coerce all stream names to be well-formed, we can split it too

@@ -18,11 +18,12 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.7.1" />
-    <PackageReference Include="Equinox.MemoryStore" Version="4.0.0-rc.1" />
+    <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.8" />
+<!--    <PackageReference Include="Equinox.MemoryStore" Version="4.0.0-rc.3" />-->
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\equinox\src\Equinox.MemoryStore\Equinox.MemoryStore.fsproj" />
     <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
   </ItemGroup>
 

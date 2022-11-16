@@ -14,7 +14,7 @@ let inline recPayloadBytes (x : RecordedEvent) = arrayBytes x.Data + arrayBytes 
 let inline payloadBytes (x : ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * sizeof<char>
 let private dash = [|'-'|]
 
-// Bespoke algorithm suited to grouping streams as observed in EventStore, where {category}-{aggregateId} is expected, but definitely not guaranteed
+// Bespoke algorithm suited to grouping streams as observed in EventStore, where {category}-{streamId} is expected, but definitely not guaranteed
 let private categorizeEventStoreStreamId (eventStoreStreamId : string) =
     eventStoreStreamId.Split(dash, 2, StringSplitOptions.RemoveEmptyEntries).[0]
 

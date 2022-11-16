@@ -12,11 +12,12 @@ open System.Collections.Immutable
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
 let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
 let [<Literal>] Category = "$AppendsEpoch"
-let streamName struct (tid, eid) = struct (Category, FsCodec.StreamName.createStreamId [AppendsTrancheId.toString tid; AppendsEpochId.toString eid])
+#if !PROPULSION_DYNAMOSTORE_NOTIFIER
+let streamId = Equinox.StreamId.gen2 AppendsTrancheId.toString AppendsEpochId.toString
+#endif
 let [<return: Struct>] (|StreamName|_|) = function
     | FsCodec.StreamName.CategoryAndIds (Category, [| tid; eid |]) -> ValueSome struct (Propulsion.Feed.TrancheId.parse tid, AppendsEpochId.parse eid)
     | _ -> ValueNone
-
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
 module Events =
@@ -126,13 +127,13 @@ module Config =
 
     let private createCategory (context, cache) = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes : int, maxVersion : int64, maxStreams : int) store =
-        let resolve = streamName >> (createCategory store |> Equinox.Decider.resolve log)
+        let resolve = createCategory store |> Equinox.Decider.resolve log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
-        Service(shouldClose, resolve)
+        Service(shouldClose, streamId >> resolve Category)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward
 /// In the case where we are polling the tail, this should mean we typically do a single round-trip for a point read of the Tip
@@ -168,5 +169,5 @@ module Reader =
         let private createCategory context minIndex = Config.createWithOriginIndex codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.resolve log (createCategory context minIndex)
-            Service(fun (tid, eid, minIndex) -> streamName (tid, eid) |> resolve minIndex)
+            Service(fun (tid, eid, minIndex) -> streamId (tid, eid) |> resolve minIndex Category)
 #endif
