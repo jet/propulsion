@@ -20,12 +20,12 @@ let renderSubmit (log : Serilog.ILogger) struct (epoch, categoryName, aggregateI
             elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
             else log |> propEventJsonUtf8 "Json" (unbox events)
         let types = events |> Seq.map (fun e -> e.EventType)
-        log.ForContext("types", types).Debug("Submit #{epoch} {categoryName}-{aggregateId}x{count}", epoch, categoryName, aggregateId, events.Length)
+        log.ForContext("types", types).Debug("Submit #{epoch} {categoryName}-{streamId}x{count}", epoch, categoryName, aggregateId, events.Length)
     elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
         let types = seq { for e in events -> e.EventType } |> Seq.truncate 5
-        log.Debug("Submit #{epoch} {categoryName}-{aggregateId}x{count} {types}", epoch, categoryName, aggregateId, events.Length, types)
+        log.Debug("Submit #{epoch} {categoryName}-{streamId}x{count} {types}", epoch, categoryName, aggregateId, events.Length, types)
 let renderCompleted (log : Serilog.ILogger) struct (epoch, categoryName, aggregateId) =
-    log.Verbose("Done!  #{epoch} {{categoryName}-{aggregateId}", epoch, categoryName, aggregateId)
+    log.Verbose("Done!  #{epoch} {categoryName}-{streamId}", epoch, categoryName, aggregateId)
 
 /// Wires specified <c>Observable</c> source (e.g. <c>VolatileStore.Committed</c>) to the Logger
 let subscribe log source =

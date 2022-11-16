@@ -181,8 +181,8 @@ module Checkpoints =
         | Some pos ->
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
             do! overridePosition pos
-        let sn = Propulsion.Feed.ReaderCheckpoint.streamName (source, tranche, group)
-        let cmd = $"eqx dump '{sn}' {storeSpecFragment}"
+        let sid = Propulsion.Feed.ReaderCheckpoint.streamId (source, tranche, group)
+        let cmd = $"eqx dump '{Propulsion.Feed.ReaderCheckpoint.Category}-{sid}' {storeSpecFragment}"
         Log.Information("Inspect via 👉 {cmd}", cmd) }
 
 module Indexer =
@@ -238,13 +238,13 @@ module Indexer =
                             seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
 
             let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
-            let dumpCmd sn opts = $"eqx -C dump '{sn}' {opts}{storeSpecFragment}"
+            let dumpCmd cat sn opts = $"eqx -C dump '{cat}-{sn}' {opts}{storeSpecFragment}"
             Log.Information("Inspect Index Tranches list events 👉 {cmd}",
-                            dumpCmd (AppendsIndex.streamName ()) "")
+                            dumpCmd AppendsIndex.Category (AppendsIndex.streamId ()) "")
 
             let tid, eid = AppendsTrancheId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
             Log.Information("Inspect Batches in Epoch {epoch} of Index Tranche {tranche} 👉 {cmd}",
-                            eid, tid, dumpCmd (AppendsEpoch.streamName (tid, eid)) "-B ")
+                            eid, tid, dumpCmd AppendsEpoch.Category (AppendsEpoch.streamId (tid, eid)) "-B ")
         | Some trancheId ->
             let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) trancheId a.GapsLimit
             let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)

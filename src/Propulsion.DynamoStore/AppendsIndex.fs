@@ -5,7 +5,7 @@ module Propulsion.DynamoStore.AppendsIndex
 
 let [<Literal>] Category = "$AppendsIndex"
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
-let streamName () = struct (Category, IndexId.toString IndexId.wellKnownId)
+let streamId () = Equinox.StreamId.gen IndexId.toString IndexId.wellKnownId
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -55,7 +55,7 @@ module Config =
 
     let private createCategory store = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
     let resolve log store = createCategory store |> Equinox.Decider.resolve log
-    let create log (context, cache) = Service(streamName >> resolve log (context, Some cache))
+    let create log (context, cache) = Service(streamId >> resolve log (context, Some cache) Category)
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
@@ -80,5 +80,5 @@ module Reader =
             let decider = resolve ()
             decider.Query(readIngestionEpochId trancheId)
 
-    let create log context = Service(streamName >> Config.resolve log (context, None))
+    let create log context = Service(streamId >> Config.resolve log (context, None) Category)
 #endif
