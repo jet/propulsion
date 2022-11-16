@@ -10,6 +10,7 @@ open System
 open System.Data.Common
 open System.Diagnostics
 open Propulsion.Feed.Core
+open Propulsion.Internal
 
 
 type MessageDbCategoryReader(connectionString) =
@@ -102,3 +103,20 @@ type MessageDbSource
 
     abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump())
+
+
+    /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
+    member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
+        let sw = Stopwatch.start ()
+        use pipeline = x.Start()
+
+        try System.Threading.Tasks.Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+
+            let initialReaderTimeout = TimeSpan.FromMinutes 1.
+            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)
+            pipeline.Stop()
+
+            if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
+            // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
+            return! x.Checkpoint()
+        finally statsInterval.SleepUntilTriggerCleared() }

@@ -54,9 +54,8 @@ type CheckpointStore(connString : string, schema: string, consumerGroupName, def
     let connect = Npgsql.connect connString
 
     member _.CreateSchemaIfNotExists() = async {
-        use conn = new NpgsqlConnection(connString)
         let! ct = Async.CancellationToken
-        do! conn.OpenAsync(ct) |> Async.AwaitTaskCorrect
+        use! conn = connect ct |> Async.AwaitTaskCorrect
         return! createIfNotExists (conn, schema) }
 
     interface IFeedCheckpointStore with
