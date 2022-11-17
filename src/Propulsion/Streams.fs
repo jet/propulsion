@@ -49,10 +49,10 @@ module Log =
             /// age in S
             newest : float
 
-    /// Attach a property to the captured event record to hold the metric information
-    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let [<Literal>] PropertyTag = "propulsionEvent"
     let [<Literal>] GroupTag = "group"
+    /// Attach a property to the captured event record to hold the metric information
+    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let internal withMetric (value : Metric) = Internal.Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent : Serilog.Events.LogEvent) : 't voption =
         let mutable p = Unchecked.defaultof<_>
@@ -166,7 +166,7 @@ module Buffer =
 
         member x.WritePos = match x.write with WritePosUnknown -> ValueNone | x -> ValueSome x
         member x.HasGap = match x.write with w when w = WritePosUnknown -> false | w -> w <> x.HeadSpan[0].Index
-        member x.CanPurge = x.IsEmpty && not x.IsMalformed
+        member x.CanPurge = x.IsEmpty
 
     module StreamState =
 
@@ -237,7 +237,7 @@ module Buffer =
             | ValueSome _, ValueNone -> false
             | ValueNone, x -> buffer <- x; false
 
-/// A separate Async pump manages dispatching of scheduled work via the ThreadPool , managing the concurrency limits
+/// A separate Async pump manages dispatching of scheduled work via the ThreadPool, managing the concurrency limits
 module Dispatch =
 
     [<Struct; NoComparison; NoEquality>]
@@ -323,8 +323,8 @@ module Scheduling =
         let purge () =
             let mutable purged = 0
             for x in states do
-                let v = x.Value
-                if v.CanPurge then
+                let streamState = x.Value
+                if streamState.CanPurge then
                     states.Remove x.Key |> ignore // Safe to do while iterating on netcore >=3.0
                     purged <- purged + 1
             states.Count, purged
@@ -349,7 +349,7 @@ module Scheduling =
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
             | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | _ -> false
-            | _ -> false
+            | ValueNone -> true // If the entry has been purged, it implies the accompanying events have already been handled
         member _.Merge(streams : Streams<'Format>) =
             for kv in streams.States do
                 merge kv.Key kv.Value |> ignore
@@ -541,7 +541,7 @@ module Scheduling =
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats, oks, exns = Stats.StateStats(), Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions")
-        let mutable cycles, fullCycles, batchesPended, streamsPended, eventsSkipped, eventsPended = 0, 0, 0, 0, 0, 0
+        let mutable cycles, fullCycles, batchesPended, streamsPended, eventsWrittenAhead, eventsPended = 0, 0, 0, 0, 0, 0
 
         member val Log = log
         member val StatsInterval = IntervalTimer statsInterval
@@ -553,9 +553,9 @@ module Scheduling =
                 cycles, fullCycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; fullCycles <- 0; stateStats.Clear()
             oks.Dump log; exns.Dump log
-            log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{skipped:n0}e)",
-                batchesWaiting, batchesPended, streamsPended, eventsSkipped + eventsPended, eventsSkipped)
-            batchesPended <- 0; streamsPended <- 0; eventsSkipped <- 0; eventsPended <- 0
+            log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{writtenAhead:n0}e)",
+                batchesWaiting, batchesPended, streamsPended, eventsWrittenAhead + eventsPended, eventsWrittenAhead)
+            batchesPended <- 0; streamsPended <- 0; eventsWrittenAhead <- 0; eventsPended <- 0
             x.Timers.Dump log
             monitor.DumpState x.Log
             x.DumpStats()
@@ -583,7 +583,7 @@ module Scheduling =
                 batchesPended <- batchesPended + 1
                 streamsPended <- streamsPended + streams
                 eventsPended <- eventsPended + events
-                eventsSkipped <- eventsSkipped + skipped
+                eventsWrittenAhead <- eventsWrittenAhead + skipped
             | Result (duration, stream, progressed, Choice1Of2 _) ->
                 oks.Record duration
                 x.HandleResult(stream, duration, true, progressed)
@@ -721,7 +721,7 @@ module Scheduling =
             let trim () =
                 while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
                     let batch = pending.Dequeue()
-                    batch.markCompleted()
+                    batch.markCompleted ()
 
             // We potentially traverse the pending streams thousands of times per second
             // so we reuse `InScheduledOrder`'s temps: sortBuffer and streamsBuffer for better L2 caching properties
@@ -791,7 +791,7 @@ module Scheduling =
             ?prioritizeStreamsBy,
             // Opt-in to allowing items to be processed independent of batch sequencing - requires upstream/projection function to be able to identify gaps. Default false.
             ?enableSlipstreaming) =
-        let purgeDue =
+        let purgeDue : unit -> bool =
             match purgeInterval with
             | Some ts -> IntervalTimer(ts).IfDueRestart
             | None -> fun () -> false
@@ -839,15 +839,15 @@ module Scheduling =
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingestPendingBatch feedStats (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
             let reqs = Dictionary()
-            let mutable count, skipCount = 0, 0
+            let mutable count, writtenAhead = 0, 0
             for item in items do
                 if streams.WritePositionIsAlreadyBeyond(item.Key, item.Value) then
-                    skipCount <- skipCount + 1
+                    writtenAhead <- writtenAhead + 1
                 else
                     count <- count + 1
                     reqs[item.Key] <- item.Value
             progressState.AppendBatch(markCompleted, reqs)
-            feedStats <| Added (reqs.Count, skipCount, count)
+            feedStats <| Added (reqs.Count, writtenAhead, count)
         let ingestBatch (batch : Batch<_>) = ingestPendingBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
         let ingestBatches mergeStreams ingestBatch =
             let rec aux batchesRemaining =
