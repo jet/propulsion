@@ -5,10 +5,13 @@ open NpgsqlTypes
 open Propulsion.Feed
 open Propulsion.Infrastructure
 
+
+let table = "propulsion_checkpoint"
+
 let createIfNotExists (conn : NpgsqlConnection, schema: string) =
     let cmd = conn.CreateCommand()
     cmd.CommandText <- $"
-      create table if not exists {schema}.propulsion_checkpoint (
+      create table if not exists {schema}.{table} (
         source text not null,
         tranche text not null,
         consumer_group text not null,

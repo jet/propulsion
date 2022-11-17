@@ -62,7 +62,7 @@ let ``It processes events for a category`` () = async {
             stop.contents()
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
-    let source = MessageDbSource(log, [| category1; category2 |], TimeSpan.FromMinutes 1, reader, 1000, TimeSpan.FromMilliseconds 100, checkpoints, sink)
+    let source = MessageDbSource(log, TimeSpan.FromMinutes 1, reader, 1000, TimeSpan.FromMilliseconds 100, checkpoints, sink, [| category1; category2 |])
     use src = source.Start()
     // who says you can't do backwards referencing in F#
     stop.contents <- src.Stop
