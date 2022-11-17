@@ -58,7 +58,7 @@ module private Impl =
             let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
             let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
             (Log.withMetric m log).ForContext("tail", batchCaughtUp).Information(
-                "Reader {partition} {state} Position {readPosition} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
+                "Reader {partition} {state} @ {readPosition} Committed {lastCommittedPosition} Pages {pagesRead} Empty {pagesEmpty} Events {events} | Recent {l:f1}s Pages {recentPagesRead} Empty {recentPagesEmpty} Events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
                 partition, (if batchCaughtUp then "Tail" else "Busy"), r batchLastPosition, r lastCommittedPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero;
             recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
