@@ -1024,14 +1024,14 @@ module Projector =
                 // Limits number of batches passed to the scheduler.
                 // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
                 // Holding items back is also key to enabling the compaction mechanism in the submitter to take effect.
-                // Defaults to holding back 20% of maxReadAhead per partition
+                // Defaults to holding back 25% of maxReadAhead per partition
                 ?maxSubmissionsPerPartition,
                 ?ingesterStatsInterval) =
             let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
             let mapBatch onCompletion (x : Submission.Batch<_, StreamEvent<'F>>) : Buffer.Batch<'F> =
                 let onCompletion () = x.onCompletion (); onCompletion ()
                 Buffer.Batch.Create(onCompletion, x.messages) |> fun struct (f, _s) -> f
-            let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition (maxReadAhead - maxReadAhead/5) // NOTE needs to handle overflow if maxReadAhead is Int32.MaxValue
+            let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition (maxReadAhead - maxReadAhead/4) // NOTE needs to handle overflow if maxReadAhead is Int32.MaxValue
             let submitter = StreamsSubmitter.Create(log, maxSubmissionsPerPartition, mapBatch, submitStreamsBatch, ingesterStatsInterval)
             let startIngester (rangeLog, projectionId) = StreamsIngester.Start(rangeLog, projectionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
             Sink.Start(log, pumpDispatcher, pumpScheduler, submitter.Pump, startIngester)
@@ -1103,7 +1103,7 @@ type StreamsSink =
             // Limits number of batches passed to the scheduler.
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Holding items back is also key to the compaction mechanism working best.
-            // Defaults to holding back 20% of maxReadAhead per partition
+            // Defaults to holding back 25% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
             // Tune the number of batches the Scheduler should ingest at a time. Can be useful to compensate for small batches
             ?maxBatches,
@@ -1133,7 +1133,7 @@ type StreamsSink =
             // Limits number of batches passed to the scheduler.
             // Holding items back makes scheduler processing more efficient as less state needs to be traversed.
             // Holding items back is also key to the compaction mechanism working best.
-            // Defaults to holding back 20% of maxReadAhead per partition
+            // Defaults to holding back 25% of maxReadAhead per partition
             ?maxSubmissionsPerPartition,
             // Tune the number of batches the Scheduler should ingest at a time. Can be useful to compensate for small batches
             ?maxBatches,
