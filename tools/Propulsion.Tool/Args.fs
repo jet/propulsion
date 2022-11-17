@@ -1,6 +1,7 @@
 module Propulsion.Tool.Args
 
 open Argu
+open Npgsql
 open Serilog
 open System
 
@@ -29,6 +30,10 @@ module Configuration =
         let [<Literal>] BROKER =                    "PROPULSION_KAFKA_BROKER"
         let [<Literal>] TOPIC =                     "PROPULSION_KAFKA_TOPIC"
 
+    module MessageDb =
+        let [<Literal>] CONNECTION_STRING =         "MDB_CONNECTION_STRING"
+        let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
+
 type Configuration(tryGet : string -> string option) =
 
     member val tryGet =                             tryGet
@@ -49,6 +54,9 @@ type Configuration(tryGet : string -> string option) =
 
     member x.KafkaBroker =                          x.get Configuration.Kafka.BROKER
     member x.KafkaTopic =                           x.get Configuration.Kafka.TOPIC
+
+    member x.MdbConnectionString =                  x.get Configuration.MessageDb.CONNECTION_STRING
+    member x.MdbSchema =                            x.get Configuration.MessageDb.SCHEMA
 
 module Cosmos =
 
@@ -253,3 +261,26 @@ module Dynamo =
         member x.CreateCheckpointStore(group, cache, storeLog) =
             let context = DynamoStoreContext.create indexReadClient.Value
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (context, cache)
+
+module MessageDb =
+    type [<NoEquality; NoComparison>] Parameters =
+        | [<AltCommandLine "-c">]           ConnectionString of string
+        | [<AltCommandLine "-s">]           Schema of string
+        interface IArgParserTemplate with
+            member a.Usage = a |> function
+                | ConnectionString _ -> "Connection string for the postgres database housing message-db"
+                | Schema           _ -> "Schema that should contain the checkpoints table"
+
+    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+        let conn = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
+        let schema = p.TryGetResult Schema |> Option.defaultWith (fun () -> c.MdbSchema)
+
+        member x.CreateCheckpointStore() = async {
+            let log = Log.Logger
+            let connStringWithoutPassword = NpgsqlConnectionStringBuilder(conn)
+            connStringWithoutPassword.Password <- null
+            log.Information("Authenticating with postgres using {connection_string}", connStringWithoutPassword.ToString())
+            log.Information("Creating checkpoints table as {table}", $"{schema}.propulsion_checkpoint")
+            let checkpointStore = Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(conn, schema, "nil", TimeSpan.FromSeconds 5.)
+            do! checkpointStore.CreateSchemaIfNotExists()
+            log.Information("Table created") }

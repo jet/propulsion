@@ -15,6 +15,7 @@ type Parameters =
     | [<AltCommandLine "-C">]               VerboseConsole
     | [<AltCommandLine "-S">]               VerboseStore
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxParameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<MessageDb.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<IndexParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectParameters>
@@ -24,6 +25,7 @@ type Parameters =
             | VerboseConsole ->             "Include low level test and store actions logging in on-screen output to console."
             | VerboseStore ->               "Include low level Store logging"
             | Init _ ->                     "Initialize auxiliary store (Supported for `cosmos` Only)."
+            | InitPg _ ->                   "Initialize a postgres checkpoint store"
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument."
@@ -377,6 +379,7 @@ let main argv =
             let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
             try match a.GetSubCommand() with
                 | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
+                | InitPg a ->       MessageDb.Arguments(c, a).CreateCheckpointStore() |> Async.RunSynchronously
                 | Checkpoint a ->   Checkpoints.readOrOverride (c, a) |> Async.RunSynchronously
                 | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
