@@ -26,6 +26,7 @@ type MessageDbCategoryClient(connectionString) =
             eventId = reader.GetGuid(4),
             ?correlationId = readNullableString 5,
             ?causationId = readNullableString 6,
+            context = reader.GetInt64(9),
             timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)))
 
         struct(StreamName.parse streamName, event)
@@ -45,6 +46,8 @@ type MessageDbCategoryClient(connectionString) =
 
         use! reader = command.ExecuteReaderAsync(ct)
         let events = [| while reader.Read() do yield parseRow reader |]
+
+        checkpoint <- match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> checkpoint
 
         return { checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } }
     member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
