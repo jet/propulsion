@@ -13,7 +13,7 @@ open Propulsion.Feed.Core
 open Propulsion.Internal
 
 
-type MessageDbCategoryReader(connectionString) =
+type MessageDbCategoryClient(connectionString) =
     let connect = Npgsql.connect connectionString
     let readRow (reader: DbDataReader) =
         let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
@@ -59,20 +59,20 @@ type MessageDbCategoryReader(connectionString) =
 module private Impl =
     open Propulsion.Infrastructure // AwaitTaskCorrect
 
-    let readBatch batchSize (store : MessageDbCategoryReader) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
+    let readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let positionInclusive = Position.toInt64 pos
         let! x = store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect
         return x }
 
-    let readTailPositionForTranche (store : MessageDbCategoryReader) trancheId : Async<Propulsion.Feed.Position> = async {
+    let readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Propulsion.Feed.Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
         return Position.parse lastEventPos }
 
 type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,
-        reader: MessageDbCategoryReader, batchSize, tailSleepInterval,
+        reader: MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         categories,
         // Override default start position to be at the tail of the index. Default: Replay all events.

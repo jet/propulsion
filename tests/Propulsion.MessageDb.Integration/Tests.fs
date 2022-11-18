@@ -47,7 +47,7 @@ let ``It processes events for a category`` () = async {
     let category2 = $"{Guid.NewGuid():N}"
     do! writeMessagesToCategory category1 |> Async.AwaitTaskCorrect
     do! writeMessagesToCategory category2 |> Async.AwaitTaskCorrect
-    let reader = MessageDbCategoryReader("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
+    let reader = MessageDbCategoryClient("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
