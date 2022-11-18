@@ -94,6 +94,10 @@ type Sem(max) =
         inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
+    /// Wait for capacity to return to the configured maximum
+    member _.WaitForEmpty(ct : CancellationToken) = task {
+        for _ in 1..max do do! inner.WaitAsync ct
+        return struct (0, max) }
 
 /// Helper for use in Propulsion.Tool and/or equivalent apps; needs to be (informally) exposed
 type Async with

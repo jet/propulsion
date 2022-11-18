@@ -14,7 +14,12 @@ type ProgressWriter<'Res when 'Res : equality>() =
     let mutable validatedPos = None
     let result = Event<Choice<'Res, exn>>()
 
-    member _.CommitIfDirty ct = task {
+    member _.IsDirty =
+        match Volatile.Read &validatedPos with
+        | Some (v, _) when Volatile.Read(&committedEpoch) <> Some v -> true
+        | _ -> false
+
+    member x.CommitIfDirty ct = task {
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
             try do! Async.StartImmediateAsTask(f, cancellationToken = ct)
@@ -103,6 +108,13 @@ type Ingester<'Items> private
     member _.FlushProgress ct =
         progressWriter.CommitIfDirty ct
 
+    member private x.AwaitCheckpointed ct = task {
+        if progressWriter.IsDirty then
+            try do! x.FlushProgress ct
+            with _ -> () // one attempt to do it proactively
+            while progressWriter.IsDirty do
+                do! Task.Delay(int (commitInterval.TotalMilliseconds / 2.), ct) }
+
     member private x.CheckpointPeriodically(ct : CancellationToken) = task {
         while not ct.IsCancellationRequested do
             do! x.FlushProgress ct
@@ -144,3 +156,8 @@ type Ingester<'Items> private
 
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
     member _.Stop() = cts.Cancel()
+
+    member x.Await(ct) = task {
+        let! r = maxRead.WaitForEmpty ct
+        do! x.AwaitCheckpointed ct
+        return r }

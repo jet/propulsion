@@ -53,8 +53,9 @@ type FeedSourceBase internal
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
             let ingester = sink.StartIngester(log, partitionId)
             let ingest = positions.Intercept(trancheId) >> ingester.Ingest
+            let awaitIngester = if defaultArg stopAtTail false then Some ingester.Await else None
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
-                                    ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
+                                    ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
         let logWorkflow = pumpStats () |> Seq.singleton
