@@ -55,6 +55,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MemoryStore", "s
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.DynamoStore.Lambda", "src\Propulsion.DynamoStore.Lambda\Propulsion.DynamoStore.Lambda.fsproj", "{7AEA3BB7-E5C4-4653-ABBF-F6C8476E77AF}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb", "src\Propulsion.MessageDb\Propulsion.MessageDb.fsproj", "{BCAEFE2C-8D09-4F4E-B27E-62077497C752}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb.Integration", "tests\Propulsion.MessageDb.Integration\Propulsion.MessageDb.Integration.fsproj", "{9738D2C1-EE7C-400F-8B14-31B5B7B66839}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -149,6 +153,14 @@ Global
 		{7AEA3BB7-E5C4-4653-ABBF-F6C8476E77AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7AEA3BB7-E5C4-4653-ABBF-F6C8476E77AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7AEA3BB7-E5C4-4653-ABBF-F6C8476E77AF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BCAEFE2C-8D09-4F4E-B27E-62077497C752}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BCAEFE2C-8D09-4F4E-B27E-62077497C752}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BCAEFE2C-8D09-4F4E-B27E-62077497C752}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BCAEFE2C-8D09-4F4E-B27E-62077497C752}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

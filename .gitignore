@@ -25,6 +25,7 @@ packages.config
 ## JetBrains Rider
 .idea/
 *.sln.iml
+*.DotSettings.user
 
 ## CodeRush
 .cr/

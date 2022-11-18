@@ -127,13 +127,18 @@ module ValueOption =
 
 module Seq =
 
-    let tryPickV f xs = Seq.tryPick (f >> ValueOption.toOption) xs |> ValueOption.ofOption
-    let inline chooseV f = Seq.choose (f >> ValueOption.toOption)
+    let tryPickV f (xs: _ seq) =
+        use e = xs.GetEnumerator()
+        let mutable res = ValueNone
+        while (ValueOption.isNone res && e.MoveNext()) do
+            res <- f e.Current
+        res
+    let inline chooseV f xs = seq { for x in xs do match f x with ValueSome v -> yield v | ValueNone -> () }
 
 module Array =
 
     let inline any xs = (not << Array.isEmpty) xs
-    let inline chooseV f = Array.choose (f >> ValueOption.toOption)
+    let inline chooseV f xs = [| for item in xs do match f item with ValueSome v -> yield v | ValueNone -> () |]
 
 module Stats =
 

@@ -29,6 +29,10 @@ module Configuration =
         let [<Literal>] BROKER =                    "PROPULSION_KAFKA_BROKER"
         let [<Literal>] TOPIC =                     "PROPULSION_KAFKA_TOPIC"
 
+    module Mdb =
+        let [<Literal>] CONNECTION_STRING =         "MDB_CONNECTION_STRING"
+        let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
+
 type Configuration(tryGet : string -> string option) =
 
     member val tryGet =                             tryGet
@@ -49,6 +53,9 @@ type Configuration(tryGet : string -> string option) =
 
     member x.KafkaBroker =                          x.get Configuration.Kafka.BROKER
     member x.KafkaTopic =                           x.get Configuration.Kafka.TOPIC
+
+    member x.MdbConnectionString =                  x.get Configuration.Mdb.CONNECTION_STRING
+    member x.MdbSchema =                            x.get Configuration.Mdb.SCHEMA
 
 module Cosmos =
 
@@ -253,3 +260,36 @@ module Dynamo =
         member x.CreateCheckpointStore(group, cache, storeLog) =
             let context = DynamoStoreContext.create indexReadClient.Value
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (context, cache)
+
+module Mdb =
+    open Configuration.Mdb
+    open Npgsql
+    type [<NoEquality; NoComparison>] Parameters =
+        | [<AltCommandLine "-c">]           ConnectionString of string
+        | [<AltCommandLine "-cp">]          CheckpointConnectionString of string
+        | [<AltCommandLine "-s">]           Schema of string
+        | [<AltCommandLine "-cat">]         Category of string
+        interface IArgParserTemplate with
+            member a.Usage = a |> function
+                | ConnectionString           _ -> $"Connection string for the postgres database housing message-db. (Optional if environment variable {CONNECTION_STRING} is defined)"
+                | CheckpointConnectionString _ -> "Connection string used for the checkpoint store. If not specified, defaults to the connection string argument"
+                | Schema                     _ -> $"Schema that should contain the checkpoints table Optional if environment variable {SCHEMA} is defined"
+                | Category                   _ ->  "The message-db categories to load"
+
+    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+        let conn = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
+        let checkpointConn = p.TryGetResult CheckpointConnectionString |> Option.defaultValue conn
+        let schema = p.TryGetResult Schema |> Option.defaultWith (fun () -> c.MdbSchema)
+
+        member x.CreateClient() = Array.ofList (p.GetResults Category), Propulsion.MessageDb.Core.MessageDbCategoryClient(conn)
+
+        member x.CreateCheckpointStore(group) =
+            Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn, schema, group, TimeSpan.FromSeconds 5.)
+        member x.CreateCheckpointStoreTable() = async {
+            let log = Log.Logger
+            let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConn, Password = null)
+            log.Information("Authenticating with postgres using {connectionString}", connStringWithoutPassword.ToString())
+            log.Information("Creating checkpoints table as {table}", $"{schema}.{Propulsion.MessageDb.ReaderCheckpoint.table}")
+            let checkpointStore = x.CreateCheckpointStore("nil")
+            do! checkpointStore.CreateSchemaIfNotExists()
+            log.Information("Table created") }
