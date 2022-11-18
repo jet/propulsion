@@ -75,7 +75,7 @@ module private Impl =
 
 type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,
-        reader: MessageDbCategoryClient, batchSize, tailSleepInterval,
+        client: MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         trancheIds,
         // Override default start position to be at the tail of the index. Default: Replay all events.
@@ -84,11 +84,11 @@ type MessageDbSource
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
             (   if startFromTail <> Some true then None
-                else Some (Impl.readTailPositionForTranche reader)),
+                else Some (Impl.readTailPositionForTranche client)),
             sink,
             (fun req -> asyncSeq {
                 let sw = Stopwatch.StartNew()
-                let! b = Impl.readBatch batchSize reader req
+                let! b = Impl.readBatch batchSize client req
                 yield sw.Elapsed, b }),
             string)
     new (log, statsInterval, connectionString, batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail, ?sourceId) =
