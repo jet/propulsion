@@ -368,11 +368,11 @@ module Project =
                 ).Start()
             | Choice3Of3 sa ->
                 let checkpoints = sa.CreateCheckpointStore(group)
-                let trancheIds, client = sa.CreateClient()
+                let categories, client = sa.CreateClient()
                 Propulsion.MessageDb.MessageDbSource(
                     Log.Logger, stats.StatsInterval,
                     client, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, trancheIds
+                    checkpoints, sink, categories
                 ).Start()
         let work = [
             Async.AwaitKeyboardInterruptAsTaskCanceledException()

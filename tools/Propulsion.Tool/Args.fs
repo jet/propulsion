@@ -268,20 +268,20 @@ module Mdb =
         | [<AltCommandLine "-c">]           ConnectionString of string
         | [<AltCommandLine "-cp">]          CheckpointConnectionString of string
         | [<AltCommandLine "-s">]           Schema of string
-        | [<AltCommandLine "-cat">]         Tranches of Propulsion.Feed.TrancheId
+        | [<AltCommandLine "-cat">]         Categories of string
         interface IArgParserTemplate with
             member a.Usage = a |> function
                 | ConnectionString           _ -> $"Connection string for the postgres database housing message-db. (Optional if environment variable {CONNECTION_STRING} is defined)"
                 | CheckpointConnectionString _ -> "Connection string used for the checkpoint store. If not specified, defaults to the connection string argument"
                 | Schema                     _ -> $"Schema that should contain the checkpoints table Optional if environment variable {SCHEMA} is defined"
-                | Tranches                   _ ->  "The message-db categories to load"
+                | Categories                 _ ->  "The message-db categories to load"
 
     type Arguments(c : Configuration, p : ParseResults<Parameters>) =
         let conn = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
         let checkpointConn = p.TryGetResult CheckpointConnectionString |> Option.defaultValue conn
         let schema = p.TryGetResult Schema |> Option.defaultWith (fun () -> c.MdbSchema)
 
-        member x.CreateClient() = Array.ofList (p.GetResults Tranches), Propulsion.MessageDb.Core.MessageDbCategoryClient(conn)
+        member x.CreateClient() = Array.ofList (p.GetResults Categories), Propulsion.MessageDb.Core.MessageDbCategoryClient(conn)
 
         member x.CreateCheckpointStore(group) =
             Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn, schema, group, TimeSpan.FromSeconds 5.)
