@@ -30,7 +30,7 @@ module Configuration =
         let [<Literal>] BROKER =                    "PROPULSION_KAFKA_BROKER"
         let [<Literal>] TOPIC =                     "PROPULSION_KAFKA_TOPIC"
 
-    module MessageDb =
+    module Mdb =
         let [<Literal>] CONNECTION_STRING =         "MDB_CONNECTION_STRING"
         let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
 
@@ -55,8 +55,8 @@ type Configuration(tryGet : string -> string option) =
     member x.KafkaBroker =                          x.get Configuration.Kafka.BROKER
     member x.KafkaTopic =                           x.get Configuration.Kafka.TOPIC
 
-    member x.MdbConnectionString =                  x.get Configuration.MessageDb.CONNECTION_STRING
-    member x.MdbSchema =                            x.get Configuration.MessageDb.SCHEMA
+    member x.MdbConnectionString =                  x.get Configuration.Mdb.CONNECTION_STRING
+    member x.MdbSchema =                            x.get Configuration.Mdb.SCHEMA
 
 module Cosmos =
 
@@ -262,8 +262,8 @@ module Dynamo =
             let context = DynamoStoreContext.create indexReadClient.Value
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (context, cache)
 
-module MessageDb =
-    open Configuration.MessageDb
+module Mdb =
+    open Configuration.Mdb
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-c">]           ConnectionString of string
         | [<AltCommandLine "-cp">]          CheckpointConnectionString of string

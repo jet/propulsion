@@ -16,7 +16,7 @@ type Parameters =
     | [<AltCommandLine "-C">]               VerboseConsole
     | [<AltCommandLine "-S">]               VerboseStore
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxParameters>
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<MessageDb.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<Mdb.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<IndexParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectParameters>
@@ -112,23 +112,23 @@ and [<NoComparison; NoEquality>] KafkaParameters =
     | [<AltCommandLine "-b"; Unique>]       Broker of string
     | [<CliPrefix(CliPrefix.None); Last>]   Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Dynamo of ParseResults<Args.Dynamo.Parameters>
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] MessageDb of ParseResults<Args.MessageDb.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last>]   Mdb    of ParseResults<Args.Mdb.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
             | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
-            | MessageDb _ ->                "Specify MessageDb parameters."
+            | Mdb _ ->                      "Specify MessageDb parameters."
 and [<NoComparison; NoEquality>] StatsParameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] MessageDb of ParseResults<Args.MessageDb.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Mdb    of ParseResults<Args.Mdb.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
-            | MessageDb _ ->                "Specify MessageDb parameters."
+            | Mdb _ ->                      "Specify MessageDb parameters."
 
 let [<Literal>] appName = "propulsion-tool"
 
@@ -282,7 +282,7 @@ module Project =
             match p.GetSubCommand() with
             | KafkaParameters.Cosmos    p -> Choice1Of3 (Args.Cosmos.Arguments    (c, p))
             | KafkaParameters.Dynamo    p -> Choice2Of3 (Args.Dynamo.Arguments    (c, p))
-            | KafkaParameters.MessageDb p -> Choice3Of3 (Args.MessageDb.Arguments (c, p))
+            | KafkaParameters.Mdb p -> Choice3Of3 (Args.Mdb.Arguments (c, p))
             | x -> missingArg $"unexpected subcommand %A{x}"
 
     type StatsArguments(c, p : ParseResults<StatsParameters>) =
@@ -290,7 +290,7 @@ module Project =
             match p.GetSubCommand() with
             | StatsParameters.Cosmos    p -> Choice1Of3 (Args.Cosmos.Arguments    (c, p))
             | StatsParameters.Dynamo    p -> Choice2Of3 (Args.Dynamo.Arguments    (c, p))
-            | StatsParameters.MessageDb p -> Choice3Of3 (Args.MessageDb.Arguments (c, p))
+            | StatsParameters.Mdb p -> Choice3Of3 (Args.Mdb.Arguments (c, p))
 
     type Arguments(c, p : ParseResults<ProjectParameters>) =
         member val IdleDelay =              TimeSpan.FromMilliseconds 10.
@@ -395,7 +395,7 @@ let main argv =
             let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
             try match a.GetSubCommand() with
                 | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-                | InitPg a ->       MessageDb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.RunSynchronously
+                | InitPg a ->       Mdb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.RunSynchronously
                 | Checkpoint a ->   Checkpoints.readOrOverride (c, a) |> Async.RunSynchronously
                 | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
