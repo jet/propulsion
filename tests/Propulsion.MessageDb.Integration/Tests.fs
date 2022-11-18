@@ -1,25 +1,22 @@
-module Tests
+module Propulsion.MessageDb.Integration.Tests
 
-open System
-open System.Collections.Generic
-open System.Threading.Tasks
 open FSharp.Control
 open Npgsql
 open NpgsqlTypes
-open Propulsion.Feed
-open Propulsion.Streams
-open TypeShape.UnionContract
-open Xunit
 open Propulsion.MessageDb
-open Swensen.Unquote
 open Propulsion.Infrastructure
 open Propulsion.Internal
+open Swensen.Unquote
+open System
+open System.Collections.Generic
+open System.Threading.Tasks
+open Xunit
 
 module Simple =
-    type Hello = {name: string}
+    type Hello = { name : string}
     type Event =
         | Hello of Hello
-        interface IUnionContract
+        interface TypeShape.UnionContract.IUnionContract
     let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
 
 let writeMessagesToCategory category = task {
@@ -47,37 +44,38 @@ let ``It processes events for a category`` () = async {
     let category2 = $"{Guid.NewGuid():N}"
     do! writeMessagesToCategory category1 |> Async.AwaitTaskCorrect
     do! writeMessagesToCategory category2 |> Async.AwaitTaskCorrect
-    let reader = Core.MessageDbCategoryClient("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
+    let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                       with member _.HandleExn(log, x) = ()
                            member _.HandleOk x = () }
-    let stop = ref (fun () -> ())
+    let mutable stop = ignore
     let handled = HashSet<_>()
-    let handle struct(stream, evts: StreamSpan<_>) = async {
-        lock handled (fun _ -> for evt in evts do handled.Add((stream, evt.Index)) |> ignore)
-        test <@ Array.chooseV Simple.codec.TryDecode evts |> Array.forall ((=) (Simple.Hello {name = "world"})) @>
+    let handle struct (stream, events: Propulsion.Streams.Default.StreamSpan) = async {
+        lock handled (fun _ ->
+           for evt in events do
+               handled.Add((stream, evt.Index)) |> ignore)
+        test <@ Array.chooseV Simple.codec.TryDecode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
         if handled.Count >= 2000 then
-            stop.contents()
+            stop ()
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
-        reader, 1000, TimeSpan.FromMilliseconds 100,
+        connString, 1000, TimeSpan.FromMilliseconds 100,
         checkpoints, sink, [| category1; category2 |])
     use src = source.Start()
-    // who says you can't do backwards referencing in F#
-    stop.contents <- src.Stop
+    stop <- src.Stop
 
     Task.Delay(TimeSpan.FromSeconds 30).ContinueWith(fun _ -> src.Stop()) |> ignore
 
     do! src.AwaitShutdown()
+
     // 2000 total events
     test <@ handled.Count = 2000 @>
     // 20 in each stream
     test <@ handled |> Array.ofSeq |> Array.groupBy fst |> Array.map (snd >> Array.length) |> Array.forall ((=) 20) @>
     // they were handled in order within streams
-    let ordering = handled |> Array.ofSeq |> Array.groupBy fst |> Array.map (snd >> Array.map snd)
-    test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @>
-}
+    let ordering = handled |> Seq.groupBy fst |> Seq.map (snd >> Seq.map snd >> Seq.toArray) |> Seq.toArray
+    test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @> }

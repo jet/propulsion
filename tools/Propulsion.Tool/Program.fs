@@ -1,7 +1,6 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
-open Propulsion.Feed
 open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCanceledException
 open Propulsion.Tool.Args
 open Serilog
@@ -70,7 +69,7 @@ and [<NoEquality; NoComparison>] IndexParameters =
             | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
             | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
             | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
-            | GapsLimit _ ->                "Max Number of gaps to ouput to console. Default 10"
+            | GapsLimit _ ->                "Max Number of gaps to output to console. Default 10"
 
             | Dynamo _ ->                   "Specify DynamoDB parameters."
 
@@ -82,6 +81,7 @@ and [<NoEquality; NoComparison>] CheckpointParameters =
 
     | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
+    | [<CliPrefix(CliPrefix.None)>]         Pg     of ParseResults<Args.Mdb.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Group _ ->                    "Consumer Group"
@@ -91,6 +91,7 @@ and [<NoEquality; NoComparison>] CheckpointParameters =
 
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
+            | Pg _ ->                      "Specify MessageDb parameters."
 
 and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
@@ -164,9 +165,10 @@ module Checkpoints =
     type Arguments(c, p : ParseResults<CheckpointParameters>) =
         member val StoreArgs =
             match p.GetSubCommand() with
-            | CheckpointParameters.Cosmos p -> Choice1Of2 (Args.Cosmos.Arguments (c, p))
-            | CheckpointParameters.Dynamo p -> Choice2Of2 (Args.Dynamo.Arguments (c, p))
-            | _ -> missingArg "Must specify `cosmos` or `dynamo` store"
+            | CheckpointParameters.Cosmos p -> Choice1Of3 (Args.Cosmos.Arguments (c, p))
+            | CheckpointParameters.Dynamo p -> Choice2Of3 (Args.Dynamo.Arguments (c, p))
+            | CheckpointParameters.Pg p ->    Choice3Of3 (Args.Mdb.Arguments (c, p))
+            | x -> missingArg $"unexpected subcommand %A{x}"
 
     let readOrOverride (c, p : ParseResults<CheckpointParameters>) = async {
         let a = Arguments(c, p)
@@ -174,12 +176,15 @@ module Checkpoints =
         let! store, storeSpecFragment, overridePosition = async {
             let cache = Equinox.Cache (appName, sizeMb = 1)
             match a.StoreArgs with
-            | Choice1Of2 a ->
+            | Choice1Of3 a ->
                 let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
                 return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos)
-            | Choice2Of2 a ->
+            | Choice2Of3 a ->
                 let store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
-                return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos) }
+                return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos)
+            | Choice3Of3 a ->
+                let store = a.CreateCheckpointStore(group)
+                return store, null, fun pos -> store.Override(source, tranche, pos) }
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
         match p.TryGetResult OverridePosition with
         | None ->
@@ -188,9 +193,10 @@ module Checkpoints =
         | Some pos ->
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
             do! overridePosition pos
-        let sid = Propulsion.Feed.ReaderCheckpoint.streamId (source, tranche, group)
-        let cmd = $"eqx dump '{Propulsion.Feed.ReaderCheckpoint.Category}-{sid}' {storeSpecFragment}"
-        Log.Information("Inspect via 👉 {cmd}", cmd) }
+        if storeSpecFragment <> null then
+            let sid = Propulsion.Feed.ReaderCheckpoint.streamId (source, tranche, group)
+            let cmd = $"eqx dump '{Propulsion.Feed.ReaderCheckpoint.Category}-{sid}' {storeSpecFragment}"
+            Log.Information("Inspect via 👉 {cmd}", cmd) }
 
 module Indexer =
 
@@ -367,8 +373,8 @@ module Project =
                     ?trancheIds = indexFilter
                 ).Start()
             | Choice3Of3 sa ->
-                let checkpoints = sa.CreateCheckpointStore(group)
                 let categories, client = sa.CreateClient()
+                let checkpoints = sa.CreateCheckpointStore(group)
                 Propulsion.MessageDb.MessageDbSource(
                     Log.Logger, stats.StatsInterval,
                     client, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,

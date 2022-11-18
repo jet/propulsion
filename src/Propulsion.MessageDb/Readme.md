@@ -14,12 +14,13 @@ let quickStart log stats categories handle = async {
     // The checkpoint store will receive the highest version
     // that has been handled and flushes it to the
     // table on an interval
-    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Port=5433; Username=postgres; Password=postgres", "public", groupName, TimeSpan.FromSeconds 10)
+    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Port=5433; Username=postgres; Password=postgres",
+                                                       "public", groupName, TimeSpan.FromSeconds 10)
     // Creates the checkpoint table in the schema
     // You can also create this manually
     do! checkpoints.CreateSchemaIfNotExists()
     
-    let client = MessageDbCategoryClient("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")
+    let connStr = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let maxReadAhead = 100
     let maxConcurrentStreams = 2
     use sink = 
@@ -30,7 +31,7 @@ let quickStart log stats categories handle = async {
     use src = 
       MessageDbSource(
         log, statsInterval = TimeSpan.FromMinutes 1,
-        client, batchSize = 1000, 
+        connStr, batchSize = 1000, 
         // Controls the time to wait once fully caught up
         // before requesting a new batch of events
         tailSleepInterval = TimeSpan.FromMilliseconds 100,

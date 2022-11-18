@@ -1,24 +1,31 @@
 namespace Propulsion.MessageDb
 
-open FSharp.Control
 open FsCodec
-open FsCodec.Core
+open FSharp.Control
 open NpgsqlTypes
-open Propulsion.Feed
-open Propulsion.Feed.Core
 open Propulsion.Internal
 open System
 open System.Data.Common
-open System.Diagnostics
 
+module internal Npgsql =
 
-module Core =
+    let connect connectionString ct = task {
+        let conn = new Npgsql.NpgsqlConnection(connectionString)
+        do! conn.OpenAsync(ct)
+        return conn }
+
+module Internal =
+
+    open Propulsion.Feed
+    open System.Threading.Tasks
+    open Propulsion.Infrastructure // AwaitTaskCorrect
+
     type MessageDbCategoryClient(connectionString) =
         let connect = Npgsql.connect connectionString
         let parseRow (reader: DbDataReader) =
             let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
             let streamName = reader.GetString(8)
-            let event = TimelineEvent.Create(
+            let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0),
                 eventType = reader.GetString(1),
                 data = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString 2)),
@@ -28,9 +35,9 @@ module Core =
                 ?causationId = readNullableString 6,
                 context = reader.GetInt64(9),
                 timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)))
-
             struct(StreamName.parse streamName, event)
-        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) = task {
+
+        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Propulsion.Feed.Core.Batch<_>> = task {
             use! conn = connect ct
             let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
                                                                    (metadata::jsonb->>'$correlationId')::text,
@@ -44,12 +51,13 @@ module Core =
             let mutable checkpoint = fromPositionInclusive
 
             use! reader = command.ExecuteReaderAsync(ct)
-            let events = [| while reader.Read() do yield parseRow reader |]
+            let events = [| while reader.Read() do parseRow reader |]
 
             checkpoint <- match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> checkpoint
 
-            return { checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } }
-        member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
+            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Propulsion.Feed.Core.Batch<_>) }
+
+        member _.ReadCategoryLastVersion(category: TrancheId, ct) : Task<int64> = task {
             use! conn = connect ct
             let command = conn.CreateCommand(CommandText = "select max(global_position) from messages where category(stream_name) = @Category;")
             command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
@@ -57,52 +65,50 @@ module Core =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then reader.GetInt64(0) else 0L }
 
-module private Impl =
-    open Core
-    open Propulsion.Infrastructure // AwaitTaskCorrect
-
-    let readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
+    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
         let! ct = Async.CancellationToken
         let positionInclusive = Position.toInt64 pos
-        let! x = store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect
-        return x }
+        return! store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect }
 
-    let readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Propulsion.Feed.Position> = async {
+    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Propulsion.Feed.Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
         return Position.parse lastEventPos }
 
-type MessageDbSource
+type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
-        client: Core.MessageDbCategoryClient, batchSize, tailSleepInterval,
+        client: Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        categories,
-        // Override default start position to be at the tail of the index. Default: Replay all events.
-        ?startFromTail,
-        ?sourceId) =
+        tranches, ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
             (   if startFromTail <> Some true then None
-                else Some (Impl.readTailPositionForTranche client)),
+                else Some (Internal.readTailPositionForTranche client)),
             sink,
             (fun req -> asyncSeq {
-                let sw = Stopwatch.StartNew()
-                let! b = Impl.readBatch batchSize client req
+                let sw = Stopwatch.start ()
+                let! b = Internal.readBatch batchSize client req
                 yield sw.Elapsed, b }),
             string)
-    new (log, statsInterval, connectionString, batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail, ?sourceId) =
-        MessageDbSource(log, statsInterval, Core.MessageDbCategoryClient(connectionString),
-                        batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail=startFromTail, ?sourceId=sourceId)
+    new(    log, statsInterval,
+            connectionString, batchSize, tailSleepInterval,
+            checkpoints, sink,
+            categories,
+            // Override default start position to be at the tail of the index. Default: Replay all events.
+            ?startFromTail, ?sourceId) =
+        MessageDbSource(log, statsInterval, Internal.MessageDbCategoryClient(connectionString),
+                        batchSize, tailSleepInterval, checkpoints, sink,
+                        categories |> Array.map Propulsion.Feed.TrancheId.parse,
+                        ?startFromTail=startFromTail, ?sourceId=sourceId)
 
     abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
-    default _.ListTranches() = async { return categories |> Array.map TrancheId.parse }
+    default _.ListTranches() = async { return tranches }
 
     abstract member Pump : unit -> Async<unit>
     default x.Pump() = base.Pump(x.ListTranches)
 
     abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump())
-
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {

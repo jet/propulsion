@@ -108,11 +108,11 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks.
 
 - `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. See [quickstart](#quickstart).
 
-    - CosmosDB: Initialize `-aux` Container for ChangeFeedProcessor
-    - CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints
-    - CosmosDB/DynamoStore/EventStoreDB/MessageDb: walk change feeds/indexes and/or project to Kafka
-    - DynamoStore: validate and/or reindex DynamoStore Index
-    - MessageDb: Initialize a checkpoints table in a Postgres Database
+    - `init` CosmosDB: Initialize an `-aux` Container for ChangeFeedProcessor
+    - `initpg` : MessageDb: Initialize a checkpoints table in a Postgres Database
+    - `index`: DynamoStore: validate and/or reindex DynamoStore Index
+    - `checkpoint`: CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints in DynamoStore/CosmosStore/Postgres
+    - `project`: CosmosDB/DynamoStore/EventStoreDB/MessageDb: walk change feeds/indexes and/or project to Kafka
 
 ## Deprecated components
 
