@@ -281,7 +281,7 @@ module Mdb =
         let checkpointConn = p.TryGetResult CheckpointConnectionString |> Option.defaultValue conn
         let schema = p.TryGetResult Schema |> Option.defaultWith (fun () -> c.MdbSchema)
 
-        member x.CreateClient() = Array.ofList (p.GetResults Tranches), Propulsion.MessageDb.MessageDbCategoryClient(conn)
+        member x.CreateClient() = Array.ofList (p.GetResults Tranches), Propulsion.MessageDb.Core.MessageDbCategoryClient(conn)
 
         member x.CreateCheckpointStore(group) =
             Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn, schema, group, TimeSpan.FromSeconds 5.)
