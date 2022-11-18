@@ -88,6 +88,9 @@ type MessageDbSource
                 let! b = Impl.readBatch batchSize reader req
                 yield sw.Elapsed, b }),
             string)
+    new (log, statsInterval, connectionString, batchSize, tailSleepInterval, checkpoints, sink, categories, ?startFromTail, ?sourceId) =
+        MessageDbSource(log, statsInterval, MessageDbCategoryClient(connectionString),
+                        batchSize, tailSleepInterval, checkpoints, sink, categories, ?startFromTail=startFromTail, ?sourceId=sourceId)
 
     abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
     default _.ListTranches() = async { return categories |> Array.map TrancheId.parse }
