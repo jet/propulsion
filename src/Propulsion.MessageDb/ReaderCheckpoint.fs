@@ -25,8 +25,8 @@ let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (con
     = async {
     let cmd = conn.CreateCommand()
     cmd.CommandText <-
-        $"insert into {schema}.propulsion_checkpoint(source, tranche, consumer_group, position)
-          values (@Source, @Tranche, @ConsumerGroup, @GlobalPosition)
+        $"insert into {schema}.{table}(source, tranche, consumer_group, position)
+          values (@Source, @Tranche, @ConsumerGroup, @Position)
           on conflict (source, tranche, consumer_group)
           do update set position = @Position;"
     cmd.Parameters.AddWithValue("Source", NpgsqlDbType.Text, SourceId.toString source) |> ignore
@@ -40,7 +40,7 @@ let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (con
 let tryGetPosition (conn : NpgsqlConnection, schema : string) source tranche (consumerGroup : string) = async {
     let cmd = conn.CreateCommand()
     cmd.CommandText <-
-        $"select position from {schema}.propulsion_checkpoint
+        $"select position from {schema}.{table}
           where source = @Source
             and tranche = @Tranche
             and consumer_group = @ConsumerGroup"

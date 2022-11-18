@@ -74,7 +74,7 @@ type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,
         reader: MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        categories,
+        trancheIds,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         ?sourceId) =
@@ -88,12 +88,12 @@ type MessageDbSource
                 let! b = Impl.readBatch batchSize reader req
                 yield sw.Elapsed, b }),
             string)
-    new (log, statsInterval, connectionString, batchSize, tailSleepInterval, checkpoints, sink, categories, ?startFromTail, ?sourceId) =
+    new (log, statsInterval, connectionString, batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail, ?sourceId) =
         MessageDbSource(log, statsInterval, MessageDbCategoryClient(connectionString),
-                        batchSize, tailSleepInterval, checkpoints, sink, categories, ?startFromTail=startFromTail, ?sourceId=sourceId)
+                        batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail=startFromTail, ?sourceId=sourceId)
 
     abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
-    default _.ListTranches() = async { return categories |> Array.map TrancheId.parse }
+    default _.ListTranches() = async { return trancheIds }
 
     abstract member Pump : unit -> Async<unit>
     default x.Pump() = base.Pump(x.ListTranches)
