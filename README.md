@@ -112,7 +112,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks.
     - CosmosDB/DynamoStore/EventStoreDB/Feed/SqlStreamStore: adjust checkpoints
     - CosmosDB/DynamoStore/EventStoreDB: walk change feeds/indexes and/or project to Kafka
     - DynamoStore: validate and/or reindex DynamoStore Index
-    - MessageDb: Initialize a checkpoints table
+    - MessageDb: Initialize a checkpoints table in a Postgres Database
 
 ## Deprecated components
 
