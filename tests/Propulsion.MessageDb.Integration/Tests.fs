@@ -43,8 +43,8 @@ let writeMessagesToCategory category = task {
 let ``It processes events for a category`` () = async {
     let log = Serilog.Log.Logger
     let consumerGroup = $"{Guid.NewGuid():N}"
-    let category1 = TrancheId.parse $"{Guid.NewGuid():N}"
-    let category2 = TrancheId.parse $"{Guid.NewGuid():N}"
+    let category1 = $"{Guid.NewGuid():N}"
+    let category2 = $"{Guid.NewGuid():N}"
     do! writeMessagesToCategory category1 |> Async.AwaitTaskCorrect
     do! writeMessagesToCategory category2 |> Async.AwaitTaskCorrect
     let reader = MessageDbCategoryClient("Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;")

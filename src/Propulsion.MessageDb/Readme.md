@@ -8,7 +8,7 @@ The smallest possible sample looks like this, it is intended to give an overview
 For a more production ready example to take a look at [jets' templates](https://github.com/jet/dotnet-templates)
 
 ```fsharp
-let quickStart log stats trancheIds handle = async {
+let quickStart log stats categories handle = async {
     // The group is used as a key to store and retrieve checkpoints 
     let groupName = "MyGroup"
     // The checkpoint store will receive the highest version
@@ -35,8 +35,10 @@ let quickStart log stats trancheIds handle = async {
         // before requesting a new batch of events
         tailSleepInterval = TimeSpan.FromMilliseconds 100,
         checkpoints, sink,
-        // tranche is equivalent to a message-db category
-        trancheIds
+        // An array of message-db categories to subscribe to 
+        // Propulsion guarantees that events within streams are
+        // handled in order, it makes no guarantees across streams (Even within categories)
+        categories
       ).Start()
       
     do! src.AwaitShutdown() }

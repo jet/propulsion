@@ -1,7 +1,6 @@
 module Propulsion.Tool.Args
 
 open Argu
-open Npgsql
 open Serilog
 open System
 
@@ -264,6 +263,7 @@ module Dynamo =
 
 module Mdb =
     open Configuration.Mdb
+    open Npgsql
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-c">]           ConnectionString of string
         | [<AltCommandLine "-cp">]          CheckpointConnectionString of string
@@ -292,5 +292,4 @@ module Mdb =
             log.Information("Creating checkpoints table as {table}", $"{schema}.{Propulsion.MessageDb.ReaderCheckpoint.table}")
             let checkpointStore = x.CreateCheckpointStore("nil")
             do! checkpointStore.CreateSchemaIfNotExists()
-            log.Information("Table created")
-        }
+            log.Information("Table created") }

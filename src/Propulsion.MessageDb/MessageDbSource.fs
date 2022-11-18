@@ -3,14 +3,13 @@ namespace Propulsion.MessageDb
 open FSharp.Control
 open FsCodec
 open FsCodec.Core
-open Npgsql
 open NpgsqlTypes
 open Propulsion.Feed
+open Propulsion.Feed.Core
+open Propulsion.Internal
 open System
 open System.Data.Common
 open System.Diagnostics
-open Propulsion.Feed.Core
-open Propulsion.Internal
 
 
 type MessageDbCategoryClient(connectionString) =
@@ -77,7 +76,7 @@ type MessageDbSource
     (   log : Serilog.ILogger, statsInterval,
         client: MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        trancheIds,
+        categories,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         ?sourceId) =
@@ -96,7 +95,7 @@ type MessageDbSource
                         batchSize, tailSleepInterval, checkpoints, sink, trancheIds, ?startFromTail=startFromTail, ?sourceId=sourceId)
 
     abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
-    default _.ListTranches() = async { return trancheIds }
+    default _.ListTranches() = async { return categories |> Array.map TrancheId.parse }
 
     abstract member Pump : unit -> Async<unit>
     default x.Pump() = base.Pump(x.ListTranches)
