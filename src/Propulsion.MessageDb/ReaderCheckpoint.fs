@@ -9,26 +9,20 @@ open Propulsion.Infrastructure
 let table = "propulsion_checkpoint"
 
 let createIfNotExists (conn : NpgsqlConnection, schema: string) =
-    let cmd = conn.CreateCommand()
-    cmd.CommandText <- $"
-      create table if not exists {schema}.{table} (
-        source text not null,
-        tranche text not null,
-        consumer_group text not null,
-        position bigint not null,
-        primary key (source, tranche, consumer_group)
-      )
-    "
+    let cmd = conn.CreateCommand(CommandText = $"create table if not exists {schema}.{table} (
+                                                   source text not null,
+                                                   tranche text not null,
+                                                   consumer_group text not null,
+                                                   position bigint not null,
+                                                   primary key (source, tranche, consumer_group));")
     cmd.ExecuteNonQueryAsync() |> Async.AwaitTaskCorrect |> Async.Ignore<int>
 
 let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (consumerGroup : string) (position : int64)
     = async {
-    let cmd = conn.CreateCommand()
-    cmd.CommandText <-
-        $"insert into {schema}.{table}(source, tranche, consumer_group, position)
-          values (@Source, @Tranche, @ConsumerGroup, @Position)
-          on conflict (source, tranche, consumer_group)
-          do update set position = @Position;"
+    let cmd = conn.CreateCommand(CommandText = $"insert into {schema}.{table}(source, tranche, consumer_group, position)
+                                                 values (@Source, @Tranche, @ConsumerGroup, @Position)
+                                                 on conflict (source, tranche, consumer_group)
+                                                 do update set position = @Position;")
     cmd.Parameters.AddWithValue("Source", NpgsqlDbType.Text, SourceId.toString source) |> ignore
     cmd.Parameters.AddWithValue("Tranche", NpgsqlDbType.Text, TrancheId.toString tranche) |> ignore
     cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore
@@ -38,13 +32,10 @@ let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (con
     do! cmd.ExecuteNonQueryAsync(ct) |> Async.AwaitTaskCorrect |> Async.Ignore<int> }
 
 let tryGetPosition (conn : NpgsqlConnection, schema : string) source tranche (consumerGroup : string) = async {
-    let cmd = conn.CreateCommand()
-    cmd.CommandText <-
-        $"select position from {schema}.{table}
-          where source = @Source
-            and tranche = @Tranche
-            and consumer_group = @ConsumerGroup"
-
+    let cmd = conn.CreateCommand(CommandText = $"select position from {schema}.{table}
+                                                  where source = @Source
+                                                    and tranche = @Tranche
+                                                    and consumer_group = @ConsumerGroup")
     cmd.Parameters.AddWithValue("Source", NpgsqlDbType.Text, SourceId.toString source) |> ignore
     cmd.Parameters.AddWithValue("Tranche", NpgsqlDbType.Text, TrancheId.toString tranche) |> ignore
     cmd.Parameters.AddWithValue("ConsumerGroup", NpgsqlDbType.Text, consumerGroup) |> ignore

@@ -31,12 +31,11 @@ type MessageDbCategoryClient(connectionString) =
         struct(StreamName.parse streamName, event)
     member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) = task {
         use! conn = connect ct
-        let command = conn.CreateCommand(
-            CommandText = "select position, type, data, metadata, id::uuid,
-                                  (metadata::jsonb->>'$correlationId')::text,
-                                  (metadata::jsonb->>'$causationId')::text,
-                                  time, stream_name, global_position
-                           from get_category_messages(@Category, @Position, @BatchSize);")
+        let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
+                                                               (metadata::jsonb->>'$correlationId')::text,
+                                                               (metadata::jsonb->>'$causationId')::text,
+                                                               time, stream_name, global_position
+                                                        from get_category_messages(@Category, @Position, @BatchSize);")
         command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
         command.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
         command.Parameters.AddWithValue("BatchSize", NpgsqlDbType.Bigint, int64 batchSize) |> ignore
@@ -51,8 +50,7 @@ type MessageDbCategoryClient(connectionString) =
         return { checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } }
     member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
         use! conn = connect ct
-        let command = conn.CreateCommand()
-        command.CommandText <- "select max(global_position) from messages where category(stream_name) = @Category;"
+        let command = conn.CreateCommand(CommandText = "select max(global_position) from messages where category(stream_name) = @Category;")
         command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
 
         use! reader = command.ExecuteReaderAsync(ct)
