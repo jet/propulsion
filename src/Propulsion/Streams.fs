@@ -348,7 +348,8 @@ module Scheduling =
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
-            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | _ -> false
+            // Example scenario: if a write reported we reached version 2, and we are ingesting event 1, then we drop it
+            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw > required | _ -> false
             | ValueNone -> true // If the entry has been purged, it implies the accompanying events have already been handled
         member _.Merge(streams : Streams<'Format>) =
             for kv in streams.States do
