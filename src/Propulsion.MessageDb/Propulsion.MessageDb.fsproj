@@ -12,6 +12,7 @@
         <Compile Include="Internal.fs" />
         <Compile Include="MessageDbSource.fs" />
         <Compile Include="ReaderCheckpoint.fs" />
+        <Content Include="Readme.md" />
     </ItemGroup>
     
     <ItemGroup>
