@@ -15,7 +15,7 @@ open Propulsion.Internal
 
 type MessageDbCategoryClient(connectionString) =
     let connect = Npgsql.connect connectionString
-    let readRow (reader: DbDataReader) =
+    let parseRow (reader: DbDataReader) =
         let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
         let streamName = reader.GetString(8)
         let event = TimelineEvent.Create(
@@ -44,7 +44,7 @@ type MessageDbCategoryClient(connectionString) =
         let mutable checkpoint = fromPositionInclusive
 
         use! reader = command.ExecuteReaderAsync(ct)
-        let events = [| while reader.Read() do yield readRow reader |]
+        let events = [| while reader.Read() do yield parseRow reader |]
 
         return { checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } }
     member _.ReadCategoryLastVersion(category: TrancheId, ct) = task {
