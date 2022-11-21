@@ -549,13 +549,13 @@ module Scheduling =
         member val StateInterval = IntervalTimer stateInterval
         member val Timers = Stats.Timers()
 
-        member x.DumpStats(struct (dispatchActive, dispatchMax), batchesWaiting) =
+        member x.DumpStats(struct (dispatchActive, dispatchMax), struct (batchesPending, batchesActive)) =
             log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors}",
                 cycles, fullCycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; fullCycles <- 0; stateStats.Clear()
             oks.Dump log; exns.Dump log
-            log.Information(" Batches Holding {batchesWaiting} Started {batches} ({streams:n0}s {events:n0}-{writtenAhead:n0}e)",
-                batchesWaiting, batchesPended, streamsPended, eventsWrittenAhead + eventsPended, eventsWrittenAhead)
+            log.Information(" Batches pending {batchesPending} active {batchesProcessing} started {batches} ({streams:n0}s {events:n0}-{writtenAhead:n0}e)",
+                batchesPending, batchesActive, batchesPended, streamsPended, eventsWrittenAhead + eventsPended, eventsWrittenAhead)
             batchesPended <- 0; streamsPended <- 0; eventsWrittenAhead <- 0; eventsPended <- 0
             x.Timers.Dump log
             monitor.DumpState x.Log
@@ -616,7 +616,7 @@ module Scheduling =
             [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
             abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
             abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
-            abstract member RecordStats : int -> unit
+            abstract member RecordStats : struct (int * int) -> unit
             abstract member RecordState : BufferState * StreamStates<'F> * int -> bool
 
         /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
@@ -729,6 +729,7 @@ module Scheduling =
             let sortBuffer = ResizeArray()
             let streamsBuffer = HashSet()
 
+            member _.ActiveCount = pending.Count
             member _.AppendBatch(markCompleted, reqs : Dictionary<FsCodec.StreamName, int64>) =
                 pending.Enqueue { markCompleted = markCompleted; streamToRequiredIndex = reqs }
                 trim ()
@@ -736,6 +737,7 @@ module Scheduling =
             member _.MarkStreamProgress(stream, index) =
                 let mutable requiredIndex = Unchecked.defaultof<_>
                 for x in pending do
+                    // example : when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
                         x.streamToRequiredIndex.Remove stream |> ignore
                 trim ()
@@ -808,6 +810,7 @@ module Scheduling =
         let streams = StreamStates<'F>()
         let maybePrioritizeLargePayloads = prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy
         let progressState = Progress.ProgressState()
+        let pendingAndActiveCounts () = struct (pendingCount (), progressState.ActiveCount)
         let mutable totalPurged = 0
 
         let tryDispatch isSlipStreaming =
@@ -907,7 +910,7 @@ module Scheduling =
                     if s.remaining = 0 && hasCapacity then s.waitForPending <- true
                     if s.remaining = 0 && not hasCapacity && not wakeForResults then s.waitForCapacity <- true
                 // While the loop can take a long time, we don't attempt logging of stats per iteration on the basis that the maxCycles should be low
-                let ts = ts () in dispatcher.RecordStats(pendingCount()); t.RecordStats ts
+                let ts = ts () in dispatcher.RecordStats(pendingAndActiveCounts ()); t.RecordStats ts
                 // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                 if s.idle then
                     let sleepTs = Stopwatch.timestamp ()
