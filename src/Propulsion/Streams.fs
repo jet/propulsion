@@ -386,27 +386,27 @@ module Scheduling =
             let gapCats, gapStreams, malformedCats, malformedStreams = Stats.CatStats(), Stats.CatStats(), Stats.CatStats(), Stats.CatStats()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
-                match state.EventsSumBy(eventSize) with
-                | 0L ->
-                    synced <- synced + 1
-                | sz when busy.Contains stream ->
+                if state.IsEmpty then synced <- synced + 1 else
+
+                let sz = state.EventsSumBy(eventSize)
+                if busy.Contains stream then
                     busyCats.Ingest(StreamName.categorize stream)
                     busyCount <- busyCount + 1
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
-                | sz when state.IsMalformed ->
+                elif state.IsMalformed then
                     malformedCats.Ingest(StreamName.categorize stream)
                     malformedStreams.Ingest(FsCodec.StreamName.toString stream, Log.miB sz |> int64)
                     malformed <- malformed + 1
                     malformedB <- malformedB + sz
                     malformedE <- malformedE + state.EventsCount
-                | sz when state.HasGap ->
+                elif state.HasGap then
                     gapCats.Ingest(StreamName.categorize stream)
                     gapStreams.Ingest(FsCodec.StreamName.toString stream, Log.miB sz |> int64)
                     gaps <- gaps + 1
                     gapsB <- gapsB + sz
                     gapsE <- gapsE + state.EventsCount
-                | sz ->
+                else
                     readyCats.Ingest(StreamName.categorize stream)
                     readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultValueArg state.WritePos 0L) state.HeadSpan.Length, kb sz)
                     ready <- ready + 1
