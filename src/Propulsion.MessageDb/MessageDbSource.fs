@@ -28,7 +28,6 @@ module Internal =
             if reader.IsDBNull(idx) then jsonNull
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes |> ReadOnlyMemory
 
-
     type MessageDbCategoryClient(connectionString) =
         let connect = Npgsql.connect connectionString
         let parseRow (reader: DbDataReader) =
