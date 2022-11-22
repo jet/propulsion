@@ -18,7 +18,16 @@ module Internal =
 
     open Propulsion.Feed
     open System.Threading.Tasks
+    open System.Text.Json
     open Propulsion.Infrastructure // AwaitTaskCorrect
+
+    module private Json =
+        let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
+
+        let fromReader idx (reader: DbDataReader) =
+            if reader.IsDBNull(idx) then jsonNull
+            else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes |> ReadOnlyMemory
+
 
     type MessageDbCategoryClient(connectionString) =
         let connect = Npgsql.connect connectionString
@@ -28,8 +37,8 @@ module Internal =
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0),
                 eventType = reader.GetString(1),
-                data = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString 2)),
-                meta = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString 3)),
+                data = (reader |> Json.fromReader 2),
+                meta = (reader |> Json.fromReader 3),
                 eventId = reader.GetGuid(4),
                 ?correlationId = readNullableString 5,
                 ?causationId = readNullableString 6,
