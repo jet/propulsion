@@ -339,8 +339,9 @@ module Scheduling =
                     yield { writePos = ss.WritePos; stream = s; span = ss.HeadSpan }
                 | _ -> ()
             if trySlipstreamed then
-                // [lazily] slipstream in further events that are not yet referenced by in-scope batches
+                // [lazily] slipstream in further streams that are not yet referenced by in-scope batches
                 for KeyValue(s, ss) in states do
+                    // We don't exclude gapped streams - the write function is expected to efficiently reject those
                     if ss.HasValid && not (busy.Contains s) && proposed.Add s then
                         yield { writePos = ss.WritePos; stream = s; span = ss.HeadSpan } }
         let markBusy stream = busy.Add stream |> ignore
