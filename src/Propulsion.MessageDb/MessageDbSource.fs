@@ -33,17 +33,17 @@ module Internal =
         let connect = Npgsql.connect connectionString
         let parseRow (reader: DbDataReader) =
             let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
-            let sn = reader.GetString(8) |> FsCodec.StreamName.parse
             let readUtf8String idx = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString idx))
-            let c, d, m = reader.GetString(1), readUtf8String 2, readUtf8String 3
-            let sz = d.Length + m.Length + c.Length
+            let et, data, meta = reader.GetString(1), readUtf8String 2, readUtf8String 3
+            let sz = data.Length + meta.Length + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0), // index within the stream, 0 based
-                eventType = c, data = d, meta = m, eventId = reader.GetGuid(4),
+                eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),
                 ?correlationId = readNullableString 5, ?causationId = readNullableString 6,
                 context = reader.GetInt64(9), // global_position is passed through the Context for checkpointing purposes
                 timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)),
                 size = sz) // precomputed Size is required for stats purposes when fed to a StreamsSink
+            let sn = reader.GetString(8) |> FsCodec.StreamName.parse
             struct (sn, event)
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Batch<_>> = task {
