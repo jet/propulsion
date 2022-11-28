@@ -106,7 +106,7 @@ module Pruner =
                 struct (metrics, struct (stream, span))
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                dispatcher,
+                dispatcher, maxHolding = 5,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 enableSlipstreaming = false)
 
@@ -121,7 +121,6 @@ type CosmosPruner =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxSubmissionsPerPartition,
             ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
@@ -135,7 +134,4 @@ type CosmosPruner =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?ingesterStatsInterval = ingesterStatsInterval)
+        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)

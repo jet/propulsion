@@ -170,7 +170,7 @@ module Internal =
                 struct (ss.WritePos, res)
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                 dispatcher,
+                 dispatcher, maxHolding = 5,
                  ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                  enableSlipstreaming = true, ?prioritizeStreamsBy = prioritizeStreamsBy)
 
@@ -183,7 +183,6 @@ type CosmosStoreSink =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxSubmissionsPerPartition,
             ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,
@@ -201,6 +200,5 @@ type CosmosStoreSink =
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents = maxEvents, ?maxBytes = maxBytes, prioritizeStreamsBy = Default.eventSize)
         Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval,
             ?ingesterStatsInterval = ingesterStatsInterval)

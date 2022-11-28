@@ -163,7 +163,7 @@ module Internal =
                 Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                dispatcher,
+                dispatcher, maxHolding = 5,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 enableSlipstreaming = true, prioritizeStreamsBy = Default.eventSize)
 
@@ -176,7 +176,6 @@ type CosmosSink =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxSubmissionsPerPartition,
             ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,
@@ -193,7 +192,4 @@ type CosmosSink =
                 log, cosmosContexts, dispatcher, stats, dumpStreams,
                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents=maxEvents, ?maxBytes = maxBytes)
-        Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?ingesterStatsInterval = ingesterStatsInterval)
+        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)
