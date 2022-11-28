@@ -141,7 +141,7 @@ module Internal =
                 struct (ss.WritePos, res)
 
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, maxHolding = 5, enableSlipstreaming = true, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+            Scheduling.StreamSchedulingEngine(dispatcher, maxHolding = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 

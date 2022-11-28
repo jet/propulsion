@@ -172,7 +172,7 @@ module Internal =
             Scheduling.StreamSchedulingEngine(
                  dispatcher, maxHolding = 5,
                  ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                 enableSlipstreaming = true, ?prioritizeStreamsBy = prioritizeStreamsBy)
+                 ?prioritizeStreamsBy = prioritizeStreamsBy)
 
 type CosmosStoreSink =
 
