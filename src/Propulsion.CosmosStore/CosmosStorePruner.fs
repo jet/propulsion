@@ -98,7 +98,7 @@ module Pruner =
 
     type StreamSchedulingEngine =
 
-        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay)
+        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
@@ -108,7 +108,7 @@ module Pruner =
                     .Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                 dispatcher, maxHolding = 5,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 enableSlipstreaming = false)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
@@ -122,7 +122,7 @@ type CosmosStorePruner =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+            ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
         : Default.Sink =
@@ -134,5 +134,5 @@ type CosmosStorePruner =
         let streamScheduler =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)

@@ -114,7 +114,7 @@ module Internal =
         default _.HandleExn(_, _) : unit = ()
 
     type EventStoreSchedulingEngine =
-        static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval)
+        static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : Stats, dumpStreams, ?idleDelay, ?purgeInterval)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -141,7 +141,7 @@ module Internal =
                 struct (ss.WritePos, res)
 
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, maxHolding = 5, enableSlipstreaming = true, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+            Scheduling.StreamSchedulingEngine(dispatcher, maxHolding = 5, enableSlipstreaming = true, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 

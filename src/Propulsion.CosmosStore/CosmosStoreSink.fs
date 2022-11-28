@@ -147,7 +147,7 @@ module Internal =
 
         static member Create(
                 log : ILogger, eventsContext, itemDispatcher, stats : Stats, dumpStreams,
-                ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes, ?prioritizeStreamsBy)
+                ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes, ?prioritizeStreamsBy)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
@@ -171,7 +171,7 @@ module Internal =
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
                  dispatcher, maxHolding = 5,
-                 ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                  enableSlipstreaming = true, ?prioritizeStreamsBy = prioritizeStreamsBy)
 
 type CosmosStoreSink =
@@ -183,7 +183,7 @@ type CosmosStoreSink =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+            ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
@@ -197,7 +197,7 @@ type CosmosStoreSink =
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(
                 log, eventsContext, dispatcher, stats, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents = maxEvents, ?maxBytes = maxBytes, prioritizeStreamsBy = Default.eventSize)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval,

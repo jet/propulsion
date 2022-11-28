@@ -31,8 +31,6 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents,
-            // Max scheduling readahead. Default 128.
-            ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : Default.Sink =
@@ -52,7 +50,7 @@ type StreamsProducerSink =
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
                      stats, statsInterval, Default.jsonSize, Default.eventSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
-                     ?maxEvents=maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
+                     ?maxEvents=maxEvents, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -68,8 +66,6 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents,
-            // Max scheduling readahead. Default 128.
-            ?maxBatches,
             // Max inner cycles per loop. Default 128.
             ?maxCycles)
         : Default.Sink =
@@ -81,4 +77,4 @@ type StreamsProducerSink =
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
                      stats, statsInterval,
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
-                     ?maxEvents = maxEvents, ?maxBatches = maxBatches, ?maxCycles = maxCycles)
+                     ?maxEvents = maxEvents, ?maxCycles = maxCycles)
