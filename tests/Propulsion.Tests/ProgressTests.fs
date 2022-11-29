@@ -27,6 +27,7 @@ let [<Fact>] ``Marking Progress removes batches and triggers the callbacks`` () 
     sut.AppendBatch(complete, mkDictionary [sn "a",1L; sn "b",2L]) |> ignore
     sut.MarkStreamProgress(sn "a",1L)
     sut.MarkStreamProgress(sn "b",3L)
+    sut.EnumPending() |> ignore
     1 =! callbacks
 
 let [<Fact>] ``Empty batches get removed immediately`` () =
@@ -35,6 +36,7 @@ let [<Fact>] ``Empty batches get removed immediately`` () =
     let complete () = callbacks <- callbacks + 1
     sut.AppendBatch(complete, mkDictionary [||]) |> ignore
     sut.AppendBatch(complete, mkDictionary [||]) |> ignore
+    sut.EnumPending() |> ignore
     2 =! callbacks
 
 let [<Fact>] ``Marking progress is not persistent`` () =
@@ -44,6 +46,7 @@ let [<Fact>] ``Marking progress is not persistent`` () =
     sut.AppendBatch(complete, mkDictionary [sn "a",1L]) |> ignore
     sut.MarkStreamProgress(sn "a",2L)
     sut.AppendBatch(complete, mkDictionary [sn "a",1L; sn "b",2L]) |> ignore
+    sut.EnumPending() |> ignore
     1 =! callbacks
 
 // TODO: lots more coverage of newer functionality - the above were written very early into the exercise
