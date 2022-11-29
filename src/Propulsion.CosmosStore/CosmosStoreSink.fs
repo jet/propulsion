@@ -116,8 +116,7 @@ module Internal =
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice1Of2 ((es, bs), res)) ->
+            | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -127,7 +126,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 this.HandleOk res
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -170,7 +169,7 @@ module Internal =
                 struct (ss.WritePos, res)
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                 dispatcher, maxHolding = 5,
+                 dispatcher, maxIngest = 5,
                  ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                  ?prioritizeStreamsBy = prioritizeStreamsBy)
 

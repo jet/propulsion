@@ -191,7 +191,7 @@ module Core =
                 logStreamStates Default.eventSize
             let streamsScheduler =
                 Scheduling.StreamSchedulingEngine.Create<_, _, _, _>(
-                    dispatcher, stats, prepare, handle, SpanResult.toIndex, dumpStreams,
+                    dispatcher, stats, prepare, handle, SpanResult.toIndex, dumpStreams, maxIngest = 5,
                     ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : struct (_ * Buffer.Batch) =
                 let onCompletion () = x.onCompletion(); onCompletion()
@@ -425,8 +425,7 @@ type BatchesConsumer =
                         ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
         let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle, stats, dumpStreams)
         let streamsScheduler = Scheduling.StreamSchedulingEngine.Create(
-            dispatcher,
-            ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+            dispatcher, maxIngest = 5, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)

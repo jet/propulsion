@@ -404,13 +404,8 @@ module Scheduling =
             if gapStreams.Any then log.Information(" Buffering Streams, KB {@missingStreams}", Seq.truncate 3 gapStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
 
-    /// Messages used internally by projector, including synthetic ones for the purposes of the `Stats` listeners
     [<NoComparison; NoEquality>]
-    type InternalMessage<'R> =
-        /// Stats per submitted batch for stats listeners to aggregate
-        | Added of streams : int * skip : int * events : int
-        /// Result of processing on stream - result (with basic stats) or the `exn` encountered
-        | Result of duration : TimeSpan * stream : FsCodec.StreamName * progressed : bool * result : 'R
+    type InternalResult<'R> = { duration : TimeSpan; stream : FsCodec.StreamName; progressed : bool; result : 'R }
 
     type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full
 
@@ -484,17 +479,20 @@ module Scheduling =
             let sw = Stopwatch.start()
             member _.RecordResults ts = results <- results + Stopwatch.elapsedTicks ts
             member _.RecordDispatch ts = dispatch <- dispatch + Stopwatch.elapsedTicks ts
+            // If we did not dispatch, we attempt ingestion of streams as a standalone task, but need to add to dispatch time to compensate for calcs below
+            member x.RecordDispatchNone ts = x.RecordDispatch ts
             member _.RecordMerge ts = merge <- merge + Stopwatch.elapsedTicks ts
             member _.RecordIngest ts = ingest <- ingest + Stopwatch.elapsedTicks ts
             member _.RecordStats ts = stats <- stats + Stopwatch.elapsedTicks ts
             member _.RecordSleep ts = sleep <- sleep + Stopwatch.elapsedTicks ts
             member _.Dump(log : ILogger) =
-                let dt, ft, mt = Stopwatch.ticksToTimeSpan results, Stopwatch.ticksToTimeSpan dispatch, Stopwatch.ticksToTimeSpan merge
-                let it, st, zt = Stopwatch.ticksToTimeSpan ingest, Stopwatch.ticksToTimeSpan stats, Stopwatch.ticksToTimeSpan sleep
-                let m = Log.Metric.SchedulerCpu (mt, it, ft, dt, st)
-                let tot = Stopwatch.ticksToTimeSpan (results + dispatch + merge + ingest + stats + sleep)
-                (log |> Log.withMetric m).Information(" Cpu Streams {mt:n1}s Batches {it:n1}s Dispatch {ft:n1}s Results {dt:n1}s Stats {st:n1}s Sleep {zt:n1}s Total {tot:n1}s Interval {int:n1}s",
-                                                      mt.TotalSeconds, it.TotalSeconds, ft.TotalSeconds, dt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds, tot.TotalSeconds, sw.ElapsedSeconds)
+                let tot = Stopwatch.ticksToTimeSpan (results + dispatch - merge - ingest + stats + sleep) |> max TimeSpan.Zero
+                let it, mt = Stopwatch.ticksToTimeSpan ingest, Stopwatch.ticksToTimeSpan merge
+                let dt = Stopwatch.ticksToTimeSpan dispatch - it - mt |> max TimeSpan.Zero
+                let rt, st, zt = Stopwatch.ticksToTimeSpan results, Stopwatch.ticksToTimeSpan stats, Stopwatch.ticksToTimeSpan sleep
+                let log = log |> Log.withMetric (Log.Metric.SchedulerCpu (mt, it, dt, rt, st))
+                log.Information(" Cpu Dispatch {dispatch:n1}s streams {streams:n1}s batches {batches:n1}s Results {results:n1}s Stats {stats:n1}s Sleep {sleep:n1}s Total {total:n1}s Interval {int:n1}s",
+                                dt.TotalSeconds, mt.TotalSeconds, it.TotalSeconds, rt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds, tot.TotalSeconds, sw.ElapsedSeconds)
                 results <- 0L; dispatch <- 0L; merge <- 0L; ingest <- 0L; stats <- 0L; sleep <- 0L
                 sw.Restart()
 
@@ -538,6 +536,12 @@ module Scheduling =
             monitor.DumpState x.Log
             x.DumpStats()
 
+        member _.RecordIngested(streams, skipped, events) =
+            batchesPended <- batchesPended + 1
+            streamsPended <- streamsPended + streams
+            eventsPended <- eventsPended + events
+            eventsWrittenAhead <- eventsWrittenAhead + skipped
+
         member x.RecordStats() =
             cycles <- cycles + 1
             x.StatsInterval.IsDue
@@ -555,17 +559,12 @@ module Scheduling =
         abstract Serialize : (unit -> unit) -> unit
         default _.Serialize(f) = f ()
 
-        abstract member Handle : InternalMessage<Choice<'R, 'E>> -> unit
+        abstract member Handle : InternalResult<Choice<'R, 'E>> -> unit
         default x.Handle msg = msg |> function
-            | Added (streams, skipped, events) ->
-                batchesPended <- batchesPended + 1
-                streamsPended <- streamsPended + streams
-                eventsPended <- eventsPended + events
-                eventsWrittenAhead <- eventsWrittenAhead + skipped
-            | Result (duration, stream, progressed, Choice1Of2 _) ->
+            | { duration = duration; stream = stream; progressed = progressed; result = Choice1Of2 _ } ->
                 oks.Record duration
                 x.HandleResult(stream, duration, true, progressed)
-            | Result (duration, stream, progressed, Choice2Of2 _) ->
+            | { duration = duration; stream = stream; progressed = progressed; result = Choice2Of2 _ } ->
                 exns.Record duration
                 x.HandleResult(stream, duration, false, progressed)
 
@@ -592,7 +591,8 @@ module Scheduling =
             abstract member TryReplenish : pending : seq<Dispatch.Item<'F>> * markStreamBusy : (FsCodec.StreamName -> unit) -> struct (bool * bool)
             [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
             abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
-            abstract member RecordResultStats : InternalMessage<Choice<'R, 'E>> -> unit
+            abstract member RecordIngested : streams : int * skip : int * events : int -> unit
+            abstract member RecordResultStats : InternalResult<Choice<'R, 'E>> -> unit
             abstract member RecordStats : struct (int * int) -> unit
             abstract member RecordState : BufferState * StreamStates<'F> * int * (ILogger -> unit) -> bool
 
@@ -627,6 +627,7 @@ module Scheduling =
                 override _.TryReplenish(pending, markStreamBusy) = inner.TryReplenish(pending, stats.HandleStarted, project, markStreamBusy)
                 [<CLIEvent>] override _.Result = inner.Result
                 override _.InterpretProgress(streams, stream, res) = interpretProgress streams stream res
+                override _.RecordIngested(streams, skipped, events) = stats.RecordIngested(streams, skipped, events)
                 override _.RecordResultStats msg = stats.Handle msg
                 override _.RecordStats pendingCount =
                     if stats.RecordStats() then
@@ -679,6 +680,7 @@ module Scheduling =
                     match res with
                     | Choice1Of2 (pos', (stats, outcome)) -> ValueSome pos', Choice1Of2 (stats, outcome)
                     | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
+                override _.RecordIngested(streams, skipped, events) = stats.RecordIngested(streams, skipped, events)
                 override _.RecordResultStats msg = stats.Handle msg
                 override _.RecordStats pendingCount =
                     if stats.RecordStats() then
@@ -696,24 +698,21 @@ module Scheduling =
 
     module Progress =
 
-        type [<Struct; NoComparison; NoEquality>] internal BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
+        type [<Struct; NoComparison; NoEquality>] BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
 
         type ProgressState<'Pos>() =
             let pending = Queue<BatchState>()
-            let trim () =
+
+            member _.ActiveCount = pending.Count
+            member internal _.EnumPending() =
                 while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
                     let batch = pending.Dequeue()
                     batch.markCompleted ()
-
-            // We potentially traverse the pending streams thousands of times per second
-            // so we reuse `InScheduledOrder`'s temps: sortBuffer and streamsBuffer for better L2 caching properties
-            let sortBuffer = ResizeArray()
-            let streamsBuffer = HashSet()
-
-            member _.ActiveCount = pending.Count
+                pending
             member _.AppendBatch(markCompleted, reqs : Dictionary<FsCodec.StreamName, int64>) =
-                pending.Enqueue { markCompleted = markCompleted; streamToRequiredIndex = reqs }
-                trim ()
+                let fresh = { markCompleted = markCompleted; streamToRequiredIndex = reqs }
+                pending.Enqueue fresh
+                fresh
 
             member _.MarkStreamProgress(stream, index) =
                 let mutable requiredIndex = Unchecked.defaultof<_>
@@ -721,37 +720,48 @@ module Scheduling =
                     // example : when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
                         x.streamToRequiredIndex.Remove stream |> ignore
-                trim ()
 
-            member _.IsEmpty = pending.Count = 0
-            // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
-            member _.InScheduledOrder(getStreamWeight : (FsCodec.StreamName -> int64) option) : seq<FsCodec.StreamName> =
-                trim ()
-                // sortBuffer is used once per invocation, but the result is lazy so we can only clear it on entry
-                sortBuffer.Clear()
-                let mutable batch = 0
-                let weight = match getStreamWeight with None -> (fun _s -> 0) | Some f -> (fun s -> -f s |> int)
-                for x in pending do
-                    for s in x.streamToRequiredIndex.Keys do
-                        if streamsBuffer.Add s then
-                            // Within the head batch, expedite work on longest streams, where requested
-                            let w = if batch = 0 then weight s else 0 // For anything other than the head batch, submitted order is just fine
-                            sortBuffer.Add(struct (s, batch, w))
-                    if batch = 0 && sortBuffer.Count > 0 then
-                        let c = Comparer<_>.Default
-                        sortBuffer.Sort(fun struct (_, _ab, _aw) struct (_, _bb, _bw) -> c.Compare(struct(_ab, _aw), struct(_bb, _bw)))
-                    batch <- batch + 1
-                // We reuse this buffer next time around, but clear it now as it has no further use
-                streamsBuffer.Clear()
-                sortBuffer |> Seq.map (fun struct(s, _, _) -> s)
             member _.Dump(log : ILogger) =
                 if log.IsEnabled Serilog.Events.LogEventLevel.Debug && pending.Count <> 0 then
                     let h = pending.Peek()
                     log.Debug("Active Batch {streams}", h.streamToRequiredIndex)
 
-    (* These would otherwise be individually allocated FSharpRef cells allocated for every cycle; see https://github.com/fsharp/fslang-suggestions/issues/732 we do this... *)
-    type [<Struct; NoComparison; NoEquality>] private State =
-        { mutable idle : bool; mutable dispatcherState : BufferState; mutable remaining : int; mutable waitForCapacity : bool; mutable waitForPending : bool }
+        // We potentially traverse the pending streams thousands of times per second so we reuse buffers for better L2 caching properties
+        // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
+        type StreamsPrioritizer(getStreamWeight) =
+
+            let streamsSuggested = HashSet()
+            let enumUnique (xs : IEnumerator<BatchState>) = seq {
+                while xs.MoveNext() do
+                    let x = xs.Current
+                    for s in x.streamToRequiredIndex.Keys do
+                        if streamsSuggested.Add s then
+                            yield s }
+
+            let sortBuffer = ResizeArray()
+            // Within the head batch, expedite work on longest streams, where requested
+            let prioritizeHead (getStreamWeight : FsCodec.StreamName -> int64) (head : BatchState) : seq<FsCodec.StreamName> =
+                // sortBuffer is reused per invocation, but the result is lazy so we can only clear on entry
+                sortBuffer.Clear()
+                let weight s = -getStreamWeight s |> int
+                for s in head.streamToRequiredIndex.Keys do
+                    if streamsSuggested.Add s then
+                        let w = weight s
+                        sortBuffer.Add(struct (s, w))
+                if sortBuffer.Count > 0 then
+                    let c = Comparer<_>.Default
+                    sortBuffer.Sort(fun struct (_, _aw) struct (_, _bw) -> c.Compare(_aw, _bw))
+                sortBuffer |> Seq.map ValueTuple.fst
+
+            member _.CollectStreams(batches : BatchState seq) =
+                // streamsSuggested is reused per invocation (and also in prioritizeHead), so we need to clear it first
+                streamsSuggested.Clear()
+                use xs = batches.GetEnumerator()
+                match getStreamWeight with
+                | None -> enumUnique xs
+                | Some f ->
+                    if xs.MoveNext() then Seq.append (prioritizeHead f xs.Current) (enumUnique xs)
+                    else Seq.empty
 
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
@@ -760,8 +770,8 @@ module Scheduling =
     /// d) periodically reports state (with hooks for ingestion engines to report same)
     type StreamSchedulingEngine<'P, 'R, 'E, 'F>
         (   dispatcher : Dispatcher.IDispatcher<'P, 'R, 'E, 'F>,
-            // Number of batches to hold locally; rest held by submitter to enable fair ordering of submission as partitions are added/removed
-            maxHolding,
+            // Number of batches to buffer locally; rest held by submitter to enable fair ordering of submission as partitions are added/removed
+            maxIngest,
             // Tune the max number of check/dispatch cycles. Default 2.
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
@@ -771,8 +781,6 @@ module Scheduling =
             ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or items to dispatch. Default 1s.
             ?idleDelay,
-            // Tune the number of times to attempt handling results before sleeping. Default 3.
-            ?maxCycles,
             // Prioritize processing of the largest Payloads within the Tip batch when scheduling work
             // Can yield significant throughput improvement when ingesting large batches in the face of rate limiting
             ?prioritizeStreamsBy) =
@@ -782,71 +790,67 @@ module Scheduling =
             | None -> fun () -> false
         let sleepIntervalMs = match idleDelay with Some ts -> TimeSpan.toMs ts | None -> 1000
         let wakeForResults = defaultArg wakeForResults false
-        let maxCycles = defaultArg maxCycles 3
         let writeResult, awaitResults, tryApplyResults =
             let r, w = let c = Channel.unboundedSr in c.Reader, c.Writer
             Channel.write w, Channel.awaitRead r, Channel.apply r
         let enqueueStreams, applyStreams =
             let r, w = let c = Channel.unboundedSr<Streams<_>> in c.Reader, c.Writer
-            Channel.write w, Channel.apply r >> ignore
-        let waitToSubmit, tryWritePending, pendingCount, awaitPending, tryReadPending =
-            let r, w = let c = Channel.boundedSw<Batch>(maxHolding) in c.Reader, c.Writer // Actually SingleReader too, but Count throws if you use that
-            Channel.waitToWrite w, Channel.tryWrite w, (fun () -> r.Count), Channel.awaitRead r, Channel.tryRead r
+            Channel.write w, Channel.apply r
+        let waitToSubmit, tryWritePending, pendingCount, awaitPending, pendingBatches =
+            let r, w = let c = Channel.boundedSw<Batch>(maxIngest) in c.Reader, c.Writer // Actually SingleReader too, but Count throws if you use that
+            Channel.waitToWrite w, Channel.tryWrite w, (fun () -> r.Count), Channel.awaitRead r, Channel.readAll r
         let streams = StreamStates<'F>()
-        let maybePrioritizeLargePayloads = prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy
-        let progressState = Progress.ProgressState()
-        let pendingAndActiveCounts () = struct (pendingCount (), progressState.ActiveCount)
+        let batches = Progress.ProgressState()
+        let priority = Progress.StreamsPrioritizer(prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy)
+        let pendingAndActiveCounts () = struct (pendingCount (), batches.ActiveCount)
         let mutable totalPurged = 0
 
-        let tryDispatch () =
-            let hasCapacity = dispatcher.HasCapacity
-            if not hasCapacity || progressState.IsEmpty then struct (false, hasCapacity) else
+        let tryDispatch ingestStreams ingestBatches =
+            if not dispatcher.HasCapacity then struct (false, false) else
 
-            let pending : seq<Dispatch.Item<_>> =
-                progressState.InScheduledOrder maybePrioritizeLargePayloads
-                |> Seq.chooseV streams.ChooseDispatchable
-            dispatcher.TryReplenish(pending, streams.MarkBusy)
+            let batches = seq {
+                // Pull in all stream events into the buffer asap every time we are going to dispatch anything
+                ingestStreams ()
+                yield! batches.EnumPending()
+                // We'll get here as soon as the dispatching process has exhausted the currently queued items
+                match ingestBatches () with
+                | [||] -> () // Nothing more available
+                | freshlyAddedBatches ->
+                    // we've just enqueued fresh batches
+                    // hence we need to ingest events potentially added since first call to guarantee we have all the events on which the batches depend
+                    ingestStreams ()
+                    yield! freshlyAddedBatches }
+            let candidateItems : seq<Dispatch.Item<_>> = priority.CollectStreams(batches) |> Seq.chooseV streams.ChooseDispatchable
+            dispatcher.TryReplenish(candidateItems, streams.MarkBusy)
 
-        // ingest information to be gleaned from processing the results into `streams`
-        let mapResult : InternalMessage<_> -> InternalMessage<Choice<'R, 'E>> = function
-            | Added (streams, skipped, events) ->
-                // Only processed in Stats (and actually never enters this queue)
-                Added (streams, skipped, events)
-            | Result (duration, stream : FsCodec.StreamName, progressed : bool, res : Choice<'P, 'E>) ->
-                match dispatcher.InterpretProgress(streams, stream, res) with
-                | ValueNone, Choice1Of2 (r : 'R) ->
-                    streams.MarkFailed(stream)
-                    Result (duration, stream, progressed, Choice1Of2 r)
-                | ValueSome index, Choice1Of2 (r : 'R) ->
-                    progressState.MarkStreamProgress(stream, index)
-                    streams.MarkCompleted(stream, index)
-                    Result (duration, stream, progressed, Choice1Of2 r)
-                | _, Choice2Of2 exn ->
-                    streams.MarkFailed(stream)
-                    Result (duration, stream, progressed, Choice2Of2 exn)
-        let mapRecord = mapResult >> dispatcher.RecordResultStats
-        let tryHandleResults () = tryApplyResults mapRecord
+        // 1. ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
+        let handleResult { duration = duration; stream = stream; progressed = p; result = (res : Choice<'P, 'E>) } =
+            match dispatcher.InterpretProgress(streams, stream, res) with
+            | ValueNone, Choice1Of2 (r : 'R) ->
+                streams.MarkFailed(stream)
+                dispatcher.RecordResultStats { duration = duration; stream = stream; progressed = p; result = Choice1Of2 r }
+            | ValueSome index, Choice1Of2 (r : 'R) ->
+                batches.MarkStreamProgress(stream, index)
+                streams.MarkCompleted(stream, index)
+                dispatcher.RecordResultStats { duration = duration; stream = stream; progressed = p; result = Choice1Of2 r }
+            | _, Choice2Of2 exn ->
+                streams.MarkFailed(stream)
+                dispatcher.RecordResultStats { duration = duration; stream = stream; progressed = p; result = Choice2Of2 exn }
+        let tryHandleResults () = tryApplyResults handleResult
 
-        // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
-        let ingestBatch feedStats (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
+        // 2. Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
+        let ingest (batch : Batch) = // (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
             let reqs = Dictionary()
             let mutable count, writtenAhead = 0, 0
-            for item in items do
+            for item in batch.Reqs do
                 if streams.WritePositionIsAlreadyBeyond(item.Key, item.Value) then
                     writtenAhead <- writtenAhead + 1
                 else
                     count <- count + 1
                     reqs[item.Key] <- item.Value
-            progressState.AppendBatch(markCompleted, reqs)
-            feedStats <| Added (reqs.Count, writtenAhead, count)
-        let ingestBatch (batch : Batch) = ingestBatch dispatcher.RecordResultStats (batch.OnCompletion, batch.Reqs)
-        let tryIngest ingestBatch =
-            match tryReadPending () with
-            | ValueSome batch ->
-                ingestBatch batch
-                true
-            | ValueNone ->
-                false
+            dispatcher.RecordIngested(reqs.Count, writtenAhead, count)
+            batches.AppendBatch(batch.OnCompletion, reqs)
+        let ingestBatches () = [| for b in pendingBatches -> ingest b |]
 
         let purge () =
             let remaining, purged = streams.Purge()
@@ -855,47 +859,36 @@ module Scheduling =
             Log.Write(l, "PURGED Remaining {buffered:n0} Purged now {count:n0} Purged total {total:n0}", remaining, purged, totalPurged)
 
         member _.Pump(ct : CancellationToken) = task {
-            use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult (Result (t, s, pr, r)))
+            use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult { duration = t; stream = s; progressed = pr; result = r })
             let inline ts () = Stopwatch.timestamp ()
+            let t = dispatcher.Timers
+            let ingestStreams () = let ts, r = ts (), applyStreams streams.Merge in t.RecordMerge ts; r
+            let ingestBatches () = let ts, b = ts (), ingestBatches () in t.RecordIngest ts; b
+            let ingestStreamsOnly () = let ts = ts () in let r = ingestStreams () in t.RecordDispatchNone ts; r
             while not ct.IsCancellationRequested do
-                let mutable s = { idle = true; dispatcherState = Idle; remaining = maxCycles; waitForPending = false; waitForCapacity = false }
-                let t = dispatcher.Timers
-                while s.remaining <> 0 do
-                    s.remaining <- s.remaining - 1
-                    // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                    let processedResults = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
-                    // 2. top up provisioning of writers queue
-                    // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
-                    let struct (dispatched, hasCapacity) = let ts = ts () in let r = tryDispatch () in t.RecordDispatch ts; r
-                    s.idle <- s.idle && not processedResults && not dispatched
-                    match s.dispatcherState with
-                    | Idle when not hasCapacity ->
-                        // If we've achieved full state, spin around the loop to dump stats and ingest reader data
-                        s.dispatcherState <- Full
-                        s.remaining <- 0
-                    | Idle when s.remaining = 0 ->
-                        s.dispatcherState <- Active
-                    | Idle -> // need to bring more work into the pool as we can't fill the work queue from what we have
-                        do let ts = ts () in applyStreams streams.Merge; t.RecordMerge ts
-                        let ingestBatch batch = let ts = ts () in ingestBatch batch; t.RecordIngest ts
-                        if not (tryIngest ingestBatch) then s.remaining <- 0
-                    | Active | Full -> failwith "Not handled here"
-                    if s.remaining = 0 && hasCapacity then s.waitForPending <- true
-                    if s.remaining = 0 && not hasCapacity && not wakeForResults then s.waitForCapacity <- true
-                // While the loop can take a long time, we don't attempt logging of stats per iteration on the basis that the maxCycles should be low
+                // 1. propagate write write outcomes to buffer (can mark batches completed etc)
+                let processedResults = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
+                // 2. top up provisioning of writers queue
+                // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
+                // Where there is insufficient work in the queue, we trigger ingestion of batches as needed
+                let struct (dispatched, hasCapacity) = let ts = ts () in let r = tryDispatch (ingestStreams >> ignore) ingestBatches in t.RecordDispatch ts; r
+                let idle = not processedResults && not dispatched && not (ingestStreamsOnly ())
                 let ts = ts () in dispatcher.RecordStats(pendingAndActiveCounts ()); t.RecordStats ts
-                // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
-                if s.idle then
+                // 3. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
+                if idle then
+                    let waitForPending = hasCapacity
+                    let waitForCapacity = not hasCapacity && not wakeForResults
                     let sleepTs = Stopwatch.timestamp ()
                     let wakeConditions : Task array = [|
                         if wakeForResults then awaitResults ct
-                        elif s.waitForCapacity then dispatcher.AwaitCapacity()
-                        if s.waitForPending then awaitPending ct
+                        elif waitForCapacity then dispatcher.AwaitCapacity()
+                        if waitForPending then awaitPending ct
                         Task.Delay(int sleepIntervalMs) |]
                     do! Task.WhenAny(wakeConditions) :> Task
                     t.RecordSleep sleepTs
-                // 3. Record completion state once per full iteration; dumping streams is expensive so needs to be done infrequently
-                if dispatcher.RecordState(s.dispatcherState, streams, totalPurged, progressState.Dump) && purgeDue () then
+                // 4. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
+                let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active
+                if dispatcher.RecordState(dispatcherState, streams, totalPurged, batches.Dump) && purgeDue () then
                     purge () }
 
         member internal _.SubmitStreams(x : Streams<_>) =
@@ -913,21 +906,15 @@ module Scheduling =
                 prepare : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> struct ('Metrics * struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array)),
                 handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct ('Progress * 'Outcome)>,
                 toIndex : StreamSpan<'F> -> 'Progress -> int64,
-                dumpStreams, ?purgeInterval, ?wakeForResults, ?idleDelay)
+                dumpStreams, maxIngest, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : StreamSchedulingEngine<struct (int64 * 'Metrics * 'Outcome), struct ('Metrics * 'Outcome), struct ('Metrics * exn), 'F> =
 
             let dispatcher = Dispatcher.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, handle, prepare, toIndex, stats, dumpStreams)
-            StreamSchedulingEngine<_, _, _, 'F>(
-                dispatcher, maxHolding = 5,
-                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                ?idleDelay = idleDelay)
+            StreamSchedulingEngine<_, _, _, 'F>(dispatcher, maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
-        static member Create(dispatcher, ?purgeInterval, ?wakeForResults, ?idleDelay)
+        static member Create(dispatcher, maxIngest, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : StreamSchedulingEngine<struct (int64 * struct ('Metrics * unit)), struct ('Stats * unit), struct ('Stats * exn), 'F> =
-            StreamSchedulingEngine<_, _, _, 'F>(
-                dispatcher, maxHolding = 5,
-                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                ?idleDelay = idleDelay)
+            StreamSchedulingEngine<_, _, _, 'F>(dispatcher, maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
@@ -946,19 +933,18 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
-    override this.Handle message =
+    override this.Handle res =
         let inline addStream sn (set : HashSet<_>) = set.Add sn |> ignore
         let inline addBadStream sn (set : HashSet<_>) = badCats.Ingest(StreamName.categorize sn); addStream sn set
-        base.Handle message
-        match message with
-        | Scheduling.Added _ -> () // Processed by standard logging already; we have nothing to add
-        | Scheduling.Result (_duration, stream, _progressed, Choice1Of2 ((es, bs), res)) ->
+        base.Handle res
+        match res with
+        | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
             addStream stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             resultOk <- resultOk + 1
             this.HandleOk res
-        | Scheduling.Result (duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
+        | { duration = duration; stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
             addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
@@ -1034,6 +1020,8 @@ type StreamsSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare, handle, toIndex,
             stats, statsInterval, eventSize,
+            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
+            ?maxIngest,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1049,7 +1037,7 @@ type StreamsSink =
                 (   dispatcher, stats,
                     prepare, handle, toIndex,
                     (fun logStreamStates _log -> logStreamStates eventSize),
-                    ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+                    defaultArg maxIngest maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(
             log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval,
             ?ingesterStatsInterval = ingesterStatsInterval)
@@ -1059,6 +1047,8 @@ type StreamsSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
             stats, statsInterval, eventSize,
+            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
+            ?maxIngest,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1073,7 +1063,7 @@ type StreamsSink =
             struct (metrics, struct (streamName, span))
         StreamsSink.StartEx<SpanResult, 'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, eventSize,
-            ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+            ?maxIngest = maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
@@ -1081,6 +1071,8 @@ type StreamsSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array -> Async<'Outcome>,
             stats, statsInterval, eventSize,
+            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
+            ?maxIngest,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1095,7 +1087,7 @@ type StreamsSink =
             return struct (SpanResult.AllProcessed, res) }
         StreamsSink.Start<'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
-            ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+            ?maxIngest = maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval)
 
 module Sync =
@@ -1118,14 +1110,13 @@ module Sync =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice1Of2 (((es, bs), prepareElapsed), outcome)) ->
+            | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), outcome) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
                 this.HandleOk outcome
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -1145,8 +1136,6 @@ module Sync =
                 ?maxBytes,
                 // Default 16384
                 ?maxEvents,
-                // Max inner cycles per loop. Default 128.
-                ?maxCycles,
                 // Hook to wire in external stats
                 ?dumpExternalStats,
                 // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
@@ -1180,7 +1169,7 @@ module Sync =
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, 'F>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
             let streamScheduler =
                 Scheduling.StreamSchedulingEngine<struct (int64 * struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
-                    (   dispatcher, maxHolding = 5, maxCycles = defaultArg maxCycles 128, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+                    (   dispatcher, maxIngest = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(
                 log, itemDispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval)

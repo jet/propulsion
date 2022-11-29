@@ -77,6 +77,10 @@ module Channel =
             worked <- true
             f msg
         worked
+    let inline readAll (r : ChannelReader<_>) = seq {
+        let mutable msg = Unchecked.defaultof<_>
+        while r.TryRead(&msg) do
+            yield msg }
 
 open System.Threading
 open System.Threading.Tasks

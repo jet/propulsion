@@ -55,7 +55,7 @@ module Pruner =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 (_, exn)) ->
+            | { stream = stream; result = Choice2Of2 (_, exn) } ->
                 match classify exn with
                 | ExceptionKind.RateLimited ->
                     adds stream rlStreams; rateLimited <- rateLimited + 1
@@ -107,7 +107,7 @@ module Pruner =
                 Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                dispatcher, maxHolding = 5,
+                dispatcher, maxIngest = 5,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care

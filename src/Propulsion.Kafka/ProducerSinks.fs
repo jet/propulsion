@@ -30,9 +30,7 @@ type StreamsProducerSink =
             // Default 1 MiB
             ?maxBytes,
             // Default 16384
-            ?maxEvents,
-            // Max inner cycles per loop. Default 128.
-            ?maxCycles)
+            ?maxEvents)
         : Default.Sink =
             let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
             let handle struct (stream : StreamName, span) = async {
@@ -50,7 +48,7 @@ type StreamsProducerSink =
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
                      stats, statsInterval, Default.jsonSize, Default.eventSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
-                     ?maxEvents=maxEvents, ?maxCycles = maxCycles, dumpExternalStats = producer.DumpStats)
+                     ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -65,9 +63,7 @@ type StreamsProducerSink =
             // Default 1 MiB
             ?maxBytes,
             // Default 16384
-            ?maxEvents,
-            // Max inner cycles per loop. Default 128.
-            ?maxCycles)
+            ?maxEvents)
         : Default.Sink =
             let prepare struct (stream, span) = async {
                 let! kv = prepare (stream, span)
@@ -77,4 +73,4 @@ type StreamsProducerSink =
                 (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
                      stats, statsInterval,
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
-                     ?maxEvents = maxEvents, ?maxCycles = maxCycles)
+                     ?maxEvents = maxEvents)
