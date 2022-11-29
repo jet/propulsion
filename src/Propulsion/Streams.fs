@@ -517,7 +517,7 @@ module Scheduling =
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats, oks, exns = Stats.StateStats(), Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions")
-        let mutable cycles, fullCycles, batchesPended, streamsPended, eventsWrittenAhead, eventsPended = 0, 0, 0, 0, 0, 0
+        let mutable cycles, batchesPended, streamsPended, eventsWrittenAhead, eventsPended = 0, 0, 0, 0, 0
 
         member val Log = log
         member val StatsInterval = IntervalTimer statsInterval
@@ -525,9 +525,9 @@ module Scheduling =
         member val Timers = Stats.Timers()
 
         member x.DumpStats(struct (dispatchActive, dispatchMax), struct (batchesPending, batchesActive)) =
-            log.Information("Scheduler {cycles} cycles ({fullCycles} full) {@states} Running {busy}/{processors}",
-                cycles, fullCycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
-            cycles <- 0; fullCycles <- 0; stateStats.Clear()
+            log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
+                cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
+            cycles <- 0; stateStats.Clear()
             oks.Dump log; exns.Dump log
             log.Information(" Batches pending {batchesPending} active {batchesProcessing} started {batches} ({streams:n0}s {events:n0}-{writtenAhead:n0}e)",
                 batchesPending, batchesActive, batchesPended, streamsPended, eventsWrittenAhead + eventsPended, eventsWrittenAhead)
@@ -547,7 +547,6 @@ module Scheduling =
             x.StatsInterval.IsDue
 
         member x.RecordState(state) =
-            fullCycles <- fullCycles + 1
             stateStats.Ingest(state)
             x.StateInterval.IfDueRestart()
 
