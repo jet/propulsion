@@ -50,28 +50,34 @@ type Pipeline(task : Task<unit>, triggerStop) =
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let start (name : string) (f : CancellationToken -> Task<unit>) =
+        let run (name : string) (f : CancellationToken -> Task<unit>) =
             let wrap () = task {
                 try do! f ct
                     log.Information("... {name} stopped", name)
                 with e ->
                     log.Fatal(e, "Abend from {name}", name)
                     triggerStop false }
-            Task.start wrap
+            Task.run wrap
+        let start name = run name >> ignore<Task>
 
         let supervise () = task {
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
 
+            pumpIngester |> Option.iter (start "ingester")
             start "dispatcher" pumpDispatcher
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
-            start "scheduler" (pumpScheduler abend)
+            let scheduler = run "scheduler" (pumpScheduler abend)
             start "submitter" pumpSubmitter
-            pumpIngester |> Option.iter (start "ingester")
 
             // await for either handler-driven abend or external cancellation via Stop()
             try return! tcs.Task
-            finally log.Information("... sink stopped") }
+            finally // Scheduler needs to print stats, and we don't want to report shutdown until that's complete
+                let ts = Stopwatch.timestamp ()
+                let finishedAsRequested = scheduler.Wait(TimeSpan.FromSeconds 2)
+                let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
+                let level = if finishedAsRequested && ms < 200 then Events.LogEventLevel.Information else Events.LogEventLevel.Warning
+                log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop

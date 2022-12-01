@@ -92,7 +92,7 @@ type FeedSourceBase internal
             Async.Start(supervise pump, cancellationToken = ct)
 
             try return! outcomeTask
-            finally log.Information "... source stopped" }
+            finally log.Information "... source completed" }
 
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> Task.isCompleted outcomeTask)
         new SourcePipeline<_>(Task.run supervise, stop, monitor)

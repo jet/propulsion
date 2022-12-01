@@ -53,7 +53,7 @@ type IntervalTimer(period : TimeSpan) =
         // The processing loops run on 1s timers, so we busy-wait until they wake
         let timeout = IntervalTimer(defaultArg timeout (TimeSpan.FromSeconds 2))
         while x.IsTriggered && not timeout.IsDue do
-            System.Threading.Thread.Sleep (defaultArg sleepMs 1)
+            System.Threading.Thread.Sleep(defaultArg sleepMs 1)
 
 module Channel =
 
