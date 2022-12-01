@@ -710,16 +710,20 @@ module Scheduling =
         type ProgressState<'Pos>() =
             let pending = Queue<BatchState>()
 
-            member _.RunningCount = pending.Count
-            member _.EnumPending() : seq<BatchState> =
+            let trim () =
                 while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
                     let batch = pending.Dequeue()
                     batch.markCompleted ()
+            member _.RunningCount = pending.Count
+            member _.EnumPending() : seq<BatchState> =
+                trim ()
                 pending
             member _.AppendBatch(markCompleted, reqs : Dictionary<FsCodec.StreamName, int64>) =
                 let fresh = { markCompleted = markCompleted; streamToRequiredIndex = reqs }
                 pending.Enqueue fresh
-                fresh
+                trim ()
+                if pending.Count = 0 then ValueNone // If already complete, avoid triggering stream ingestion or a dispatch cycle
+                else ValueSome fresh
 
             member _.MarkStreamProgress(stream, index) =
                 let mutable requiredIndex = Unchecked.defaultof<_>
@@ -843,7 +847,7 @@ module Scheduling =
         let tryHandleResults () = tryApplyResults handleResult
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
-        let ingest (batch : Batch) = // (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
+        let ingest (batch : Batch) =
             let reqs = Dictionary()
             let mutable events, eventsSkipped = 0, 0
             for item in batch.Reqs do
@@ -857,7 +861,7 @@ module Scheduling =
                 batch.OnCompletion ()
                 dispatcher.RecordCompletion ()
             batches.AppendBatch(onCompletion, reqs)
-        let ingestBatch () = [| match tryPending () with ValueSome b -> ingest b | ValueNone -> () |]
+        let ingestBatch () = [| match tryPending () |> ValueOption.bind ingest with ValueSome b -> b | ValueNone -> () |]
 
         let mutable totalPurged = 0
         let purge () =
@@ -908,6 +912,8 @@ module Scheduling =
                 let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active
                 if dispatcher.RecordState(ct.IsCancellationRequested, dispatcherState, streams, totalPurged, batches.Dump) && purgeDue () then
                     purge ()
+            // Flush
+            batches.EnumPending() |> ignore
             processResults () |> ignore
             reportStats true }
 
