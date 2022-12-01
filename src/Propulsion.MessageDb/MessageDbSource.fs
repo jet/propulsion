@@ -1,11 +1,8 @@
 namespace Propulsion.MessageDb
 
-open FsCodec
 open FSharp.Control
-open NpgsqlTypes
 open Propulsion.Internal
 open System
-open System.Data.Common
 
 module internal Npgsql =
 
@@ -16,10 +13,14 @@ module internal Npgsql =
 
 module Internal =
 
+    open NpgsqlTypes
     open Propulsion.Feed
+    open Propulsion.Infrastructure // AwaitTaskCorrect
+    open System.Data.Common
     open System.Threading.Tasks
     open System.Text.Json
-    open Propulsion.Infrastructure // AwaitTaskCorrect
+
+    type Batch<'F> = Propulsion.Feed.Core.Batch<'F>
 
     module private Json =
         let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
@@ -32,20 +33,20 @@ module Internal =
         let connect = Npgsql.connect connectionString
         let parseRow (reader: DbDataReader) =
             let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
-            let streamName = reader.GetString(8)
+            let readUtf8String idx = ReadOnlyMemory(Text.Encoding.UTF8.GetBytes(reader.GetString idx))
+            let et, data, meta = reader.GetString(1), readUtf8String 2, readUtf8String 3
+            let sz = data.Length + meta.Length + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
-                index = reader.GetInt64(0),
-                eventType = reader.GetString(1),
-                data = (reader |> Json.fromReader 2),
-                meta = (reader |> Json.fromReader 3),
-                eventId = reader.GetGuid(4),
-                ?correlationId = readNullableString 5,
-                ?causationId = readNullableString 6,
-                context = reader.GetInt64(9),
-                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)))
-            struct(StreamName.parse streamName, event)
+                index = reader.GetInt64(0), // index within the stream, 0 based
+                eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),
+                ?correlationId = readNullableString 5, ?causationId = readNullableString 6,
+                context = reader.GetInt64(9), // global_position is passed through the Context for checkpointing purposes
+                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)),
+                size = sz) // precomputed Size is required for stats purposes when fed to a StreamsSink
+            let sn = reader.GetString(8) |> FsCodec.StreamName.parse
+            struct (sn, event)
 
-        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Propulsion.Feed.Core.Batch<_>> = task {
+        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Batch<_>> = task {
             use! conn = connect ct
             let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
                                                                    (metadata::jsonb->>'$correlationId')::text,
@@ -56,14 +57,11 @@ module Internal =
             command.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
             command.Parameters.AddWithValue("BatchSize", NpgsqlDbType.Bigint, int64 batchSize) |> ignore
 
-            let mutable checkpoint = fromPositionInclusive
-
             use! reader = command.ExecuteReaderAsync(ct)
             let events = [| while reader.Read() do parseRow reader |]
 
-            checkpoint <- match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> checkpoint
-
-            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Propulsion.Feed.Core.Batch<_>) }
+            let checkpoint = match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> fromPositionInclusive
+            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Batch<_>) }
 
         member _.ReadCategoryLastVersion(category: TrancheId, ct) : Task<int64> = task {
             use! conn = connect ct
@@ -73,12 +71,12 @@ module Internal =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then reader.GetInt64(0) else 0L }
 
-    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Propulsion.Feed.Core.Batch<_>> = async {
+    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Batch<_>> = async {
         let! ct = Async.CancellationToken
         let positionInclusive = Position.toInt64 pos
         return! store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect }
 
-    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Propulsion.Feed.Position> = async {
+    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
         return Position.parse lastEventPos }

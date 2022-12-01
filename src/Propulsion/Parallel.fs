@@ -38,7 +38,7 @@ module Scheduling =
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
-    type Batch<'S, 'M> = { source : 'S; messages: 'M []; onCompletion: unit -> unit }
+    type Batch<'P, 'M> = { partitionId : 'P; messages: 'M []; onCompletion: unit -> unit }
 
     /// Thread-safe/lock-free batch-level processing state
     /// - referenced [indirectly, see `mkDispatcher`] among all task invocations for a given batch
@@ -79,13 +79,13 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'S, 'M when 'S : equality>(log : ILogger, handle, tryDispatch : Async<unit> -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'P, 'M when 'P : equality>(log : ILogger, handle, tryDispatch : Async<unit> -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
-        let incoming = ConcurrentQueue<Batch<'S, 'M>>()
+        let incoming = ConcurrentQueue<Batch<'P, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
         let waiting = Queue<Async<unit>>(1024)
         // Index of batches that have yet to attain terminal state (can be >1 per partition)
-        let active = Dictionary<'S(*partitionId*),Queue<WipBatch<'S, 'M>>>()
+        let active = Dictionary<'P(*partitionId*),Queue<WipBatch<'P, 'M>>>()
         (* accumulators for periodically emitted statistics info *)
         let mutable cycles, processingDuration = 0, TimeSpan.Zero
         let startedBatches, completedBatches = Submission.PartitionStats(), Submission.PartitionStats()
@@ -127,9 +127,9 @@ module Scheduling =
                         abend (AggregateException(exns))
                     | true, Completed batchProcessingDuration -> // call completion function asap
                         let partitionId, markCompleted, itemCount =
-                            let { batch = { source = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
+                            let { batch = { partitionId = p; onCompletion = f; messages = msgs } } = queue.Dequeue()
                             p, f, msgs.LongLength
-                        completedBatches.Record partitionId
+                        completedBatches.Record(partitionId, 1)
                         completedItems.Record(partitionId, itemCount)
                         processingDuration <- processingDuration.Add batchProcessingDuration
                         markCompleted ()
@@ -141,8 +141,8 @@ module Scheduling =
         let tryPrepareNext () =
             match incoming.TryDequeue() with
             | false, _ -> false
-            | true, ({ source = pid; messages = msgs} as batch) ->
-                startedBatches.Record(pid)
+            | true, ({ partitionId = pid; messages = msgs} as batch) ->
+                startedBatches.Record(pid, 1)
                 startedItems.Record(pid, msgs.LongLength)
                 let wipBatch, runners = WipBatch.Create(batch, handle)
                 runners |> Seq.iter waiting.Enqueue
@@ -176,7 +176,7 @@ module Scheduling =
                     do! Task.Delay(1, ct) }
 
         /// Feeds a batch of work into the queue; the caller is expected to ensure submissions are timely to avoid starvation, but throttled to ensure fair ordering
-        member _.Submit(batches : Batch<'S, 'M>) =
+        member _.Submit(batches : Batch<'P, 'M>) =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
@@ -184,7 +184,7 @@ type ParallelIngester<'Item> =
     static member Start(log, partitionId, maxRead, submit, statsInterval) =
         let submitBatch (items : 'Item seq, onCompletion) =
             let items = Array.ofSeq items
-            let batch : Submission.Batch<_, 'Item> = { source = partitionId; onCompletion = onCompletion; messages = items }
+            let batch : Submission.Batch<_, 'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
             submit batch
             struct (items.Length, items.Length)
         Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
@@ -194,24 +194,22 @@ type ParallelSink =
     static member Start
             (    log : ILogger, maxReadAhead, maxDop, handle,
                  statsInterval,
-                 // Default 5
-                 ?maxSubmissionsPerPartition, ?logExternalStats,
+                 ?logExternalStats,
                  ?ingesterStatsInterval)
             : Sink<Ingestion.Ingester<'Item seq>> =
 
-        let maxSubmissionsPerPartition = defaultArg maxSubmissionsPerPartition 5
         let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
         let dispatcher = Scheduling.Dispatcher maxDop
         let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
 
-        let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : Scheduling.Batch<_, 'Item> =
+        let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : struct (unit * Scheduling.Batch<_, 'Item>) =
             let onCompletion () = x.onCompletion(); onCompletion()
-            { source = x.source; onCompletion = onCompletion; messages = x.messages}
-
-        let submitBatch (x : Scheduling.Batch<_, 'Item>) : int =
+            (), { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
+        let alwaysReady () : ValueTask<bool> = ValueTask.FromResult(true)
+        let submitBatch (x : Scheduling.Batch<_, 'Item>) : int voption =
             scheduler.Submit x
-            0
+            ValueSome 0
 
-        let submitter = Submission.SubmissionEngine<_, _, _>(log, maxSubmissionsPerPartition, mapBatch, submitBatch, statsInterval)
+        let submitter = Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, ignore, alwaysReady, submitBatch)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
         Sink.Start(log, dispatcher.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), submitter.Pump, startIngester)

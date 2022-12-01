@@ -26,26 +26,28 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let ``TailingFeedSource Stop / AwaitCompletion semantics`` () = async {
-        let crawl _  = AsyncSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = false; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
+        let crawl _  = AsyncSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
         let source = Propulsion.Feed.Core.TailingFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", TimeSpan.FromMinutes 1,
                                                             checkpoints, (*establishOrigin*)None, sink, crawl, string)
         use src = source.Start(source.Pump(fun _ -> async { return [| TrancheId.parse "tid" |] }))
-        Task.Delay(TimeSpan.FromSeconds 0.5).ContinueWith(fun _ -> src.Stop()) |> ignore
         // Yields sink exception, if any
-        do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 0.5, awaitFullyCaughtUp = true)
+        do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
+        // source runs until someone explicitly stops it, or it throws
+        src.Stop()
         // Yields source exception, if any
         do! src.AwaitShutdown()
         test <@ src.RanToCompletion @>
     }
 
-    [<Fact>]
-    let SinglePassSource () = async {
+    [<Theory; InlineData true; InlineData false>]
+    let SinglePassSource withWait = async {
         let crawl _ : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> =
             AsyncSeq.singleton (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
         let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
         use src = source.Start(fun () -> async { return [| TrancheId.parse "tid" |] })
-        // Yields sink exception, if any
-        do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
+        if withWait then
+            // Yields sink exception, if any
+            do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
         // Yields source exception, if any
         do! src.AwaitShutdown()
         test <@ src.RanToCompletion @>

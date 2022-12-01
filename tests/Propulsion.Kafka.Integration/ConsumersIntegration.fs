@@ -173,8 +173,7 @@ module Helpers =
             let consumer =
                  StreamsConsumer.Start<unit>
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
-                        handle, 256, stats, TimeSpan.FromSeconds 10.,
-                        maxBatches=50)
+                        handle, 256, stats, TimeSpan.FromSeconds 10)
 
             consumerCell := Some consumer
 

@@ -89,8 +89,7 @@ module Internal =
             let inline bads streamName (set : HashSet<_>) = badCats.Ingest(StreamName.categorize streamName); adds streamName set
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Added _ -> () // Processed by standard logging already; we have nothing to add
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice1Of2 ((es, bs), res)) ->
+            | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -100,7 +99,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 this.HandleOk res
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 ((es, bs), exn)) ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -114,7 +113,7 @@ module Internal =
         default _.HandleExn(_, _) : unit = ()
 
     type EventStoreSchedulingEngine =
-        static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?idleDelay, ?purgeInterval)
+        static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : Stats, dumpStreams, ?idleDelay, ?purgeInterval)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -141,7 +140,7 @@ module Internal =
                 struct (ss.WritePos, res)
 
             let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, enableSlipstreaming = true, ?maxBatches = maxBatches, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+            Scheduling.StreamSchedulingEngine(dispatcher, maxIngest = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 
@@ -152,7 +151,6 @@ type EventStoreSink =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxSubmissionsPerPartition,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
@@ -166,6 +164,5 @@ type EventStoreSink =
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStreams, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
         Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
+            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval,
             ?ingesterStatsInterval = ingesterStatsInterval)

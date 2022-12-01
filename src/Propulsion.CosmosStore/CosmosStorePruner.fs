@@ -55,7 +55,7 @@ module Pruner =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             base.Handle message
             match message with
-            | Scheduling.InternalMessage.Result (_duration, stream, _progressed, Choice2Of2 (_, exn)) ->
+            | { stream = stream; result = Choice2Of2 (_, exn) } ->
                 match classify exn with
                 | ExceptionKind.RateLimited ->
                     adds stream rlStreams; rateLimited <- rateLimited + 1
@@ -98,7 +98,7 @@ module Pruner =
 
     type StreamSchedulingEngine =
 
-        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay)
+        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?purgeInterval, ?wakeForResults, ?idleDelay)
             : Scheduling.StreamSchedulingEngine<_, _, _, _> =
             let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
@@ -107,9 +107,8 @@ module Pruner =
                 Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
                     .Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
             Scheduling.StreamSchedulingEngine(
-                dispatcher,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                enableSlipstreaming = false)
+                dispatcher, maxIngest = 5,
+                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosStorePruner =
@@ -122,8 +121,7 @@ type CosmosStorePruner =
             ?statsInterval,
             // Default 5m
             ?stateInterval,
-            ?maxSubmissionsPerPartition,
-            ?maxBatches, ?purgeInterval, ?wakeForResults, ?idleDelay,
+            ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
         : Default.Sink =
@@ -135,8 +133,5 @@ type CosmosStorePruner =
         let streamScheduler =
             Pruner.StreamSchedulingEngine.Create(
                 pruneUntil, dispatcher, stats, dumpStreams,
-                ?maxBatches = maxBatches, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler.Submit, statsInterval,
-            ?maxSubmissionsPerPartition = maxSubmissionsPerPartition,
-            ?ingesterStatsInterval = ingesterStatsInterval)
+                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)

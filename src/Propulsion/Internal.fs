@@ -53,7 +53,7 @@ type IntervalTimer(period : TimeSpan) =
         // The processing loops run on 1s timers, so we busy-wait until they wake
         let timeout = IntervalTimer(defaultArg timeout (TimeSpan.FromSeconds 2))
         while x.IsTriggered && not timeout.IsDue do
-            System.Threading.Thread.Sleep (defaultArg sleepMs 1)
+            System.Threading.Thread.Sleep(defaultArg sleepMs 1)
 
 module Channel =
 
@@ -62,6 +62,9 @@ module Channel =
     let unboundedSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleReader = true))
     let unboundedSw<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true))
     let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
+    let boundedSw<'t> c = Channel.CreateBounded<'t>(BoundedChannelOptions(c, SingleWriter = true))
+    let waitToWrite (w : ChannelWriter<_>)= w.WaitToWriteAsync
+    let tryWrite (w : ChannelWriter<_>) = w.TryWrite
     let write (w : ChannelWriter<_>) = w.TryWrite >> ignore
     let inline awaitRead (r : ChannelReader<_>) ct = let vt = r.WaitToReadAsync(ct) in vt.AsTask()
     let inline tryRead (r : ChannelReader<_>) () =
@@ -74,6 +77,10 @@ module Channel =
             worked <- true
             f msg
         worked
+    let inline readAll (r : ChannelReader<_>) () = seq {
+        let mutable msg = Unchecked.defaultof<_>
+        while r.TryRead(&msg) do
+            yield msg }
 
 open System.Threading
 open System.Threading.Tasks

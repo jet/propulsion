@@ -13,7 +13,7 @@ type FeedSourceBase internal
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
         sink : Propulsion.Streams.Default.Sink,
         renderPos : Position -> string,
-        ?logCommitFailure, ?stopAtTail) =
+        ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
     let positions = TranchePositions()
     let pumpPartition (partitionId : int) trancheId struct (ingester : Ingestion.Ingester<_>, reader : FeedReader) = async {
@@ -26,9 +26,11 @@ type FeedSourceBase internal
                 return! Async.Raise e
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
+    let dumpStats () = for _i, r in partitions do r.DumpStats()
     let rec pumpStats () = async {
-        do! Async.Sleep statsInterval
-        for _i, r in partitions do r.DumpStats()
+        try do! Async.Sleep statsInterval
+        // Note we want to dump the stats on exit if we are cancelled - if we don't do that in a finally, the Async workflow will already have stopped
+        finally dumpStats ()
         return! pumpStats () }
 
     member val internal Positions = positions
@@ -53,13 +55,14 @@ type FeedSourceBase internal
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
             let ingester = sink.StartIngester(log, partitionId)
             let ingest = positions.Intercept(trancheId) >> ingester.Ingest
-            let awaitIngester = if defaultArg stopAtTail false then Some ingester.Await else None
+            let awaitIngester = if defaultArg readersStopAtTail false then Some ingester.Await else None
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
+        // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
+        let! _stats = pumpStats () |> Async.StartChild
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
-        let logWorkflow = pumpStats () |> Seq.singleton
-        return! Async.Parallel(Seq.append trancheWorkflows logWorkflow) |> Async.Ignore<unit[]> }
+        return! Async.Parallel(trancheWorkflows) |> Async.Ignore<unit[]> }
 
     member x.Start(pump) =
         let ct, stop =
@@ -92,7 +95,7 @@ type FeedSourceBase internal
             Async.Start(supervise pump, cancellationToken = ct)
 
             try return! outcomeTask
-            finally log.Information "... source stopped" }
+            finally log.Information "... source completed" }
 
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> Task.isCompleted outcomeTask)
         new SourcePipeline<_>(Task.run supervise, stop, monitor)
@@ -255,12 +258,11 @@ type TailingFeedSource
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         renderPos,
-        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure, ?stopAtTail) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?stopAtTail = stopAtTail)
+        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure, ?readersStopAtTail) =
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
-        if wasLast then
-            do! Async.Sleep tailSleepInterval
+        if wasLast then do! Async.Sleep tailSleepInterval
         try let batches = crawl (trancheId, startPos)
             for batch in batches do
                 yield batch
@@ -311,7 +313,7 @@ type SinglePassFeedSource
                               crawl,
                               renderPos = defaultArg renderPos string,
                               ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
-                              stopAtTail = true)
+                              readersStopAtTail = true)
 
     member _.Start(readTranches) =
         base.Start(base.Pump(readTranches))

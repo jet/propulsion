@@ -45,7 +45,7 @@ module private Impl =
         let mutable pagesRead, pagesEmpty, events = 0, 0, 0L
         let mutable readLatency, recentPagesRead, recentEvents, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
 
-        let mutable ingestLatency, currentBatches, maxBatches = TimeSpan.Zero, 0, 0
+        let mutable ingestLatency, currentBatches, maxReadAhead = TimeSpan.Zero, 0, 0
 
         let mutable lastCommittedPosition = Position.parse -1L
 
@@ -62,7 +62,7 @@ module private Impl =
             let state = if not batchCaughtUp then "Busy" elif shutdownCompleted then "COMPLETE" else "Tail"
             (Log.withMetric m log).ForContext("tail", batchCaughtUp).Information(
                 "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
-                partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxBatches)
+                partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero
             recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
             closed <- shutdownCompleted
@@ -86,7 +86,7 @@ module private Impl =
         member _.UpdateIngesterState(latency, cur, max, ?finished) =
             ingestLatency <- ingestLatency + latency
             currentBatches <- cur
-            maxBatches <- max
+            maxReadAhead <- max
             shutdownCompleted <- defaultArg finished false
             closed <- false // Any straggler reads and/or bugstrigger logging
 

@@ -5,14 +5,11 @@ module private Impl =
     open Propulsion.Infrastructure // AwaitTaskCorrect
 
     let private toStreamEvent (dataJson : string) struct (sn, msg: SqlStreamStore.Streams.StreamMessage) : Propulsion.Streams.Default.StreamEvent =
-        let e = FsCodec.Core.TimelineEvent.Create
-                  ( int64 msg.StreamVersion,
-                    msg.Type,
-                    (match dataJson with null -> System.ReadOnlyMemory.Empty | x -> x |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory),
-                    msg.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory,
-                    msg.MessageId,
-                    timestamp = System.DateTimeOffset(msg.CreatedUtc))
-        sn, e
+        let c = msg.Type
+        let d = match dataJson with null -> System.ReadOnlyMemory.Empty | x -> x |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory
+        let m = msg.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory
+        let sz = c.Length + d.Length + m.Length
+        sn, FsCodec.Core.TimelineEvent.Create(msg.StreamVersion, c, d, m, msg.MessageId, timestamp = System.DateTimeOffset(msg.CreatedUtc), size = sz)
     let private readWithDataAsStreamEvent ct (struct (_sn, msg : SqlStreamStore.Streams.StreamMessage) as m) = async {
         let! json = msg.GetJsonData(ct) |> Async.AwaitTaskCorrect
         return toStreamEvent json m }
