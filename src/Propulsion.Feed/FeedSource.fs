@@ -26,9 +26,10 @@ type FeedSourceBase internal
                 return! Async.Raise e
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
+    let dumpStats () = for _i, r in partitions do r.DumpStats()
     let rec pumpStats () = async {
         do! Async.Sleep statsInterval
-        for _i, r in partitions do r.DumpStats()
+        dumpStats ()
         return! pumpStats () }
 
     member val internal Positions = positions
@@ -59,7 +60,8 @@ type FeedSourceBase internal
             ingester, reader)
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
         let logWorkflow = pumpStats () |> Seq.singleton
-        return! Async.Parallel(Seq.append trancheWorkflows logWorkflow) |> Async.Ignore<unit[]> }
+        do! Async.Parallel(Seq.append trancheWorkflows logWorkflow) |> Async.Ignore<unit[]>
+        dumpStats () }
 
     member x.Start(pump) =
         let ct, stop =
