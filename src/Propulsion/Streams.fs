@@ -517,7 +517,7 @@ module Scheduling =
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats, oks, exns = Stats.StateStats(), Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions")
-        let mutable cycles, batchesCompleted, batchesStarted, streamsStarted, eventsWrittenAhead, eventsStarted = 0, 0, 0, 0, 0, 0
+        let mutable cycles, batchesCompleted, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead = 0, 0, 0, 0, 0, 0, 0
 
         member val Log = log
         member val StatsInterval = IntervalTimer statsInterval
@@ -530,18 +530,19 @@ module Scheduling =
             cycles <- 0; stateStats.Clear()
             oks.Dump log; exns.Dump log
             let batchesCompleted = Interlocked.Exchange(&batchesCompleted, 0)
-            log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {writtenAhead:n0}e completed {completed} Running {active}",
-                            batchesWaiting, batchesStarted, streamsStarted, eventsStarted, eventsWrittenAhead, batchesCompleted, batchesRunning)
-            batchesStarted <- 0; streamsStarted <- 0; eventsWrittenAhead <- 0; eventsStarted <- 0 (*batchesCompleted <- 0*)
+            log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
+                            batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
+            batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
             x.Timers.Dump log
             monitor.DumpState x.Log
             x.DumpStats()
 
-        member _.RecordIngested(streams, skipped, events) =
+        member _.RecordIngested(streams, events, skippedStreams, skippedEvents) =
             batchesStarted <- batchesStarted + 1
             streamsStarted <- streamsStarted + streams
             eventsStarted <- eventsStarted + events
-            eventsWrittenAhead <- eventsWrittenAhead + skipped
+            streamsWrittenAhead <- streamsWrittenAhead + skippedStreams
+            eventsWrittenAhead <- eventsWrittenAhead + skippedEvents
 
         member _.RecordCompletion() =
             Interlocked.Increment(&batchesCompleted) |> ignore
@@ -594,11 +595,11 @@ module Scheduling =
             abstract member TryReplenish : pending : seq<Dispatch.Item<'F>> * markStreamBusy : (FsCodec.StreamName -> unit) -> struct (bool * bool)
             [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
             abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
-            abstract member RecordIngested : streams : int * skip : int * events : int -> unit
+            abstract member RecordIngested : streams : int * events : int * skippedStreams : int * skippedEvents : int -> unit
             abstract member RecordCompletion : unit -> unit
             abstract member RecordResultStats : InternalResult<Choice<'R, 'E>> -> unit
-            abstract member RecordStats : bool * struct (int * int) -> unit
-            abstract member RecordState : bool * BufferState * StreamStates<'F> * int * (ILogger -> unit) -> bool
+            abstract member RecordStats : force : bool * struct (int * int) -> unit
+            abstract member RecordState : force : bool * BufferState * StreamStates<'F> * int * (ILogger -> unit) -> bool
 
         /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
         type MultiDispatcher<'P, 'R, 'E, 'F>
@@ -631,7 +632,7 @@ module Scheduling =
                 override _.TryReplenish(pending, markStreamBusy) = inner.TryReplenish(pending, stats.HandleStarted, project, markStreamBusy)
                 [<CLIEvent>] override _.Result = inner.Result
                 override _.InterpretProgress(streams, stream, res) = interpretProgress streams stream res
-                override _.RecordIngested(streams, skipped, events) = stats.RecordIngested(streams, skipped, events)
+                override _.RecordIngested(streams, events, skippedStreams, skippedEvents) = stats.RecordIngested(streams, events, skippedStreams, skippedEvents)
                 override _.RecordCompletion() = stats.RecordCompletion()
                 override _.RecordResultStats msg = stats.Handle msg
                 override _.RecordStats(force, batchCounts) =
@@ -685,7 +686,7 @@ module Scheduling =
                     match res with
                     | Choice1Of2 (pos', (stats, outcome)) -> ValueSome pos', Choice1Of2 (stats, outcome)
                     | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
-                override _.RecordIngested(streams, skipped, events) = stats.RecordIngested(streams, skipped, events)
+                override _.RecordIngested(streams, events, skippedStreams, skippedEvents) = stats.RecordIngested(streams, events, skippedStreams, skippedEvents)
                 override _.RecordCompletion() = stats.RecordCompletion()
                 override _.RecordResultStats msg = stats.Handle msg
                 override _.RecordStats(force, batchCounts) =
@@ -844,14 +845,14 @@ module Scheduling =
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
         let ingest (batch : Batch) = // (markCompleted, items : seq<KeyValuePair<FsCodec.StreamName, int64>>) =
             let reqs = Dictionary()
-            let mutable count, writtenAhead = 0, 0
+            let mutable events, eventsSkipped = 0, 0
             for item in batch.Reqs do
                 if streams.WritePositionIsAlreadyBeyond(item.Key, item.Value) then
-                    writtenAhead <- writtenAhead + 1
+                    eventsSkipped <- eventsSkipped + 1
                 else
-                    count <- count + 1
+                    events <- events + 1
                     reqs[item.Key] <- item.Value
-            dispatcher.RecordIngested(reqs.Count, writtenAhead, count)
+            dispatcher.RecordIngested(reqs.Count, events, batch.StreamsCount - reqs.Count, eventsSkipped)
             let onCompletion () =
                 batch.OnCompletion ()
                 dispatcher.RecordCompletion ()
