@@ -59,9 +59,10 @@ type FeedSourceBase internal
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
+        // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
+        let! _stats = pumpStats () |> Async.StartChild
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
-        let logWorkflow = pumpStats () |> Seq.singleton
-        return! Async.Parallel(Seq.append trancheWorkflows logWorkflow) |> Async.Ignore<unit[]> }
+        return! Async.Parallel(trancheWorkflows) |> Async.Ignore<unit[]> }
 
     member x.Start(pump) =
         let ct, stop =
