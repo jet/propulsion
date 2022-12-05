@@ -390,12 +390,12 @@ type BatchesConsumer =
             // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Dispatch.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
+            handle : Scheduling.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?logExternalState) =
-        let handle (items : Dispatch.Item<Default.EventBody>[]) ct
+        let handle (items : Scheduling.Item<Default.EventBody>[]) ct
             : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
             let avgElapsed () =

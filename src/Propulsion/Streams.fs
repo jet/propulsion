@@ -231,9 +231,6 @@ module Scheduling =
 
     open Buffer
 
-    [<Struct; NoComparison; NoEquality>]
-    type Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format> array }
-
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
 
@@ -266,9 +263,9 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
-        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : Item<'Format> voption =
+        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : 'item voption =
             match tryGetItem s with
-            | ValueSome ss when ss.IsReady(allowGaps) && not (busy.Contains s) -> ValueSome { stream = s; writePos = ss.WritePos; span = ss.HeadSpan }
+            | ValueSome ss when ss.IsReady(allowGaps) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
@@ -528,16 +525,6 @@ module Scheduling =
         member _.HandleStarted(stream, stopwatchTicks) =
             monitor.HandleStarted(stream, stopwatchTicks)
 
-    /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
-    type IDispatcher<'P, 'R, 'E, 'F> =
-        abstract member Pump : CancellationToken -> Task<unit>
-        abstract member State : struct (int * int)
-        abstract member HasCapacity : bool with get
-        abstract member AwaitCapacity : unit -> Task<unit>
-        abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
-        abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
-        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
-
     module Progress =
 
         type [<Struct; NoComparison; NoEquality>] BatchState = { markCompleted : unit -> unit; streamToRequiredIndex : Dictionary<FsCodec.StreamName, int64> }
@@ -610,6 +597,18 @@ module Scheduling =
                     if xs.MoveNext() then Seq.append (prioritizeHead f xs.Current) (collectUniqueStreams xs)
                     else Seq.empty
 
+    /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
+    type IDispatcher<'P, 'R, 'E, 'F> =
+        abstract member Pump : CancellationToken -> Task<unit>
+        abstract member State : struct (int * int)
+        abstract member HasCapacity : bool with get
+        abstract member AwaitCapacity : unit -> Task<unit>
+        abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
+        abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
+        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
+    and [<Struct; NoComparison; NoEquality>]
+        Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format> array }
+
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
     /// b) triggers synchronous callbacks as batches complete; writing of progress is managed asynchronously by the TrancheEngine(s)
@@ -661,7 +660,9 @@ module Scheduling =
         let chooseDispatchable =
             let requireCompleteStreams = defaultArg requireCompleteStreams false
             if requireCompleteStreams && Option.isSome purgeInterval then invalidArg (nameof requireCompleteStreams) "Cannot be combined with a purgeInterval"
-            fun stream -> streams.ChooseDispatchable(stream, not requireCompleteStreams)
+            fun stream ->
+                streams.ChooseDispatchable(stream, not requireCompleteStreams)
+                |> ValueOption.map (fun ss -> { stream = stream; writePos = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems : seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
             let handleStarted (stream, ts) = stats.HandleStarted(stream, ts); streams.MarkBusy(stream)
@@ -716,6 +717,7 @@ module Scheduling =
                 stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
         let sleepIntervalMs = match idleDelay with Some ts -> TimeSpan.toMs ts | None -> 1000
         let wakeForResults = defaultArg wakeForResults false
+
         member _.Pump(abend, ct : CancellationToken) = task {
             use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult { duration = t; stream = s; progressed = pr; result = r })
             Task.start (fun () -> task { try do! dispatcher.Pump ct
@@ -793,11 +795,11 @@ module Dispatcher =
             dop.Release()
             result.Trigger res }
 
-        [<CLIEvent>] member _.Result = result.Publish
+        member _.State = dop.State
         member _.HasCapacity = dop.HasCapacity
         member _.AwaitButRelease() = dop.AwaitButRelease()
-        member _.State = dop.State
         member _.TryAdd(item) = dop.TryTake() && tryWrite item
+        [<CLIEvent>] member _.Result = result.Publish
 
         member _.Pump(ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
@@ -824,11 +826,11 @@ module Dispatcher =
             struct (dispatched, hasCapacity)
 
         member _.Pump ct = inner.Pump ct
-        [<CLIEvent>] member _.Result = inner.Result
         member _.State = inner.State
-        member _.TryReplenish(pending, markStarted, project) = tryFillDispatcher pending markStarted project
         member _.HasCapacity = inner.HasCapacity
         member _.AwaitCapacity() = inner.AwaitButRelease()
+        member _.TryReplenish(pending, markStarted, project) = tryFillDispatcher pending markStarted project
+        [<CLIEvent>] member _.Result = inner.Result
 
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type Concurrent<'P, 'R, 'E, 'F> internal
@@ -893,11 +895,11 @@ module Dispatcher =
             override _.HasCapacity = inner.HasCapacity
             override _.AwaitCapacity() = inner.AwaitButRelease()
             override _.TryReplenish(pending, handleStarted) = trySelect pending handleStarted
-            [<CLIEvent>] override _.Result = result.Publish
             override _.InterpretProgress(_streams : Scheduling.StreamStates<_>, _stream : FsCodec.StreamName, res : Choice<_, _>) =
                 match res with
                 | Choice1Of2 (pos', (stats, outcome)) -> ValueSome pos', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
+            [<CLIEvent>] override _.Result = result.Publish
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
@@ -1016,12 +1018,10 @@ type StreamsSink =
             ?ingesterStatsInterval, ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let dispatcher : Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
-        let scheduler =
-            Scheduling.Engine
-                (   dispatcher, stats,
-                    (fun logStreamStates _log -> logStreamStates eventSize),
-                    defaultArg maxIngest maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                    ?requireCompleteStreams = requireCompleteStreams)
+        let dumpStreams logStreamStates _log = logStreamStates eventSize
+        let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
+                                          defaultArg maxIngest maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                                          ?requireCompleteStreams = requireCompleteStreams)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
