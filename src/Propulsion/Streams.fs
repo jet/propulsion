@@ -962,8 +962,7 @@ module Projector =
 
     type Pipeline =
 
-        static member Start(log : ILogger, pumpScheduler, maxReadAhead, streamsScheduler, statsInterval, ?ingesterStatsInterval) =
-            let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
+        static member Start(log : ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStatsInterval) =
             let mapBatch onCompletion (x : Submission.Batch<_, StreamEvent<'F>>) : struct (Buffer.Streams<'F> * Buffer.Batch) =
                 let onCompletion () = x.onCompletion (); onCompletion ()
                 Buffer.Batch.Create(onCompletion, x.messages)
@@ -1026,9 +1025,7 @@ type StreamsSink =
                     (fun logStreamStates _log -> logStreamStates eventSize),
                     defaultArg maxIngest maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                     ?requireCompleteStreams = requireCompleteStreams)
-        Projector.Pipeline.Start(
-            log, streamScheduler.Pump, maxReadAhead, streamScheduler, statsInterval,
-            ?ingesterStatsInterval = ingesterStatsInterval)
+        Projector.Pipeline.Start(log, streamScheduler.Pump, maxReadAhead, streamScheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
 
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F>

@@ -188,15 +188,15 @@ module Core =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
                 logStreamStates Default.eventSize
-            let streamsScheduler =
+            let scheduler =
                 Scheduling.Engine(
                     Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, SpanResult.toIndex), stats, dumpStreams, maxIngest = 5,
                     ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : struct (_ * Buffer.Batch) =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
-            let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler, statsInterval)
-            ConsumerPipeline.Start(log, streamsScheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
+            let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+            ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
@@ -395,9 +395,6 @@ type BatchesConsumer =
             stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?logExternalState) =
-        let dumpStreams logStreamStates log =
-            logExternalState |> Option.iter (fun f -> f log)
-            logStreamStates Default.eventSize
         let handle (items : Dispatch.Item<Default.EventBody>[]) ct
             : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
@@ -422,10 +419,14 @@ type BatchesConsumer =
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Default.jsonSize x.span
                         ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
-        let streamsScheduler = Scheduling.Engine(
-            Dispatcher.Batched(select, handle), stats, dumpStreams, maxIngest = 5, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+        let dispatcher = Dispatcher.Batched(select, handle)
+        let dumpStreams logStreamStates log =
+            logExternalState |> Option.iter (fun f -> f log)
+            logStreamStates Default.eventSize
+        let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, maxIngest = 5,
+                                          ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
-        let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, streamsScheduler, statsInterval)
-        ConsumerPipeline.Start(log, streamsScheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
+        let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+        ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
