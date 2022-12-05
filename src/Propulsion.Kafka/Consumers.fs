@@ -423,9 +423,9 @@ type BatchesConsumer =
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Default.jsonSize x.span
                         ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
-        let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle, stats, dumpStreams)
+        let dispatcher = Scheduling.Dispatcher.BatchedDispatcher(select, handle)
         let streamsScheduler = Scheduling.StreamSchedulingEngine.Create(
-            dispatcher, maxIngest = 5, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+            dispatcher, stats, dumpStreams, maxIngest = 5, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)

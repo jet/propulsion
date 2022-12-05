@@ -167,9 +167,9 @@ module Internal =
                 let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
-            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
             Scheduling.StreamSchedulingEngine(
-                 dispatcher, maxIngest = 5,
+                 dispatcher, stats, dumpStreams, maxIngest = 5,
                  ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                  ?prioritizeStreamsBy = prioritizeStreamsBy)
 

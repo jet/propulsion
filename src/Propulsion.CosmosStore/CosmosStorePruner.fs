@@ -103,11 +103,9 @@ module Pruner =
             let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
                 struct (metrics, struct (stream, span))
-            let dispatcher =
-                Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
-                    .Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id), stats, dumpStreams)
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id))
             Scheduling.StreamSchedulingEngine(
-                dispatcher, maxIngest = 5,
+                dispatcher, stats, dumpStreams, maxIngest = 5,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care

@@ -338,7 +338,7 @@ module Project =
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle (stream : FsCodec.StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
+            let handle struct (stream : FsCodec.StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
                 match producer with
                 | None -> ()
                 | Some producer ->

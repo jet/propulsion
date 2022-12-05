@@ -139,8 +139,8 @@ module Internal =
                 Writer.logTo writerResultLog (stream, res)
                 struct (ss.WritePos, res)
 
-            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(dispatcher, maxIngest = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
+            Scheduling.StreamSchedulingEngine(dispatcher, stats, dumpStreams, maxIngest = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 
