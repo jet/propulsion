@@ -135,7 +135,7 @@ module Internal =
         static member Create(
                 log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams,
                 ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes)
-            : Scheduling.StreamSchedulingEngine<_, _, _, _> =
+            : Scheduling.Engine<_, _, _, _> =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -158,8 +158,8 @@ module Internal =
                 let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
-            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
-            Scheduling.StreamSchedulingEngine(
+            let dispatcher = Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
+            Scheduling.Engine(
                 dispatcher, stats, dumpStreams, maxIngest = 5,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 prioritizeStreamsBy = Default.eventSize)
@@ -182,11 +182,10 @@ type CosmosSink =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let streamScheduler =
             Internal.StreamSchedulingEngine.Create(
-                log, cosmosContexts, dispatcher, stats, dumpStreams,
+                log, cosmosContexts, maxConcurrentStreams, stats, dumpStreams,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?maxEvents=maxEvents, ?maxBytes = maxBytes)
-        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)
+        Projector.Pipeline.Start(log, streamScheduler.Pump, maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)

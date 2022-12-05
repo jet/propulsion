@@ -114,7 +114,7 @@ module Internal =
 
     type EventStoreSchedulingEngine =
         static member Create(log : ILogger, storeLog, connections : _ [], itemDispatcher, stats : Stats, dumpStreams, ?idleDelay, ?purgeInterval)
-            : Scheduling.StreamSchedulingEngine<_, _, _, _> =
+            : Scheduling.Engine<_, _, _, _> =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
@@ -139,8 +139,8 @@ module Internal =
                 Writer.logTo writerResultLog (stream, res)
                 struct (ss.WritePos, res)
 
-            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
-            Scheduling.StreamSchedulingEngine(dispatcher, stats, dumpStreams, maxIngest = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+            let dispatcher = Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
+            Scheduling.Engine(dispatcher, stats, dumpStreams, maxIngest = 5, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
 type EventStoreSink =
 
@@ -160,9 +160,8 @@ type EventStoreSink =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
-        let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, dispatcher, stats, dumpStreams, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+        let streamScheduler = Internal.EventStoreSchedulingEngine.Create(log, storeLog, connections, maxConcurrentStreams, stats, dumpStreams, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
         Projector.Pipeline.Start(
-            log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval,
+            log, streamScheduler.Pump, maxReadAhead, streamScheduler, statsInterval,
             ?ingesterStatsInterval = ingesterStatsInterval)

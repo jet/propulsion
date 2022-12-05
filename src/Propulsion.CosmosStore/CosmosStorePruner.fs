@@ -98,13 +98,13 @@ module Pruner =
 
     type StreamSchedulingEngine =
 
-        static member Create(pruneUntil, itemDispatcher, stats : Stats, dumpStreams, ?purgeInterval, ?wakeForResults, ?idleDelay)
-            : Scheduling.StreamSchedulingEngine<_, _, _, _> =
+        static member Create(pruneUntil, maxDop, stats : Stats, dumpStreams, ?purgeInterval, ?wakeForResults, ?idleDelay)
+            : Scheduling.Engine<_, _, _, _> =
             let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
                 struct (metrics, struct (stream, span))
-            let dispatcher = Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>.Create(itemDispatcher, handle pruneUntil, interpret, (fun _ -> id))
-            Scheduling.StreamSchedulingEngine(
+            let dispatcher = Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, interpret, handle pruneUntil, (fun _ -> id))
+            Scheduling.Engine(
                 dispatcher, stats, dumpStreams, maxIngest = 5,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
@@ -125,11 +125,10 @@ type CosmosStorePruner =
         : Default.Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
         let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
         let pruneUntil stream index = Equinox.CosmosStore.Core.Events.pruneUntil context stream index
         let streamScheduler =
             Pruner.StreamSchedulingEngine.Create(
-                pruneUntil, dispatcher, stats, dumpStreams,
+                pruneUntil, maxConcurrentStreams, stats, dumpStreams,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)
+        Projector.Pipeline.Start(log, streamScheduler.Pump, maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)
