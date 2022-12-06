@@ -263,7 +263,7 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
-        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : 'item voption =
+        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : _ voption =
             match tryGetItem s with
             | ValueSome ss when ss.IsReady(allowGaps) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
