@@ -36,8 +36,7 @@ type Scenario(testOutput) =
         src.Stop()
         // Yields source exception, if any
         do! src.AwaitShutdown()
-        test <@ src.RanToCompletion @>
-    }
+        test <@ src.RanToCompletion @> }
 
     [<Theory; InlineData true; InlineData false>]
     let SinglePassSource withWait = async {
@@ -50,7 +49,6 @@ type Scenario(testOutput) =
             do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
         // Yields source exception, if any
         do! src.AwaitShutdown()
-        test <@ src.RanToCompletion @>
-    }
+        test <@ src.RanToCompletion @> }
 
     interface IDisposable with member _.Dispose() = dispose ()
