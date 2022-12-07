@@ -34,16 +34,20 @@ type Scenario(testOutput) =
         do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
         // source runs until someone explicitly stops it, or it throws
         src.Stop()
+        // TailingFeedSource does not implicitly wait for completion or flush
+        do! source.Checkpoint() |> Async.Ignore
         // Yields source exception, if any
         do! src.AwaitShutdown()
         test <@ src.RanToCompletion @> }
 
     [<Theory; InlineData true; InlineData false>]
-    let SinglePassSource withWait = async {
+    let SinglePassFeedSource withWait = async {
         let crawl _ : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> =
             AsyncSeq.singleton (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
         let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
         use src = source.Start(fun () -> async { return [| TrancheId.parse "tid" |] })
+        // SinglePassFeedSource completion includes Waiting for Completion of all Batches on all Tranches and Flushing of Checkpoints
+        // Hence waiting with the Monitor is not actually necessary (though it provides progress logging which otherwise would be less thorough)
         if withWait then
             // Yields sink exception, if any
             do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)

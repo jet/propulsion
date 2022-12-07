@@ -40,7 +40,7 @@ module private Impl =
     type Stats(partition : int, source : SourceId, tranche : TrancheId, renderPos : Position -> string) =
 
         let mutable batchLastPosition = Position.parse -1L
-        let mutable closed, shutdownCompleted, batchCaughtUp = false, false, false
+        let mutable closed, lastWasTail, finishedReading = false, false, false
 
         let mutable pagesRead, pagesEmpty, events = 0, 0, 0L
         let mutable readLatency, recentPagesRead, recentEvents, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
@@ -59,18 +59,20 @@ module private Impl =
                 ingestLatency = ingestLatency; ingestQueued = currentBatches }
             let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
             let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
-            let state = if not batchCaughtUp then "Busy" elif shutdownCompleted then "COMPLETE" else "Tail"
-            (Log.withMetric m log).ForContext("tail", batchCaughtUp).Information(
+            let state = if not lastWasTail then "Busy"
+                        elif lastCommittedPosition = batchLastPosition then "COMPLETE"
+                        else if finishedReading then "End" else "Tail"
+            (Log.withMetric m log).ForContext("tail", lastWasTail).Information(
                 "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
                 partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead)
             readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero
             recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
-            closed <- shutdownCompleted
+            closed <- finishedReading
 
         member _.RecordBatch(readTime, batch: Batch<_>) =
             readLatency <- readLatency + readTime
             batchLastPosition <- batch.checkpoint
-            batchCaughtUp <- batch.isTail
+            lastWasTail <- batch.isTail
             match Array.length batch.items with
             | 0 ->  pagesEmpty <- pagesEmpty + 1
                     recentPagesEmpty <- recentPagesEmpty + 1
@@ -81,14 +83,14 @@ module private Impl =
 
         member _.UpdateCommittedPosition(pos) =
             lastCommittedPosition <- pos
-            closed <- false // Any updates force logging
+            closed <- false // Any updates trigger logging
 
         member _.UpdateIngesterState(latency, cur, max, ?finished) =
             ingestLatency <- ingestLatency + latency
             currentBatches <- cur
             maxReadAhead <- max
-            shutdownCompleted <- defaultArg finished false
-            closed <- false // Any straggler reads and/or bugstrigger logging
+            finishedReading <- defaultArg finished false
+            closed <- false // Any straggler reads (and/or bugs!) trigger logging
 
 type FeedReader
     (   log : ILogger, partition, source, tranche,
@@ -157,7 +159,7 @@ type FeedReader
                 lastWasTail <- batch.isTail
         match awaitIngesterShutdown with
         | Some a when not ct.IsCancellationRequested ->
-            let t = Stopwatch.start ()
+            let completionTimer = Stopwatch.start ()
             let! struct (cur, max) = a ct |> Async.AwaitTaskCorrect
-            stats.UpdateIngesterState(t.Elapsed, cur, max, finished = true)
+            stats.UpdateIngesterState(completionTimer.Elapsed, cur, max, finished = true)
         | _ -> () }

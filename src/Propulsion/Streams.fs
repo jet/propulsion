@@ -163,7 +163,7 @@ module Buffer =
         member x.HeadSpan = x.queue[0]
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
         member x.HasGap = match x.write with WritePosUnknown -> false | w -> w <> x.HeadSpan[0].Index
-        member x.IsReady(allowGaps) = not x.IsEmpty && not x.IsMalformed && (allowGaps || not x.HasGap)
+        member x.IsReady = not x.IsEmpty && not x.IsMalformed
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         member x.CanPurge = x.IsEmpty
@@ -263,16 +263,16 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
-        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : _ voption =
+        member _.ChooseDispatchable(s : FsCodec.StreamName, allowGaps) : StreamState<'Format> voption =
             match tryGetItem s with
-            | ValueSome ss when ss.IsReady(allowGaps) && not (busy.Contains s) -> ValueSome ss
+            | ValueSome ss when ss.IsReady && (allowGaps || not ss.HasGap) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
             // Example scenario: if a write reported we reached version 2, and we are ingesting an event that requires 2, then we drop it
             | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | _ -> false
-            | ValueNone -> true // If the entry has been purged, it implies the accompanying events have already been handled
+            | ValueNone -> false // If the entry has been purged, or we've yet to visit a stream, we can't drop them
         member _.Merge(streams : Streams<'Format>) =
             for kv in streams.States do
                 merge kv.Key kv.Value |> ignore
@@ -283,7 +283,7 @@ module Scheduling =
         member _.Purge() =
             purge ()
 
-        member _.HeadSpanSizeBy (f : _ -> int) stream =
+        member _.HeadSpanSizeBy(f : _ -> int) stream =
             match tryGetItem stream with
             | ValueSome state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
             | _ -> 0L
@@ -291,11 +291,11 @@ module Scheduling =
         member _.MarkBusy stream =
             markBusy stream
 
-        member _.MarkCompleted(stream, index) =
+        member _.RecordProgress(stream, index) =
             markNotBusy stream
             markCompleted stream index
 
-        member _.MarkFailed stream =
+        member _.RecordNoProgress stream =
             markNotBusy stream
 
         member _.Dump(log : ILogger, totalPurged : int, eventSize) =
@@ -313,36 +313,39 @@ module Scheduling =
                     busyCount <- busyCount + 1
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
-                elif state.IsMalformed then
-                    malformedCats.Ingest(StreamName.categorize stream)
-                    malformedStreams.Ingest(FsCodec.StreamName.toString stream, Log.miB sz |> int64)
-                    malformed <- malformed + 1
-                    malformedB <- malformedB + sz
-                    malformedE <- malformedE + state.EventsCount
-                elif state.HasGap then
-                    gapCats.Ingest(StreamName.categorize stream)
-                    gapStreams.Ingest(FsCodec.StreamName.toString stream, Log.miB sz |> int64)
-                    gaps <- gaps + 1
-                    gapsB <- gapsB + sz
-                    gapsE <- gapsE + state.EventsCount
                 else
-                    readyCats.Ingest(StreamName.categorize stream)
-                    readyStreams.Ingest(sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (defaultValueArg state.WritePos 0L) state.HeadSpan.Length, kb sz)
-                    ready <- ready + 1
-                    readyB <- readyB + sz
-                    readyE <- readyE + state.EventsCount
+                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.HeadSpan[0].Index state.HeadSpan.Length
+                    if state.IsMalformed then
+                        malformedCats.Ingest(cat)
+                        malformedStreams.Ingest(label, Log.miB sz |> int64)
+                        malformed <- malformed + 1
+                        malformedB <- malformedB + sz
+                        malformedE <- malformedE + state.EventsCount
+                    elif state.HasGap then
+                        gapCats.Ingest(cat)
+                        gapStreams.Ingest(label, kb sz)
+                        gaps <- gaps + 1
+                        gapsB <- gapsB + sz
+                        gapsE <- gapsE + state.EventsCount
+                    else
+                        readyCats.Ingest(cat)
+                        readyStreams.Ingest(label, kb sz)
+                        ready <- ready + 1
+                        readyB <- readyB + sz
+                        readyE <- readyE + state.EventsCount
             let busyStats : Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
             let readyStats : Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
             let bufferingStats : Log.BufferMetric = { cats = gapCats.Count; streams = gapStreams.Count; events = gapsE; bytes = gapsB }
             let malformedStats : Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
             let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
-            (log |> Log.withMetric m).Information("Streams Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
+            (log |> Log.withMetric m).Information("🏞Streams Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
                                                   synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, gaps, Log.miB gapsB, malformed, Log.miB malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
-            if gapStreams.Any then log.Information(" Buffering Streams, KB {@missingStreams}", Seq.truncate 3 gapStreams.StatsDescending)
+            if gapStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 gapStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
+            gapStreams.Any
 
     [<Struct; NoComparison; NoEquality>]
     type InternalResult<'R> = { duration : TimeSpan; stream : FsCodec.StreamName; progressed : bool; result : 'R }
@@ -515,7 +518,7 @@ module Scheduling =
         abstract HandleResult : FsCodec.StreamName * TimeSpan * progressed : bool * succeeded : bool -> unit
         default x.HandleResult(stream, duration, succeeded, progressed) =
             monitor.HandleResult(stream, succeeded, progressed)
-            if metricsLog.IsEnabled Serilog.Events.LogEventLevel.Information then
+            if metricsLog.IsEnabled LogEventLevel.Information then
                 let outcomeKind = if succeeded then "ok" else "exceptions"
                 let m = Log.Metric.HandlerResult (outcomeKind, duration.TotalSeconds)
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
@@ -548,16 +551,16 @@ module Scheduling =
                 else ValueSome fresh
 
             member _.MarkStreamProgress(stream, index) =
-                let mutable requiredIndex = Unchecked.defaultof<_>
                 for x in pending do
                     // example : when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
+                    let mutable requiredIndex = Unchecked.defaultof<_>
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
                         x.streamToRequiredIndex.Remove stream |> ignore
 
-            member _.Dump(log : ILogger) =
-                if log.IsEnabled Serilog.Events.LogEventLevel.Debug && pending.Count <> 0 then
+            member _.Dump(log : ILogger, force) =
+                if (force || log.IsEnabled LogEventLevel.Debug) && pending.Count <> 0 then
                     let h = pending.Peek()
-                    log.Debug("Active Batch {streams}", h.streamToRequiredIndex)
+                    log.Write((if force then LogEventLevel.Information else LogEventLevel.Debug), "Active Batch {streams}", h.streamToRequiredIndex)
 
         // We potentially traverse the pending streams thousands of times per second so we reuse buffers for better L2 caching properties
         // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
@@ -671,15 +674,15 @@ module Scheduling =
         // Ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
         let handleResult { duration = duration; stream = stream; progressed = p; result = (res : Choice<'P, 'E>) } =
             match dispatcher.InterpretProgress(streams, stream, res) with
-            | ValueNone, Choice1Of2 (r : 'R) ->
-                streams.MarkFailed(stream)
-                stats.Handle { duration = duration; stream = stream; progressed = p; result = Choice1Of2 r }
             | ValueSome index, Choice1Of2 (r : 'R) ->
                 batches.MarkStreamProgress(stream, index)
-                streams.MarkCompleted(stream, index)
+                streams.RecordProgress(stream, index)
+                stats.Handle { duration = duration; stream = stream; progressed = p; result = Choice1Of2 r }
+            | ValueNone, Choice1Of2 (r : 'R) ->
+                streams.RecordNoProgress(stream)
                 stats.Handle { duration = duration; stream = stream; progressed = p; result = Choice1Of2 r }
             | _, Choice2Of2 exn ->
-                streams.MarkFailed(stream)
+                streams.RecordNoProgress(stream)
                 stats.Handle { duration = duration; stream = stream; progressed = p; result = Choice2Of2 exn }
         let tryHandleResults () = tryApplyResults handleResult
 
@@ -696,7 +699,7 @@ module Scheduling =
             stats.RecordIngested(reqs.Count, events, batch.StreamsCount - reqs.Count, eventsSkipped)
             let onCompletion () =
                 batch.OnCompletion ()
-                stats.RecordBatchCompletion ()
+                stats.RecordBatchCompletion()
             batches.AppendBatch(onCompletion, reqs)
         let ingestBatch () = [| match tryPending () |> ValueOption.bind ingest with ValueSome b -> b | ValueNone -> () |]
 
@@ -704,7 +707,7 @@ module Scheduling =
         let purge () =
             let remaining, purged = streams.Purge()
             totalPurged <- totalPurged + purged
-            let l = if purged = 0 then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            let l = if purged = 0 then LogEventLevel.Debug else LogEventLevel.Information
             Log.Write(l, "PURGED Remaining {buffered:n0} Purged now {count:n0} Purged total {total:n0}", remaining, purged, totalPurged)
         let purgeDue : unit -> bool =
             match purgeInterval with
@@ -733,8 +736,8 @@ module Scheduling =
                 if stats.RecordState(dispatcherState) || force then
                     let log = stats.Log
                     let dumpStreamStates (eventSize : FsCodec.ITimelineEvent<'F> -> int) =
-                        streams.Dump(log, totalPurged, eventSize)
-                        batches.Dump log
+                        let hasGaps = streams.Dump(log, totalPurged, eventSize)
+                        batches.Dump(log, hasGaps)
                     dumpState dumpStreamStates log
                     true
                 else false
@@ -1180,4 +1183,5 @@ module Default =
             StreamsSink.Start<'Outcome, EventBody>(
                 log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
                 ?maxIngest = maxIngest, ?purgeInterval = purgeInterval,
-                ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+                ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
+                ?requireCompleteStreams = requireCompleteStreams)

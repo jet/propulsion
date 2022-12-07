@@ -89,7 +89,6 @@ module Task =
 
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
-    let inline isCompleted (task : Task) = let s = task.Status in s = TaskStatus.RanToCompletion || s = TaskStatus.Faulted
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
@@ -102,7 +101,7 @@ type Sem(max) =
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
     /// Wait for capacity to return to the configured maximum
-    member _.WaitForEmpty(ct : CancellationToken) = task {
+    member _.WaitForCompleted(ct : CancellationToken) = task {
         for _ in 1..max do do! inner.WaitAsync ct
         return struct (0, max) }
 
@@ -164,7 +163,7 @@ module Stats =
             | false, _ -> cats[cat] <- weight
 
         member _.Count = cats.Count
-        member _.Any = (not << Seq.isEmpty) cats
+        member _.Any = cats.Count <> 0
         member _.Clear() = cats.Clear()
         member _.StatsDescending = statsDescending cats
 
@@ -215,6 +214,8 @@ module Stats =
             if buffer.Count <> 0 then
                 dumpStats kind buffer log
                 buffer.Clear()
+
+type LogEventLevel = Serilog.Events.LogEventLevel
 
 module Log =
 

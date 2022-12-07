@@ -15,8 +15,8 @@ type Pipeline(task : Task<unit>, triggerStop) =
     /// Inspects current status of task representing the Pipeline's overall state
     member _.Status = task.Status
 
-    /// Determines whether processing has completed, be that due to an intentional Stop(), or due to a Fault (see also RanToCompletion)
-    member _.IsCompleted = Task.isCompleted task
+    /// Determines whether processing has completed, be that due to an intentional Stop(), due to a Fault, or successful completion (see also RanToCompletion)
+    member _.IsCompleted = task.IsCompleted
 
     /// After AwaitShutdown (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via AwaitShutdown)
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
