@@ -966,7 +966,6 @@ module Projector =
 
         static member Start(log : ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStatsInterval) =
             let mapBatch onCompletion (x : Submission.Batch<_, StreamEvent<'F>>) : struct (Buffer.Streams<'F> * Buffer.Batch) =
-                let onCompletion () = x.onCompletion (); onCompletion ()
                 Buffer.Batch.Create(onCompletion, x.messages)
             let submitter = StreamsSubmitter.Create(log, mapBatch, streamsScheduler, ingesterStatsInterval)
             let startIngester (rangeLog, partitionId : int) = StreamsIngester.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
