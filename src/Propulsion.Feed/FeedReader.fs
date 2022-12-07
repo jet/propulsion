@@ -6,6 +6,8 @@ open Propulsion.Feed
 open Propulsion.Internal
 open Serilog
 open System
+open System.Collections.Generic
+open System.Threading
 open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
@@ -97,7 +99,8 @@ type FeedReader
         crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            -> AsyncSeq<struct (TimeSpan * Batch<Streams.Default.EventBody>)>,
+            * CancellationToken
+            -> IAsyncEnumerable<struct (TimeSpan * Batch<Streams.Default.EventBody>)>,
         // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
@@ -144,14 +147,13 @@ type FeedReader
     member _.Log = log
     member _.DumpStats() = stats.Dump(log)
 
-    member _.Pump(initialPosition : Position) = async {
+    member _.Pump(initialPosition : Position, ct : CancellationToken) = task {
         log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
-        let! ct = Async.CancellationToken
         let mutable currentPos, lastWasTail = initialPosition, false
         while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
-            for readLatency, batch in crawl (lastWasTail, currentPos) do
-                do! submitPage (readLatency, batch) |> Async.AwaitTaskCorrect
+            for readLatency, batch in crawl (lastWasTail, currentPos, ct) do
+                do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail
         match awaitIngesterShutdown with

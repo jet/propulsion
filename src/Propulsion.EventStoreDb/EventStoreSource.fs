@@ -13,11 +13,10 @@ module private Impl =
     let private checkpointPos (xs : EventRecord array) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
-    let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) pos = async {
-        let! ct = Async.CancellationToken
+    let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, hydrateBodies, cancellationToken = ct)
-        let! batch = AsyncSeq.ofAsyncEnum res |> AsyncSeq.map (fun e -> e.Event) |> AsyncSeq.toArrayAsync
+        let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
         return ({ checkpoint = checkpointPos batch; items = toItems categoryFilter batch; isTail = batch.LongLength <> batchSize } : Propulsion.Feed.Core.Batch<_>) }
 
     // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk

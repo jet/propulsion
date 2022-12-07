@@ -80,8 +80,6 @@ module Internal =
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
         return Position.parse lastEventPos }
 
-open Propulsion.Infrastructure // AwaitTaskCorrect
-
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
         client: Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
@@ -92,10 +90,9 @@ type MessageDbSource internal
             (   if startFromTail <> Some true then None
                 else Some (Internal.readTailPositionForTranche client)),
             sink,
-            (fun (cat, pos) -> asyncSeq {
-                let! ct = Async.CancellationToken
+            (fun (cat, pos, ct) -> taskSeq {
                 let sw = Stopwatch.start ()
-                let! b = Internal.readBatch batchSize client (cat, pos, ct) |> Async.AwaitTaskCorrect
+                let! b = Internal.readBatch batchSize client (cat, pos, ct)
                 yield struct (sw.Elapsed, b) }),
             string)
     new(    log, statsInterval,
