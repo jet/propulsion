@@ -2,6 +2,7 @@ namespace Propulsion.CosmosStore
 
 open FSharp.Control
 open Microsoft.Azure.Cosmos
+open Propulsion.Internal
 open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
@@ -125,12 +126,12 @@ type ChangeFeedProcessor =
 #if COSMOSV2 || COSMOSV3
                         return! observer.Ingest(ctx, checkpoint, changes)
 #else
-                        return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTask
+                        return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTaskCorrect
 #endif
                     with e ->
                         log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                         do! Async.Raise e }
-                fun ctx chg chk ct -> Async.StartAsTask(aux ctx chg chk, cancellationToken = ct) :> Task
+                fun ctx chg chk ct -> aux ctx chg chk |> Async.startImmediateAsTask ct :> Task
             let acquireAsync leaseToken = log.Information("Reader {partition} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let releaseAsync leaseToken = log.Information("Reader {partition} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let notifyError =

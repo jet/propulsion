@@ -401,7 +401,7 @@ type BatchesConsumer =
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
                 TimeSpan.FromMilliseconds(tot / float items.Length)
-            try let! results = handle items |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
+            try let! results = handle items |> Async.startAsTask ct
                 let ae = avgElapsed ()
                 return
                     [| for x in Seq.zip items results ->

@@ -6,7 +6,6 @@ open Propulsion.Internal
 open Serilog
 open Swensen.Unquote
 open System
-open System.Threading.Tasks
 open Xunit
 
 type Scenario(testOutput) =
@@ -42,8 +41,7 @@ type Scenario(testOutput) =
 
     [<Theory; InlineData true; InlineData false>]
     let SinglePassFeedSource withWait = async {
-        let crawl _ : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> =
-            AsyncSeq.singleton (TimeSpan.FromSeconds 0.1, { items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> })
+        let crawl _ = AsyncSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
         let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
         use src = source.Start(fun () -> async { return [| TrancheId.parse "tid" |] })
         // SinglePassFeedSource completion includes Waiting for Completion of all Batches on all Tranches and Flushing of Checkpoints

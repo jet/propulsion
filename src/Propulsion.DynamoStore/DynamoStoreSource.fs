@@ -32,18 +32,18 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<_> =
+    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<Propulsion.Streams.Default.EventBody> =
         { items = items; checkpoint = position; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.positionOfEpochAndOffset epochId offset) false items
-    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items : Propulsion.Feed.Core.Batch<_> =
+    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items =
         mkBatch (Checkpoint.positionOfEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<struct (System.TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
+        : AsyncSeq<struct (TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
         let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
@@ -68,7 +68,7 @@ module private Impl =
 
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), System.Collections.Concurrent.ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
-        let materializeSpans : Async<Propulsion.Streams.Default.StreamEvent array> = async {
+        let materializeSpans = async {
             let loadsRequired =
                 [| let streamsToLoad = seq { for span in buffer do if not (cache.ContainsKey(span.p)) then span.p }
                    for p in Seq.distinct streamsToLoad -> async {
@@ -87,7 +87,7 @@ module private Impl =
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
                         // TOCONSIDER revise logic to share session key etc to rule this out
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
-                        for e in events -> IndexStreamId.toStreamName span.p, e |] }
+                        for e in events -> struct (IndexStreamId.toStreamName span.p, e) |] }
         let mutable prevLoaded, batchIndex = 0L, 0
         let report (i : int option) len =
             if largeEnoughToLog && hydrating then
@@ -110,7 +110,7 @@ module private Impl =
             buffer.AddRange(pending)
         let! hydrated = materializeSpans
         report None hydrated.Length
-        yield sw.Elapsed, finalBatch epochId (version, state) hydrated }
+        yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
 [<NoComparison; NoEquality>]
 type LoadMode =

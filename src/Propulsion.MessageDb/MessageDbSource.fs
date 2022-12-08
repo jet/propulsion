@@ -71,15 +71,16 @@ module Internal =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then reader.GetInt64(0) else 0L }
 
-    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos) : Async<Batch<_>> = async {
-        let! ct = Async.CancellationToken
+    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Batch<_>> =
         let positionInclusive = Position.toInt64 pos
-        return! store.ReadCategoryMessages(category, positionInclusive, batchSize, ct) |> Async.AwaitTaskCorrect }
+        store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
     let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Position> = async {
         let! ct = Async.CancellationToken
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
         return Position.parse lastEventPos }
+
+open Propulsion.Infrastructure // AwaitTaskCorrect
 
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
@@ -91,10 +92,11 @@ type MessageDbSource internal
             (   if startFromTail <> Some true then None
                 else Some (Internal.readTailPositionForTranche client)),
             sink,
-            (fun req -> asyncSeq {
+            (fun (cat, pos) -> asyncSeq {
+                let! ct = Async.CancellationToken
                 let sw = Stopwatch.start ()
-                let! b = Internal.readBatch batchSize client req
-                yield sw.Elapsed, b }),
+                let! b = Internal.readBatch batchSize client (cat, pos, ct) |> Async.AwaitTaskCorrect
+                yield struct (sw.Elapsed, b) }),
             string)
     new(    log, statsInterval,
             connectionString, batchSize, tailSleepInterval,

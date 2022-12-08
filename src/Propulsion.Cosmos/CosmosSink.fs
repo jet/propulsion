@@ -140,7 +140,7 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts[index]
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
-                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
+                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> Async.startImmediateAsTask ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =

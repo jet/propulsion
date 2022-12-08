@@ -24,7 +24,7 @@ type ProgressWriter<'Res when 'Res : equality>() =
     member x.CommitIfDirty ct = task {
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
-            try do! Async.StartImmediateAsTask(f, cancellationToken = ct)
+            try do! f |> Async.startImmediateAsTask ct
                 result.Trigger(Choice1Of2 v)
                 Volatile.Write(&committedEpoch, Some v)
             with e -> result.Trigger(Choice2Of2 e)
@@ -113,12 +113,12 @@ type Ingester<'Items> private
             try do! x.FlushProgress ct
             with _ -> () // one attempt to do it proactively
             while progressWriter.IsDirty do
-                do! Task.Delay(int (commitInterval.TotalMilliseconds / 2.), ct) }
+                do! Task.delay (commitInterval / 2.) ct }
 
     member private x.CheckpointPeriodically(ct : CancellationToken) = task {
         while not ct.IsCancellationRequested do
             do! x.FlushProgress ct
-            do! Task.Delay(commitInterval, ct) }
+            do! Task.delay commitInterval ct }
 
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)

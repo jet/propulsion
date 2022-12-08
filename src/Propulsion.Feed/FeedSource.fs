@@ -259,7 +259,7 @@ type TailingFeedSource
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         renderPos,
-        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure, ?readersStopAtTail) =
+        ?logReadFailure, ?readFailureSleepInterval : TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
@@ -293,7 +293,7 @@ type AllFeedSource
             (fun (_trancheId, pos) -> asyncSeq {
                   let sw = Stopwatch.start ()
                   let! b = readBatch pos
-                  yield sw.Elapsed, b } ),
+                  yield struct (sw.Elapsed, b) } ),
             renderPos = defaultArg renderPos string)
 
     member internal _.Pump =

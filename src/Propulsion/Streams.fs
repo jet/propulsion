@@ -271,7 +271,7 @@ module Scheduling =
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
             // Example scenario: if a write reported we reached version 2, and we are ingesting an event that requires 2, then we drop it
-            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | _ -> false
+            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | ValueNone -> false
             | ValueNone -> false // If the entry has been purged, or we've yet to visit a stream, we can't drop them
         member _.Merge(streams : Streams<'Format>) =
             for kv in streams.States do
@@ -338,7 +338,7 @@ module Scheduling =
             let bufferingStats : Log.BufferMetric = { cats = gapCats.Count; streams = gapStreams.Count; events = gapsE; bytes = gapsB }
             let malformedStats : Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
             let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
-            (log |> Log.withMetric m).Information("🏞Streams Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
+            (log |> Log.withMetric m).Information("Streams Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
                                                   synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, gaps, Log.miB gapsB, malformed, Log.miB malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
@@ -516,7 +516,7 @@ module Scheduling =
                 x.HandleResult(stream, duration, false, progressed)
 
         abstract HandleResult : FsCodec.StreamName * TimeSpan * progressed : bool * succeeded : bool -> unit
-        default x.HandleResult(stream, duration, succeeded, progressed) =
+        default _.HandleResult(stream, duration, succeeded, progressed) =
             monitor.HandleResult(stream, succeeded, progressed)
             if metricsLog.IsEnabled LogEventLevel.Information then
                 let outcomeKind = if succeeded then "ok" else "exceptions"
@@ -851,7 +851,7 @@ module Dispatcher =
         static member Create(maxDop, prepare, handle, toIndex) =
             let project item ct = task {
                 let struct (met, (struct (_sn, span : StreamSpan<'F>) as ss)) = prepare item
-                try let! struct (spanResult, outcome) = Async.StartImmediateAsTask(handle ss, cancellationToken = ct)
+                try let! struct (spanResult, outcome) = handle ss |> Async.startImmediateAsTask ct
                     let index' = toIndex span spanResult
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', met, outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -1134,7 +1134,7 @@ module Sync =
                 let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
                 let prepareTs = Stopwatch.timestamp ()
                 try let req = struct (stream, span')
-                    let! res, outcome = Async.StartImmediateAsTask(handle req, cancellationToken = ct)
+                    let! res, outcome = handle req |> Async.startImmediateAsTask ct
                     let index' = SpanResult.toIndex span' res
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
