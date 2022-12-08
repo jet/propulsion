@@ -602,13 +602,13 @@ module Scheduling =
 
     /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
     type IDispatcher<'P, 'R, 'E, 'F> =
+        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
         abstract member Pump : CancellationToken -> Task<unit>
         abstract member State : struct (int * int)
         abstract member HasCapacity : bool with get
         abstract member AwaitCapacity : unit -> Task<unit>
         abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
-        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Choice<'P, 'E>)>
     and [<Struct; NoComparison; NoEquality>]
         Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format> array }
 
@@ -798,11 +798,11 @@ module Dispatcher =
             dop.Release()
             result.Trigger res }
 
+        [<CLIEvent>] member _.Result = result.Publish
         member _.State = dop.State
         member _.HasCapacity = dop.HasCapacity
         member _.AwaitButRelease() = dop.AwaitButRelease()
         member _.TryAdd(item) = dop.TryTake() && tryWrite item
-        [<CLIEvent>] member _.Result = result.Publish
 
         member _.Pump(ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
@@ -828,12 +828,12 @@ module Dispatcher =
                 dispatched <- dispatched || succeeded // if we added any request, we'll skip sleeping
             struct (dispatched, hasCapacity)
 
+        [<CLIEvent>] member _.Result = inner.Result
         member _.Pump ct = inner.Pump ct
         member _.State = inner.State
         member _.HasCapacity = inner.HasCapacity
         member _.AwaitCapacity() = inner.AwaitButRelease()
         member _.TryReplenish(pending, markStarted, project) = tryFillDispatcher pending markStarted project
-        [<CLIEvent>] member _.Result = inner.Result
 
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type Concurrent<'P, 'R, 'E, 'F> internal
@@ -860,13 +860,13 @@ module Dispatcher =
                 | Choice2Of2 struct (stats, exn) -> ValueNone, Choice2Of2 struct (stats, exn)
             Concurrent<_, _, _, 'F>.Create(maxDop, project, interpretProgress)
         interface Scheduling.IDispatcher<'P, 'R, 'E, 'F> with
+            [<CLIEvent>] override _.Result = inner.Result
             override _.Pump ct = inner.Pump ct
             override _.State = inner.State
             override _.HasCapacity = inner.HasCapacity
             override _.AwaitCapacity() = inner.AwaitCapacity()
             override _.TryReplenish(pending, handleStarted) = inner.TryReplenish(pending, handleStarted, project)
             override _.InterpretProgress(streams, stream, res) = interpretProgress streams stream res
-            [<CLIEvent>] override _.Result = inner.Result
 
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
@@ -891,6 +891,7 @@ module Dispatcher =
             struct (dispatched, hasCapacity)
 
         interface Scheduling.IDispatcher<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn), 'F> with
+            [<CLIEvent>] override _.Result = result.Publish
             override _.Pump ct = task {
                 use _ = inner.Result.Subscribe(Array.iter result.Trigger)
                 return! inner.Pump ct }
@@ -902,7 +903,6 @@ module Dispatcher =
                 match res with
                 | Choice1Of2 (pos', (stats, outcome)) -> ValueSome pos', Choice1Of2 (stats, outcome)
                 | Choice2Of2 (stats, exn) -> ValueNone, Choice2Of2 (stats, exn)
-            [<CLIEvent>] override _.Result = result.Publish
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
