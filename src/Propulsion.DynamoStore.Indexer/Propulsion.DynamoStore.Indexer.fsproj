@@ -4,6 +4,9 @@
         
         <GenerateRuntimeConfigurationFiles>true</GenerateRuntimeConfigurationFiles>
         <AWSProjectType>Lambda</AWSProjectType>
+        <!-- Try to end up with one FSharp.Core-->
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+        
         <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 
