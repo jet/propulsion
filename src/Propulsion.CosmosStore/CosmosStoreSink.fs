@@ -2,6 +2,7 @@ namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
 open FsCodec
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
@@ -55,7 +56,12 @@ module Internal =
 
         let write (log : ILogger) (ctx : EventsContext) stream (span : Default.StreamSpan) = async {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
+#if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
+#else
+            let! ct = Async.CancellationToken
+            let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _), ct) |> Async.AwaitTaskCorrect
+#endif
             let res' =
                 match res with
                 | AppendResult.Ok pos -> Ok pos.index

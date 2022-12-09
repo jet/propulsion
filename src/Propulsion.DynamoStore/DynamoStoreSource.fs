@@ -2,6 +2,7 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
+open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open System
 
@@ -126,7 +127,8 @@ module internal LoadMode =
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
-                ValueSome (async { let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, i, maxCount = cs.Length)
+                ValueSome (async { let! ct = Async.CancellationToken
+                                   let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, ct, i, maxCount = cs.Length) |> Async.AwaitTaskCorrect
                                    return events |> Array.map mapTimelineEvent })
             else ValueNone
     let private withoutBodies categoryFilter =

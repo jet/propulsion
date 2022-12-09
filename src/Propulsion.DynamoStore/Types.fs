@@ -112,28 +112,8 @@ module internal EventCodec =
 
 module internal Async =
 
-    open Propulsion.Infrastructure // AwaitTaskCorrect
-
-    type Async with
-        static member Throttle degreeOfParallelism =
-            let s = new System.Threading.SemaphoreSlim(degreeOfParallelism)
-            fun computation -> async {
-                let! ct = Async.CancellationToken
-                do! s.WaitAsync ct |> Async.AwaitTaskCorrect
-                try return! computation
-                finally s.Release() |> ignore }
-    let private parallelThrottledUnsafe dop computations = // https://github.com/dotnet/fsharp/issues/13165
+    // NOTE there's a bug in FSharp.Core <= 6.0.6 that can trigger a process exit with StackOverflowException
+    // if more than ~1200 computations are supplied and abort quickly
+    let parallelThrottled dop computations = // https://github.com/dotnet/fsharp/issues/13165
         Async.Parallel(computations, maxDegreeOfParallelism = dop)
-    // NOTE as soon as a non-preview Async.Parallel impl in FSharp.Core includes the fix (e.g. 6.0.5 does not, 6.0.5-beta.22329.3 does),
-    // we can remove this shimming and replace it with the body of parallelThrottledUnsafe
-    let parallelThrottled dop computations = async {
-        let throttle = Async.Throttle dop // each batch of 1200 gets the full potential dop - we internally limit what actually gets to run concurrently here
-        let! allResults =
-            computations
-            |> Seq.map throttle
-            |> Seq.chunkBySize 1200
-            |> Seq.map (parallelThrottledUnsafe dop)
-            |> Async.Parallel
-        return Array.concat allResults
-    }
 #endif
