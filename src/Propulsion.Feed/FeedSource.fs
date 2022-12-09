@@ -283,7 +283,7 @@ type TailingFeedSource
 type AllFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        readBatch : Position * CancellationToken -> Task<Batch<_>>,
+        readBatch : Position * CancellationToken -> Task<Batch<Propulsion.Streams.Default.EventBody>>,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // Custom checkpoint rendering logic
         ?renderPos,
