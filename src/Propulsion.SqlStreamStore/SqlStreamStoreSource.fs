@@ -13,16 +13,15 @@ module private Impl =
     let private readWithDataAsStreamEvent ct (struct (_sn, msg : SqlStreamStore.Streams.StreamMessage) as m) = async {
         let! json = msg.GetJsonData(ct) |> Async.AwaitTaskCorrect
         return toStreamEvent json m }
-    let readBatch hydrateBodies batchSize categoryFilter (store : SqlStreamStore.IStreamStore) pos : Async<Propulsion.Feed.Core.Batch<_>> = async {
-        let! ct = Async.CancellationToken
-        let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, hydrateBodies, ct) |> Async.AwaitTaskCorrect
+    let readBatch hydrateBodies batchSize categoryFilter (store : SqlStreamStore.IStreamStore) (pos, ct) = task {
+        let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, hydrateBodies, ct)
         let filtered = page.Messages
                        |> Seq.choose (fun (msg : SqlStreamStore.Streams.StreamMessage) ->
                            let sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
                            if categoryFilter (FsCodec.StreamName.category sn) then Some struct (sn, msg) else None)
         let! items = if not hydrateBodies then async { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
                      else filtered |> Seq.map (readWithDataAsStreamEvent ct) |> Async.Sequential
-        return { checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } }
+        return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } : Propulsion.Feed.Core.Batch<_>)  }
 
     let readTailPositionForTranche (store : SqlStreamStore.IStreamStore) _trancheId : Async<Propulsion.Feed.Position> = async {
         let! ct = Async.CancellationToken

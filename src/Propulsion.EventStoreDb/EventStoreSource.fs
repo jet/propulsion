@@ -2,6 +2,7 @@ namespace Propulsion.EventStoreDb
 
 module private Impl =
 
+    open Propulsion.Infrastructure // AwaitTaskCorrect
     open EventStore.Client
     open FSharp.Control
 
@@ -13,21 +14,20 @@ module private Impl =
     let private checkpointPos (xs : EventRecord array) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
-    let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) pos = async {
-        let! ct = Async.CancellationToken
+    let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, hydrateBodies, cancellationToken = ct)
-        let! batch = AsyncSeq.ofAsyncEnum res |> AsyncSeq.map (fun e -> e.Event) |> AsyncSeq.toArrayAsync
-        return ({ checkpoint = checkpointPos batch; items = toItems categoryFilter batch; isTail = batch.LongLength <> batchSize } : Propulsion.Feed.Core.Batch<_>) }
+        let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
+        return ({ checkpoint = checkpointPos batch; items = toItems categoryFilter batch; isTail = batch.LongLength <> batchSize } : Propulsion.Feed.Core.Batch<Propulsion.Streams.Default.EventBody>) }
 
     // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk
     let private chunk (pos : Position) = uint64 pos.CommitPosition >>> 28
 
-    let readTailPositionForTranche (log : Serilog.ILogger) (client : EventStoreClient) _trancheId : Async<Propulsion.Feed.Position> = async {
+    let readTailPositionForTranche (log : Serilog.ILogger) (client : EventStoreClient) _trancheId = async {
         let! ct = Async.CancellationToken
         let lastItemBatch = client.ReadAllAsync(Direction.Backwards, Position.End, maxCount = 1, cancellationToken = ct)
-        let! items = AsyncSeq.ofAsyncEnum lastItemBatch |> AsyncSeq.toArrayAsync
-        let pos = (Array.last items).Event.Position
+        let! lastItem = TaskSeq.exactlyOne lastItemBatch |> Async.AwaitTaskCorrect
+        let pos = lastItem.Event.Position
         let max = int64 pos.CommitPosition
         log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GiB)", pos, chunk pos, Propulsion.Internal.Log.miB (float max / 1024.))
         return Propulsion.Feed.Position.parse max }

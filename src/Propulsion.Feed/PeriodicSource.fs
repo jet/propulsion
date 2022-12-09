@@ -6,6 +6,7 @@ namespace Propulsion.Feed
 
 open FSharp.Control
 open Propulsion.Internal
+open System.Collections.Generic
 open System
 
 /// Int64.MaxValue = 9223372036854775807
@@ -48,24 +49,24 @@ type SourceItem<'F> = { streamName : FsCodec.StreamName; eventData : FsCodec.IEv
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        // The <c>AsyncSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
+        // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> AsyncSeq<struct (TimeSpan * SourceItem<_> array)>, refreshInterval : TimeSpan,
+        crawl : TrancheId -> IAsyncEnumerable<struct (TimeSpan * SourceItem<_> array)>, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl trancheId (_wasLast, position) : AsyncSeq<struct (TimeSpan * Core.Batch<_>)> = asyncSeq {
+    let crawl trancheId (_wasLast, position, ct) : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
-        | waitTime when waitTime.Ticks > 0L -> do! Async.Sleep(TimeSpan.toMs waitTime)
+        | waitTime when waitTime.Ticks > 0L -> do! Task.delay waitTime ct
         | _ -> ()
 
         let basePosition = DateTimeOffset.UtcNow |> DateTimeOffsetPosition.ofDateTimeOffset
         let mkTimelineEvent = TimelineEvent.ofBasePositionIndexAndEventData basePosition
-        // wrap the source AsyncSeq, holding back one an item to go into a final
+        // wrap the source TaskSeq, holding back one an item to go into a final
         // guaranteed (assuming the source contains at least one item, that is) non-empty batch
         let buffer = ResizeArray()
         let mutable index = 0L

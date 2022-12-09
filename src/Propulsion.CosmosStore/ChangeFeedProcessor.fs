@@ -156,21 +156,18 @@ type ChangeFeedProcessor =
             |> Option.map (fun lagMonitorCallback ->
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
                 let rec emitLagMetrics () = async {
-                    let feedIteratorMap (map : 't -> 'u) (query : FeedIterator<'t>) : AsyncSeq<'u> =
-                        let rec loop () : AsyncSeq<'u> = asyncSeq {
-                            if not query.HasMoreResults then () else
-                            let! ct = Async.CancellationToken
-                            let! (res : FeedResponse<'t>) = query.ReadNextAsync(ct) |> Async.AwaitTaskCorrect
-                            for x in res do yield map x
-                            if query.HasMoreResults then
-                                yield! loop () }
+                    let! ct = Async.CancellationToken
+                    let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : IAsyncEnumerable<'u> = taskSeq {
                         // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
-                        use __ = query // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
-                        loop ()
+                        use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                        while query.HasMoreResults do
+                            let! res = query.ReadNextAsync(ct)
+                            for x in res do
+                                yield map x }
                     let! leasesState =
-                        estimator.GetCurrentStateIterator()
-                        |> feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                        |> AsyncSeq.toArrayAsync
+                        feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
+                        |> TaskSeq.toArrayAsync
+                        |> Async.AwaitTaskCorrect
                     do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
                     return! emitLagMetrics () }
                 emitLagMetrics ())

@@ -28,7 +28,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.0`, `FSharp.Control.AsyncSeq` v `3.2.1`, `MathNet.Numerics` v `4.15.0`
+- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.0`, `FSharp.Control.TaskSeq` v `0.3.0`, `MathNet.Numerics` v `4.15.0`
 - Changed all `Tuple` types to `struct` tuples (`System.ValueTuple`) [#169](https://github.com/jet/propulsion/pull/169)
 - Changed dominant `ITimelineEvent` EventBody type from `byte array` to `System.ReadOnlyMemory<byte>` [#169](https://github.com/jet/propulsion/pull/169)
 - `StreamSpan`: Changed from a record to a type alias [#169](https://github.com/jet/propulsion/pull/169)

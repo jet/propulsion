@@ -43,11 +43,10 @@ module private Impl =
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
-            (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset))
-        : AsyncSeq<struct (TimeSpan * Propulsion.Feed.Core.Batch<_>)> = asyncSeq {
+            (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset), ct) = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
-        let! _maybeSize, version, state = epochs.Read(tid, epochId, offset)
+        let! _maybeSize, version, state = epochs.Read(tid, epochId, offset) |> Async.startImmediateAsTask ct
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
@@ -69,7 +68,7 @@ module private Impl =
 
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), System.Collections.Concurrent.ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
-        let materializeSpans = async {
+        let materializeSpans ct = task {
             let loadsRequired =
                 [| let streamsToLoad = seq { for span in buffer do if not (cache.ContainsKey(span.p)) then span.p }
                    for p in Seq.distinct streamsToLoad -> async {
@@ -77,7 +76,7 @@ module private Impl =
                         cache.TryAdd(p, items) |> ignore } |]
             if loadsRequired.Length <> 0 then
                 sw.Start()
-                do! loadsRequired |> Async.parallelThrottled loadDop |> Async.Ignore<unit array>
+                do! loadsRequired |> Async.parallelThrottled loadDop |> Async.Ignore<unit array> |> Async.startImmediateAsTask ct
                 sw.Stop()
             return [|
                 for span in buffer do
@@ -103,13 +102,13 @@ module private Impl =
         for i, spans in state.changes do
             let pending = spans |> Array.filter (fun (span : AppendsEpoch.Events.StreamSpan) -> streamEvents.ContainsKey(span.p))
             if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
-                let! hydrated = materializeSpans
+                let! hydrated = materializeSpans ct
                 report (Some i) hydrated.Length
                 yield struct (sw.Elapsed, sliceBatch epochId i hydrated) // not i + 1 as the batch does not include these changes
                 sw.Reset()
                 buffer.Clear()
             buffer.AddRange(pending)
-        let! hydrated = materializeSpans
+        let! hydrated = materializeSpans ct
         report None hydrated.Length
         yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
