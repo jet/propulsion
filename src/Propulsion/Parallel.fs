@@ -212,4 +212,4 @@ type ParallelSink =
 
         let submitter = Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, ignore, alwaysReady, submitBatch)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-        Sink.Start(log, dispatcher.Pump, (fun abend ct -> scheduler.Pump(abend, ct)), submitter.Pump, startIngester)
+        Sink.Start(log, scheduler.Pump, submitter.Pump, startIngester, pumpDispatcher = dispatcher.Pump)

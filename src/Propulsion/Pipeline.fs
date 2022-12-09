@@ -15,8 +15,8 @@ type Pipeline(task : Task<unit>, triggerStop) =
     /// Inspects current status of task representing the Pipeline's overall state
     member _.Status = task.Status
 
-    /// Determines whether processing has completed, be that due to an intentional Stop(), or due to a Fault (see also RanToCompletion)
-    member _.IsCompleted = Task.isCompleted task
+    /// Determines whether processing has completed, be that due to an intentional Stop(), due to a Fault, or successful completion (see also RanToCompletion)
+    member _.IsCompleted = task.IsCompleted
 
     /// After AwaitShutdown (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via AwaitShutdown)
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
@@ -34,7 +34,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
         use _ = ct.Register(fun () -> x.Stop())
         return! x.AwaitShutdown() }
 
-    static member Prepare(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, ?pumpIngester) =
+    static member Prepare(log : ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new CancellationTokenSource()
         let triggerStop disposing =
             let level = if disposing || cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
@@ -65,9 +65,9 @@ type Pipeline(task : Task<unit>, triggerStop) =
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
 
             pumpIngester |> Option.iter (start "ingester")
-            start "dispatcher" pumpDispatcher
+            pumpDispatcher |> Option.iter (start "dispatcher")
             // ... fault results from dispatched tasks result in the `machine` concluding with an exception
-            let scheduler = run "scheduler" (pumpScheduler abend)
+            let scheduler = run "scheduler" (fun ct -> pumpScheduler (abend, ct))
             start "submitter" pumpSubmitter
 
             // await for either handler-driven abend or external cancellation via Stop()
@@ -92,6 +92,6 @@ type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
 
     member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
 
-    static member Start(log : ILogger, pumpDispatcher, pumpScheduler, pumpSubmitter, startIngester) =
-        let task, triggerStop = Pipeline.Prepare(log, pumpDispatcher, pumpScheduler, pumpSubmitter, ?pumpIngester = None)
+    static member Start(log : ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
+        let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
         new Sink<'Ingester>(task, triggerStop, startIngester)

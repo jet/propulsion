@@ -130,12 +130,9 @@ module Internal =
         abstract member HandleExn : log : ILogger * exn : exn -> unit
         default _.HandleExn(_, _) : unit = ()
 
-    type StreamSchedulingEngine =
+    type Dispatcher =
 
-        static member Create(
-                log : ILogger, cosmosContexts : _ [], itemDispatcher, stats : Stats, dumpStreams,
-                ?purgeInterval, ?wakeForResults, ?idleDelay, ?maxEvents, ?maxBytes)
-            : Scheduling.StreamSchedulingEngine<_, _, _, _> =
+        static member Create(log : ILogger, cosmosContexts : _ [], maxDop, ?maxEvents, ?maxBytes) =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
@@ -143,7 +140,7 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts[index]
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
-                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> fun f -> Async.StartAsTask(f, cancellationToken = ct)
+                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> Async.startImmediateAsTask ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
@@ -158,13 +155,7 @@ module Internal =
                 let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
-            let dispatcher =
-                Scheduling.Dispatcher.MultiDispatcher<_, _, _, _>
-                    .Create(itemDispatcher, attemptWrite, interpretWriteResultProgress, stats, dumpStreams)
-            Scheduling.StreamSchedulingEngine(
-                dispatcher, maxIngest = 5,
-                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                prioritizeStreamsBy = Default.eventSize)
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretWriteResultProgress)
 
 type CosmosSink =
 
@@ -182,13 +173,11 @@ type CosmosSink =
             ?maxBytes,
             ?ingesterStatsInterval)
         : Default.Sink =
+        let dispatcher = Internal.Dispatcher.Create(log, cosmosContexts, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-        let dispatcher = Dispatch.ItemDispatcher<_, _>(maxConcurrentStreams)
-        let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
-        let streamScheduler =
-            Internal.StreamSchedulingEngine.Create(
-                log, cosmosContexts, dispatcher, stats, dumpStreams,
-                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?maxEvents=maxEvents, ?maxBytes = maxBytes)
-        Projector.Pipeline.Start(log, dispatcher.Pump, (fun _abend -> streamScheduler.Pump), maxReadAhead, streamScheduler, statsInterval, ?ingesterStatsInterval = ingesterStatsInterval)
+        let scheduler =
+            let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
+            let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
+            Scheduling.Engine(dispatcher, stats, dumpStreams, maxIngest = 5, prioritizeStreamsBy = Default.eventSize,
+                              ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

@@ -22,11 +22,11 @@ type StreamsProducerSink =
             prepare : struct (StreamName * Default.StreamSpan) -> Async<struct ((struct (string * string)) voption * 'Outcome)>,
             producer : Producer,
             stats : Sync.Stats<'Outcome>, statsInterval,
-            // Default 1 ms
-            ?idleDelay,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
+            // Default 1 ms
+            ?idleDelay,
             // Default 1 MiB
             ?maxBytes,
             // Default 16384
@@ -55,11 +55,11 @@ type StreamsProducerSink =
             prepare : struct (StreamName * Default.StreamSpan) -> Async<struct (string * string)>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
-            // Default 1 ms
-            ?idleDelay,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
+            // Default 1 ms
+            ?idleDelay,
             // Default 1 MiB
             ?maxBytes,
             // Default 16384

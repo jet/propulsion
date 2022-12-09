@@ -89,7 +89,7 @@ module Task =
 
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
-    let inline isCompleted (task : Task) = let s = task.Status in s = TaskStatus.RanToCompletion || s = TaskStatus.Faulted
+    let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
@@ -101,9 +101,9 @@ type Sem(max) =
         inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
-    /// Wait for capacity to return to the configured maximum
-    member _.WaitForEmpty(ct : CancellationToken) = task {
-        for _ in 1..max do do! inner.WaitAsync ct
+    /// Manage a controlled shutdown by accumulating reservations of the full capacity.
+    member x.WaitForCompleted(ct : CancellationToken) = task {
+        for _ in 1..max do do! x.Wait(ct)
         return struct (0, max) }
 
 /// Helper for use in Propulsion.Tool and/or equivalent apps; needs to be (informally) exposed
@@ -120,6 +120,11 @@ type Async with
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
         return! Async.AwaitTaskCorrect tcs.Task }
+
+module Async =
+
+    let inline startAsTask ct (a : Async<'t>) = Async.StartAsTask(a, cancellationToken = ct)
+    let inline startImmediateAsTask ct (a : Async<'t>) = Async.StartImmediateAsTask(a, cancellationToken = ct)
 
 module ValueTuple =
 
@@ -164,7 +169,7 @@ module Stats =
             | false, _ -> cats[cat] <- weight
 
         member _.Count = cats.Count
-        member _.Any = (not << Seq.isEmpty) cats
+        member _.Any = cats.Count <> 0
         member _.Clear() = cats.Clear()
         member _.StatsDescending = statsDescending cats
 
@@ -215,6 +220,8 @@ module Stats =
             if buffer.Count <> 0 then
                 dumpStats kind buffer log
                 buffer.Clear()
+
+type LogEventLevel = Serilog.Events.LogEventLevel
 
 module Log =
 

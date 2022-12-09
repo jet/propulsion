@@ -14,6 +14,8 @@ type ProgressWriter<'Res when 'Res : equality>() =
     let mutable validatedPos = None
     let result = Event<Choice<'Res, exn>>()
 
+    [<CLIEvent>] member _.Result = result.Publish
+
     member _.IsDirty =
         match Volatile.Read &validatedPos with
         | Some (v, _) when Volatile.Read(&committedEpoch) <> Some v -> true
@@ -22,18 +24,14 @@ type ProgressWriter<'Res when 'Res : equality>() =
     member x.CommitIfDirty ct = task {
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
-            try do! Async.StartImmediateAsTask(f, cancellationToken = ct)
-                Volatile.Write(&committedEpoch, Some v)
+            try do! f |> Async.startImmediateAsTask ct
                 result.Trigger(Choice1Of2 v)
+                Volatile.Write(&committedEpoch, Some v)
             with e -> result.Trigger(Choice2Of2 e)
         | _ -> () }
 
-    [<CLIEvent>] member _.Result = result.Publish
-
     member _.Post(version, f) =
         Volatile.Write(&validatedPos, Some (version, f))
-
-    member _.CommittedEpoch = Volatile.Read(&committedEpoch)
 
 [<NoComparison; NoEquality>]
 type private InternalMessage =
@@ -42,20 +40,20 @@ type private InternalMessage =
     /// Result from updating of Progress to backing store - processed up to nominated `epoch` or threw `exn`
     | ProgressResult of Choice<int64, exn>
     /// Internal message for stats purposes
-    | Added of streams : int * events : int
+    | Added of epoch : int64 * streams : int * events : int
 
 [<Struct; NoComparison; NoEquality>]
 type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : Async<unit>; isTail : bool }
 
 type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
-    let mutable validatedEpoch, committedEpoch : int64 option * int64 option = None, None
+    let mutable readEpoch, validatedEpoch, committedEpoch = None, None, None
     let mutable commitFails, commits = 0, 0
     let mutable cycles, batchesPended, streamsPended, eventsPended = 0, 0, 0, 0
     member val Interval = IntervalTimer statsInterval
 
     member _.DumpStats(activeReads, maxReads) =
-        log.Information("Ingester {partition} Ahead {activeReads}/{maxReads} @ {validated} Committed {committed} ok {commits} failed {fails} Ingested {batches} ({streams:n0}s {events:n0}e) Cycles {cycles}",
-                        partitionId, activeReads, maxReads, Option.toNullable validatedEpoch, Option.toNullable committedEpoch, commits, commitFails, batchesPended, streamsPended, eventsPended, cycles)
+        log.Information("Ingester {partition} Ahead {activeReads}/{maxReads} Committed {committed} @ {validated}/{pos} ok {commits} failed {fails} Ingested {batches} ({streams:n0}s {events:n0}e) Cycles {cycles}",
+                        partitionId, activeReads, maxReads, Option.toNullable committedEpoch, Option.toNullable validatedEpoch, Option.toNullable readEpoch, commits, commitFails, batchesPended, streamsPended, eventsPended, cycles)
         cycles <- 0; batchesPended <- 0; streamsPended <- 0; eventsPended <- 0
         if commitFails <> 0 && commits = 0 then log.Error("Ingester {partition} Commits failing: {failures} failures", partitionId, commitFails)
         commits <- 0; commitFails <- 0
@@ -68,7 +66,8 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
             committedEpoch <- Some epoch
         | ProgressResult (Choice2Of2 (_exn : exn)) ->
             commitFails <- commitFails + 1
-        | Added (streams, events) ->
+        | Added (epoch, streams, events) ->
+            readEpoch <- Some epoch
             batchesPended <- batchesPended + 1
             streamsPended <- streamsPended + streams
             eventsPended <- eventsPended + events
@@ -87,7 +86,7 @@ type Ingester<'Items> private
 
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
-        let c = Channel.unboundedSwSr<Batch<'Items>> in let r, w = c.Reader, c.Writer
+        let c = Channel.unboundedSr<Batch<'Items>> in let r, w = c.Reader, c.Writer
         Channel.awaitRead r, Channel.apply r, Channel.write w
     let awaitMessage, applyMessages, enqueueMessage =
         let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
@@ -98,12 +97,13 @@ type Ingester<'Items> private
 
     let handleIncoming (batch : Batch<'Items>) =
         let markCompleted () =
-            maxRead.Release()
-            batch.onCompletion () // we guarantee this happens before checkpoint can be called
             enqueueMessage <| Validated batch.epoch
+            // Need to report progress before the Release or batch.OnCompletion, in order for AwaitCheckpointed to be correct
             progressWriter.Post(batch.epoch, batch.checkpoint)
+            batch.onCompletion ()
+            maxRead.Release()
         let struct (streamCount, itemCount) = submitBatch (batch.items, markCompleted)
-        enqueueMessage <| Added (streamCount, itemCount)
+        enqueueMessage <| Added (batch.epoch, streamCount, itemCount)
 
     member _.FlushProgress ct =
         progressWriter.CommitIfDirty ct
@@ -113,12 +113,12 @@ type Ingester<'Items> private
             try do! x.FlushProgress ct
             with _ -> () // one attempt to do it proactively
             while progressWriter.IsDirty do
-                do! Task.Delay(int (commitInterval.TotalMilliseconds / 2.), ct) }
+                do! Task.delay (commitInterval / 2.) ct }
 
     member private x.CheckpointPeriodically(ct : CancellationToken) = task {
         while not ct.IsCancellationRequested do
             do! x.FlushProgress ct
-            do! Task.Delay(commitInterval, ct) }
+            do! Task.delay commitInterval ct }
 
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
@@ -128,17 +128,14 @@ type Ingester<'Items> private
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(stats.Interval.RemainingMs)) :> Task }
-            // arguably the impl should be submitting while unpacking but
-            // - maintaining consistency between incoming order and submit order is required
-            // - in general maxRead will be double maxSubmit so this will only be relevant in catchup situations
 
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
-    /// b) `submit`ting them onward (assuming there is capacity within the `readLimit`)
-    static member Start<'Items>(log, partitionId, maxRead, submitBatch, statsInterval, ?commitInterval) =
+    /// b) `submit`ting them onward (assuming there is capacity within the `maxReadAhead`)
+    static member Start<'Items>(log, partitionId, maxReadAhead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let instance = Ingester<'Items>(stats, maxRead, submitBatch, cts, ?commitInterval = commitInterval)
+        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, ?commitInterval = commitInterval)
         let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("... ingester stopped") }
@@ -158,6 +155,6 @@ type Ingester<'Items> private
     member _.Stop() = cts.Cancel()
 
     member x.Await(ct) = task {
-        let! r = maxRead.WaitForEmpty ct
+        let! r = maxRead.WaitForCompleted ct
         do! x.AwaitCheckpointed ct
         return r }

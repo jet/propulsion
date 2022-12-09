@@ -29,8 +29,7 @@ type FeedSourceBase internal
     let dumpStats () = for _i, r in partitions do r.DumpStats()
     let rec pumpStats () = async {
         try do! Async.Sleep statsInterval
-        // Note we want to dump the stats on exit if we are cancelled - if we don't do that in a finally, the Async workflow will already have stopped
-        finally dumpStats ()
+        finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the Async.Sleep
         return! pumpStats () }
 
     member val internal Positions = positions
@@ -39,11 +38,11 @@ type FeedSourceBase internal
     /// Yields current Tranche Positions
     member _.Checkpoint() : Async<IReadOnlyDictionary<TrancheId, Position>> = async {
         let! ct = Async.CancellationToken
-        do! Async.Parallel(seq { for i, _r in partitions -> Async.AwaitTask(i.FlushProgress ct) }) |> Async.Ignore<unit array>
+        do! Async.Parallel(seq { for i, _r in partitions -> i.FlushProgress ct |> Async.AwaitTaskCorrect }) |> Async.Ignore<unit array>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
-    member internal _.Pump
+    member internal x.Pump
         (   readTranches : unit -> Async<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
             crawl : TrancheId -> bool * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>) = async {
@@ -62,7 +61,8 @@ type FeedSourceBase internal
         // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
         let! _stats = pumpStats () |> Async.StartChild
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
-        return! Async.Parallel(trancheWorkflows) |> Async.Ignore<unit[]> }
+        do! Async.Parallel(trancheWorkflows) |> Async.Ignore<unit[]>
+        do! x.Checkpoint() |> Async.Ignore }
 
     member x.Start(pump) =
         let ct, stop =
@@ -97,7 +97,7 @@ type FeedSourceBase internal
             try return! outcomeTask
             finally log.Information "... source completed" }
 
-        let monitor = lazy FeedMonitor(log, positions, sink, fun () -> Task.isCompleted outcomeTask)
+        let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run supervise, stop, monitor)
 
 /// Intercepts receipt and completion of batches, recording the read and completion positions
@@ -125,9 +125,9 @@ and internal TrancheState =
     member x.IsEmpty = x.completed = x.read
 
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
-and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink, completed) =
+and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink, sourceIsCompleted) =
 
-    let notEol () = not sink.IsCompleted && not (completed ())
+    let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
     let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
     // Waits for up to propagationDelay, returning the opening tranche positions observed (or empty if the wait has timed out)
     let awaitPropagation (sleepMs : int) (propagationDelay : TimeSpan) positions = async {
@@ -149,7 +149,8 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             if not worked && Array.any current then startPositions <- current; worked <- true // Starting: Record start position (for if we exit due to timeout)
             elif worked && Array.isEmpty current then startPositions <- current // Finished now: clear starting position record, triggering normal exit of loop
         return startPositions }
-    let isDrained : KeyValuePair<_, TrancheState> array -> bool = Array.forall (fun (KeyValue (_t, s)) -> s.isTail && s.IsEmpty)
+    let isTrancheDrained (s : TrancheState) = s.isTail && s.IsEmpty
+    let isDrained : KeyValuePair<_, TrancheState> array -> bool = Array.forall (fun (KeyValue (_t, s)) -> isTrancheDrained s)
     let awaitCompletion (sleepMs : int, logInterval) (sw : System.Diagnostics.Stopwatch) startReadPositions waitMode = async {
         let logInterval = IntervalTimer logInterval
         let logWaitStatusUpdateNow () =
@@ -160,9 +161,9 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                                                     sw.ElapsedSeconds, startReadPositions, completed)
             | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Current {current} Completed {completed} Starting {starting}",
                                                     sw.ElapsedSeconds, currentRead, completed, startReadPositions)
-            | AwaitFullyCaughtUp -> let catchingUp = current |> choose (fun v -> if not v.isTail then ValueSome () else ValueNone) |> Array.map ValueTuple.fst
+            | AwaitFullyCaughtUp -> let draining = current |> choose (fun v -> if isTrancheDrained v then ValueNone else ValueSome ()) |> Array.map ValueTuple.fst
                                     log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Current {current} Completed {completed} Starting {starting}",
-                                                    sw.ElapsedSeconds, catchingUp, currentRead, completed, startReadPositions)
+                                                    sw.ElapsedSeconds, draining, currentRead, completed, startReadPositions)
         let busy () =
             let current = positions.Current()
             match waitMode with
@@ -189,7 +190,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             // - an adjustment to account for the polling interval that the Source is using
             propagationDelay,
             // sleep interval while awaiting completion. Default 1ms.
-            ?delay,
+            ?sleep,
             // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 5s.
             ?logInterval,
             // Inhibit waiting for the handling of follow-on events that arrived after the wait commenced.
@@ -205,7 +206,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             //      max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
             ?lingerTime : bool -> TimeSpan -> TimeSpan -> TimeSpan -> TimeSpan) = async {
         let sw = Stopwatch.start ()
-        let delayMs = delay |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
+        let sleepMs = sleep |> Option.map (fun (d : TimeSpan) -> int d.TotalMilliseconds) |> Option.defaultValue 1
         let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.completed) }
         let waitMode =
             match ignoreSubsequent, awaitFullyCaughtUp with
@@ -218,7 +219,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             match positions.Current() with
             | xs when xs |> Array.forall (fun (kv : KeyValuePair<_, TrancheState>) -> kv.Value.IsEmpty && (not requireTail || kv.Value.isTail)) -> Array.empty
             | originals -> originals |> choose (fun v -> v.read)
-        match! awaitPropagation delayMs propagationDelay activeTranches with
+        match! awaitPropagation sleepMs propagationDelay activeTranches with
         | [||] ->
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
@@ -226,7 +227,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let propUsed = sw.Elapsed
             let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 5.)
             let swProcessing = Stopwatch.start ()
-            do! awaitCompletion (delayMs, logInterval) swProcessing starting waitMode
+            do! awaitCompletion (sleepMs, logInterval) swProcessing starting waitMode
             let procUsed = swProcessing.Elapsed
             let isDrainedNow () = positions.Current() |> isDrained
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
@@ -239,12 +240,12 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
                           sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then
                 let swLinger = Stopwatch.start ()
-                match! awaitLinger delayMs linger activeTranches with
+                match! awaitLinger sleepMs linger activeTranches with
                 | [||] ->
                     log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, isDrainedNow (), starting, originalCompleted)
                 | lingering ->
-                    do! awaitCompletion (delayMs, logInterval) swProcessing lingering waitMode
+                    do! awaitCompletion (sleepMs, logInterval) swProcessing lingering waitMode
                     log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Lingering {lingering} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, isDrainedNow (), starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
@@ -258,7 +259,7 @@ type TailingFeedSource
         checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position -> AsyncSeq<struct (TimeSpan * Batch<_>)>,
         renderPos,
-        ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure, ?readersStopAtTail) =
+        ?logReadFailure, ?readFailureSleepInterval : TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
     let crawl trancheId (wasLast, startPos) = asyncSeq {
@@ -292,7 +293,7 @@ type AllFeedSource
             (fun (_trancheId, pos) -> asyncSeq {
                   let sw = Stopwatch.start ()
                   let! b = readBatch pos
-                  yield sw.Elapsed, b } ),
+                  yield struct (sw.Elapsed, b) } ),
             renderPos = defaultArg renderPos string)
 
     member internal _.Pump =

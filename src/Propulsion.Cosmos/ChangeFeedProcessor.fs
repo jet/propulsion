@@ -5,6 +5,7 @@ open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client
 open Microsoft.Azure.Documents.ChangeFeedProcessor
 open Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing
+open Propulsion.Internal
 open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
@@ -63,7 +64,7 @@ type ChangeFeedObserver =
             | None -> log.Information("Reader {partition} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
         { new IChangeFeedObserver with
             member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
-            member _.ProcessChangesAsync(ctx, docs, ct) = Async.StartAsTask(_process(ctx, docs), cancellationToken=ct) :> _
+            member _.ProcessChangesAsync(ctx, docs, ct) = _process(ctx, docs) |> Async.startImmediateAsTask ct :> _
             member _.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
           interface IDisposable with
             member _.Dispose() =
