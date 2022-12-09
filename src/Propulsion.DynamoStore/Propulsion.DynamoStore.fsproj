@@ -27,6 +27,7 @@
 
       <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-rc.6" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.9" />
+      <PackageReference Include="FSharp.Core" Version="6.0.7" />
     </ItemGroup>
     
     <ItemGroup>
