@@ -23,7 +23,8 @@
   <ItemGroup>
     <PackageReference Include="FsCheck.Xunit" Version="2.16.5" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.2.0" />
-	<PackageReference Include="FSharp.Core" Version="6.0.6" />
+    <!-- Pin requirement for at least 6.0.6 in one of the tests by requesting same as Propulsion>DynamoStore will require-->
+	<PackageReference Include="FSharp.Core" Version="6.0.7" />
 	<PackageReference Include="unquote" Version="6.1.0" />
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3">

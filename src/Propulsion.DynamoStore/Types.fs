@@ -112,7 +112,7 @@ module internal EventCodec =
 
 module internal Async =
 
-    // NOTE there's a bug in FSharp.Core >= 6.0.6 that can trigger a process exit with StackOverflowException
+    // NOTE there's a bug in FSharp.Core <= 6.0.6 that can trigger a process exit with StackOverflowException
     // if more than ~1200 computations are supplied and abort quickly
     let parallelThrottled dop computations = // https://github.com/dotnet/fsharp/issues/13165
         Async.Parallel(computations, maxDegreeOfParallelism = dop)
