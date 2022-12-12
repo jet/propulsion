@@ -21,7 +21,6 @@
 
     <PackageReference Include="FSharp.Core" Version="6.0.0" />
 
-    <!-- We only depend on the ITimelineEvent contracts, so going to v3 is not useful/necessary -->
     <PackageReference Include="FsCodec" Version="3.0.0-rc.9" />
     <PackageReference Include="MathNet.Numerics" Version="4.15.0" />
     <!--    NB TEMP; needs to be shipped out-->

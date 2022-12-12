@@ -249,7 +249,7 @@ module Core =
                 ?logExternalState = logExternalState,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
-    // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsProjector
+    // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsSink
     let parseMessageKey defaultCategory = function
         | null -> FsCodec.StreamName.create defaultCategory ""
         | key -> StreamName.parseWithDefaultCategory defaultCategory key
@@ -272,8 +272,8 @@ module Core =
         let context = { topic = result.Topic; partition = Binding.partitionValue result.Partition; offset = Binding.offsetValue result.Offset }
         (ReadOnlyMemory data, box context)
 
-/// StreamsProjector buffers and deduplicates messages from a contiguous stream with each event bearing a monotonically incrementing `index`.
-/// Where the messages we consume don't have such characteristics, we need to maintain a fake `index` by keeping an int per stream in a dictionary
+/// StreamsSink buffers and deduplicates messages from a contiguous stream with each event bearing a monotonically incrementing `Index`.
+/// Where the messages we consume don't have such characteristics, we need to maintain a fake `Index` by keeping an int per stream in a dictionary
 /// Does not need to be thread-safe as the <c>Propulsion.Submission.SubmissionEngine</c> does not unpack input messages/documents in parallel.
 type StreamNameSequenceGenerator() =
 

@@ -84,7 +84,7 @@ As noted in the [Effect of ChangeFeed on Request Charges](https://github.com/jet
 
 Propulsion provides components that enable implementing such a strategy:
 - A publisher that efficiently publishes events in a canonical format ('Kafka StreamSpans') (see the `proProjector` template), with stateful de-duplication of events (important given the fact that the bulk of appends involve an update to the Tip document, and the current form of the changefeed does not intrinsically expose the before and after states)
-- A consumer component that consumes and decodes the 'Kafka StreamSpans' for use by a `StreamsProjector`
+- A consumer component that consumes and decodes the 'Kafka StreamSpans' for use by a `StreamsSink`
 
 It's important to consider deferring the running projections "over a longer wire" until the last responsible moment given:
 - making the availability and performance of your Reactions and Publishing contingent on the availability and performance of your Kafka cluster should not be considered lightly (introducing another component alongside the event store intrinsically reduces the achievable SLA of the system as a whole)
