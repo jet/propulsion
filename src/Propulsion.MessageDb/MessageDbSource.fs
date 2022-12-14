@@ -17,10 +17,8 @@ module Internal =
     open Propulsion.Feed
     open Propulsion.Infrastructure // AwaitTaskCorrect
     open System.Data.Common
-    open System.Threading.Tasks
     open System.Text.Json
-
-    type Batch<'F> = Propulsion.Feed.Core.Batch<'F>
+    open System.Threading.Tasks
 
     module private Json =
         let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
@@ -46,7 +44,7 @@ module Internal =
             let sn = reader.GetString(8) |> FsCodec.StreamName.parse
             struct (sn, event)
 
-        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Batch<_>> = task {
+        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
             use! conn = connect ct
             let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
                                                                    (metadata::jsonb->>'$correlationId')::text,
@@ -61,7 +59,7 @@ module Internal =
             let events = [| while reader.Read() do parseRow reader |]
 
             let checkpoint = match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> fromPositionInclusive
-            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Batch<_>) }
+            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Core.Batch<_>) }
 
         member _.ReadCategoryLastVersion(category: TrancheId, ct) : Task<int64> = task {
             use! conn = connect ct
@@ -71,7 +69,7 @@ module Internal =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then reader.GetInt64(0) else 0L }
 
-    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Batch<_>> =
+    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
