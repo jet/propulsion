@@ -190,7 +190,7 @@ module Core =
                 logStreamStates Default.eventSize
             let scheduler =
                 Scheduling.Engine(
-                    Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, SpanResult.toIndex), stats, dumpStreams, maxIngest = 5,
+                    Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, SpanResult.toIndex), stats, dumpStreams, pendingBufferSize = 5,
                     ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : struct (_ * Buffer.Batch) =
                 let onCompletion () = x.onCompletion(); onCompletion()
@@ -423,7 +423,7 @@ type BatchesConsumer =
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
             logStreamStates Default.eventSize
-        let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, maxIngest = 5,
+        let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
             let onCompletion () = x.onCompletion(); onCompletion()
