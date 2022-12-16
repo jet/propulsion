@@ -620,7 +620,7 @@ module Scheduling =
     type Engine<'P, 'R, 'E, 'F>
         (   dispatcher : IDispatcher<'P, 'R, 'E, 'F>, stats : Stats<'R,'E>, dumpState,
             // Number of batches to buffer locally; rest held by submitter to enable fair ordering of submission as partitions are added/removed
-            maxIngest,
+            pendingBufferSize,
             // Tune the max number of check/dispatch cycles. Default 2.
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
@@ -643,7 +643,7 @@ module Scheduling =
             let r, w = let c = Channel.unboundedSr<Streams<_>> in c.Reader, c.Writer
             Channel.write w, Channel.apply r
         let waitToSubmit, tryWritePending, waitingCount, awaitPending, tryPending =
-            let r, w = let c = Channel.boundedSw<Batch>(maxIngest) in c.Reader, c.Writer // Actually SingleReader too, but Count throws if you use that
+            let r, w = let c = Channel.boundedSw<Batch>(pendingBufferSize) in c.Reader, c.Writer // Actually SingleReader too, but Count throws if you use that
             Channel.waitToWrite w, Channel.tryWrite w, (fun () -> r.Count), Channel.awaitRead r, Channel.tryRead r
         let streams = StreamStates<'F>()
         let batches = Progress.ProgressState()
@@ -1008,8 +1008,8 @@ type StreamsSink =
             handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
             toIndex,
             stats, statsInterval, eventSize,
-            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
-            ?maxIngest,
+            // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
+            ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1022,7 +1022,7 @@ type StreamsSink =
         let dispatcher : Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
-                                          defaultArg maxIngest maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                                          defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
 
@@ -1031,8 +1031,8 @@ type StreamsSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
             stats, statsInterval, eventSize,
-            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
-            ?maxIngest,
+            // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
+            ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1048,7 +1048,7 @@ type StreamsSink =
             struct (metrics, struct (streamName, span))
         StreamsSink.StartEx<SpanResult, 'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, eventSize,
-            ?maxIngest = maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+            ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
 
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
@@ -1056,8 +1056,8 @@ type StreamsSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<'Outcome>,
             stats, statsInterval, eventSize,
-            // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
-            ?maxIngest,
+            // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
+            ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
@@ -1072,7 +1072,7 @@ type StreamsSink =
             return struct (SpanResult.AllProcessed, res) }
         StreamsSink.Start<'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
-            ?maxIngest = maxIngest, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+            ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval)
 
 module Sync =
@@ -1152,7 +1152,7 @@ module Sync =
                 match dumpExternalStats with Some f -> f log | None -> ()
             let scheduler =
                 Scheduling.Engine<struct (int64 * struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
-                    (dispatcher, stats, dumpStreams, maxIngest = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
+                    (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, statsInterval)
 
@@ -1175,12 +1175,12 @@ module Default =
             (   log, maxReadAhead, maxConcurrentStreams,
                 handle : struct (FsCodec.StreamName * StreamSpan) -> Async<struct (SpanResult * 'Outcome)>,
                 stats, statsInterval,
-                // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
-                ?maxIngest, ?purgeInterval,
+                // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
+                ?pendingBufferSize, ?purgeInterval,
                 ?wakeForResults, ?idleDelay, ?ingesterStatsInterval, ?requireCompleteStreams)
             : Sink =
             StreamsSink.Start<'Outcome, EventBody>(
                 log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
-                ?maxIngest = maxIngest, ?purgeInterval = purgeInterval,
+                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
                 ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
                 ?requireCompleteStreams = requireCompleteStreams)
