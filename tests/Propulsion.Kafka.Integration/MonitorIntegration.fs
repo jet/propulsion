@@ -19,7 +19,7 @@ let testPartitionCount = 4
 let createConsumerConfig broker topic groupId =
     KafkaConsumerConfig.Create("tiger", broker, [topic], groupId, AutoOffsetReset.Earliest, maxBatchSize = 1)
 let startConsumerFromConfig log config handler =
-    let handler' r = async {
+    let handler' r _ct = task {
         do! handler r
         return Choice1Of2 () }
     ParallelConsumer.Start(log, config, testPartitionCount, id, handler')
@@ -37,7 +37,7 @@ let producerOnePerSecondLoop (producer : KafkaProducer) =
 
 let onlyConsumeFirstBatchHandler =
     let observedPartitions = System.Collections.Concurrent.ConcurrentDictionary()
-    fun (item : ConsumeResult<string,string>) -> async {
+    fun (item : ConsumeResult<string,string>) -> task {
         // make first handle succeed to ensure consumer has offsets
         let partitionId = Binding.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }

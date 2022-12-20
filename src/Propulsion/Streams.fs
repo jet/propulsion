@@ -88,9 +88,9 @@ type StreamSpan<'Format> = FsCodec.ITimelineEvent<'Format> array
 module StreamSpan =
 
     type Metrics = (struct (int * int))
-    let metrics eventSize (xs : FsCodec.ITimelineEvent<'F> array) : Metrics =
+    let metrics eventSize (xs : FsCodec.ITimelineEvent<'F>[]) : Metrics =
         struct (xs.Length, xs |> Seq.sumBy eventSize)
-    let slice<'F> eventSize (maxEvents, maxBytes) (span : FsCodec.ITimelineEvent<'F> array) : struct (Metrics * FsCodec.ITimelineEvent<'F> array) =
+    let slice<'F> eventSize (maxEvents, maxBytes) (span : FsCodec.ITimelineEvent<'F>[]) : struct (Metrics * FsCodec.ITimelineEvent<'F>[]) =
         let mutable count, bytes = 0, 0
         let mutable countBudget, bytesBudget = maxEvents, maxBytes
         let withinLimits y =
@@ -848,10 +848,10 @@ module Dispatcher =
                 let! struct (progressed, res) = project (item.stream, item.span) ct
                 return struct (Stopwatch.elapsed startTs, item.stream, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
-        static member Create(maxDop, prepare, handle, toIndex) =
+        static member Create(maxDop, prepare, handle : Func<_, _, CancellationToken, Task<_>>, toIndex) =
             let project item ct = task {
-                let struct (met, (struct (_sn, span : StreamSpan<'F>) as ss)) = prepare item
-                try let! struct (spanResult, outcome) = handle ss |> Async.startImmediateAsTask ct
+                let struct (met, struct (_sn, span : StreamSpan<'F>)) = prepare item
+                try let! struct (spanResult, outcome) = handle.Invoke(_sn, span, ct)
                     let index' = toIndex span spanResult
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', met, outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -1005,7 +1005,7 @@ type StreamsSink =
     static member StartEx<'Progress, 'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : struct (FsCodec.StreamName * _) -> _,
-            handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             toIndex,
             stats, statsInterval, eventSize,
             // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
@@ -1029,7 +1029,7 @@ type StreamsSink =
     /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             stats, statsInterval, eventSize,
             // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
             ?maxIngest,
@@ -1054,7 +1054,7 @@ type StreamsSink =
     /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
     static member Start<'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<'Outcome>,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<'Outcome>>,
             stats, statsInterval, eventSize,
             // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
             ?maxIngest,
@@ -1067,8 +1067,8 @@ type StreamsSink =
             ?idleDelay,
             ?ingesterStatsInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let handle struct (streamName, span : FsCodec.ITimelineEvent<'F> array) = async {
-            let! res = handle (streamName, span)
+        let handle streamName (span : FsCodec.ITimelineEvent<'F>[]) ct = task {
+            let! res = handle.Invoke(streamName, span, ct)
             return struct (SpanResult.AllProcessed, res) }
         StreamsSink.Start<'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
@@ -1113,7 +1113,7 @@ module Sync =
 
         static member Start
             (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-                handle : struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'F> array) -> Async<struct (SpanResult * 'Outcome)>,
+                handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
                 stats : Stats<'Outcome>, statsInterval, sliceSize, eventSize,
                 // Default 1 ms
                 ?idleDelay,
@@ -1130,11 +1130,10 @@ module Sync =
 
             let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-            let attemptWrite struct (stream, span : FsCodec.ITimelineEvent<'F> array) ct = task {
+            let attemptWrite struct (stream, span : FsCodec.ITimelineEvent<'F>[]) ct = task {
                 let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
                 let prepareTs = Stopwatch.timestamp ()
-                try let req = struct (stream, span')
-                    let! res, outcome = handle req |> Async.startImmediateAsTask ct
+                try let! res, outcome = handle.Invoke(stream, span', ct)
                     let index' = SpanResult.toIndex span' res
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -1173,7 +1172,7 @@ module Default =
 
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
-                handle : struct (FsCodec.StreamName * StreamSpan) -> Async<struct (SpanResult * 'Outcome)>,
+                handle : Func<FsCodec.StreamName, StreamSpan, CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
                 stats, statsInterval,
                 // Configure max number of batches to ingest into scheduler; Default: Same as maxReadAhead
                 ?maxIngest, ?purgeInterval,

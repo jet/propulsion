@@ -2,7 +2,6 @@ namespace Propulsion.EventStoreDb
 
 module private Impl =
 
-    open Propulsion.Infrastructure // AwaitTaskCorrect
     open EventStore.Client
     open FSharp.Control
 
@@ -23,10 +22,9 @@ module private Impl =
     // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk
     let private chunk (pos : Position) = uint64 pos.CommitPosition >>> 28
 
-    let readTailPositionForTranche (log : Serilog.ILogger) (client : EventStoreClient) _trancheId = async {
-        let! ct = Async.CancellationToken
+    let readTailPositionForTranche (log : Serilog.ILogger) (client : EventStoreClient) _trancheId ct = task {
         let lastItemBatch = client.ReadAllAsync(Direction.Backwards, Position.End, maxCount = 1, cancellationToken = ct)
-        let! lastItem = TaskSeq.exactlyOne lastItemBatch |> Async.AwaitTaskCorrect
+        let! lastItem = TaskSeq.exactlyOne lastItemBatch
         let pos = lastItem.Event.Position
         let max = int64 pos.CommitPosition
         log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GiB)", pos, chunk pos, Propulsion.Internal.Log.miB (float max / 1024.))

@@ -4,6 +4,7 @@ open Confluent.Kafka // required for shimming
 open FsCodec
 open FsKafka
 open Newtonsoft.Json
+open Propulsion.Internal
 open Propulsion.Kafka
 open Propulsion.Tests
 open Serilog
@@ -83,8 +84,8 @@ module Helpers =
                 let d = serdes.Deserialize(v)
                 let v = serdes.Deserialize(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
-            let handle item = handler (getConsumer()) (deserialize consumerId item)
-            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle >> Async.Catch, statsInterval=TimeSpan.FromSeconds 10.)
+            let handle item ct = handler (getConsumer()) (deserialize consumerId item) |> Async.startImmediateAsTask ct |> Task.Catch
+            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle, statsInterval=TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
@@ -121,12 +122,12 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Streams.Scheduling.Item<Propulsion.Streams.Default.EventBody>[]) = async {
+            let handle (streams : Propulsion.Streams.Scheduling.Item<Propulsion.Streams.Default.EventBody>[]) ct = task {
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do
                       c <- c + 1
-                      do! handler (getConsumer()) (deserialize consumerId event)
+                      do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
                 return [| for x in streams -> Choice1Of2 (x.span[x.span.Length-1].Index+1L) |] |> Seq.ofArray }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
@@ -164,9 +165,9 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle struct (streamName : StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
+            let handle _ (span : Propulsion.Streams.Default.StreamSpan) ct = task {
                 for event in span do
-                    do! handler (getConsumer()) (deserialize consumerId event)
+                    do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()

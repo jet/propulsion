@@ -2,7 +2,6 @@ namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
 open FsCodec
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
@@ -54,13 +53,13 @@ module Internal =
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.StreamSpan) = async {
+        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.StreamSpan) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
+                       |> Async.startImmediateAsTask ct
 #else
-            let! ct = Async.CancellationToken
-            let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _), ct) |> Async.AwaitTaskCorrect
+            let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _), ct)
 #endif
             let res' =
                 match res with
@@ -155,7 +154,7 @@ module Internal =
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite struct (stream, span) ct = task {
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
-                try let! res = Writer.write log eventsContext (StreamName.toString stream) span' |> Async.startImmediateAsTask ct
+                try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =

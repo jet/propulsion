@@ -1,6 +1,7 @@
 // Implements a Sink that removes every submitted event (and all preceding events)     from the relevant stream
 namespace Propulsion.CosmosStore
 
+open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
 open System
@@ -77,7 +78,7 @@ module Pruner =
             Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneUntil struct (stream, span: Propulsion.Streams.StreamSpan<_>) = async {
+    let handle pruneUntil stream (span: Default.StreamSpan) ct = task {
         // The newest event eligible for deletion defines the cutoff point
         let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
@@ -88,7 +89,7 @@ module Pruner =
         // 3. Some deletions deferred
         //    (requested trim point was in the middle of a batch; touching it would put the batch out of order)
         //    in this case, we mark the event as handled and await a successor event triggering another attempt
-        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream) untilIndex
+        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream, untilIndex, ct)
         // Categorize the outcome so the stats handler can summarize the work being carried out
         let res = if deleted = 0 && deferred = 0 then Nop span.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
@@ -111,7 +112,7 @@ type CosmosStorePruner =
             ?ingesterStatsInterval)
         : Default.Sink =
         let dispatcher =
-            let pruneUntil stream index = Equinox.CosmosStore.Core.Events.pruneUntil context stream index
+            let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.startImmediateAsTask ct
             let interpret struct (stream, span) =
                 let metrics = StreamSpan.metrics Default.eventSize span
                 struct (metrics, struct (stream, span))

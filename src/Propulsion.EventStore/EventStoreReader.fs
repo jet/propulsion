@@ -108,14 +108,14 @@ let posFromPercentage (pct, max : Position) =
     let chunk = int (chunk rawPos) in posFromChunk chunk // &&& 0xFFFFFFFFE0000000L // rawPos / 256L / 1024L / 1024L * 1024L * 1024L * 256L
 
 /// Read the current tail position; used to be able to compute and log progress of ingestion
-let fetchMax (conn : IEventStoreConnection) = async {
-    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false) |> Async.AwaitTaskCorrect
+let fetchMax (conn : IEventStoreConnection) = task {
+    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false)
     let max = lastItemBatch.FromPosition
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, Log.miB max.CommitPosition/1024.)
     return max }
 
 /// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
-let establishMax (conn : IEventStoreConnection) = async {
+let establishMax (conn : IEventStoreConnection) = task {
     let mutable max = None
     while Option.isNone max do
         try let! currentMax = fetchMax conn

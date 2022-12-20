@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.EventStore
 
+open Propulsion.Internal
 open Propulsion.Streams
 open System
 
@@ -43,16 +44,16 @@ module Mapping =
         StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
 
 type EventStoreSource =
-    static member Run
+    static member Pump
         (   log : Serilog.ILogger, sink : Default.Sink, checkpoints : Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
-            maxReadAhead, statsInterval) = async {
+            maxReadAhead, statsInterval, ct) = task {
         let conn = connect ()
-        let! maxInParallel = Async.StartChild <| Reader.establishMax conn
-        let! initialCheckpointState = checkpoints.Read
+        let maxInParallel = Reader.establishMax conn
+        let! initialCheckpointState = checkpoints.Read ct
         let! maxPos = maxInParallel
 
-        let! startPos = async {
+        let! startPos = Async.startImmediateAsTask ct <| async {
             let mkPos x = EventStore.ClientAPI.Position(x, 0L)
             let requestedStartPos =
                 match spec.start with
@@ -92,13 +93,13 @@ type EventStoreSource =
                 0, [|conn|], spec.streamReaders + 1
 
         let striper = StripedIngester(log.ForContext("Tranche", "Stripes"), ingester, maxReadAhead, initialSeriesId, statsInterval)
-        let! _pumpStripes = Async.StartChild striper.Pump // will die with us, which is only after Reader finishes :point_down:
+        let! _pumpStripes = striper.Pump |> Async.startImmediateAsTask ct // will die with us, which is only after Reader finishes :point_down:
 
         let post = function
             | Reader.Res.EndOfChunk seriesId -> striper.Submit <| Message.CloseSeries seriesId
             | Reader.Res.Batch (seriesId, pos, xs) ->
                 let cp = pos.CommitPosition
-                striper.Submit <| Message.Batch(seriesId, cp, checkpoints.Commit cp, xs)
+                striper.Submit <| Message.Batch(seriesId, cp, (fun ct -> checkpoints.Commit(cp, ct)), xs)
 
         let reader = Reader.EventStoreReader(conns, spec.batchSize, spec.minBatchSize, tryMapEvent, post, spec.tailInterval, dop)
-        do! reader.Pump(initialSeriesId, startPos, maxPos) }
+        do! reader.Pump(initialSeriesId, startPos, maxPos) |> Async.startImmediateAsTask ct }

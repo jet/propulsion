@@ -2,9 +2,10 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open System
+open System.Threading
+open System.Threading.Tasks
 
 module private Impl =
 
@@ -14,11 +15,11 @@ module private Impl =
         let index = AppendsIndex.Reader.create storeLog context
         index.ReadKnownTranches()
 
-    let readTailPositionForTranche log context (AppendsTrancheId.Parse trancheId) = async {
+    let readTailPositionForTranche log context (AppendsTrancheId.Parse trancheId) ct = task {
         let index = AppendsIndex.Reader.create log context
-        let! epochId = index.ReadIngestionEpochId(trancheId)
+        let! epochId = index.ReadIngestionEpochId(trancheId) |> Async.startImmediateAsTask ct
         let epochs = AppendsEpoch.Reader.Config.create log context
-        let! version = epochs.ReadVersion(trancheId, epochId)
+        let! version = epochs.ReadVersion(trancheId, epochId) |> Async.startImmediateAsTask ct
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
     let logReadFailure (storeLog : Serilog.ILogger) =
@@ -42,7 +43,7 @@ module private Impl =
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
-            (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad, loadDop) batchCutoff (context : DynamoStoreContext)
+            (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset), ct) = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
@@ -71,12 +72,12 @@ module private Impl =
         let materializeSpans ct = task {
             let loadsRequired =
                 [| let streamsToLoad = seq { for span in buffer do if not (cache.ContainsKey(span.p)) then span.p }
-                   for p in Seq.distinct streamsToLoad -> async {
-                        let! items = streamEvents[p]
+                   for p in Seq.distinct streamsToLoad -> fun ct -> task {
+                        let! items = streamEvents[p] ct
                         cache.TryAdd(p, items) |> ignore } |]
             if loadsRequired.Length <> 0 then
                 sw.Start()
-                do! loadsRequired |> Async.parallelThrottled loadDop |> Async.Ignore<unit array> |> Async.startImmediateAsTask ct
+                do! loadsRequired |> Task.parallelThrottled loadDop ct |> Task.ignore<unit[]>
                 sw.Stop()
             return [|
                 for span in buffer do
@@ -126,14 +127,14 @@ module internal LoadMode =
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
-                ValueSome (async { let! ct = Async.CancellationToken
-                                   let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, ct, i, maxCount = cs.Length) |> Async.AwaitTaskCorrect
-                                   return events |> Array.map mapTimelineEvent })
+                ValueSome (fun ct -> task {
+                               let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, ct, i, maxCount = cs.Length)
+                               return events |> Array.map mapTimelineEvent })
             else ValueNone
     let private withoutBodies categoryFilter =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
-            if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (async { return cs |> Array.mapi renderEvent }) else ValueNone
+            if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
     let map storeLog : LoadMode -> _ = function
         | WithoutEventBodies categoryFilter -> false, withoutBodies categoryFilter, 1
         | Hydrated (categoryFilter, dop, storeContext) ->
@@ -167,22 +168,22 @@ type DynamoStoreSource
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
 
-    abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
-    default _.ListTranches() = async {
+    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
+    default _.ListTranches(ct) = task {
         match trancheIds with
         | Some ids -> return ids
         | None ->
             let context = DynamoStoreContext(indexClient)
             let storeLog = defaultArg storeLog log
-            let! res = Impl.readTranches storeLog context
+            let! res = Impl.readTranches storeLog context |> Async.startImmediateAsTask ct
             let appendsTrancheIds = match res with [||] -> [| AppendsTrancheId.wellKnownId |] | ids -> ids
             return appendsTrancheIds |> Array.map AppendsTrancheId.toTrancheId }
 
-    abstract member Pump : unit -> Async<unit>
-    default x.Pump() = base.Pump(x.ListTranches)
+    abstract member Pump : ct : CancellationToken -> Task<unit>
+    default x.Pump(ct) = base.Pump(x.ListTranches, ct)
 
     abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
-    default x.Start() = base.Start(x.Pump())
+    default x.Start() = base.Start(x.Pump)
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
@@ -192,7 +193,7 @@ type DynamoStoreSource
 
         try // In the case of sustained activity and/or catch-up scenarios, proactively trigger an orderly shutdown of the Source
             // in advance of the Lambda being killed (no point starting new work or incurring DynamoDB CU consumption that won't finish)
-            System.Threading.Tasks.Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+            Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
 
             // If for some reason we're not provisioned well enough to read something within 1m, no point for paying for a full lambda timeout
             let initialReaderTimeout = TimeSpan.FromMinutes 1.

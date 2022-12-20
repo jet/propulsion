@@ -6,8 +6,10 @@ namespace Propulsion.Feed
 
 open FSharp.Control
 open Propulsion.Internal
-open System.Collections.Generic
 open System
+open System.Collections.Generic
+open System.Threading
+open System.Threading.Tasks
 
 /// Int64.MaxValue = 9223372036854775807
 /// ([datetimeoffset]::FromUnixTimeSeconds(9223372036854775807 / 1000000000)) is in 2262
@@ -97,6 +99,10 @@ type PeriodicSource
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
     /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
-    member _.Pump(?readTranches : unit -> Async<TrancheId[]>) =
-        let readTranches = match readTranches with Some f -> f | None -> fun () -> async { return [| TrancheId.parse "0" |] }
-        base.Pump(readTranches, crawl)
+    member internal _.Pump(readTranches : CancellationToken -> Task<TrancheId[]>, ct) =
+        base.Pump(readTranches, crawl, ct)
+
+    abstract member Start : ?readTranches : (CancellationToken -> Task<TrancheId[]>) -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    default x.Start(?readTranches) =
+        let readTranches = match readTranches with Some f -> f | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
+        base.Start(fun ct -> x.Pump(readTranches, ct))

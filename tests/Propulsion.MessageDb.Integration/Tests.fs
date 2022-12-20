@@ -4,7 +4,6 @@ open FSharp.Control
 open Npgsql
 open NpgsqlTypes
 open Propulsion.MessageDb
-open Propulsion.Infrastructure
 open Propulsion.Internal
 open Swensen.Unquote
 open System
@@ -37,13 +36,13 @@ let writeMessagesToCategory category = task {
     do! batch.ExecuteNonQueryAsync() :> Task }
 
 [<Fact>]
-let ``It processes events for a category`` () = async {
+let ``It processes events for a category`` () = task {
     let log = Serilog.Log.Logger
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category1 = $"{Guid.NewGuid():N}"
     let category2 = $"{Guid.NewGuid():N}"
-    do! writeMessagesToCategory category1 |> Async.AwaitTaskCorrect
-    do! writeMessagesToCategory category2 |> Async.AwaitTaskCorrect
+    do! writeMessagesToCategory category1
+    do! writeMessagesToCategory category2
     let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
@@ -52,7 +51,7 @@ let ``It processes events for a category`` () = async {
                            member _.HandleOk x = () }
     let mutable stop = ignore
     let handled = HashSet<_>()
-    let handle struct (stream, events: Propulsion.Streams.Default.StreamSpan) = async {
+    let handle stream (events: Propulsion.Streams.Default.StreamSpan) _ct = task {
         lock handled (fun _ ->
            for evt in events do
                handled.Add((stream, evt.Index)) |> ignore)

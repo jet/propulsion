@@ -6,7 +6,7 @@ open Confluent.Kafka
 open FsCodec
 open FsKafka
 open Propulsion
-open Propulsion.Internal // intervalCheck, AwaitTaskCorrect
+open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
 open System
@@ -149,7 +149,7 @@ type ParallelConsumer private () =
     static member Start<'Msg>
         (   log : ILogger, config : KafkaConsumerConfig, maxDop,
             mapResult : ConsumeResult<string, string> -> 'Msg,
-            handle : 'Msg -> Async<Choice<unit, exn>>,
+            handle : Func<'Msg, CancellationToken, Task<Choice<unit, exn>>>,
             // Default 5m
             ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
@@ -169,10 +169,10 @@ type ParallelConsumer private () =
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
     /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
     static member Start
-        (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : KeyValuePair<string, string> -> Async<unit>,
+        (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : Func<KeyValuePair<string, string>, CancellationToken, Task<unit>>,
             // Default 5m
             ?statsInterval, ?logExternalStats) =
-        ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, handle >> Async.Catch, ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
+        ParallelConsumer.Start<KeyValuePair<string, string>>(log, config, maxDop, Binding.mapConsumeResult, (fun x ct -> handle.Invoke(x, ct) |> Task.Catch), ?statsInterval=statsInterval, ?logExternalStats=logExternalStats)
 
 /// APIs only required for advanced scenarios (specifically the integration tests)
 /// APIs within are not part of the stable API and are subject to unlimited change
@@ -200,7 +200,7 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
@@ -223,7 +223,7 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
-                prepare, handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
+                prepare, handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
                 maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
@@ -239,7 +239,7 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Default.StreamEvent seq,
-                handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>, maxDop,
+                handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
@@ -356,7 +356,7 @@ type StreamsConsumer =
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : struct (StreamName * StreamSpan<_>) -> Async<struct (Streams.SpanResult * 'Outcome)>,
+            handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
             // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
             // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
@@ -390,7 +390,7 @@ type BatchesConsumer =
             // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Scheduling.Item<_>[] -> Async<seq<Choice<int64, exn>>>,
+            handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Choice<int64, exn>>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
@@ -401,7 +401,7 @@ type BatchesConsumer =
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
                 TimeSpan.FromMilliseconds(tot / float items.Length)
-            try let! results = handle items |> Async.startAsTask ct
+            try let! results = handle.Invoke(items, ct)
                 let ae = avgElapsed ()
                 return
                     [| for x in Seq.zip items results ->

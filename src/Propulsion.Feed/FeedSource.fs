@@ -1,6 +1,7 @@
 namespace Propulsion.Feed.Core
 
 open FSharp.Control
+open Microsoft.FSharp.Core
 open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
@@ -12,21 +13,20 @@ open System.Threading.Tasks
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option,
+        checkpoints : IFeedCheckpointStore, establishOrigin : Func<TrancheId, CancellationToken, Task<Position>> option,
         sink : Propulsion.Streams.Default.Sink,
         renderPos : Position -> string,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
     let positions = TranchePositions()
-    let pumpPartition (partitionId : int) trancheId struct (ingester : Ingestion.Ingester<_>, reader : FeedReader) = async {
-        let! ct = Async.CancellationToken
-        try try let! freq, pos = checkpoints.Start(sourceId, trancheId, ?establishOrigin = (establishOrigin |> Option.map (fun f -> f trancheId)))
+    let pumpPartition (partitionId : int) trancheId struct (ingester : Ingestion.Ingester<_>, reader : FeedReader) ct = task {
+        try let log (e : exn) = reader.Log.Warning(e, "Finishing {partition}", partitionId)
+            let establishTrancheOrigin (f : Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
+            try let! freq, pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
                 reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
                                        partitionId, sourceId, trancheId, renderPos pos, freq.TotalMinutes)
-                return! reader.Pump(pos, ct) |> Async.AwaitTaskCorrect
-            with e ->
-                reader.Log.Warning(e, "Finishing {partition}", partitionId)
-                return! Async.Raise e
+                return! reader.Pump(pos, ct)
+            with Exception.Log log () -> ()
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
     let dumpStats () = for _i, r in partitions do r.DumpStats()
@@ -39,19 +39,19 @@ type FeedSourceBase internal
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member _.Checkpoint() : Async<IReadOnlyDictionary<TrancheId, Position>> = async {
-        let! ct = Async.CancellationToken
-        do! Async.Parallel(seq { for i, _r in partitions -> i.FlushProgress ct |> Async.AwaitTaskCorrect }) |> Async.Ignore<unit array>
+    member _.Checkpoint([<O; D null>]?ct) : Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+        do! Task.parallelThrottled 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit array>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal x.Pump
-        (   readTranches : unit -> Async<TrancheId[]>,
+        (   readTranches : CancellationToken -> Task<TrancheId[]>,
             // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
-            crawl : TrancheId -> bool * Position * CancellationToken -> IAsyncEnumerable<struct (TimeSpan * Batch<_>)>) = async {
+            crawl : TrancheId -> bool * Position * CancellationToken -> IAsyncEnumerable<struct (TimeSpan * Batch<_>)>,
+            ct) = task {
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
-        let! (tranches : TrancheId array) = readTranches ()
+        let! (tranches : TrancheId array) = readTranches ct
         log.Information("Starting {tranches} tranche readers...", tranches.Length)
         partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
@@ -64,12 +64,12 @@ type FeedSourceBase internal
         // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
         let! _stats = pumpStats () |> Async.StartChild
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
-        do! Async.Parallel(trancheWorkflows) |> Async.Ignore<unit[]>
-        do! x.Checkpoint() |> Async.Ignore }
+        do! Task.parallelUnthrottled ct trancheWorkflows |> Task.ignore<unit[]>
+        do! x.Checkpoint() |> Task.ignore }
 
     member x.Start(pump) =
         let ct, stop =
-            let cts = new System.Threading.CancellationTokenSource()
+            let cts = new CancellationTokenSource()
             let stop disposing =
                 if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
                 cts.Cancel()
@@ -80,8 +80,8 @@ type FeedSourceBase internal
             let markCompleted () = tcs.TrySetResult () |> ignore
             let recordExn (e : exn) = tcs.TrySetException e |> ignore
             // first exception from a supervised task becomes the outcome if that happens
-            let supervise inner = async {
-                try do! inner
+            let supervise inner () = task {
+                try do! inner ct
                     // If the source completes all reading cleanly, declare completion
                     log.Information "Source drained..."
                     markCompleted ()
@@ -95,7 +95,7 @@ type FeedSourceBase internal
             use _ = ct.Register(fun _t -> markCompleted ())
 
             // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
-            Async.Start(supervise pump, cancellationToken = ct)
+            Task.start(supervise pump)
 
             try return! outcomeTask
             finally log.Information "... source completed" }
@@ -259,7 +259,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, establishOrigin : (TrancheId -> Async<Position>) option, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : IFeedCheckpointStore, establishOrigin, sink : Propulsion.Streams.Default.Sink,
         crawl : TrancheId * Position * CancellationToken -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Streams.Default.EventBody>)>,
         renderPos,
         ?logReadFailure, ?readFailureSleepInterval : TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
@@ -274,8 +274,8 @@ type TailingFeedSource
             match logReadFailure with None -> log.ForContext("tranche", trancheId).ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
             match readFailureSleepInterval with None -> () | Some interval -> do! Task.delay interval ct }
 
-    member _.Pump(readTranches) =
-        base.Pump(readTranches, crawl)
+    member _.Pump(readTranches, ct) =
+        base.Pump(readTranches, crawl, ct)
 
 /// Drives reading and checkpointing from a source that aggregates data from multiple streams as a singular source
 /// without shards/physical partitions (tranches), such as the SqlStreamStore and EventStoreDB $all feeds
@@ -299,12 +299,12 @@ type AllFeedSource
                   yield struct (sw.Elapsed, b) } ),
             renderPos = defaultArg renderPos string)
 
-    member internal _.Pump =
-        let readTranches () = async { return [| TrancheId.parse "0" |] }
-        base.Pump(readTranches)
+    member internal _.Pump(ct) =
+        let readTranches _ct = task { return [| TrancheId.parse "0" |] }
+        base.Pump(readTranches, ct)
 
     member x.Start() =
-        base.Start x.Pump
+        base.Start(x.Pump)
 
 /// Drives reading from the Source, stopping when the Tail of each of the Tranches has been reached
 type SinglePassFeedSource
@@ -319,8 +319,8 @@ type SinglePassFeedSource
                               ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
                               readersStopAtTail = true)
 
-    member _.Start(readTranches) =
-        base.Start(base.Pump(readTranches))
+    member x.Start(readTranches) =
+        base.Start(fun ct -> x.Pump(readTranches, ct))
 
 namespace Propulsion.Feed
 
@@ -358,5 +358,5 @@ type FeedSource
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>readPage</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
     /// Any exception from <c>readTranches</c> or <c>readPage</c> will be propagated in order to enable termination of the overall projector loop
-    member _.Pump(readTranches : unit -> Async<TrancheId[]>) =
-        base.Pump(readTranches, crawl)
+    member _.Pump(readTranches : CancellationToken -> Task<TrancheId[]>, ct) =
+        base.Pump(readTranches, crawl, ct)

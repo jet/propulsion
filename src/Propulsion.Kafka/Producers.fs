@@ -4,6 +4,8 @@ open Confluent.Kafka // required for shimming
 open Propulsion.Internal
 open Serilog
 open System
+open System.Threading
+open System.Threading.Tasks
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer
@@ -36,15 +38,16 @@ type Producer
 
     /// Execute a producer operation, including recording of the latency statistics for the operation
     /// NOTE: the `execute` function is expected to throw in the event of a failure to produce (this is the standard semantic for all Confluent.Kafka ProduceAsync APIs)
-    member _.Produce(execute : FsKafka.KafkaProducer -> Async<'r>) : Async<'r> = async {
-        let producer = producers[System.Threading.Interlocked.Increment(&robin) % producers.Length]
+    member _.Produce(execute : FsKafka.KafkaProducer -> CancellationToken -> Task<'r>, ct) : Task<'r> = task {
+        let producer = producers[Interlocked.Increment(&robin) % producers.Length]
         let sw = Stopwatch.start ()
-        let! res = execute producer
+        let! res = execute producer ct
         produceStats.Record sw.Elapsed
         return res }
 
     /// Throws if producing fails, per normal Confluent.Kafka 1.x semantics
-    member x.Produce(key, value, ?headers) =
+    member x.Produce(key, value, ?headers, ?ct) =
+        let ct = defaultArg ct CancellationToken.None
         match headers with
-        | Some h -> x.Produce(fun producer -> producer.ProduceAsync(key, value, h) |> Async.Ignore)
-        | None -> x.Produce(fun producer -> producer.ProduceAsync(key, value) |> Async.Ignore)
+        | Some h -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value, h) |> Async.Ignore |> Async.startImmediateAsTask ct), ct)
+        | None -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value) |> Async.Ignore |> Async.startImmediateAsTask ct), ct)

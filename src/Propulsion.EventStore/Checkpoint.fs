@@ -1,6 +1,7 @@
 ﻿module Propulsion.EventStore.Checkpoint
 
 open FSharp.UMX
+open Propulsion.Internal
 open System // must shadow UMX to use DateTimeOffSet
 
 type CheckpointSeriesId = string<checkpointSeriesId>
@@ -124,7 +125,7 @@ type CheckpointSeries(groupName, resolve, ?log) =
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
     let inner = create (resolve log)
 
-    member _.Read = inner.Read seriesId
+    member _.Read(ct) = inner.Read seriesId |> Async.startImmediateAsTask ct
     member _.Start(freq, pos) = inner.Start(seriesId, freq, pos)
     member _.Override(freq, pos) = inner.Override(seriesId, freq, pos)
-    member _.Commit(pos) = inner.Commit(seriesId, pos)
+    member _.Commit(pos, ct) = inner.Commit(seriesId, pos) |> Async.startImmediateAsTask ct

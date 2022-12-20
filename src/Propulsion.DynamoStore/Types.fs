@@ -109,11 +109,4 @@ module internal EventCodec =
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<struct (int64 * 'c), _, _> =
         let up struct (raw : FsCodec.ITimelineEvent<_>, e) = struct (raw.Index, e)
         withUpconverter<'c, struct (int64 * 'c)> up
-
-module internal Async =
-
-    // NOTE there's a bug in FSharp.Core <= 6.0.6 that can trigger a process exit with StackOverflowException
-    // if more than ~1200 computations are supplied and abort quickly
-    let parallelThrottled dop computations = // https://github.com/dotnet/fsharp/issues/13165
-        Async.Parallel(computations, maxDegreeOfParallelism = dop)
 #endif

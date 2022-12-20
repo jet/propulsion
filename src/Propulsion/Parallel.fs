@@ -21,8 +21,8 @@ module Scheduling =
             w.TryWrite, Channel.awaitRead r, Channel.apply r
         let dop = Sem maxDop
 
-        let wrap computation = async {
-            try do! computation
+        let wrap (ct : CancellationToken) computation () = task {
+            try do! computation ct
             // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
             finally dop.Release() }
 
@@ -34,7 +34,7 @@ module Scheduling =
         member _.Pump(ct : CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 do! wait ct :> Task
-                apply (wrap >> Async.Start) |> ignore }
+                apply (wrap ct >> Task.start) |> ignore }
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
@@ -58,12 +58,12 @@ module Scheduling =
             x.faults.Push exn
 
         /// Prepares an initial set of shared state for a batch of tasks, together with the Async<unit> computations that will feed their results into it
-        static member Create(batch : Batch<'S, 'M>, handle) : WipBatch<'S, 'M> * seq<Async<unit>> =
+        static member Create(batch : Batch<'S, 'M>, handle : Func<_, CancellationToken, Task<Choice<unit, exn>>>) : WipBatch<'S, 'M> * seq<CancellationToken -> Task<unit>> =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
-                for item in batch.messages -> async {
+                for item in batch.messages -> fun ct -> task {
                     let ts = Stopwatch.timestamp ()
-                    try match! handle item with
+                    try match! handle.Invoke(item, ct) with
                         | Choice1Of2 () -> x.RecordOk(Stopwatch.elapsed ts)
                         | Choice2Of2 exn -> x.RecordExn(Stopwatch.elapsed ts, exn)
                     // This exception guard _should_ technically not be necessary per the interface contract, but cannot risk an orphaned batch
@@ -79,11 +79,11 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'P, 'M when 'P : equality>(log : ILogger, handle, tryDispatch : Async<unit> -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'P, 'M when 'P : equality>(log : ILogger, handle, tryDispatch : (CancellationToken -> Task<unit>) -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
         let incoming = ConcurrentQueue<Batch<'P, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
-        let waiting = Queue<Async<unit>>(1024)
+        let waiting = Queue<CancellationToken -> Task<unit>>(1024)
         // Index of batches that have yet to attain terminal state (can be >1 per partition)
         let active = Dictionary<'P(*partitionId*),Queue<WipBatch<'P, 'M>>>()
         (* accumulators for periodically emitted statistics info *)

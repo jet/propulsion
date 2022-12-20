@@ -1,6 +1,7 @@
 module Propulsion.Tool.Args
 
 open Argu
+open Propulsion.Internal
 open Serilog
 open System
 
@@ -287,10 +288,10 @@ module Mdb =
         member x.CreateCheckpointStore(group) =
             Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn (), schema, group, TimeSpan.FromSeconds 5.)
 
-        member x.CreateCheckpointStoreTable() = async {
+        member x.CreateCheckpointStoreTable([<O; D null>] ?ct) = task {
             let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConn (), Password = null)
             Log.Information("Authenticating with postgres using {connectionString}", connStringWithoutPassword.ToString())
             Log.Information("Creating checkpoints table as {table}", $"{schema}.{Propulsion.MessageDb.ReaderCheckpoint.TableName}")
             let checkpointStore = x.CreateCheckpointStore("nil")
-            do! checkpointStore.CreateSchemaIfNotExists()
+            do! checkpointStore.CreateSchemaIfNotExists(?ct = ct)
             Log.Information("Table created") }
