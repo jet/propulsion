@@ -3,6 +3,8 @@ namespace Propulsion.MessageDb
 open FSharp.Control
 open Propulsion.Internal
 open System
+open System.Threading
+open System.Threading.Tasks
 
 module internal Npgsql =
 
@@ -15,10 +17,8 @@ module Internal =
 
     open NpgsqlTypes
     open Propulsion.Feed
-    open Propulsion.Infrastructure // AwaitTaskCorrect
     open System.Data.Common
     open System.Text.Json
-    open System.Threading.Tasks
 
     module private Json =
         let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
@@ -73,9 +73,8 @@ module Internal =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
-    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId : Async<Position> = async {
-        let! ct = Async.CancellationToken
-        let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct) |> Async.AwaitTaskCorrect
+    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId ct : Task<Position> = task {
+        let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct)
         return Position.parse lastEventPos }
 
 type MessageDbSource internal
@@ -104,21 +103,21 @@ type MessageDbSource internal
                         categories |> Array.map Propulsion.Feed.TrancheId.parse,
                         ?startFromTail=startFromTail, ?sourceId=sourceId)
 
-    abstract member ListTranches : unit -> Async<Propulsion.Feed.TrancheId array>
-    default _.ListTranches() = async { return tranches }
+    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
+    default _.ListTranches(_ct) = task { return tranches }
 
-    abstract member Pump : unit -> Async<unit>
-    default x.Pump() = base.Pump(x.ListTranches)
+    abstract member Pump : CancellationToken -> Task<unit>
+    default x.Pump(ct) = base.Pump(x.ListTranches, ct)
 
     abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
-    default x.Start() = base.Start(x.Pump())
+    default x.Start() = base.Start(x.Pump)
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
         let sw = Stopwatch.start ()
         use pipeline = x.Start()
 
-        try System.Threading.Tasks.Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+        try Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
 
             let initialReaderTimeout = TimeSpan.FromMinutes 1.
             do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)

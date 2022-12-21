@@ -5,6 +5,7 @@ open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCanceledException
 open Propulsion.Tool.Args
 open Serilog
 open System
+open System.Threading
 open System.Threading.Tasks
 
 module CosmosInit = Equinox.CosmosStore.Core.Initialization
@@ -170,10 +171,10 @@ module Checkpoints =
             | CheckpointParameters.Pg p ->    Choice3Of3 (Args.Mdb.Arguments (c, p))
             | x -> missingArg $"unexpected subcommand %A{x}"
 
-    let readOrOverride (c, p : ParseResults<CheckpointParameters>) = async {
+    let readOrOverride (c, p : ParseResults<CheckpointParameters>, ct) = task {
         let a = Arguments(c, p)
         let source, tranche, group = p.GetResult Source, p.GetResult Tranche, p.GetResult Group
-        let! store, storeSpecFragment, overridePosition = async {
+        let! store, storeSpecFragment, overridePosition = task {
             let cache = Equinox.Cache (appName, sizeMb = 1)
             match a.StoreArgs with
             | Choice1Of3 a ->
@@ -184,11 +185,11 @@ module Checkpoints =
                 return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos)
             | Choice3Of3 a ->
                 let store = a.CreateCheckpointStore(group)
-                return store, null, fun pos -> store.Override(source, tranche, pos) }
+                return store, null, fun pos -> store.Override(source, tranche, pos, ct) |> Async.AwaitTask }
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
         match p.TryGetResult OverridePosition with
         | None ->
-            let! interval, pos = store.Start(source, tranche)
+            let! interval, pos = store.Start(source, tranche, None, ct)
             Log.Information("Checkpoint position {pos}; Checkpoint event frequency {checkpointEventIntervalM:f0}m", pos, interval.TotalMinutes)
         | Some pos ->
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
@@ -338,12 +339,12 @@ module Project =
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle struct (stream : FsCodec.StreamName, span : Propulsion.Streams.Default.StreamSpan) = async {
+            let handle (stream : FsCodec.StreamName) (span : Propulsion.Streams.Default.StreamSpan) ct = task {
                 match producer with
                 | None -> ()
                 | Some producer ->
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
-                    let! _ = producer.ProduceAsync(FsCodec.StreamName.toString stream, json) in () }
+                    return! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore |> Async.startImmediateAsTask ct }
             Propulsion.Streams.StreamsSink.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, Propulsion.Streams.Default.eventSize, idleDelay = a.IdleDelay)
         let source =
             let nullFilter _ = true
@@ -401,8 +402,8 @@ let main argv =
             let c = Args.Configuration(Environment.GetEnvironmentVariable >> Option.ofObj)
             try match a.GetSubCommand() with
                 | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-                | InitPg a ->       Mdb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.RunSynchronously
-                | Checkpoint a ->   Checkpoints.readOrOverride (c, a) |> Async.RunSynchronously
+                | InitPg a ->       Mdb.Arguments(c, a).CreateCheckpointStoreTable().Wait()
+                | Checkpoint a ->   Checkpoints.readOrOverride(c, a, CancellationToken.None).Wait()
                 | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
                 | Project a ->      Project.run (c, a) |> Async.RunSynchronously
                 | x ->              missingArg $"unexpected subcommand %A{x}"

@@ -6,9 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\Propulsion\Infrastructure.fs">
-      <Link>Infrastructure.fs</Link>
-    </Compile>
     <Compile Include="EventStoreSink.fs" />
     <Compile Include="StripedIngester.fs" />
     <Compile Include="EventStoreReader.fs" />

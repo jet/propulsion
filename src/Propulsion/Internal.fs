@@ -85,19 +85,32 @@ module Channel =
 open System.Threading
 open System.Threading.Tasks
 
+module Async =
+
+    let ofUnitTask (t : Task) = Async.AwaitTaskCorrect t
+    let ofTask (t : Task<'t>) = Async.AwaitTaskCorrect t
+    let inline startImmediateAsTask ct (a : Async<'t>) = Async.StartImmediateAsTask(a, cancellationToken = ct)
+
 module Task =
 
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
     let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
+    let inline Catch (t : Task<'t>) = task { try let! r = t in return Choice1Of2 r with e -> return Choice2Of2 e }
+    let private parallel_ maxDop ct (xs : seq<CancellationToken -> Task<'t>>) : Task<'t []> =
+        let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.ofTask }, cancellationToken = ct)
+        Async.Parallel(xs |> Seq.map (run ct), ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.startImmediateAsTask ct
+    let parallelThrottled maxDop ct xs : Task<'t []> =
+        parallel_ maxDop ct xs
+    let parallelUnthrottled ct xs : Task<'t []> =
+        parallel_ 0 ct xs
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = struct(max - inner.CurrentCount, max)
-    member _.Await(ct : CancellationToken) = inner.WaitAsync(ct) |> Async.AwaitTaskCorrect
     member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
-    member x.AwaitButRelease() = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
+    member x.WaitButRelease() = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
         inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
@@ -119,12 +132,14 @@ type Async with
         use _ = Console.CancelKeyPress.Subscribe(fun (a : ConsoleCancelEventArgs) ->
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
-        return! Async.AwaitTaskCorrect tcs.Task }
+        return! Async.ofUnitTask tcs.Task }
 
-module Async =
+type OAttribute = System.Runtime.InteropServices.OptionalAttribute
+type DAttribute = System.Runtime.InteropServices.DefaultParameterValueAttribute
 
-    let inline startAsTask ct (a : Async<'t>) = Async.StartAsTask(a, cancellationToken = ct)
-    let inline startImmediateAsTask ct (a : Async<'t>) = Async.StartImmediateAsTask(a, cancellationToken = ct)
+module Exception =
+
+    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
 
 module ValueTuple =
 
@@ -136,6 +151,7 @@ module ValueOption =
 
     let inline ofOption x = match x with Some x -> ValueSome x | None -> ValueNone
     let inline toOption x = match x with ValueSome x -> Some x | ValueNone -> None
+    let inline map f x = match x with ValueSome x -> ValueSome (f x) | ValueNone -> ValueNone
 
 module Seq =
 

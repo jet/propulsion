@@ -1,6 +1,5 @@
 namespace Propulsion.Cosmos
 
-open System.Threading.Tasks
 open Microsoft.Azure.Documents
 open Microsoft.Azure.Documents.Client
 open Microsoft.Azure.Documents.ChangeFeedProcessor
@@ -10,14 +9,8 @@ open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
-
-[<AutoOpen>]
-module IChangeFeedObserverContextExtensions =
-    /// Provides F#-friendly wrapping for the `CheckpointAsync` function, which typically makes sense to pass around in `Async` form
-    type Microsoft.Azure.Documents.ChangeFeedProcessor.FeedProcessing.IChangeFeedObserverContext with
-        /// Triggers `CheckpointAsync()`; Mark the the full series up to and including this batch as having been confirmed consumed.
-        member x.Checkpoint() = async {
-            return! x.CheckpointAsync() |> Async.AwaitTaskCorrect }
+open System.Threading
+open System.Threading.Tasks
 
 type ContainerId = { database : string; container : string }
 
@@ -33,7 +26,7 @@ type ChangeFeedObserver =
         /// - ceding control as soon as commencement of the next batch retrieval is desired
         /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
         /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.CheckpointAsync`
-        ingest : ILogger -> IChangeFeedObserverContext -> IReadOnlyList<Document> -> Task<unit>,
+        ingest : ILogger -> IChangeFeedObserverContext * IReadOnlyList<Document> * CancellationToken -> Task<unit>,
         /// Called when this Observer is being created (triggered before `assign`)
         ?init : ILogger -> int -> unit,
         /// Called when a lease is won and the observer is being spun up (0 or more `ingest` calls will follow). Overriding inhibits default logging.
@@ -52,11 +45,10 @@ type ChangeFeedObserver =
             match assign with
             | Some f -> return! f log rangeId
             | None -> log.Information("Reader {partition} Assigned", ctx.PartitionKeyRangeId) }
-        let _process (ctx, docs) = async {
-            try do! ingest log ctx docs |> Async.AwaitTaskCorrect
-            with e ->
-                log.Error(e, "Reader {partition} Handler Threw", ctx.PartitionKeyRangeId)
-                do! Async.Raise e }
+        let _process (ctx : IChangeFeedObserverContext, docs, ct) = task {
+            let logExn (e : exn) = log.Error(e, "Reader {partition} Handler Threw", ctx.PartitionKeyRangeId)
+            try do! ingest log (ctx, docs, ct)
+            with Exception.Log logExn () -> () }
         let _close (ctx : IChangeFeedObserverContext, reason) = async {
             log.Warning "Closing" // Added to enable diagnosing underlying CFP issues; will be removed eventually
             match revoke with
@@ -64,7 +56,7 @@ type ChangeFeedObserver =
             | None -> log.Information("Reader {partition} Revoked {reason}", ctx.PartitionKeyRangeId, reason) }
         { new IChangeFeedObserver with
             member _.OpenAsync ctx = Async.StartAsTask(_open ctx) :> _
-            member _.ProcessChangesAsync(ctx, docs, ct) = _process(ctx, docs) |> Async.startImmediateAsTask ct :> _
+            member _.ProcessChangesAsync(ctx, docs, ct) = _process(ctx, docs, ct) :> _
             member _.CloseAsync (ctx, reason) = Async.StartAsTask(_close (ctx, reason)) :> _
           interface IDisposable with
             member _.Dispose() =
@@ -145,13 +137,14 @@ type ChangeFeedProcessor =
                 .WithProcessorOptions(feedProcessorOptions)
         match reportLagAndAwaitNextEstimation with
         | None -> ()
-        | Some lagMonitorCallback ->
+        | Some (lagMonitorCallback : _ -> Task<unit>) ->
             let! estimator = builder.BuildEstimatorAsync() |> Async.AwaitTaskCorrect
-            let rec emitLagMetrics () = async {
-                let! remainingWork = estimator.GetEstimatedRemainingWorkPerPartitionAsync() |> Async.AwaitTaskCorrect
-                do! lagMonitorCallback <| List.ofSeq (seq { for r in remainingWork -> int (r.PartitionKeyRangeId.Trim[|'"'|]),r.RemainingWork } |> Seq.sortBy fst)
-                return! emitLagMetrics () }
-            let! _ = Async.StartChild(emitLagMetrics ()) in ()
+            let! ct = Async.CancellationToken
+            let emitLagMetrics () = task {
+                while not ct.IsCancellationRequested do
+                    let! remainingWork = estimator.GetEstimatedRemainingWorkPerPartitionAsync()
+                    do! lagMonitorCallback <| List.ofSeq (seq { for r in remainingWork -> int (r.PartitionKeyRangeId.Trim[|'"'|]),r.RemainingWork } |> Seq.sortBy fst) }
+            Task.start emitLagMetrics
         let context : ChangeFeedObserverContext = { source = source; leasePrefix = leasePrefix }
         let! processor = builder.WithObserverFactory(ChangeFeedObserverFactory.FromFunction (fun () -> createObserver context)).BuildAsync() |> Async.AwaitTaskCorrect
         do! processor.StartAsync() |> Async.AwaitTaskCorrect

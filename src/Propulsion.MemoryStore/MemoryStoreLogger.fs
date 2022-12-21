@@ -13,7 +13,7 @@ let private propEventJsonUtf8 name (events : FsCodec.ITimelineEvent<ReadOnlyMemo
             let d = e.Data
             if not d.IsEmpty then System.Collections.Generic.KeyValuePair<_,_>(e.EventType, System.Text.Encoding.UTF8.GetString d.Span) })
 
-let renderSubmit (log : Serilog.ILogger) struct (epoch, categoryName, aggregateId, events : FsCodec.ITimelineEvent<'F> array) =
+let renderSubmit (log : Serilog.ILogger) struct (epoch, categoryName, aggregateId, events : FsCodec.ITimelineEvent<'F>[]) =
     if log.IsEnabled Serilog.Events.LogEventLevel.Verbose then
         let log =
             if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log

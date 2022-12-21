@@ -24,7 +24,7 @@ type ProgressWriter<'Res when 'Res : equality>() =
     member x.CommitIfDirty ct = task {
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
-            try do! f |> Async.startImmediateAsTask ct
+            try do! f ct
                 result.Trigger(Choice1Of2 v)
                 Volatile.Write(&committedEpoch, Some v)
             with e -> result.Trigger(Choice2Of2 e)
@@ -43,7 +43,7 @@ type private InternalMessage =
     | Added of epoch : int64 * streams : int * events : int
 
 [<Struct; NoComparison; NoEquality>]
-type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : Async<unit>; isTail : bool }
+type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : CancellationToken -> Task<unit>; isTail : bool }
 
 type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     let mutable readEpoch, validatedEpoch, committedEpoch = None, None, None
@@ -154,7 +154,7 @@ type Ingester<'Items> private
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
     member _.Stop() = cts.Cancel()
 
-    member x.Await(ct) = task {
+    member x.Wait(ct) = task {
         let! r = maxRead.WaitForCompleted ct
         do! x.AwaitCheckpointed ct
         return r }

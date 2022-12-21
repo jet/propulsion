@@ -40,10 +40,11 @@ module Internal =
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : Context) stream (span : Default.StreamSpan) = async {
+        let write (log : ILogger) (ctx : Context) stream (span : Default.StreamSpan) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
             let stream = ctx.CreateStream stream
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
+                       |> Async.startImmediateAsTask ct
             let res' =
                 match res with
                 | AppendResult.Ok pos -> Ok pos.index
@@ -140,7 +141,7 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % cosmosContexts.Length
                 let selectedConnection = cosmosContexts[index]
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
-                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' |> Async.startImmediateAsTask ct
+                try let! res = Writer.write log selectedConnection (StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =

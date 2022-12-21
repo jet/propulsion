@@ -1,7 +1,6 @@
 namespace Propulsion.Feed.Core
 
 open FSharp.Control
-open Propulsion // Async.Raise
 open Propulsion.Feed
 open Propulsion.Internal
 open Serilog
@@ -30,7 +29,7 @@ module Log =
     /// Attach a property to the captured event record to hold the metric information
     // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let [<Literal>] PropertyTag = "propulsionFeedEvent"
-    let internal withMetric (value : Metric) = Internal.Log.withScalarProperty PropertyTag value
+    let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
     let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
@@ -100,13 +99,13 @@ type FeedReader
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
             * CancellationToken
-            -> IAsyncEnumerable<struct (TimeSpan * Batch<Streams.Default.EventBody>)>,
+            -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Streams.Default.EventBody>)>,
         // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch : Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Task<struct (int * int)>,
+        submitBatch : Propulsion.Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq> -> Task<struct (int * int)>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -114,8 +113,9 @@ type FeedReader
             SourceId
             * TrancheId // identifiers of source and tranche within that; a checkpoint is maintained per such pairing
             * Position // index representing next read position in stream
+            * CancellationToken
             // permitted to throw if it fails; failures are counted and/or retried with throttling
-            -> Async<unit>,
+            -> Task,
         renderPos,
         ?logCommitFailure,
         // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
@@ -123,13 +123,16 @@ type FeedReader
 
     let stats = Stats(partition, source, tranche, renderPos)
 
-    let commit position = async {
-        try do! commitCheckpoint (source, tranche, position)
+    let commit (position : Position) ct = task {
+        let logExn (e : exn) =
+            match logCommitFailure with
+            | None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position)
+            | Some l -> l e
+        try
+            do! commitCheckpoint (source, tranche, position, ct)
             stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
-        with e ->
-            match logCommitFailure with None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position) | Some l -> l e
-            return! Async.Raise e }
+        with Exception.Log logExn () -> () }
 
     let submitPage (readLatency, batch : Batch<_>) = task {
         stats.RecordBatch(readLatency, batch)
@@ -159,6 +162,6 @@ type FeedReader
         match awaitIngesterShutdown with
         | Some a when not ct.IsCancellationRequested ->
             let completionTimer = Stopwatch.start ()
-            let! struct (cur, max) = a ct |> Async.AwaitTaskCorrect
+            let! struct (cur, max) = a ct
             stats.UpdateIngesterState(completionTimer.Elapsed, cur, max, finished = true)
         | _ -> () }

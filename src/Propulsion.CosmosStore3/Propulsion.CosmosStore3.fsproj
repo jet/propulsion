@@ -9,9 +9,6 @@
     <Compile Include="..\Propulsion.CosmosStore\CosmosStoreParser.fs">
       <Link>EquinoxCosmosParser.fs</Link>
     </Compile>
-    <Compile Include="..\Propulsion\Infrastructure.fs">
-      <Link>PropulsionInfrastructure.fs</Link>
-    </Compile>
     <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
       <Link>ChangeFeedProcessor.fs</Link>
     </Compile>

@@ -1,6 +1,5 @@
 ﻿namespace Propulsion.EventStore
 
-open Propulsion.Infrastructure
 open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
@@ -8,9 +7,10 @@ open System
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Threading
+open System.Threading.Tasks
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
+    | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : Default.StreamEvent seq
     | CloseSeries of seriesIndex : int
 
 module StripedIngesterImpl =
@@ -33,7 +33,7 @@ module StripedIngesterImpl =
             if interval.IfDueRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : Async<unit> * items : Default.StreamEvent seq
+        | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : Default.StreamEvent seq
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
@@ -59,7 +59,7 @@ type StripedIngester
     let readingAhead, ready = Dictionary<int, ResizeArray<_>>(), Dictionary<int, ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 
-    let reserveAsInFlightBatch () = maxInFlightBatches.Await(cts.Token)
+    let reserveAsInFlightBatch () = maxInFlightBatches.Wait(cts.Token) |> Async.ofUnitTask
     let releaseInFlightBatchAllocation () = maxInFlightBatches.Release()
 
     let handle = function
@@ -124,7 +124,7 @@ type StripedIngester
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
                 | false, _ -> itemLimit <- 0
             while pending.Count <> 0 do
-                do! inner.Ingest(pending.Dequeue()) |> Async.AwaitTaskCorrect |> Async.Ignore
+                do! inner.Ingest(pending.Dequeue()) |> Async.ofTask |> Async.Ignore
             stats.TryDump(activeSeries, readingAhead, ready, maxInFlightBatches.State)
             do! Async.Sleep pumpIntervalMs }
 

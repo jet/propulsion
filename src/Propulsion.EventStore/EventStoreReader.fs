@@ -1,7 +1,6 @@
 ﻿module Propulsion.EventStore.Reader
 
 open EventStore.ClientAPI
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal // Sem
 open Propulsion.Streams
 open Serilog // NB Needs to shadow ILogger
@@ -108,14 +107,14 @@ let posFromPercentage (pct, max : Position) =
     let chunk = int (chunk rawPos) in posFromChunk chunk // &&& 0xFFFFFFFFE0000000L // rawPos / 256L / 1024L / 1024L * 1024L * 1024L * 256L
 
 /// Read the current tail position; used to be able to compute and log progress of ingestion
-let fetchMax (conn : IEventStoreConnection) = async {
-    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false) |> Async.AwaitTaskCorrect
+let fetchMax (conn : IEventStoreConnection) = task {
+    let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false)
     let max = lastItemBatch.FromPosition
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, Log.miB max.CommitPosition/1024.)
     return max }
 
 /// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
-let establishMax (conn : IEventStoreConnection) = async {
+let establishMax (conn : IEventStoreConnection) = task {
     let mutable max = None
     while Option.isNone max do
         try let! currentMax = fetchMax conn
@@ -130,7 +129,7 @@ let establishMax (conn : IEventStoreConnection) = async {
 let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.StreamSpan -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
-        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.ofTask
         let events = currentSlice.Events |> Array.map (fun x -> mapEvent x.Event)
         do! postBatch (stream, events)
         match limit with
@@ -148,7 +147,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
     let sw = Stopwatch.start () // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
-        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.ofTask
         sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
         let postTs = Stopwatch.timestamp ()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
@@ -311,7 +310,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
         let mutable endDetected = false
         while not ct.IsCancellationRequested do
             overallStats.DumpIfIntervalExpired()
-            let! _ = dop.Await ct
+            let! _ = dop.Wait ct |> Async.ofUnitTask
             match work.TryDequeue(), remainder with
             | (true, EofDetected), Some nextChunk ->
                 if endDetected then

@@ -42,9 +42,9 @@ let quickStart log stats categories handle = async {
         categories
       ).Start()
       
-    do! src.AwaitShutdown() }
+    do! src.Await() }
     
-let handle struct(stream, evts: StreamSpan<_>) = async {
+let handle stream (events: StreamSpan<_>) _ct = task {
     // process the events
     return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     

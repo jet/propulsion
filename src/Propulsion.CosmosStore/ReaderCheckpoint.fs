@@ -1,6 +1,8 @@
 module Propulsion.Feed.ReaderCheckpoint
 
+open Propulsion.Internal
 open System
+open System.Threading.Tasks
 
 #if COSMOSV3 || COSMOSV2
 let streamName struct (source, tranche, consumerGroupName : string) =
@@ -128,24 +130,25 @@ type Service internal (resolve : struct (SourceId * TrancheId * string) -> Decid
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche, ?establishOrigin) : Async<struct (TimeSpan * Position)> =
+        member _.Start(source, tranche, establishOrigin, ct) : Task<struct (TimeSpan * Position)> =
             let decider = resolve (source, tranche, consumerGroupName)
-            let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> f
+            let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> async { return! f.Invoke(ct) |> Async.AwaitTask }
 #if COSMOSV2 || COSMOSV3
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
 #else
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AllowStale)
 #endif
-
+            |> Async.startImmediateAsTask ct
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-        member _.Commit(source, tranche, pos : Position) : Async<unit> =
+        member _.Commit(source, tranche, pos : Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
 #if COSMOSV2 || COSMOSV3
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 #else
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
 #endif
+            |> Async.startImmediateAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters
     member _.Override(source, tranche, pos : Position) =

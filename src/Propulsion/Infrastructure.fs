@@ -44,6 +44,3 @@ type Async with
                 else
                     sc ())
             |> ignore)
-
-    /// Re-raise an exception so that the current stacktrace is preserved
-    static member Raise(e : #exn) : Async<'T> = Async.FromContinuations (fun (_,ec,_) -> ec e)

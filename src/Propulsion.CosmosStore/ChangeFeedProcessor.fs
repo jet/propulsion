@@ -3,7 +3,6 @@ namespace Propulsion.CosmosStore
 open FSharp.Control
 open Microsoft.Azure.Cosmos
 open Propulsion.Internal
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
@@ -22,9 +21,9 @@ type IChangeFeedObserver =
     /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
 #if COSMOSV2 || COSMOSV3
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> -> Async<unit>
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> * CancellationToken -> Task<unit>
 #else
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : Async<unit> * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> -> Task<unit>
+    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
 #endif
 
 type internal SourcePipeline =
@@ -40,20 +39,20 @@ type internal SourcePipeline =
 
         let tcs = TaskCompletionSource<unit>()
 
-        let machine = async {
+        let machine () = task {
             do! start ()
             // external cancellation should yield a success result
             use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
 
             match maybeStartChild with
             | None -> ()
-            | Some child -> let! _ = Async.StartChild child in ()
+            | Some child -> Task.start (fun () -> child ct)
 
-            do! Async.AwaitTaskCorrect tcs.Task // aka base.AwaitShutdown()
-            do! stop ()
-            log.Information("... source stopped") }
+            try do! tcs.Task
+                do! stop ()
+            finally log.Information("... source stopped") }
 
-        let task = Async.StartAsTask machine
+        let task = Task.run machine
 
         new Propulsion.Pipeline(task, triggerStop)
 
@@ -112,8 +111,8 @@ type ChangeFeedProcessor =
 #else
                         (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
 #endif
-                        (checkpointAsync : Func<Task>) = async {
-                    let checkpoint = async { return! checkpointAsync.Invoke() |> Async.AwaitTaskCorrect }
+                        (checkpointAsync : CancellationToken -> Task<unit>) ct = task {
+                    let log (e : exn) = log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
 #if COSMOSV2 || COSMOSV3
@@ -123,15 +122,11 @@ type ChangeFeedProcessor =
 #endif
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
-#if COSMOSV2 || COSMOSV3
-                        return! observer.Ingest(ctx, checkpoint, changes)
-#else
-                        return! observer.Ingest(ctx, checkpoint, changes) |> Async.AwaitTaskCorrect
-#endif
-                    with e ->
-                        log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
-                        do! Async.Raise e }
-                fun ctx chg chk ct -> aux ctx chg chk |> Async.startImmediateAsTask ct :> Task
+                        return! observer.Ingest(ctx, checkpointAsync, changes, ct)
+                    with Exception.Log log () -> () }
+                fun ctx chg (chk : Func<Task>) ct ->
+                    let chk' _ct = task { do! chk.Invoke() }
+                    aux ctx chg chk' ct :> Task
             let acquireAsync leaseToken = log.Information("Reader {partition} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let releaseAsync leaseToken = log.Information("Reader {partition} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
             let notifyError =
@@ -155,23 +150,21 @@ type ChangeFeedProcessor =
             reportLagAndAwaitNextEstimation
             |> Option.map (fun lagMonitorCallback ->
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-                let rec emitLagMetrics () = async {
-                    let! ct = Async.CancellationToken
-                    let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : IAsyncEnumerable<'u> = taskSeq {
-                        // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
-                        use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
-                        while query.HasMoreResults do
-                            let! res = query.ReadNextAsync(ct)
-                            for x in res do
-                                yield map x }
-                    let! leasesState =
-                        feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                        |> TaskSeq.toArrayAsync
-                        |> Async.AwaitTaskCorrect
-                    do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq)
-                    return! emitLagMetrics () }
-                emitLagMetrics ())
-        let wrap (f : unit -> Task) () = f () |> Async.AwaitTaskCorrect
+                let emitLagMetrics (ct : CancellationToken) = task {
+                    while not ct.IsCancellationRequested do
+                        let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : IAsyncEnumerable<'u> = taskSeq {
+                            // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
+                            use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                            while query.HasMoreResults do
+                                let! res = query.ReadNextAsync(ct)
+                                for x in res do
+                                    yield map x }
+                        let! leasesState =
+                            feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
+                            |> TaskSeq.toArrayAsync
+                        do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
+                emitLagMetrics)
+        let wrap (f : unit -> Task) () = task { return! f () }
         SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.

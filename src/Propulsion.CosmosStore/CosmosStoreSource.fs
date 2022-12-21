@@ -9,7 +9,6 @@ namespace Propulsion.CosmosStore
 open Microsoft.Azure.Cosmos
 #endif
 
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal
 open Serilog
 open System
@@ -53,11 +52,12 @@ type CosmosSource =
         let init rangeLog partitionId = rangeIngester <- startIngester (rangeLog, partitionId)
         let dispose () = rangeIngester.Stop()
         let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext) (docs : IReadOnlyList<Microsoft.Azure.Documents.Document>) = task {
+        let ingest (log : ILogger) (ctx : IChangeFeedObserverContext, docs : IReadOnlyList<Microsoft.Azure.Documents.Document>, _ct) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let epoch, age = ctx.FeedResponse.ResponseContinuation.Trim[|'"'|] |> int64, DateTime.UtcNow - docs[docs.Count-1].Timestamp
             let pt = Stopwatch.start()
-            let! struct (cur, max) = rangeIngester.Ingest { epoch = epoch; checkpoint = ctx.Checkpoint(); items = mapContent docs; onCompletion = ignore; isTail = false }
+            let cp = (fun _ -> task { do! ctx.CheckpointAsync() })
+            let! struct (cur, max) = rangeIngester.Ingest { epoch = epoch; checkpoint = cp; items = mapContent docs; onCompletion = ignore; isTail = false }
             let readS, postS, rc = sw.ElapsedSeconds, pt.ElapsedSeconds, ctx.FeedResponse.RequestCharge
             let m = Log.Metric.Read {
                 database = context.source.database; container = context.source.container; group = context.leasePrefix; rangeId = int ctx.PartitionKeyRangeId
@@ -78,7 +78,7 @@ type CosmosStoreSource =
             mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
 
         let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx : ChangeFeedObserverContext) checkpoint (docs : IReadOnlyCollection<_>) = task {
+        let ingest (ctx : ChangeFeedObserverContext) (checkpoint, docs : IReadOnlyCollection<_>, _ct) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
             let pt = Stopwatch.start ()
@@ -94,9 +94,9 @@ type CosmosStoreSource =
 
         { new IChangeFeedObserver with
 #if COSMOSV3
-            member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs |> Async.AwaitTaskCorrect
+            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
 #else
-            member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
+            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
 #endif
           interface IDisposable with
             member _.Dispose() = trancheIngester.Stop() }
@@ -112,12 +112,12 @@ type CosmosStoreSource =
         let dispose () = for x in forTranche.Values do x.Value.Dispose()
         let build trancheId = lazy CosmosStoreSource.CreateTrancheObserver(log, startIngester (log, trancheId), mapContent)
         let forTranche trancheId = forTranche.GetOrAdd(trancheId, build).Value
-        let ingest context checkpoint docs =
+        let ingest context (checkpoint, docs, ct) =
             let trancheObserver = forTranche context.rangeId
-            trancheObserver.Ingest(context, checkpoint, docs)
+            trancheObserver.Ingest(context, checkpoint, docs, ct)
 
         { new IChangeFeedObserver with
-            member _.Ingest(context, checkpoint, docs) = ingest context checkpoint docs
+            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
           interface IDisposable with
             member _.Dispose() = dispose () }
 #endif
@@ -135,7 +135,7 @@ type CosmosStoreSource =
             ?maxItems, ?tailSleepInterval, ?startFromTail, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
 #endif
-        let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = async {
+        let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
             for partitionId, gap as partitionAndGap in remainingWork do
                 total <- total + gap
@@ -158,9 +158,9 @@ type CosmosStoreSource =
         let source =
             ChangeFeedProcessor.Start
               ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
-                ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation=maybeLogLag,
+                ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
                 startFromTail = defaultArg startFromTail false,
-                leaseAcquireInterval=TimeSpan.FromSeconds 5., leaseRenewInterval=TimeSpan.FromSeconds 5., leaseTtl=TimeSpan.FromSeconds 10.)
+                leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         source
 #endif

@@ -1,8 +1,8 @@
 ﻿module Propulsion.SqlStreamStore.ReaderCheckpoint
 
 open Dapper
+open FSharp.Control
 open Microsoft.Data.SqlClient
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Feed
 open System
 open System.Data
@@ -28,8 +28,7 @@ let createIfNotExists (conn : IDbConnection) =
                    ) WITH (STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF)
                );
            END""")
-    |> Async.AwaitTaskCorrect
-    |> Async.Ignore<int>
+    |> Task.ignore<int>
 
 let commitPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) (position : int64) =
      conn.ExecuteAsync(
@@ -41,16 +40,12 @@ let commitPosition (conn : IDbConnection) (stream : string) (consumerGroup : str
                 INSERT INTO Checkpoints (Stream, ConsumerGroup, Position)
                 VALUES (@Stream, @ConsumerGroup, @Position)
             """, { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable(position) })
-     |> Async.AwaitTaskCorrect
-     |> Async.Ignore<int>
+     |> Task.ignore<int>
 
-let tryGetPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) = async {
-    let! res =
-        conn.QueryAsync<CheckpointEntry>(
-            """SELECT * FROM Checkpoints WHERE Stream = @Stream AND ConsumerGroup = @ConsumerGroup""",
-            { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable() })
-        |> Async.AwaitTaskCorrect
-
+let tryGetPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) = task {
+    let! res = conn.QueryAsync<CheckpointEntry>(
+         """SELECT * FROM Checkpoints WHERE Stream = @Stream AND ConsumerGroup = @ConsumerGroup""",
+         { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable() })
     return Seq.tryHead res |> Option.bind (fun r -> Option.ofNullable r.Position) }
 
 type Service(connString : string, consumerGroupName, defaultCheckpointFrequency) =
@@ -60,22 +55,22 @@ type Service(connString : string, consumerGroupName, defaultCheckpointFrequency)
         | s, null -> s
         | s, tid -> String.Join("_", s, tid)
 
-    member _.CreateSchemaIfNotExists() = async {
+    member _.CreateSchemaIfNotExists() = task {
         use conn = createConnection connString
         return! createIfNotExists conn }
 
     interface IFeedCheckpointStore with
 
-        member _.Start(source, tranche, ?establishOrigin) = async {
+        member _.Start(source, tranche, establishOrigin, ct) = task {
             use conn = createConnection connString
             let! maybePos = tryGetPosition conn (streamName source tranche) consumerGroupName
             let! pos =
                 match maybePos, establishOrigin with
-                | Some pos, _ -> async { return Position.parse pos }
-                | None, Some f -> f
-                | None, None -> async { return Position.initial }
-            return defaultCheckpointFrequency, pos }
+                | Some pos, _ -> task { return Position.parse pos }
+                | None, Some f -> f.Invoke ct
+                | None, None -> task { return Position.initial }
+            return struct (defaultCheckpointFrequency, pos) }
 
-        member _.Commit(source, tranche, pos) = async {
+        member _.Commit(source, tranche, pos, _ct) = task {
             use conn = createConnection connString
             return! commitPosition conn (streamName source tranche) consumerGroupName (Position.toInt64 pos) }

@@ -40,13 +40,12 @@ module Internal =
             | stream, Choice2Of2 (_, exn) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (context : EventStoreContext) stream (span : Default.StreamSpan) = async {
+        let write (log : ILogger) (context : EventStoreContext) stream (span : Default.StreamSpan) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if EVENTSTORE_LEGACY
-            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _)) |> Async.AwaitTaskCorrect
+            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
 #else
-            let! ct = Async.CancellationToken
-            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _), ct) |> Async.AwaitTaskCorrect
+            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _), ct)
 #endif
             let ress =
                 match res with
@@ -128,7 +127,7 @@ module Internal =
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
-                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' |> Async.startImmediateAsTask ct
+                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
