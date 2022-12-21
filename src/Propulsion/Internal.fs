@@ -87,6 +87,8 @@ open System.Threading.Tasks
 
 module Async =
 
+    let ofUnitTask (t : Task) = Async.AwaitTaskCorrect t
+    let ofTask (t : Task<'t>) = Async.AwaitTaskCorrect t
     let inline startImmediateAsTask ct (a : Async<'t>) = Async.StartImmediateAsTask(a, cancellationToken = ct)
 
 module Task =
@@ -96,7 +98,7 @@ module Task =
     let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
     let inline Catch (t : Task<'t>) = task { try let! r = t in return Choice1Of2 r with e -> return Choice2Of2 e }
     let private parallel_ maxDop ct (xs : seq<CancellationToken -> Task<'t>>) : Task<'t []> =
-        let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.AwaitTaskCorrect }, cancellationToken = ct)
+        let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.ofTask }, cancellationToken = ct)
         Async.Parallel(xs |> Seq.map (run ct), ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.startImmediateAsTask ct
     let parallelThrottled maxDop ct xs : Task<'t []> =
         parallel_ maxDop ct xs
@@ -130,7 +132,7 @@ type Async with
         use _ = Console.CancelKeyPress.Subscribe(fun (a : ConsoleCancelEventArgs) ->
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
-        return! Async.AwaitTaskCorrect tcs.Task }
+        return! Async.ofUnitTask tcs.Task }
 
 type OAttribute = System.Runtime.InteropServices.OptionalAttribute
 type DAttribute = System.Runtime.InteropServices.DefaultParameterValueAttribute

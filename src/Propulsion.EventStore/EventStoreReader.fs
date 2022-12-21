@@ -1,7 +1,6 @@
 ﻿module Propulsion.EventStore.Reader
 
 open EventStore.ClientAPI
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Propulsion.Internal // Sem
 open Propulsion.Streams
 open Serilog // NB Needs to shadow ILogger
@@ -130,7 +129,7 @@ let establishMax (conn : IEventStoreConnection) = task {
 let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.StreamSpan -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
-        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.ofTask
         let events = currentSlice.Events |> Array.map (fun x -> mapEvent x.Event)
         do! postBatch (stream, events)
         match limit with
@@ -148,7 +147,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
     let sw = Stopwatch.start () // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
-        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.AwaitTaskCorrect
+        let! currentSlice = conn.ReadAllEventsForwardAsync(range.Current, batchSize, resolveLinkTos=false) |> Async.ofTask
         sw.Stop() // Stop the clock after the read call completes; transition to measuring time to traverse / filter / submit
         let postTs = Stopwatch.timestamp ()
         let batchEvents, batchBytes = slicesStats.Ingest currentSlice in overallStats.Ingest(int64 batchEvents, batchBytes)
@@ -311,7 +310,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
         let mutable endDetected = false
         while not ct.IsCancellationRequested do
             overallStats.DumpIfIntervalExpired()
-            let! _ = dop.Wait ct |> Async.AwaitTaskCorrect
+            let! _ = dop.Wait ct |> Async.ofUnitTask
             match work.TryDequeue(), remainder with
             | (true, EofDetected), Some nextChunk ->
                 if endDetected then

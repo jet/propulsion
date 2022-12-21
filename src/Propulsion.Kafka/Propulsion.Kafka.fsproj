@@ -6,9 +6,6 @@
 
   <ItemGroup>
     <Compile Include="Codec.fs" />
-    <Compile Include="..\Propulsion\Infrastructure.fs">
-      <Link>Infrastructure.fs</Link>
-    </Compile>
     <Compile Include="Consumers.fs" />
     <Compile Include="Producers.fs" />
     <Compile Include="ProducerSinks.fs" />
