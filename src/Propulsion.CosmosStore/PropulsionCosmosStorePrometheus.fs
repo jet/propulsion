@@ -1,10 +1,6 @@
 // This file implements a Serilog Sink `LogSink` that publishes metric values to Prometheus.
 
-#if COSMOSV2
-namespace Propulsion.Cosmos.Prometheus
-#else
 namespace Propulsion.CosmosStore.Prometheus
-#endif
 
 [<AutoOpen>]
 module private Impl =
@@ -33,13 +29,13 @@ module private Gauge =
         make config (baseName stat) (baseDesc desc) tagValues
 
 module private Counter =
-    
+
     let private make (config : Prometheus.CounterConfiguration) name desc =
-        let ctr = Prometheus.Metrics.CreateCounter(name, desc, config)           
+        let ctr = Prometheus.Metrics.CreateCounter(name, desc, config)
         fun tagValues (db, con, group, range) value ->
             let labelValues = append tagValues [| db; con; group; range |]
             ctr.WithLabels(labelValues).Inc(value)
-    
+
     let create (tagNames, tagValues) stat desc =
         let config = Prometheus.CounterConfiguration(LabelNames = append tagNames rangeLabels)
         make config (baseName stat) (baseDesc desc) tagValues
@@ -65,13 +61,13 @@ module private Summary =
 
         create config (baseName stat + statSuffix) (baseDesc desc + descSuffix) tagValues
 
-    
+
     let latency = create' secondsStat latencyDesc
     let charge = create' rusStat chargeDesc
 
 module private Histogram =
 
-    let private create (config : Prometheus.HistogramConfiguration) name desc =        
+    let private create (config : Prometheus.HistogramConfiguration) name desc =
         let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
         fun tagValues (db, con, group) value ->
             let labelValues = append tagValues [| db; con; group; |]
@@ -87,18 +83,14 @@ module private Histogram =
     let latency = create' latencyBuckets secondsStat latencyDesc
     let charge = create' ruBuckets rusStat chargeDesc
 
-#if COSMOSV2
-open Propulsion.Cosmos.Log
-#else
 open Propulsion.CosmosStore.Log
-#endif
 
 /// <summary>An ILogEventSink that publishes to Prometheus</summary>
 /// <param name="customTags">Custom tags to annotate the metric we're publishing where such tag manipulation cannot better be achieved via the Prometheus scraper config.</param>
 type LogSink(customTags: seq<string * string>) =
 
     let tags = Array.ofSeq customTags |> Array.unzip
-    
+
     (* Group level metrics *)
 
     let observeReadLatencyHis = Histogram.latency   tags "read"            "Read"

@@ -4,7 +4,7 @@ open Propulsion.Internal
 open System
 open System.Threading.Tasks
 
-#if COSMOSV3 || COSMOSV2
+#if COSMOSV3
 let streamName struct (source, tranche, consumerGroupName : string) =
     if consumerGroupName = null then
         let Category = "ReaderCheckpoint"
@@ -44,7 +44,7 @@ module Events =
 #if DYNAMOSTORE
     let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Deflate.EncodeUncompressed
 #else
-#if !COSMOSV3 && !COSMOSV2
+#if !COSMOSV3
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()
 #else
     let codec = FsCodec.NewtonsoftJson.Codec.Create<Event>()
@@ -73,7 +73,7 @@ module Fold =
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
     /// So, we post-process the events to remove `Updated` events (as opposed to `Checkpointed` ones),
     /// knowing that the state already has that Updated event folded into it when we snapshot
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
     let transmute events state : Events.Event list * Events.Event list =
         match events, state with
         | [Events.Updated _], state -> [], [toSnapshot state]
@@ -118,11 +118,7 @@ let decideUpdate at pos = function
             let config, checkpoint = mk at freq pos
             [Events.Checkpointed { config = config; pos = checkpoint }]
 
-#if COSMOSV2
-type Decider<'e, 's> = Equinox.Stream<'e, 's>
-#else
 type Decider<'e, 's> = Equinox.Decider<'e, 's>
-#endif
 
 type Service internal (resolve : struct (SourceId * TrancheId * string) -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
@@ -133,7 +129,7 @@ type Service internal (resolve : struct (SourceId * TrancheId * string) -> Decid
         member _.Start(source, tranche, establishOrigin, ct) : Task<struct (TimeSpan * Position)> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> async { return! f.Invoke(ct) |> Async.AwaitTask }
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
 #else
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AllowStale)
@@ -143,7 +139,7 @@ type Service internal (resolve : struct (SourceId * TrancheId * string) -> Decid
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 #else
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
@@ -177,7 +173,7 @@ module DynamoStore =
         let resolve = Equinox.Decider.resolve log cat
         Service(streamId >> resolve Category, consumerGroupName, defaultCheckpointFrequency)
 #else
-#if !COSMOSV2 && !COSMOSV3
+#if !COSMOSV3
 module CosmosStore =
 
     open Equinox.CosmosStore
@@ -193,18 +189,6 @@ let private create log defaultCheckpointFrequency resolveStream =
     let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
     Service(resolve, null, defaultCheckpointFrequency)
 
-#if COSMOSV2
-module Cosmos =
-
-    open Equinox.Cosmos
-
-    let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
-    let create log defaultCheckpointFrequency (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let resolver = Resolver(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        let resolveStream opt sn = resolver.Resolve(sn, opt)
-        create log defaultCheckpointFrequency resolveStream
-#else
 #if COSMOSV3
 module CosmosStore =
 
@@ -216,7 +200,6 @@ module CosmosStore =
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log defaultCheckpointFrequency resolveStream
-#endif
 #endif
 #endif
 #endif

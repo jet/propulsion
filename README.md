@@ -107,7 +107,7 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks.
 
 ### `dotnet tool` provisioning / projections test tool
 
-- `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.Cosmos` and demonstrate basic projection, including to Kafka. See [quickstart](#quickstart).
+- `Propulsion.Tool` [![Tool NuGet](https://img.shields.io/nuget/v/Propulsion.Tool.svg)](https://www.nuget.org/packages/Propulsion.Tool/): Tool used to initialize a Change Feed Processor `aux` container for `Propulsion.CosmosStore` and demonstrate basic projection, including to Kafka. See [quickstart](#quickstart).
 
     - `init`: CosmosDB: Initialize an `-aux` Container for use by the CosmosDb client library ChangeFeedProcessor
     - `initpg` : MessageDb: Initialize a checkpoints table in a Postgres Database
@@ -120,16 +120,6 @@ The ubiquitous `Serilog` dependency is solely on the core module, not any sinks.
 Propulsion supports recent versions of Equinox and other Store Clients within reason - these components are
 intended for use on a short term basis as a way to manage phased updates from older clients to current ones by
 adjusting package references while retaining source compatibility to the maximum degree possible.
-
-- `Propulsion.Cosmos` [![NuGet](https://img.shields.io/nuget/v/Propulsion.Cosmos.svg)](https://www.nuget.org/packages/Propulsion.Cosmos/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.Cosmos) on `Equinox.Cosmos`, `Microsoft.Azure.DocumentDB.ChangeFeedProcessor`
-
-    - **Deprecated as Equinox.CosmosStore supersedes Equinox.Cosmos**
-    1. `CosmosSource`: reading from CosmosDb's ChangeFeed by wrapping the [`dotnet-changefeedprocessor` library](https://github.com/Azure/azure-documentdb-changefeedprocessor-dotnet).
-    2. `CosmosSink`: writing to `Equinox.Cosmos` v `2.6.0`.
-    3. `CosmosPruner`: pruning `Equinox.Cosmos` v `2.6.0`.
-    4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`Feed`/`EventStoreDb`/`SqlStreamSteamStore` using `Equinox.CosmosStore` v `2.6.0`.
-
-  (Reading and position metrics are exposed via `Propulsion.Cosmos.Prometheus`)
 
 - `Propulsion.CosmosStore3` [![NuGet](https://img.shields.io/nuget/v/Propulsion.CosmosStore3.svg)](https://www.nuget.org/packages/Propulsion.CosmosStore3/) Provides bindings to Azure CosmosDB. [Depends](https://www.fuget.org/packages/Propulsion.CosmosStore3) on `Equinox.CosmosStore` v `3.0.7`, `Microsoft.Azure.Cosmos` v `3.27.0`
 
@@ -389,7 +379,7 @@ The order in which the need for various components arose (as a side effect of bu
     2. use Kafka's transaction facilities (not implemented in `Confluent.Kafka` at the time)
  
     => The approach used is to continuously emit messages concurrently in order to maintain throughput, but guarantee to never emit messages for the same _key_ at the same time.
-  - `Propulsion.Cosmos`'s `Sink` was next up. It writes to CosmosDB using `Equinox.CosmosStore`. Key implications:  
+  - `Propulsion.Cosmos`'s `Sink` was next up. It writes to CosmosDB using `Equinox.Cosmos`. Key implications:  
     - because rate-limiting is at the physical partition level, it's crucial for throughput that you keep other partitions busy while wait/retry loops are triggered by hotspots (and you absolutely don't want to exacerbate this effect by competing with yourself)
     - you want to batch the writing of multiple events/documents to minimize round-trips (write RU costs are effectively _O(log N)_ despite high level guidance characterizing it as _O(N)_))
     - you can only touch one logical partition for any given write (CosmosDB does not expose transactions across logical partitions)
@@ -421,8 +411,8 @@ The things Propulsion in general accomplishes in the projections space:
 - strong intrinsic support for handling idempotent processing in the face of at least once delivery and/or catchup scenarios
 - `CosmosStoreSource` provides for automatic load balancing over multiple instances of a Reactor application akin to how Kafka Clients manage that (as a light wrapper over the Cosmos SDK's ChangeFeedProcessor lease management system without any custom semantics beyond the proven scheme the SDK implements)
 - provide good instrumentation as to latency, errors, throughput in a pluggable way akin to how Equinox does stuff (e.g. it has built-in Prometheus support)
-- handlers/reactors/projections can be ported from `Propulsion.Cosmos` to `Propulsion.CosmosStore` by swapping driver modules; similar to how `Equinox.Cosmos` vs `Equinox.EventStore` provides a common programming model despite the underpinnings being fundamentally quite different in nature
-- good stories for isolating from specific drivers - i.e., there's `Propulsion.Cosmos` (using the V2 SDK) and a `Propulsion.CosmosStore` (for the V3 SDK) with close-to-identical interfaces (Similarly there's a `Propulsion.EventStoreDb` using the gRPC-based SDKs, replacing the deprecated `Propulsion.EventStore`)
+- handlers/reactors/projections can be ported from `Propulsion.Cosmos` to `Propulsion.CosmosStore3` and `Propulsion.CosmosStore` by swapping driver modules; similar to how `Equinox.Cosmos` vs `Equinox.EventStore` provides a common programming model despite the underpinnings being fundamentally quite different in nature
+- good stories for isolating from specific drivers - i.e., there's a `Propulsion.CosmosStore` (for the V3 SDK) with close-to-identical interfaces (Similarly there's a `Propulsion.EventStoreDb` using the gRPC-based SDKs, replacing the deprecated `Propulsion.EventStore`)
 - Kafka reading and writing generally fits within the same patterns - i.e. if you want to push CosmosDb CFP output to Kafka and consume over that as a 'longer wire' without placing extra load on the source if you have 50 consumers, you can stand up a ~250 line `dotnet new proProjector` app, and tweak the ~30 lines of consumer app wireup to connect to Kafka instead of CosmosDB
 
 Things EventStoreDB's subscriptions can do that are not presently covered in Propulsion:

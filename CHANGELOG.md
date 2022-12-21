@@ -49,6 +49,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Removed
 
+- `Propulsion.Cosmos`: Should not be in general use - users should port to `Propulsion.CosmosStore3`, then `Propulsion.CosmosStore` [#193](https://github.com/jet/propulsion/pull/193)
 - `Destructurama.FSharp` dependency [#152](https://github.com/jet/propulsion/pull/152)
 - `Ingester`,`Submitter`: Removed requirement to specify sleep intervals [#154](https://github.com/jet/propulsion/pull/154)
 - `Scheduler`: Removed need to tune `idleDelay` except in extreme circumstances [#161](https://github.com/jet/propulsion/pull/161)

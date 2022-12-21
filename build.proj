@@ -28,7 +28,6 @@
     <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
     
     <!-- Pack/build deprecated/maintenance mode packages last-->
-    <Exec Command="dotnet pack src/Propulsion.Cosmos $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.CosmosStore3 $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStore $(Cfg) $(PackOptions)" />
   </Target>
