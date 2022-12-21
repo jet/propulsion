@@ -30,6 +30,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 - Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.0`, `FSharp.Control.TaskSeq` v `0.3.0`, `MathNet.Numerics` v `4.15.0`
 - Changed all `Tuple` types to `struct` tuples (`System.ValueTuple`) [#169](https://github.com/jet/propulsion/pull/169)
+- Changed all `Async` to `Task` [#192](https://github.com/jet/propulsion/pull/192)
+- `Pipeline`: Renamed `AwaitShutdown` to `Await`, added `Wait` [#192](https://github.com/jet/propulsion/pull/192)
 - Changed dominant `ITimelineEvent` EventBody type from `byte array` to `System.ReadOnlyMemory<byte>` [#169](https://github.com/jet/propulsion/pull/169)
 - `StreamSpan`: Changed from a record to a type alias [#169](https://github.com/jet/propulsion/pull/169)
 - `Propulsion.CosmosStore`: Changed to target `Equinox.CosmosStore` v `4.0.0` [#139](https://github.com/jet/propulsion/pull/139)

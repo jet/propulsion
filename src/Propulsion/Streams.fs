@@ -801,7 +801,7 @@ module Dispatcher =
         [<CLIEvent>] member _.Result = result.Publish
         member _.State = dop.State
         member _.HasCapacity = dop.HasCapacity
-        member _.AwaitButRelease() = dop.AwaitButRelease()
+        member _.AwaitButRelease() = dop.WaitButRelease()
         member _.TryAdd(item) = dop.TryTake() && tryWrite item
 
         member _.Pump(ct : CancellationToken) = task {

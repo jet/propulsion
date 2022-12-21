@@ -69,7 +69,7 @@ let ``It processes events for a category`` () = task {
 
     Task.Delay(TimeSpan.FromSeconds 30).ContinueWith(fun _ -> src.Stop()) |> ignore
 
-    do! src.AwaitShutdown()
+    do! src.Await()
 
     // 2000 total events
     test <@ handled.Count = 2000 @>

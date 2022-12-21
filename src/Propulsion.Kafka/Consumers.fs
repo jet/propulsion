@@ -130,7 +130,7 @@ module Consumer =
         consumer, KafkaIngestionEngine<'M>(log, limiter, consumer, consumer.Close, mapResult, submit, maxItems, maxDelay, statsInterval = statsInterval)
 
 /// Consumes according to the `config` supplied to `Start`, until `Stop()` is requested or `handle` yields a fault.
-/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation`.
+/// Conclusion of processing can be awaited by via `Await`/`Wait` or `AwaitWithStopOnCancellation`.
 type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<unit>, triggerStop) =
     inherit Pipeline(task, triggerStop)
 

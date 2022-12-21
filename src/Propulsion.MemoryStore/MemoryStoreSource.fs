@@ -57,7 +57,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
             (fun () -> tcs.TrySetResult () |> ignore),
             fun () -> task {
-                try return! tcs.Task // aka base.AwaitShutdown()
+                try return! tcs.Task
                 finally log.Information "... source completed" }
 
         let supervise () = task {
@@ -93,7 +93,7 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
             // interval at which to log status of the Await (to assist in analyzing stuck Sinks). Default 10s.
             ?logInterval,
             // Also wait for processing of batches that arrived subsequent to the start of the AwaitCompletion call
-            ?ignoreSubsequent) = async {
+            ?ignoreSubsequent) = task {
         match positions.Prepared with
         | -1L -> log.Information "FeedMonitor Wait No events submitted; completing immediately"
         | epoch when epoch = positions.Completed -> log.Information("FeedMonitor Wait No processing pending. Completed Epoch {epoch}", positions.Completed)
@@ -116,7 +116,7 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
                 lock positions.CompletedMonitor <| fun () -> Monitor.Wait(positions.CompletedMonitor, timeoutMs) |> ignore
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
-                return! sink.AwaitShutdown() }
+                return! sink.Wait() }
 
 module TimelineEvent =
 

@@ -5,9 +5,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="..\Propulsion\Infrastructure.fs">
-          <Link>Infrastructure.fs</Link>
-        </Compile>
         <Compile Include="FeedReader.fs" />
         <Compile Include="FeedSource.fs" />
         <Compile Include="PeriodicSource.fs" />

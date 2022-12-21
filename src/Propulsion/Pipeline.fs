@@ -7,7 +7,7 @@ open System.Threading
 open System.Threading.Tasks
 
 /// Represents a running Pipeline as triggered by a `Start` method , until `Stop()` is requested or the pipeline becomes Faulted for any reason
-/// Conclusion of processing can be awaited by via `AwaitShutdown` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
+/// Conclusion of processing can be awaited by via `Await`/`Wait` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
 type Pipeline(task : Task<unit>, triggerStop) =
 
     interface IDisposable with member x.Dispose() = triggerStop true
@@ -18,21 +18,24 @@ type Pipeline(task : Task<unit>, triggerStop) =
     /// Determines whether processing has completed, be that due to an intentional Stop(), due to a Fault, or successful completion (see also RanToCompletion)
     member _.IsCompleted = task.IsCompleted
 
-    /// After AwaitShutdown (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via AwaitShutdown)
+    /// After Await/Wait (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via Await/Wait)
     member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
 
     /// Request completion of processing and shutdown of the Pipeline
     member _.Stop() = triggerStop false
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
-    member _.AwaitShutdown() = Async.AwaitTaskCorrect task
+    member _.Wait() : Task<unit> = task
+
+    /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
+    member _.Await() : Async<unit> = Async.AwaitTaskCorrect task
 
     /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
-    /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>AwaitShutdown</c> if such semantics are not desired.
+    /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>Await</c> if such semantics are not desired.
     member x.AwaitWithStopOnCancellation() = async {
         let! ct = Async.CancellationToken
         use _ = ct.Register(fun () -> x.Stop())
-        return! x.AwaitShutdown() }
+        return! x.Await() }
 
     static member Prepare(log : ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new CancellationTokenSource()

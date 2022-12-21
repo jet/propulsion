@@ -154,7 +154,7 @@ type Ingester<'Items> private
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
     member _.Stop() = cts.Cancel()
 
-    member x.Await(ct) = task {
+    member x.Wait(ct) = task {
         let! r = maxRead.WaitForCompleted ct
         do! x.AwaitCheckpointed ct
         return r }

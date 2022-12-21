@@ -311,7 +311,7 @@ type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMap
         let mutable endDetected = false
         while not ct.IsCancellationRequested do
             overallStats.DumpIfIntervalExpired()
-            let! _ = dop.Await ct
+            let! _ = dop.Wait ct |> Async.AwaitTaskCorrect
             match work.TryDequeue(), remainder with
             | (true, EofDetected), Some nextChunk ->
                 if endDetected then

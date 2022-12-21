@@ -3,7 +3,6 @@ namespace Propulsion.CosmosStore
 open FSharp.Control
 open Microsoft.Azure.Cosmos
 open Propulsion.Internal
-open Propulsion.Infrastructure // AwaitTaskCorrect
 open Serilog
 open System
 open System.Collections.Generic
@@ -49,9 +48,9 @@ type internal SourcePipeline =
             | None -> ()
             | Some child -> Task.start (fun () -> child ct)
 
-            do! Async.AwaitTaskCorrect tcs.Task // aka base.AwaitShutdown()
-            do! stop ()
-            log.Information("... source stopped") }
+            try do! tcs.Task
+                do! stop ()
+            finally log.Information("... source stopped") }
 
         let task = Task.run machine
 

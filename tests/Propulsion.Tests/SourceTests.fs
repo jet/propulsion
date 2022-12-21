@@ -21,7 +21,7 @@ type Scenario(testOutput) =
     let sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let dispose () =
         sink.Stop()
-        sink.AwaitShutdown() |> Async.RunSynchronously
+        sink.Await() |> Async.RunSynchronously
 
     [<Fact>]
     let ``TailingFeedSource Stop / AwaitCompletion semantics`` () = task {
@@ -36,7 +36,7 @@ type Scenario(testOutput) =
         // TailingFeedSource does not implicitly wait for completion or flush
         do! source.Checkpoint() |> Task.ignore
         // Yields source exception, if any
-        do! src.AwaitShutdown()
+        do! src.Await()
         test <@ src.RanToCompletion @> }
 
     [<Theory; InlineData true; InlineData false>]
@@ -48,9 +48,9 @@ type Scenario(testOutput) =
         // Hence waiting with the Monitor is not actually necessary (though it provides progress logging which otherwise would be less thorough)
         if withWait then
             // Yields sink exception, if any
-            do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
+            do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Async.AwaitTask
         // Yields source exception, if any
-        do! src.AwaitShutdown()
+        do! src.Await()
         test <@ src.RanToCompletion @> }
 
     interface IDisposable with member _.Dispose() = dispose ()

@@ -60,7 +60,7 @@ type StripedIngester
     let readingAhead, ready = Dictionary<int, ResizeArray<_>>(), Dictionary<int, ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 
-    let reserveAsInFlightBatch () = maxInFlightBatches.Await(cts.Token)
+    let reserveAsInFlightBatch () = maxInFlightBatches.Wait(cts.Token) |> Async.AwaitTaskCorrect
     let releaseInFlightBatchAllocation () = maxInFlightBatches.Release()
 
     let handle = function
