@@ -47,8 +47,8 @@ let ``It processes events for a category`` () = task {
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
-                      with member _.HandleExn(log, x) = ()
-                           member _.HandleOk x = () }
+                      with member _.HandleOk x = ()
+                           member _.HandleExn(log, x) = () }
     let mutable stop = ignore
     let handled = HashSet<_>()
     let handle stream (events: Propulsion.Streams.Default.StreamSpan) _ct = task {

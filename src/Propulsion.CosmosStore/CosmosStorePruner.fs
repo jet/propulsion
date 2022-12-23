@@ -5,21 +5,14 @@ open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
 open System
-open System.Collections.Generic
 
 module Pruner =
-
-    type [<RequireQualifiedAccess>] ExceptionKind = TimedOut | RateLimited | Other
 
     let (|TimedOutMessage|RateLimitedMessage|Other|) (e : exn) =
         match e with
         | :? Microsoft.Azure.Cosmos.CosmosException as ce when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
         | e when e.GetType().FullName = "Microsoft.Azure.Documents.RequestTimeoutException" -> TimedOutMessage
         | _ -> Other
-    let classify = function
-        | RateLimitedMessage -> ExceptionKind.RateLimited
-        | TimedOutMessage -> ExceptionKind.TimedOut
-        | Other -> ExceptionKind.Other
 
     type Outcome =
         | Ok of completed : int * deferred : int
@@ -30,8 +23,12 @@ module Pruner =
 
         let mutable nops, totalRedundant, ops, totalDeletes, totalDeferred = 0, 0, 0, 0, 0
 
-        let mutable rateLimited, timedOut = 0, 0
-        let rlStreams, toStreams = HashSet(), HashSet()
+        override _.DumpStats() =
+            log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
+                ops, totalDeletes, totalDeferred, nops, totalRedundant)
+            ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0
+            base.DumpStats()
+            Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
         override _.HandleOk outcome =
             match outcome with
@@ -42,40 +39,12 @@ module Pruner =
                 ops <- ops + 1
                 totalDeletes <- totalDeletes + completed
                 totalDeferred <- totalDeferred + deferred
-
-        /// Used to render exceptions that don't fall into the rate-limiting or timed-out categories
-        override _.HandleExn(log, exn) =
-            match classify exn with
-            | ExceptionKind.RateLimited | ExceptionKind.TimedOut ->
-                () // Outcomes are already included in the statistics - no logging is warranted
-            | ExceptionKind.Other ->
-                log.Warning(exn, "Unhandled")
-
-        /// Gather stats pertaining to and/or filter exceptions pertaining to timeouts or rate-limiting
-        override _.Handle message =
-            let inline adds x (set:HashSet<_>) = set.Add x |> ignore
-            base.Handle message
-            match message with
-            | { stream = stream; result = Choice2Of2 (_, exn) } ->
-                match classify exn with
-                | ExceptionKind.RateLimited ->
-                    adds stream rlStreams; rateLimited <- rateLimited + 1
-                | ExceptionKind.TimedOut ->
-                    adds stream toStreams; timedOut <- timedOut + 1
-                | ExceptionKind.Other -> ()
-            | _ -> ()
-
-        override _.DumpStats() =
-            log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
-                ops, totalDeletes, totalDeferred, nops, totalRedundant)
-            ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0
-            if rateLimited <> 0 || timedOut <> 0 then
-                let transients = rateLimited + timedOut
-                log.Warning("Transients {transients} Rate-limited {rateLimited:n0}r {rlStreams:n0}s Timed out {toCount:n0}r {toStreams:n0}s",
-                    transients, rateLimited, rlStreams.Count, timedOut, toStreams.Count)
-                rateLimited <- 0; timedOut <- 0; rlStreams.Clear(); toStreams.Clear()
-            base.DumpStats()
-            Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
+        override x.Classify e =
+            match e with
+            | RateLimitedMessage -> OutcomeKind.RateLimited
+            | TimedOutMessage -> OutcomeKind.Timeout
+            | Other -> OutcomeKind.Exception
+        override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
     let handle pruneUntil stream (span: Default.StreamSpan) ct = task {

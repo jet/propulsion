@@ -61,11 +61,6 @@ module Internal =
 
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | Other
 
-        let classify e =
-            match box e with
-            | :? TimeoutException -> ResultKind.TimedOut
-            | _ -> ResultKind.Other
-
     type Stats(log : ILogger, statsInterval, stateInterval) =
         inherit Scheduling.Stats<struct (StreamSpan.Metrics * Writer.Result), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
         let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), Stats.CatStats(), HashSet(), HashSet(), HashSet()
@@ -88,10 +83,9 @@ module Internal =
                 badCats.Clear(); resultExnOther <- 0; oStreams.Clear()
             Log.InternalMetrics.dump log
 
-        override this.Handle message =
+        override _.Handle message =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
             let inline bads streamName (set : HashSet<_>) = badCats.Ingest(StreamName.categorize streamName); adds streamName set
-            base.Handle message
             match message with
             | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
                 adds stream okStreams
@@ -102,18 +96,16 @@ module Internal =
                 | Writer.Result.Duplicate _ -> resultDup <- resultDup + 1
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-                this.HandleOk res
+                base.RecordOk(message)
             | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                match Writer.classify exn with
-                | ResultKind.TimedOut -> adds stream toStreams; timedOut <- timedOut + 1
-                | ResultKind.Other -> bads stream oStreams; resultExnOther <- resultExnOther + 1
-                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
-        abstract member HandleOk : Result -> unit
-        default _.HandleOk _ : unit = ()
-        abstract member HandleExn : log : ILogger * exn : exn -> unit
+                let kind =
+                    match exn with
+                    | :? TimeoutException -> adds stream toStreams; timedOut <- timedOut + 1;             OutcomeKind.Timeout
+                    | _ ->                   bads stream oStreams;  resultExnOther <- resultExnOther + 1; OutcomeKind.Exception
+                base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es), exn)
         default _.HandleExn(_, _) : unit = ()
 
     type Dispatcher =

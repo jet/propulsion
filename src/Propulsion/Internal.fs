@@ -96,7 +96,9 @@ module Task =
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
     let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
-    let inline Catch (t : Task<'t>) = task { try let! r = t in return Choice1Of2 r with e -> return Choice2Of2 e }
+    let inline Catch (t : Task<'t>) = task { try let! r = t in return Choice1Of2 r
+                                             with | :? AggregateException as ae when ae.InnerExceptions.Count = 1 -> return Choice2Of2 ae.InnerException
+                                                  | e -> return Choice2Of2 e }
     let private parallel_ maxDop ct (xs : seq<CancellationToken -> Task<'t>>) : Task<'t []> =
         let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.ofTask }, cancellationToken = ct)
         Async.Parallel(xs |> Seq.map (run ct), ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.startImmediateAsTask ct
