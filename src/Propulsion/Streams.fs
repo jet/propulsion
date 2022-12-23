@@ -229,8 +229,7 @@ module Buffer =
 
 type [<RequireQualifiedAccess; Struct; NoEquality; NoComparison>] OutcomeKind = Ok | RateLimited | Timeout | Failed | Exception
 module OutcomeKind =
-    let classify (e : exn) =
-        match e with
+    let classify : exn -> OutcomeKind = function
         | :? TimeoutException -> OutcomeKind.Timeout
         | _ -> OutcomeKind.Exception
 
@@ -951,7 +950,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             resultOk <- resultOk + 1
             base.RecordOk res
             this.HandleOk outcome
-        | { duration = duration; stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+        | { duration = duration; stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
             addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
@@ -1120,7 +1119,7 @@ module Sync =
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
                 base.RecordOk(message)
-            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs

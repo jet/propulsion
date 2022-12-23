@@ -97,14 +97,14 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 base.RecordOk(message)
-            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                let kind =
-                    match exn with
-                    | :? TimeoutException -> adds stream toStreams; timedOut <- timedOut + 1;             OutcomeKind.Timeout
-                    | _ ->                   bads stream oStreams;  resultExnOther <- resultExnOther + 1; OutcomeKind.Exception
+                let kind = OutcomeKind.classify exn
+                match kind with
+                | OutcomeKind.Timeout -> adds stream toStreams; timedOut <- timedOut + 1
+                | _ ->                   bads stream oStreams;  resultExnOther <- resultExnOther + 1
                 base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es), exn)
         default _.HandleExn(_, _) : unit = ()
 

@@ -130,7 +130,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 base.RecordOk(message)
-            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
