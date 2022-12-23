@@ -13,6 +13,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Feed`: `Monitor.AwaitCompletion` enables **quasi** deterministic waiting for the processing of async reactions within integration tests [#170](https://github.com/jet/propulsion/pull/170)
 - `Feed`: `Checkpoint` enables committing progress (and obtaining the achieved positions) without stopping the Sink [#162](https://github.com/jet/propulsion/pull/162)
 - `Feed.SinglePassFeedSource`: Coordinates reads of a set of tranches until each reaches its Tail [#179](https://github.com/jet/propulsion/pull/179)
+- `Scheduler`: Split out stats re `rateLimited` and `timedOut` vs `exceptions` [#194](https://github.com/jet/propulsion/pull/194)
 - `Scheduler`: `purgeInterval` to control memory usage [#97](https://github.com/jet/propulsion/pull/97)
 - `Scheduler`: `wakeForResults` option to maximize throughput (without having to drop sleep interval to zero) [#161](https://github.com/jet/propulsion/pull/161)
 - `Ingester`: Expose optional `ingesterStatsInterval` control [#154](https://github.com/jet/propulsion/pull/154)
