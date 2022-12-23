@@ -6,6 +6,8 @@ open Propulsion.Internal
 open Propulsion.Streams
 open Serilog
 open System
+open System.Threading
+open System.Threading.Tasks
 
 type ParallelProducerSink =
     static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
@@ -21,7 +23,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : struct (StreamName * Default.StreamSpan) -> Async<struct ((struct (string * string)) voption * 'Outcome)>,
+            prepare : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
             stats : Sync.Stats<'Outcome>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
@@ -36,7 +38,7 @@ type StreamsProducerSink =
         : Default.Sink =
             let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
             let handle (stream : StreamName) span ct = task {
-                let! (maybeMsg, outcome : 'Outcome) = prepare (stream, span)
+                let! (maybeMsg, outcome : 'Outcome) = prepare.Invoke(stream, span, ct)
                 match maybeMsg with
                 | ValueSome (key : string, message : string) ->
                     match message.Length with
@@ -54,7 +56,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : struct (StreamName * Default.StreamSpan) -> Async<struct (string * string)>,
+            prepare : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (string * string)>>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
@@ -67,12 +69,12 @@ type StreamsProducerSink =
             // Default 16384
             ?maxEvents)
         : Default.Sink =
-            let prepare struct (stream, span) = async {
-                let! kv = prepare (stream, span)
+            let prepare stream span ct = task {
+                let! kv = prepare.Invoke(stream, span, ct)
                 return struct (ValueSome kv, ())
             }
             StreamsProducerSink.Start
-                (    log, maxReadAhead, maxConcurrentStreams, prepare, producer,
+                (    log, maxReadAhead, maxConcurrentStreams, Func<_, _, _, _>(prepare), producer,
                      stats, statsInterval,
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
                      ?maxEvents = maxEvents)

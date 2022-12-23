@@ -362,3 +362,6 @@ type FeedSource
     /// Any exception from <c>readTranches</c> or <c>readPage</c> will be propagated in order to enable termination of the overall projector loop
     member _.Pump(readTranches : CancellationToken -> Task<TrancheId[]>, ct) =
         base.Pump(readTranches, crawl, ct)
+
+    member x.Start(readTranches) =
+        base.Start(fun ct -> x.Pump(readTranches, ct))

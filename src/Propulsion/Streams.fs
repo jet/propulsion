@@ -934,8 +934,6 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
-    abstract member HandleOk : outcome : 'Outcome -> unit
-
     abstract member Classify : exn -> OutcomeKind
     default _.Classify e = OutcomeKind.classify e
 
@@ -956,6 +954,8 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             exnBytes <- exnBytes + int64 bs
             resultExnOther <- resultExnOther + 1
             base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es).ForContext("duration", duration), exn)
+
+    abstract member HandleOk : outcome : 'Outcome -> unit
 
 module Projector =
 
@@ -1113,17 +1113,20 @@ module Sync =
         override this.Handle message =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
             match message with
-            | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), _) } ->
+            | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), outcome) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
-                base.RecordOk(message)
+                base.RecordOk message
+                this.HandleOk outcome
             | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
                 base.RecordExn(message, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)
+
+        abstract member HandleOk : outcome : 'Outcome -> unit
 
     type StreamsSync =
 
