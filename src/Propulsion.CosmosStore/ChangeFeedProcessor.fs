@@ -20,7 +20,7 @@ type IChangeFeedObserver =
     /// - ceding control as soon as commencement of the next batch retrieval is desired
     /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> * CancellationToken -> Task<unit>
 #else
     abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
@@ -106,7 +106,7 @@ type ChangeFeedProcessor =
         let processor =
             let handler =
                 let aux (context : ChangeFeedProcessorContext)
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
                         (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
 #else
                         (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
@@ -115,7 +115,7 @@ type ChangeFeedProcessor =
                     let log (e : exn) = log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
-#if COSMOSV2 || COSMOSV3
+#if COSMOSV3
                                     timestamp = changes |> Seq.last |> EquinoxNewtonsoftParser.timestamp
 #else
                                     timestamp = changes |> Seq.last |> EquinoxSystemTextJsonParser.timestamp
