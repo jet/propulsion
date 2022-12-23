@@ -310,7 +310,7 @@ module Project =
     type Stats(statsInterval, statesInterval, logExternalStats) =
         inherit Propulsion.Streams.Stats<unit>(Log.Logger, statsInterval = statsInterval, statesInterval = statesInterval)
         member val StatsInterval = statsInterval
-        override _.HandleOk(_log) = ()
+        override _.HandleOk(()) = ()
         override _.HandleExn(_log, _exn) = ()
         override _.DumpStats() =
             base.DumpStats()

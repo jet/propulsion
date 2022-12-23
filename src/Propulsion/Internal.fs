@@ -82,6 +82,15 @@ module Channel =
         while r.TryRead(&msg) do
             yield msg }
 
+module Exception =
+
+    let rec inner (e : exn) =
+        match e with
+        | :? AggregateException as ae when ae.InnerExceptions.Count = 1 -> inner ae.InnerException
+        | e -> e
+    let (|Inner|) = inner
+    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
+
 open System.Threading
 open System.Threading.Tasks
 
@@ -136,10 +145,6 @@ type Async with
 
 type OAttribute = System.Runtime.InteropServices.OptionalAttribute
 type DAttribute = System.Runtime.InteropServices.DefaultParameterValueAttribute
-
-module Exception =
-
-    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
 
 module ValueTuple =
 

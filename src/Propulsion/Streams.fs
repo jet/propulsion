@@ -227,6 +227,12 @@ module Buffer =
         member val StreamsCount = reqs.Count
         member val Reqs = reqs :> seq<KeyValuePair<FsCodec.StreamName, int64>>
 
+type [<RequireQualifiedAccess; Struct; NoEquality; NoComparison>] OutcomeKind = Ok | RateLimited | Timeout | Failed | Exception
+module OutcomeKind =
+    let classify : exn -> OutcomeKind = function
+        | :? TimeoutException -> OutcomeKind.Timeout
+        | _ -> OutcomeKind.Exception
+
 module Scheduling =
 
     open Buffer
@@ -459,7 +465,8 @@ module Scheduling =
     type Stats<'R, 'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
-        let stateStats, oks, exns = Stats.StateStats(), Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions")
+        let stateStats = Stats.StateStats()
+        let oks, exns, rateLimited, timeouts = Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions"), Stats.LatencyStats("rateLimited"), Stats.LatencyStats("timedOut")
         let mutable cycles, batchesCompleted, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead = 0, 0, 0, 0, 0, 0, 0
 
         member val Log = log
@@ -471,7 +478,7 @@ module Scheduling =
             log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
                 cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; stateStats.Clear()
-            oks.Dump log; exns.Dump log
+            oks.Dump log; rateLimited.Dump log; timeouts.Dump log; exns.Dump log
             let batchesCompleted = Interlocked.Exchange(&batchesCompleted, 0)
             log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
                             batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
@@ -506,27 +513,33 @@ module Scheduling =
         abstract Serialize : (unit -> unit) -> unit
         default _.Serialize(f) = f ()
 
-        abstract member Handle : InternalResult<Choice<'R, 'E>> -> unit
-        default x.Handle msg = msg |> function
-            | { duration = duration; stream = stream; progressed = progressed; result = Choice1Of2 _ } ->
-                oks.Record duration
-                x.HandleResult(stream, duration, true, progressed)
-            | { duration = duration; stream = stream; progressed = progressed; result = Choice2Of2 _ } ->
-                exns.Record duration
-                x.HandleResult(stream, duration, false, progressed)
-
-        abstract HandleResult : FsCodec.StreamName * TimeSpan * progressed : bool * succeeded : bool -> unit
-        default _.HandleResult(stream, duration, succeeded, progressed) =
-            monitor.HandleResult(stream, succeeded, progressed)
-            if metricsLog.IsEnabled LogEventLevel.Information then
-                let outcomeKind = if succeeded then "ok" else "exceptions"
-                let m = Log.Metric.HandlerResult (outcomeKind, duration.TotalSeconds)
-                (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
-                                                             outcomeKind, duration.TotalMilliseconds, progressed)
-                if monitorInterval.IfDueRestart() then monitor.EmitMetrics metricsLog
-
         member _.HandleStarted(stream, stopwatchTicks) =
             monitor.HandleStarted(stream, stopwatchTicks)
+
+        abstract member Handle : InternalResult<Choice<'R, 'E>> -> unit
+
+        member private _.RecordOutcomeKind(r, k) =
+            let inline updateMonitor succeeded = monitor.HandleResult(r.stream, succeeded = succeeded, progressed = r.progressed)
+            let outcomeKind =
+                match k with
+                | OutcomeKind.Ok ->          updateMonitor true;  oks.Record r.duration; "ok"
+                | OutcomeKind.RateLimited -> updateMonitor false; rateLimited.Record r.duration; "rateLimited"
+                | OutcomeKind.Timeout ->     updateMonitor false; timeouts.Record r.duration; "timedOut"
+                | OutcomeKind.Failed
+                | OutcomeKind.Exception ->   updateMonitor false; exns.Record r.duration; "exception"
+            if metricsLog.IsEnabled LogEventLevel.Information then
+                let m = Log.Metric.HandlerResult (outcomeKind, r.duration.TotalSeconds)
+                (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
+                                                             outcomeKind, r.duration.TotalMilliseconds, r.progressed)
+                if monitorInterval.IfDueRestart() then monitor.EmitMetrics metricsLog
+        member x.RecordOk(r) = x.RecordOutcomeKind(r, OutcomeKind.Ok)
+        member x.RecordExn(r, k, log, exn) =
+            x.RecordOutcomeKind(r, k)
+            match k with
+            | OutcomeKind.Ok | OutcomeKind.RateLimited | OutcomeKind.Timeout | OutcomeKind.Failed -> ()
+            | OutcomeKind.Exception -> x.HandleExn(log, exn)
+
+        abstract member HandleExn : ILogger * exn -> unit
 
     module Progress =
 
@@ -672,8 +685,8 @@ module Scheduling =
             dispatcher.TryReplenish(candidateItems, handleStarted)
 
         // Ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
-        let handleResult { duration = duration; stream = stream; progressed = p; result = (res : Choice<'P, 'E>) } =
-            match dispatcher.InterpretProgress(streams, stream, res) with
+        let handleResult { duration = duration; stream = stream; progressed = p; result = r } =
+            match dispatcher.InterpretProgress(streams, stream, r) with
             | ValueSome index, Choice1Of2 (r : 'R) ->
                 batches.MarkStreamProgress(stream, index)
                 streams.RecordProgress(stream, index)
@@ -921,25 +934,28 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
+    abstract member HandleOk : outcome : 'Outcome -> unit
+
+    abstract member Classify : exn -> OutcomeKind
+    default _.Classify e = OutcomeKind.classify e
+
     override this.Handle res =
         let inline addStream sn (set : HashSet<_>) = set.Add sn |> ignore
         let inline addBadStream sn (set : HashSet<_>) = badCats.Ingest(StreamName.categorize sn); addStream sn set
-        base.Handle res
         match res with
-        | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
+        | { stream = stream; result = Choice1Of2 ((es, bs), outcome) } ->
             addStream stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             resultOk <- resultOk + 1
-            this.HandleOk res
-        | { duration = duration; stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+            base.RecordOk res
+            this.HandleOk outcome
+        | { duration = duration; stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
             addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             resultExnOther <- resultExnOther + 1
-            this.HandleExn(log.ForContext("stream", stream).ForContext("events", es).ForContext("duration", duration), exn)
-    abstract member HandleOk : outcome : 'Outcome -> unit
-    abstract member HandleExn : log : ILogger * exn : exn -> unit
+            base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es).ForContext("duration", duration), exn)
 
 module Projector =
 
@@ -1088,26 +1104,26 @@ module Sync =
             if okStreams.Count <> 0 && failStreams.Count <> 0 then
                 log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
                                 Log.miB okBytes, okStreams.Count, okEvents, Log.miB exnBytes, failStreams.Count, exnEvents)
-            okStreams.Clear(); okEvents <- 0; okBytes <- 0L
+            okStreams.Clear(); okEvents <- 0; okBytes <- 0L; failStreams.Clear(); exnBytes <- 0; exnEvents <- 0
             prepareStats.Dump log
+
+        abstract member Classify : exn -> OutcomeKind
+        default _.Classify e = OutcomeKind.classify e
 
         override this.Handle message =
             let inline adds x (set : HashSet<_>) = set.Add x |> ignore
-            base.Handle message
             match message with
-            | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), outcome) } ->
+            | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), _) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
                 prepareStats.Record prepareElapsed
-                this.HandleOk outcome
-            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+                base.RecordOk(message)
+            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
-        abstract member HandleOk : outcome : 'Outcome -> unit
-        abstract member HandleExn : log : ILogger * exn : exn -> unit
+                base.RecordExn(message, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)
 
     type StreamsSync =
 

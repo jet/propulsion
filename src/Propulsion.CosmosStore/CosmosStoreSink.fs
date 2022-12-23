@@ -116,10 +116,9 @@ module Internal =
                 badCats.Clear(); tooLarge <- 0; malformed <- 0;  resultExnOther <- 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
             Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
-        override this.Handle message =
+        override _.Handle message =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
-            base.Handle message
             match message with
             | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
                 adds stream okStreams
@@ -130,21 +129,19 @@ module Internal =
                 | Writer.Result.Duplicate _ -> resultDup <- resultDup + 1
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-                this.HandleOk res
-            | { stream = stream; result = Choice2Of2 ((es, bs), exn) } ->
+                base.RecordOk(message)
+            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
-                match Writer.classify exn with
-                | ResultKind.RateLimited -> adds stream rlStreams; rateLimited <- rateLimited + 1
-                | ResultKind.TimedOut -> adds stream toStreams; timedOut <- timedOut + 1
-                | ResultKind.TooLarge -> bads stream tlStreams; tooLarge <- tooLarge + 1
-                | ResultKind.Malformed -> bads stream mfStreams; malformed <- malformed + 1
-                | ResultKind.Other -> bads stream oStreams; resultExnOther <- resultExnOther + 1
-                this.HandleExn(log.ForContext("stream", stream).ForContext("events", es), exn)
-        abstract member HandleOk : Result -> unit
-        default _.HandleOk _ : unit = ()
-        abstract member HandleExn : log : ILogger * exn : exn -> unit
+                let kind =
+                    match Writer.classify exn with
+                    | ResultKind.RateLimited -> adds stream rlStreams; rateLimited <- rateLimited + 1; OutcomeKind.RateLimited
+                    | ResultKind.TimedOut ->    adds stream toStreams; timedOut <- timedOut + 1;       OutcomeKind.Timeout
+                    | ResultKind.TooLarge ->    bads stream tlStreams; tooLarge <- tooLarge + 1;       OutcomeKind.Failed
+                    | ResultKind.Malformed ->   bads stream mfStreams; malformed <- malformed + 1;     OutcomeKind.Failed
+                    | ResultKind.Other ->       adds stream toStreams; timedOut <- timedOut + 1;       OutcomeKind.Exception
+                base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es), exn)
         default _.HandleExn(_, _) : unit = ()
 
     type Dispatcher =
