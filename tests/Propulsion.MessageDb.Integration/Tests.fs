@@ -19,14 +19,14 @@ module Simple =
     let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
 
 let writeMessagesToCategory category = task {
-    use conn = new NpgsqlConnection("Host=localhost; Port=5433; Username=message_store; Password=;")
+    use conn = new NpgsqlConnection("Host=localhost; Port=5432; Username=message_store; Password=;")
     do! conn.OpenAsync()
     let batch = conn.CreateBatch()
     for _ in 1..50 do
         let streamName = $"{category}-{Guid.NewGuid():N}"
         for _ in 1..20 do
             let cmd = NpgsqlBatchCommand()
-            cmd.CommandText <- "select 1 from write_message(@Id::text, @StreamName, @EventType, @Data, 'null', null)"
+            cmd.CommandText <- "select 1 from write_message(@Id::text, @StreamName, @EventType, @Data, null, null)"
             cmd.Parameters.AddWithValue("Id", NpgsqlDbType.Uuid, Guid.NewGuid()) |> ignore
             cmd.Parameters.AddWithValue("StreamName", NpgsqlDbType.Text, streamName) |> ignore
             cmd.Parameters.AddWithValue("EventType", NpgsqlDbType.Text, "Hello") |> ignore
@@ -43,8 +43,8 @@ let ``It processes events for a category`` () = task {
     let category2 = $"{Guid.NewGuid():N}"
     do! writeMessagesToCategory category1
     do! writeMessagesToCategory category2
-    let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
-    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
+    let connString = "Host=localhost; Database=message_store; Port=5432; Username=message_store; Password=;"
+    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                       with member _.HandleOk x = ()
