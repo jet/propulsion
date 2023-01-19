@@ -26,7 +26,7 @@ let writeMessagesToCategory category = task {
         let streamName = $"{category}-{Guid.NewGuid():N}"
         for _ in 1..20 do
             let cmd = NpgsqlBatchCommand()
-            cmd.CommandText <- "select 1 from write_message(@Id::text, @StreamName, @EventType, @Data, 'null', null)"
+            cmd.CommandText <- "select 1 from write_message(@Id::text, @StreamName, @EventType, @Data, null, null)"
             cmd.Parameters.AddWithValue("Id", NpgsqlDbType.Uuid, Guid.NewGuid()) |> ignore
             cmd.Parameters.AddWithValue("StreamName", NpgsqlDbType.Text, streamName) |> ignore
             cmd.Parameters.AddWithValue("EventType", NpgsqlDbType.Text, "Hello") |> ignore
