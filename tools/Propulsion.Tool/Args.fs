@@ -267,20 +267,20 @@ module Mdb =
     open Npgsql
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-c">]           ConnectionString of string
-        | [<AltCommandLine "-cp">]          CheckpointConnectionString of string
-        | [<AltCommandLine "-s">]           Schema of string
+        | [<AltCommandLine "-cc">]          CheckpointConnectionString of string
+        | [<AltCommandLine "-cs">]          CheckpointSchema of string
         | [<AltCommandLine "-cat">]         Category of string
         interface IArgParserTemplate with
             member a.Usage = a |> function
                 | ConnectionString _ ->     $"Connection string for the postgres database housing message-db. (Optional if environment variable {CONNECTION_STRING} is defined)"
                 | CheckpointConnectionString _ -> "Connection string used for the checkpoint store. If not specified, defaults to the connection string argument"
-                | Schema _ ->               $"Schema that should contain the checkpoints table Optional if environment variable {SCHEMA} is defined"
+                | CheckpointSchema _ ->     $"Schema that should contain the checkpoints table Optional if environment variable {SCHEMA} is defined"
                 | Category _ ->             "The message-db category to load (must specify >1 when projecting)"
 
     type Arguments(c : Configuration, p : ParseResults<Parameters>) =
         let conn () = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
         let checkpointConn () = p.TryGetResult CheckpointConnectionString |> Option.defaultWith conn
-        let schema = p.TryGetResult Schema |> Option.defaultWith (fun () -> c.MdbSchema)
+        let schema = p.TryGetResult CheckpointSchema |> Option.defaultWith (fun () -> c.MdbSchema)
 
         member x.CreateClient() =
             Array.ofList (p.GetResults Category), conn ()
