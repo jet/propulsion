@@ -6,7 +6,7 @@
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
     <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor dynamodb equinox eventstoredb messagedb kafka</PackageTags>
     <PackageLicense>Apache-2.0</PackageLicense>
-    <Copyright>Copyright © 2018-22</Copyright>
+    <Copyright>Copyright © 2018-23</Copyright>
 
     <!-- Global Project config flags -->
     <WarningLevel>5</WarningLevel>
