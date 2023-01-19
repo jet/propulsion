@@ -1048,16 +1048,16 @@ type StreamsSink =
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             stats, statsInterval, eventSize,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-            ?pendingBufferSize,
+            [<O; D null>] ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval,
+            [<O; D null>] ?purgeInterval,
             // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
-            ?wakeForResults,
+            [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            ?idleDelay,
-            ?ingesterStatsInterval,
-            ?requireCompleteStreams)
+            [<O; D null>] ?idleDelay,
+            [<O; D null>] ?ingesterStatsInterval,
+            [<O; D null>] ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let prepare struct (streamName, span) =
             let metrics = StreamSpan.metrics eventSize span
@@ -1073,15 +1073,15 @@ type StreamsSink =
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<'Outcome>>,
             stats, statsInterval, eventSize,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-            ?pendingBufferSize,
+            [<O; D null>] ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval,
+            [<O; D null>] ?purgeInterval,
             // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
-            ?wakeForResults,
+            [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            ?idleDelay,
-            ?ingesterStatsInterval)
+            [<O; D null>] ?idleDelay,
+            [<O; D null>] ?ingesterStatsInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle streamName (span : FsCodec.ITimelineEvent<'F>[]) ct = task {
             let! res = handle.Invoke(streamName, span, ct)
@@ -1191,8 +1191,12 @@ module Default =
                 handle : Func<FsCodec.StreamName, StreamSpan, CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
                 stats, statsInterval,
                 // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-                ?pendingBufferSize, ?purgeInterval,
-                ?wakeForResults, ?idleDelay, ?ingesterStatsInterval, ?requireCompleteStreams)
+                [<O; D null>] ?pendingBufferSize,
+                [<O; D null>] ?purgeInterval,
+                [<O; D null>] ?wakeForResults,
+                [<O; D null>] ?idleDelay,
+                [<O; D null>] ?ingesterStatsInterval,
+                [<O; D null>] ?requireCompleteStreams)
             : Sink =
             StreamsSink.Start<'Outcome, EventBody>(
                 log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,

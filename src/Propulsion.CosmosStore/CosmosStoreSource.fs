@@ -83,7 +83,12 @@ type CosmosStoreSource =
     static member Start
         (   log : ILogger,
             monitored : Container, leases : Container, processorName, observer,
-            ?maxItems, ?tailSleepInterval, ?startFromTail, ?lagReportFreq : TimeSpan, ?notifyError, ?customize) =
+            [<O; D null>] ?maxItems,
+            [<O; D null>] ?tailSleepInterval,
+            [<O; D null>] ?startFromTail,
+            [<O; D null>] ?lagReportFreq : TimeSpan,
+            [<O; D null>] ?notifyError,
+            [<O; D null>] ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
         let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
