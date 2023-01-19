@@ -6,10 +6,12 @@ Please refer to the [FAQ](README.md#FAQ), [README.md](README.md) and the [Issues
 
 In general, the primary background information is covered in the [Background Reading section of Equinox's Documentation](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#background-reading).
 
-- _Enterprise Integration Patterns, Hohpe/Woolf, 2004_: Timeless book on messaging, routing integration and more.
-- _Designing Data Intensive Applications, Kleppmann, 2015_: Timeless book on infrastructure and asynchrony in distributed systems, and much more.
+- _Enterprise Integration Patterns, Hohpe/Woolf, 2004_: Timeless patterns compendium on messaging, routing, integration and more. It's naturally missing some aspects regarding serverlessness, streaming and the like.
+- _Designing Data Intensive Applications, Kleppmann, 2015_: Timeless book on infrastructure and asynchrony in distributed systems, and much more. Arguably should be on the Equinox Background reading list also.
+- [Projections Explained- DDD Europe 2020](https://www.youtube.com/watch?v=b2kSlDcAcps) 1h intermediate level backgrounder talk on projection systems by [@yreynhout](https://github.com/yreynhout)
+- [Events, Workflows, Sagas? Keep Your Event-driven Architecture Sane - Lutz Huehnken](https://www.youtube.com/watch?v=Uv1GOrZWpBM): Good talk orienting one re high level patterns of managing workflows in an event driven context  
 
-- **Your link here** - Please add materials that helped you on your journey so far here via PRs!
+- **Your link here** - Please add notable materials that helped you on your journey here via PRs!
 
 # Glossary
 
