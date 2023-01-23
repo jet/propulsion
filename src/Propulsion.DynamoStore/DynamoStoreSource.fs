@@ -77,7 +77,7 @@ module private Impl =
                         cache.TryAdd(p, items) |> ignore } |]
             if loadsRequired.Length <> 0 then
                 sw.Start()
-                do! loadsRequired |> Task.parallelThrottled loadDop ct |> Task.ignore<unit[]>
+                do! loadsRequired |> Task.parallelLimit loadDop ct |> Task.ignore<unit[]>
                 sw.Stop()
             return [|
                 for span in buffer do

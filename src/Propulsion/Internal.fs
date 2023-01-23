@@ -109,9 +109,11 @@ module Task =
     let private parallel_ maxDop ct (xs : seq<CancellationToken -> Task<'t>>) : Task<'t []> =
         let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.ofTask }, cancellationToken = ct)
         Async.Parallel(xs |> Seq.map (run ct), ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.startImmediateAsTask ct
-    let parallelThrottled maxDop ct xs : Task<'t []> =
+    let parallelLimit maxDop ct xs : Task<'t []> =
         parallel_ maxDop ct xs
-    let parallelUnthrottled ct xs : Task<'t []> =
+    let sequential ct xs : Task<'t []> =
+        parallel_ 1 ct xs
+    let parallelUnlimited ct xs : Task<'t []> =
         parallel_ 0 ct xs
 
 type Sem(max) =

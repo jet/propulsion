@@ -40,7 +40,7 @@ type FeedSourceBase internal
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
     member _.Checkpoint([<O; D null>]?ct) : Task<IReadOnlyDictionary<TrancheId, Position>> = task {
-        do! Task.parallelThrottled 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit array>
+        do! Task.parallelLimit 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit array>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
@@ -64,7 +64,7 @@ type FeedSourceBase internal
         // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
         let! _stats = pumpStats () |> Async.StartChild
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
-        do! Task.parallelUnthrottled ct trancheWorkflows |> Task.ignore<unit[]>
+        do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint() |> Task.ignore }
 
     member x.Start(pump) =

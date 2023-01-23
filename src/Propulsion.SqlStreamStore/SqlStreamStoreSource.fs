@@ -18,7 +18,7 @@ module private Impl =
                            let sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
                            if categoryFilter (FsCodec.StreamName.category sn) then Some struct (sn, msg) else None)
         let! items = if not hydrateBodies then task { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
-                     else filtered |> Seq.map readWithDataAsStreamEvent |> Propulsion.Internal.Task.parallelThrottled 1 ct
+                     else filtered |> Seq.map readWithDataAsStreamEvent |> Propulsion.Internal.Task.sequential ct
         return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } : Propulsion.Feed.Core.Batch<_>)  }
 
     let readTailPositionForTranche (store : SqlStreamStore.IStreamStore) _trancheId ct = task {
