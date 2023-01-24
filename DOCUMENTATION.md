@@ -45,6 +45,92 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ![Propulsion c4model.com Container Diagram: Reactors](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/ReactorsContainer.puml&fmt=svg)
 
+# The `Propulsion.Streams` Programming Model for Projections, Reactions and Workflows
+
+`Propulsion.Streams` provides a programming model to manage running of _Handlers_ in a manner that optimises for the following:
+- isolating the handlers from the client libraries of a given Event Store (the Handler is triggered via a 'Sink' that manages accepts incoming events and checkpointing of progress in a Store-specific manner relevant to the hosting environment in which your handler will be run).
+- providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store (the `MemoryStoreProjector` component is a key part of that story).
+- exposing thorough diagnostic information that enables one to effectively monitor and tune your Handlers in the context of an overall production system.
+
+## Overview of running projections with Propulsion
+
+### _Source pipeline_
+
+'Source' refers to a set of components that comprise the store-specific 'consumer' side of the processing. It encompasses:
+   a. `Source`: the top level component
+      - maintains a reference to the `Sink`, into which the `Ingester`s will feed batches of events
+      - controls the set of Tranches from which events will be consumed (for a store like EventStore, there's only a single Tranche representing the `'$all'` stream; for CosmosStore, there's a Tranche per physical partition in the Container etc)
+      - spins up a `Reader` and an `Ingester` per Tranche
+      - wrapped as a `Pipeline` that can be used to `Stop` the processing and/or `AwaitCompletion`
+   b. `Reader`: responsible for obtaining the input events and passing them to the _ingester_ (one per Tranche)
+   c. `Monitor`: exposes the current read and commit positions achieved for each Tranche, independent of whether the commit of that progress has been completed (one per Source pipeline)
+
+### _Sink pipeline_
+
+'Sink' refers to the end of the processing pipeline that's not specific to a Store. It's primary role is to drive _handler_ invocations based incoming batches of events from the 'Source'. It encompasses: 
+
+   a. `Ingester`: responsible for limiting the maximum read-ahead per Tranche (one per Tranche)
+   b. `ProgressWriter`: used by the `Ingester` to hold, and periodically commit updates to the checkpoint for any progress that has been made (one per Tranche)
+   c. `Scheduler`: takes batches from the Ingester, buffering them. Continually feeds items to the `Dispatcher`, reporting latencies and outcomes (to `Stats`) and batch completion (to `Ingester`)
+   d. `Dispatcher`: handles keeping up to the desired amount of concurrent handlers in flight at any time
+   e. `Stats`: processes Handler invocation outcomes, maintaining statistics for periodic emission and/or forwarding to a metrics sinks such as `Prometheus` (can be customised to gather Domain-relevant statistics identifying the nature of the Reactions processing taking place in addition to generic invocation latency, stream counts and category distributions etc)
+   h. `Handler`s: caller-supplied function that's passed a stream identifier (a StreamName:- Category + Id pair) and the span of waiting events for that stream (typically a single event, but can grow in catch-up scenarios, retries, or multiple events being written in close succession)
+
+### Ordering
+
+### Relationships between projections
+
+-> Workflows!
+
+### Designing events for projection
+
+- Store in the derived data
+- Add at the end, just in time
+
+### Transactions
+
+#### Contention with overlapping actors
+
+#### Watchdogs
+
+### Reading your Writes and consistency
+
+When processing based on the a Store's change feed / notification mechanism, there are a number of factors in play:
+- balancing straight forward code in the case of a single event on a single stream versus efficiently managing how to catch up when there's a backlog of a significant number of events
+- handling at least once delivery of messages (typically under error conditions, but there are other corner cases too). A primary example would be the case where a significant amount of processing has been completed, but the checkpoint had not yet been committed at the time the host process was torn down; in such a case, an entire (potentially large) batch of events may be re-processed. In such a case, the handling needs to be idempotent (no bad side effects in terms of incorrect or unstable data or duplicate actions; no inordinate overloading of capacity compared to the happy path). 
+- when reading without strong consistency, an event observed on a feed may not yet be visible (have propagated to) the node that you query to establish the state of an aggregate (see Reading Your Writes)
+
+Depending on the nature of the processing you're doing, your use of the events will vary:
+- performing specific work based solely on the event and/or its payload (e.g., a `Created` event may result in `INSERT`ing a new item into a list)
+- treating the events as 'shoulder tap' regarding a given stream; in other words, the nature of the processing is such that whenever events are appended to a given stream, there's a generic piece of processing that should be triggered. Often the processing would not be simpler or more efficient if it inspected the prompting event(s). (e.g. if you were expected to publish a Summary Event per event observed to some external feed, then the only event that does not require inspection of state derived from preceding events would be a Creation event)
+
+#### Mitigations for not being able to Read Your Writes
+
+The following approaches can be used to cater for cases where it can't be guaranteed that the read performed by a handler will 'see' the prompting event (paraphrasing, it's strongly recommended to read [articles such as this on _eventual consistency_](https://www.allthingsdistributed.com/2007/12/eventually_consistent.html) or the _Designing Data Intensive Applications_ book):
+- Ensure that the read is guaranteed to be from from the cluster's Leader (e.g., a Leader connection in EventStoreDb, the `requireLeader` flag for MessageDb, requesting a 'consistent read' on DynamoDb) or (for a store with Session Consistency) is contingent on the session token being used by the feed reader (e.g. in CosmosDb, using the same `CosmosClient` to ensure the session tokens are synchronized)
+- Perform a pre-flight check when reading, based on the `Index` of the newest event passed to the handler. In such a case, it may make sense to back off for a small period, before reporting failure to handle the event (by throwing an exception). The Handler will be re-invoked for another attempt, with a better chance of the event being reflected in the read. In this case, one can safely report `SpanResult.AllProcessed` (or `PartiallyProcessed` if you wish to defer some work due to the backlog of events triggering too much work to perform in a single invocation)
+- Perform the processing on a 'shoulder tap' basis: First, load the stream's state, performing any required reactions. Then report the Version attained for the stream (based on the Index of the last event processed) by yielding a `SpanResult.OverrideWritePosition`. In this case, one of following edge cases may result:
+    - The handler saw a version prior to the prompting event. For example, if a Create event (`Index = 0`) is relayed, but reading does not yield any events (the replica in question is behind the node from which the feed obtained its state). In this case, the Handler can simply yield `SpanResult.OverrideWritePosition`, which will cause the event to be retained in the input buffer (and most likely, a fresh invocation for that same stream will immediately be dispatched)
+    - The Handler saw a Version fresher than the prompting event. For example: if a Create (`Index = 0`) is immediately followed by an Update (`Index = 1`), the handler can yield `SpanResult.OverrideWritePosition 2` to reflect the fact that the next event that's of interest will be event `Index = 2`. Regardless of whether Event 1 arrived while the handler was processing Event 0, or whether it arrives some time afterwards, the event will be dropped from the events pending for that Stream's Handler.
+
+### Consistency in the face of at least once delivery and re-traversal of events
+
+In the general case, events from a feed get de-duplicated, and each event should be seen exactly once. However, this cannot be assumed; ultimately any handler needs to be ready to deal with redelivery of any predecessor event on a stream. In the worst case, that means that immediately after `Index = 4` has been processed, a restart may deliver events `Index = 3` and `Index = 4` as the next span of events within tens of milliseconds.
+
+At the other end of the redelivery spectrum, we have full replays. For instance, it's not uncommon to want to either re-traverse an entire set of events (e.g. if some field was not being stored in the derived data but suddenly becomes relevant), or one may opt to rewind to an earlier checkpoint to trigger re-processing (a downstream processor reports having restored a two hour old back resulting in data loss, which could be resolved by rewinding 3 hours and relying on the idempotency guarantees of their APIs).
+
+A related scenario that often presents itself after a system has been running for some time is the desire to add an entirely new (or significantly revised) read model. In such as case, being able to traverse a large number of events efficiently is of value (being able to provision a tweaked read model in hours rather than days has significant leverage).
+
+### Versioning read models over time
+
+One aspect to call out is that it's easy to underestimate the frequency at which such re-processing is required and/or is the best approach to apply; both during the initial development phase of a system (where processing may only have happened in pre-production environment so a quick `TRUNCATE TABLE` will cure it all) or for a short time (where a quick online `UPDATE` or `SELECT INTO` can pragmatically address a need). Two pieces of advice arise from this:
+- SQL databases are by far the most commonly used read model stores for good reason - they're malleable (you whack in a join or add an index or two and/or the above mentioned `TRUNCATE TABLE`, `SELECT INTO` tricks will take you a long way), and they provide Good Enough performance and scalability for the vast majority of scenarios (you are not Google).
+- it's important to practice how you play with regard to such situations. Use the opportunity to sharpen you and your teams thinking and communication with regard to how to handle such situations rather than cutting corners eery time. That muscle memory will pay back quicker than you think; always sweeping them under the rug (only every doing hacks) can turn you into an author of one of those sad "what the Internet didn't tell you about Event Sourcing" articles in short order.
+
+In the long run, getting used to dealing with re-traversal scenarios by building handlers to provision fresh adjacent read models is worthwhile. It also a skill that generalises better - a random document store is unlikely to match the full power of a `SELECT INTO`, but ultimately they may be a better overall solution for your read models (`Equinox.CosmosStore` and `Equinox.DynamoStore` also offer powerful `RollingState` modes that can simplify such processing).
+
+In short, it's strongly recommended to at least go through the thought exercise of considering how you'd revise or extend a read model in a way that works when you have a terabyte of data or a billion items in your read model every time you do a 'little tweak' in a SQL read model.  
+
 # `Propulsion.CosmosStore` facilities
 
  An integral part of the `Equinox.CosmosStore` value proposition is the intrinsic ability that Azure CosmosDB affords to project changes via the [ChangeFeed mechanism](https://docs.microsoft.com/en-us/azure/cosmos-db/change-feed). Key elements involved in realizing this are:
