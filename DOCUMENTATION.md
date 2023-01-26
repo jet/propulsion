@@ -126,8 +126,23 @@ Of course, it's always possible to map such as process to an equivalent set of s
 
 ### Designing events for projection
 
+- egregious fields to keep simple things simple
 - Store in the derived data
 - Add at the end, just in time
+
+### Testing Projections
+
+#### Unit testing projections
+
+- No Propulsion required, but MemoryStore can help
+
+#### MemoryStore Projector; deterministic projections integration tests
+
+- `Propulsion.MemoryStore`; example of deterministic waits in a test
+
+#### Generalising MemoryStore Projector tests to hit a concrete store
+
+- Pointers to `proHotel` things
 
 ### Transactions
 
