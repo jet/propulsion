@@ -78,9 +78,51 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ### Ordering
 
-### Relationships between projections
+Event ordering guarantees are a key consideration in running projections or reactions. The origin of the events will intrinsically dictate the upper bound of ordering guarantees possible. Some examples:
+- EventStore, SqlStreamStore: these establish a stable order as each event is written (within streams, but also across all streams). The '`$all`' stream and related APIs preserve this order
+- CosmosDb: the ChangeFeed guarantees to present Items from logical partitions in order of when they were touched (added/updated). While the relative order of writes across streams happens to be stable when there is one physical partition, that's an irrelevant implementation detail that's not useful for building anything other than a throwaway demo.
+- DynamoDb: While DynamoDb streams establishes and preserves the order of each change, that's subject to the 24h retention period limit. The DynamoStore.Indexer and reader all-but preserve that ordering (Note that the indexer does not currently ensure to preserve order _within_ any DDB Streams batch being indexed).
+- MessageDb: Appends establish a permanent position within the events for a given category (writes for a given category are serialized in order to guarantee this; there are explicitly no guarantees across categories). The Propulsion reader logic pulls categories independently (which should not matter due to the lack of correlation within the store).
+- MemoryStore: `MemoryStore`, and `Propulsion.MemoryStore` explicitly guarantees that notifications of write for a given stream are processed (and propagated into the Scheduler) in strict order of those writes (all Propulsion Sources are expected to guarantee that Stream level ordering). 
 
--> Workflows!
+While the above factors are significant in how the Propulsion Sources are implemented, **the critical thing to understand is that `Propulsion.Streams` makes no attempt to preserve any ordering beyond the individual stream**.
+
+The primary reason for this is that it would imply that invocation of handlers cannot be concurrent. That would be a major impediment to throughput when rate limiting and/or other bottlenecks impose non-uniform effects on handler latency (you'd ideally continue processing on streams that are not currently impacted by rate limiting or latency spikes, working ahead on the basis that the impeded stream's issues will eventually abate).
+
+The other significant opportunity one leaves behind if you don't admit concurrency into your projections is that you can never split or load balance the processing across multiple consumers (Propulsion does not presently implement any explicit sharding support, although when using `Propulsion.CosmosStore`, the underlying Change Feed Processor in the Microsoft SDK implements automated balancing of physical partition leases across all competing instances).
+
+While doing the simplest thing possible to realise any aspect of a system's operation is absolutely the correct starting point for any design, it's also important to consider whether such solutions might impose restrictions that may later be difficult or costly to unravel:
+- re-traversing of all events to build a new version of a read model becomes less viable if the time to do that is hardwired to be limited by the serial processing of the items
+- while grouping multiple operations into a single SQL batch in order to reduce the latency (although not the locking side effects) can be effective, it should be noted that such a scheme does not generalise well to the e.g. third party API calls, or writes to document stores etc that do not present such facilities.
+- re-running processing in disaster recovery or amelioration scenarios will have restricted throughput (especially in cases where idempotent reprocessing might mainly involve relatively low cost operations; the lowered individual latency may be dwarfed by the per-call overheads in a way that the original serial processing of the requests might not have surfaced). It's easy to disregard such aspects as nice-to-haves when growing a system from scratch; the point is that there's nothing intrinsic about projection processing that mandates serial processing, and ruling out the opportunity for concurrent processing of streams can result in a system where powerful operational and deployment approaches are ruled out as a result of picking an Easy option over a more Simple one.
+- following the strict order of event writes across streams precludes grouping event processing at the stream level (unless you work in a batched manner). Being able to read ahead, collating events from future batches (while still honoring the batch order with regard to checkpointing etc) afford handlers the ability to process multiple events for a single stream as a group (equally, it allows a handler to determine that a given stream has already reached a particular write position, enabling the ingestion process to discard future redundant reads on the basis as processing catches up) 
+
+### Relationships between data established via projections or reactions
+
+The preceding section lays out why building projections that assume a global order of events and then traversing them serially can be harmful to throughput and make a system harder to operate and/or deploy (and, frequently, the complexity of the processing grows beyond the superficially simple initial logic as you've applied batching and other optimizations).
+
+Nonetheless, there will invariably be parent-child relationships within data and it's processing. When analyzed, these group into at least the following buckets:
+- foreign key relationships reflecting data dependencies that are necessary to serve queries from a read model
+- data that feeds into an overall data processing flow that is reliant on that dependent data being in place for a given piece of processing to yield a correct or meaningful result
+
+Where the parent and child information can live within the same stream, the stream level ordering guarantee can be used to guard against 'child' data being rendered or operated on without its parent being present directly.
+
+#### Explicit Process Managers
+
+In more complex cases, the projection will need to hide or buffer data until such time as the dependency has been fulfilled. At its most general, this is a [Process Manager](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html). It's important to validate any presumed requirements about being able to render a given read model the instant a child piece of data is ingested into the model; often having a LEFT JOIN in a SELECT exclude the child from a list until such time as the parent has been ingested can be perfectly reasonable regardless of one's desire to have a perfect unified model with all possible foreign keys applied in order to guarantee a watertight model of the entire enterprise (this should be considered alongside other aspects such as whether the projection work is asynchronous, or preemptively carried out prior to reporting completion of a request)
+
+### Phased processing
+
+A key technique in simplifying systems as a whole is to consider whether batching and/or workflows can be managed asynchronously. If we consider the case where a system needs to report completed batches of shipment boxes within a large warehouse:
+- a large number of shipments may be being prepared; we can't batch them until we know that all the required items within have been obtained (or deemed unobtainable) and the box sealed
+- at peak processing time (or where packing is robotized), there can be deluges of shipments being marked complete. We don't want to impose a variable latency on the turnaround of processing for the person or robot doing the picking to be able to commence it's next activity
+- batches need to fulfil size restrictions
+- shipments must be included in exactly one batch, no matter how many times the Completed is processed
+- batches have their own processing lifecycle that starts subsequent to their being filled 
+
+One way of modelling constraints such as this, is to have a Reactor concurrently handle Shipment Completed notifications, with the grouping of shipments into a given batch (while guaranteeing not to exceed te batch size limit) via a single Decision rather than a storm of concurrent ones. When the reactor responsible for inserting the completed shipments into a batch has  completed its work, it can declare the Batch `Closed`, and the next phase of the cycle (post-processing the Batch prior to transmission) can commence (as a separated piece of Reactor logic, potentially implemented as a separate Reactor Service)
+
+Of course, it's always possible to map such as process to an equivalent set of serial operations on a complete SQL relational model. However implicitly arriving at a model for this processing by ad-hoc SQL operations that assume serial operations is rarely going to yield consistent performance. In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
 
 ### Designing events for projection
 
@@ -96,7 +138,7 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 ### Reading your Writes and consistency
 
 When processing based on the a Store's change feed / notification mechanism, there are a number of factors in play:
-- balancing straight forward code in the case of a single event on a single stream versus efficiently managing how to catch up when there's a backlog of a significant number of events
+- balancing straight forward code in the case of a single event on a single stream versus efficiently managing how to catch up when there's a backlog of a significant number of events~~~~
 - handling at least once delivery of messages (typically under error conditions, but there are other corner cases too). A primary example would be the case where a significant amount of processing has been completed, but the checkpoint had not yet been committed at the time the host process was torn down; in such a case, an entire (potentially large) batch of events may be re-processed. In such a case, the handling needs to be idempotent (no bad side effects in terms of incorrect or unstable data or duplicate actions; no inordinate overloading of capacity compared to the happy path). 
 - when reading without strong consistency, an event observed on a feed may not yet be visible (have propagated to) the node that you query to establish the state of an aggregate (see Reading Your Writes)
 
@@ -106,7 +148,11 @@ Depending on the nature of the processing you're doing, your use of the events w
 
 #### Mitigations for not being able to Read Your Writes
 
-The following approaches can be used to cater for cases where it can't be guaranteed that the read performed by a handler will 'see' the prompting event (paraphrasing, it's strongly recommended to read [articles such as this on _eventual consistency_](https://www.allthingsdistributed.com/2007/12/eventually_consistent.html) or the _Designing Data Intensive Applications_ book):
+The following approaches can be used to cater for cases where it can't be guaranteed that
+[the read performed by a handler will 'see' the prompting event](https://en.wikipedia.org/wiki/Consistency_model#Read-your-writes_consistency)
+(paraphrasing, it's strongly recommended to read
+[articles such as this on _eventual consistency_](https://www.allthingsdistributed.com/2007/12/eventually_consistent.html)
+or the _Designing Data Intensive Applications_ book):
 - Ensure that the read is guaranteed to be from from the cluster's Leader (e.g., a Leader connection in EventStoreDb, the `requireLeader` flag for MessageDb, requesting a 'consistent read' on DynamoDb) or (for a store with Session Consistency) is contingent on the session token being used by the feed reader (e.g. in CosmosDb, using the same `CosmosClient` to ensure the session tokens are synchronized)
 - Perform a pre-flight check when reading, based on the `Index` of the newest event passed to the handler. In such a case, it may make sense to back off for a small period, before reporting failure to handle the event (by throwing an exception). The Handler will be re-invoked for another attempt, with a better chance of the event being reflected in the read. In this case, one can safely report `SpanResult.AllProcessed` (or `PartiallyProcessed` if you wish to defer some work due to the backlog of events triggering too much work to perform in a single invocation)
 - Perform the processing on a 'shoulder tap' basis: First, load the stream's state, performing any required reactions. Then report the Version attained for the stream (based on the Index of the last event processed) by yielding a `SpanResult.OverrideWritePosition`. In this case, one of following edge cases may result:
@@ -186,5 +232,3 @@ Resources:
 - [low level documentation of the client settings](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 - [thorough free book](https://www.confluent.io/wp-content/uploads/confluent-kafka-definitive-guide-complete.pdf)
 - [medium post covering some high level structures that Jet explored in this space](https://medium.com/@eulerfx/scaling-event-sourcing-at-jet-9c873cac33b8).
-
-
