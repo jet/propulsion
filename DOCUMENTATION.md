@@ -54,6 +54,33 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ## Overview of running projections with Propulsion
 
+### Glossary
+
+#### Tranches
+
+A Propulsion source can optionally split it's reading into multiple independent _Tranches_ (a tranche is a portion/division of a pool, it literally means slice in french). Each tranche is read (including reading up to a specified number of batches) and checkpointed independently. The internal Submitter component takes a batch from each Tranche in turn to ensure fair distribution of work across all Tranches that have work to be processed.
+
+### Supported Inputs
+
+Propulsion provides for processing events from the following sources:
+
+1. `Propulsion.CosmosStore`: Lightly wraps the Change Feed Processor library within the `Microsoft.Azure.Cosmos` client, which provides a load balanced leasing system (like Kafka), enabling multiple instances of a processor with the same Processor Name (Consumer Group Name) to compete (there can be as many active processors as there are physical partitions; the client API indicates the Partition Identity via the Context's `LeaseToken`).
+   - Each physical Partition maps to a Tranche, so processing still honors stream concurrency limits, even if the CFP library assigns more than one partition to a given instance.
+   - The CFP library provides for estimation of the Lag of documents to be processed between the current checkpoint position and the tail of each partition, which can surfaced as a metric.
+   - Over time, as a Container splits into more physical partitions (either due to assigning > 10K RU per physical partition, or by exceeding the 50GB/partition limit), more Partitions will arise.
+   - Checkpoints are maintained by the CFP library within an auxiliary (by convention, a sister container with the name`{container}-aux`) CosmosDB container (the document containing the checkpoint doubles as a lease management target)
+2. `Propulsion.DynamoStore`: Reads from an Index Table maintained by a `Propulsion.DynamoStore.Indexer` Lambda
+    - In the current implementation, the Indexer feeds all items into a single Tranche within its index (extending it to support multiple Tranches based on a hash of the stream identifier would not be difficult).
+    - If an index was to present multiple tranches, the Reader is ready to handle them as is (although there's no support within the source for load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances).
+3. `Propulsion.EventStoreDb`: Uses the EventStoreDb gRPC based API to pull events from the `$all` stream.
+   - In the current implementation, there's no support within the source for load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances
+   - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the reader does report it initially)
+   - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server. There is not presently a [checkpoint store implementation that maintains the checkpoints EventStoreDb itself at present](https://github.com/jet/propulsion/issues/8).
+4. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system. Such a system might present an ATOM-like feed, but equally can be a periodic ingestion of a dataset from a pool of data that is not incrementally readable (such as a Table in a data warehouse). 
+    - A Feed can be represented as multiple Tranches, with processing balancing across them all (e.g. each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time).
+    - In the current implementation, there's no support for surfacing lag metrics.
+    - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server.
+
 ### _Source pipeline_
 
 'Source' refers to a set of components that comprise the store-specific 'consumer' side of the processing. It encompasses:
