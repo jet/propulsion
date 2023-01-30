@@ -209,15 +209,15 @@ At the other end of the redelivery spectrum, we have full replays. For instance,
 
 A related scenario that often presents itself after a system has been running for some time is the desire to add an entirely new (or significantly revised) read model. In such as case, being able to traverse a large number of events efficiently is of value (being able to provision a tweaked read model in hours rather than days has significant leverage).
 
-### For Read Models, Expand, then contract
+### For Read Models, Always Expand and Contract
 
-The safest way to manage extending or tweaking a read model is always to go through the same generic flow:
+The safest way to manage extending or tweaking a read model is always to go through the [ParallelChange pattern](https://martinfowler.com/bliki/ParallelChange.html):
 - define the tables/entities required, and/or any additional fields or indices. Roll out any schema changes. If you're using a schemaless datastore, this step may not be relevant; perhaps the only thing new is that your documents will now be named `ItemSummary2-{itemId}`
 - configure a new consumer group to walk the data and provision the new read model.
 - when that's completed, switch the read logic to use the new data.
 - at a later point in time, you can TRUNCATE the outgoing read model (to reclaim storage space) before eventually removing it entirely.
 
-While that might be overkill in some cases where a quick `ALTER TABLE` could have done the job, you have also given up an opportunity to practice as you play. While that should go without saying in a critical system with a large read model store, the same ~~~~
+True, following such a checklist might feel like overkill in some cases (where a quick `ALTER TABLE` might have done the job). But looking for a shortcut is also passing up an opportunity to practice as you play -- in any business critical system (or one with large amounts of data) hacks are less likely to even be viable.
 
 ### Versioning read models over time
 
