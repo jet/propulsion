@@ -48,7 +48,7 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 # The `Propulsion.Streams` Programming Model for Projections, Reactions and Workflows
 
 `Propulsion.Streams` provides a programming model to manage running of _Handlers_ in a manner that optimises for the following:
-- isolating the handlers from the client libraries of a given Event Store (the Handler is triggered via a 'Sink' that manages accepts incoming events and checkpointing of progress in a Store-specific manner relevant to the hosting environment in which your handler will be run).
+- generalising message handling from the specific event store implementations. Propulsion will internally handle the integration with event store client libraries and trigger your handler. The Handler is triggered via a 'Sink' that accepts incoming events and handles processing progress. It'll automatically checkpoint events in a native way specific to event store implementation.
 - providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion provides a `MemoryStoreProjector` component that works with `Equinox.MemoryStore` to let you establish a fully deterministic in memory processing pipeline (including handling reactions and waiting for them to complete), without going out of process. See the [Testing](#testing) section)
 
 providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion can emulate your store with in memory processing (the MemoryStoreProjector component is a key part of that story).
