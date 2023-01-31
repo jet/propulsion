@@ -85,7 +85,7 @@ Propulsion provides for processing events from the following sources:
 4. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system. Such a system might present an ATOM-like feed, but equally can be a periodic ingestion of a dataset from a pool of data that is not incrementally readable (such as a Table in a data warehouse). 
     - A Feed can be represented as multiple Tranches, with processing balancing across them all (e.g. each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time).
     - In the current implementation, there's no support for exposing lag metrics (Logs show the read position and whether the tail has been reached, but not the lag).
-    - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server.
+    - Propulsion provides you out of the box checkpoint storage for CosmosStore, DynamoStore, Postgres, SQL Server.
 
 ### _Source pipeline_
 
