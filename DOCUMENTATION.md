@@ -83,7 +83,7 @@ Propulsion provides for processing events from the following sources:
    - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the reader logs the lag on startup, but unlike for `CosmosStore`, there is no logic to log it e.g. every minute and/or feed it to Prometheus wired up)
    - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server. There is not presently a [checkpoint store implementation that maintains the checkpoints EventStoreDb itself at present](https://github.com/jet/propulsion/issues/8).
 4. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system. Such a system might present an ATOM-like feed, but equally can be a periodic ingestion of a dataset from a pool of data that is not incrementally readable (such as a Table in a data warehouse). 
-    - A Feed can be represented as multiple Tranches, with processing balancing across them all (e.g. each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time).
+    - A Feed can be represented as multiple Tranches. It balances processing across them. For instance, each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time.
     - In the current implementation, there's no support for exposing lag metrics (Logs show the read position and whether the tail has been reached, but not the lag).
     - Propulsion provides you out of the box checkpoint storage for CosmosStore, DynamoStore, Postgres, SQL Server.
 
