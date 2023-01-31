@@ -50,7 +50,7 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 `Propulsion.Streams` provides a programming model to manage running of _Handlers_ in a manner that optimises for the following:
 - isolating the handlers from the client libraries of a given Event Store (the Handler is triggered via a 'Sink' that manages accepts incoming events and checkpointing of progress in a Store-specific manner relevant to the hosting environment in which your handler will be run).
 - providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store (the `MemoryStoreProjector` component is a key part of that story).
-- exposing thorough diagnostic information that enables one to effectively monitor and tune your Handlers in the context of an overall production system.
+- getting observability on messages handling and processing. Propulsion exposes diagnostic and telemetry information that enables effective monitoring. That's essential for tuning your Handlers for the production-ready system.
 
 ## Overview of running projections with Propulsion
 
