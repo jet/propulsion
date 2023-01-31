@@ -49,18 +49,23 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 `Propulsion.Streams` provides a programming model to manage running of _Handlers_ in a manner that optimises for the following:
 - isolating the handlers from the client libraries of a given Event Store (the Handler is triggered via a 'Sink' that manages accepts incoming events and checkpointing of progress in a Store-specific manner relevant to the hosting environment in which your handler will be run).
-- providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store (the `MemoryStoreProjector` component is a key part of that story).
+- providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion provides a `MemoryStoreProjector` component that works with `Equinox.MemoryStore` to let you establish a fully deterministic in memory processing pipeline (including handling reactions and waiting for them to complete), without going out of process. See the [Testing](#testing) section)
+
+providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion can emulate your store with in memory processing (the MemoryStoreProjector component is a key part of that story).
+
 - getting observability of messages handling and processing. Propulsion exposes diagnostic and telemetry information that enables effective monitoring. That's essential for tuning and troubleshooting your Handlers in production-ready system.
 
 ## Overview of running projections with Propulsion
 
 ### Glossary
 
+This section assumes familiarity with terms like _Event_, _Reactions_, _Read Models_, _Stream_, etc. See the [Event Sourcing section of the Equinox Glossary](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#event-sourcing)
+
 #### Tranches
 
 A Propulsion source can optionally split it's reading into multiple independent _Tranches_ (a tranche is a portion/division of a pool, it literally means slice in french). Each tranche is read (including reading up to a specified number of batches) and checkpointed independently. The internal Submitter component takes a batch from each Tranche in turn to ensure fair distribution of work across all Tranches that have work to be processed.
 
-### Supported Inputs
+### Supported Input sources
 
 Propulsion provides for processing events from the following sources:
 
@@ -75,11 +80,11 @@ Propulsion provides for processing events from the following sources:
     - Where a DynamoStore Index Table has entries in multiple Tranches (Partitions), the Reader will run an independent read loop per Tranche (see preceding note: the Indexer does not yet do this at present). Note `DynamoStoreSource` does not yet implement load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances (as opposed to `CosmosStore`, which, as noted above, provides that directly via the Change Feed Processor facility).
 3. `Propulsion.EventStoreDb`: Uses the EventStoreDb gRPC based API to pull events from the `$all` stream.
    - Note `EventStoreDbSource` does not yet implement load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances
-   - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the reader does report it initially)
+   - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the reader logs the lag on startup, but unlike for `CosmosStore`, there is no logic to log it e.g. every minute and/or feed it to Prometheus wired up)
    - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server. There is not presently a [checkpoint store implementation that maintains the checkpoints EventStoreDb itself at present](https://github.com/jet/propulsion/issues/8).
 4. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system. Such a system might present an ATOM-like feed, but equally can be a periodic ingestion of a dataset from a pool of data that is not incrementally readable (such as a Table in a data warehouse). 
     - A Feed can be represented as multiple Tranches, with processing balancing across them all (e.g. each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time).
-    - In the current implementation, there's no support for surfacing lag metrics.
+    - In the current implementation, there's no support for exposing lag metrics (Logs show the read position and whether the tail has been reached, but not the lag).
     - There are facilities for storing checkpoints in CosmosStore, DynamoStore, Postgres, SQL Server.
 
 ### _Source pipeline_
@@ -158,7 +163,7 @@ Of course, it's always possible to map such as process to an equivalent set of s
 - Store in the derived data
 - Add at the end, just in time
 
-### Testing Projections
+### Testing
 
 #### Unit testing projections
 
