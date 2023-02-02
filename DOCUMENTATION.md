@@ -13,10 +13,6 @@ In general, the primary background information is covered in the [Background Rea
 
 - **Your link here** - Please add notable materials that helped you on your journey here via PRs!
 
-# Glossary
-
-There's a [glossary of terms in the Equinox Documentation](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#glossary).
-
 # Overview
 
 The following diagrams are based on the style defined in [@simonbrowndotje](https://github.com/simonbrowndotje)'s [C4 model](https://c4model.com/), rendered using [@skleanthous](https://github.com/skleanthous)'s [PlantUmlSkin](https://github.com/skleanthous/C4-PlantumlSkin/blob/master/README.md). It's highly recommended to view [the talk linked from `c4model.com`](https://www.youtube.com/watch?v=x2-rSnhpw0g&feature=emb_logo). See [README.md acknowledgments section](https://github.com/jet/equinox#acknowledgements)
@@ -45,117 +41,258 @@ The overall territory is laid out here in this [C4](https://c4model.com) System 
 
 ![Propulsion c4model.com Container Diagram: Reactors](http://www.plantuml.com/plantuml/proxy?cache=no&src=https://raw.github.com/jet/propulsion/master/diagrams/ReactorsContainer.puml&fmt=svg)
 
+# Glossary
+
+There's a [glossary of terms in the Equinox Documentation](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#glossary). Familiarity with those aspects is a prerequisite for delving into the topic of Projections and Reactions.
+
+| Term                    | Description
+|-------------------------|---
+| Consumer Group          | Name used to identify a set of checkpoint positions for each Tranche of a Source
+| Consumer Load Balancing | Built in lease-based allocation of Partitions to distribute load across instances of a Processor based on a common Consumer Group Name e.g. the broker managed system in Kafka, the Change Feed Processor library within the `Microsoft.Azure.Cosmos` Client
+| Batch                   | Group of Events from a Source. Typically includes a Checkpoint callback that's invoked when all events have been handled
+| Category                | Group of Streams for a Source matching `{categooryName}-{streamId}` pattern. MessageDB exposes a Feed per Category
+| DynamoStore Index       | An `Equinox.DynamoStore` containing a sequence of (Stream,Index,Event Type) entries referencing Events in a Store.<br/>Written by a `Propulsion.DynamoStore.Indexer` Lambda. Can be split into Partitions
+| Event                   | An Event from a Stream, obtained from a 
+| Feed                    | Incrementally readable portion of a Source that affords a way to represent a Position within that as a durable Checkpoint, with Events being appended at the tail<br/>e.g. the EventStoreDb `$all` stream, an ATOM feed over HTTP, the content of a Physical Partition of a CosmosDb Container
+| Handler                 | Function that implements the specific logic that the Processor is providing. Multiple concurrent invocations (Maximum Concurrency: see Processor Parallelism). It is guaranteed that no Handler invocation can be passed the same Stream concurrently.
+| Partition               | Autonomous part of a store or feed<br/>e.g. a Physical partition in CosmosDB, a partition of a DynamoStore Index, a partition of a Kafka topic, a shard of a [Sharded](https://www.digitalocean.com/community/tutorials/understanding-database-sharding) database, etc.
+| Processor               | Software system wired to a Source with a common Consumer Group Name.<br/>e.g. in the CosmosDB Client, a Change Feed Processor Consumer specifies a `ProcessorName`
+| Processor Instance      | Configured Source and Sink ready to handle batches of events for a given Consumer Group Name
+| Processor Parallelism   | Upper limit for concurrent Handler invocations for a Processor Instance
+| Source                  | Umbrella term for the datasource-specific part of a Processor that obtains batches of origin data from Feeds
+| Sink                    | Umbrella term for the datasource-neutral part of a Processor that accepts Batches of Events from the Source, and calls the Checkpointing callbacks when all of the Batch's Events have been handled
+| Stream                  | Named ordered sequence of Events as yielded by a Source
+| Tranche                 | Checkpointable sequence of Batches supplied from a Source<br/>CosmosDb Change Feed: mapped 1:1 based on Physical Partitions of the CosmosDb Container<br/>DynamoStore: mapped 1:1 from Partitions of a DynamoStore Index<br/>MessageDb: Mapped from each Category relevant to a given Processor's needs
+
+## Propulsion Source Elements
+
+In Propulsion, 'Source' refers to a set of components that comprise the store-specific 'consumer' side of the Processor Pipeline. Per input source, there is generally a `Propulsion.<Input>.<Input>Source` type which wires up the lower level pieces (See [Input Sources](#supported-input-sources) for examples and details).
+
+A Source is supplied with a reference to the Sink that it is to supply Batches to.
+
+It encompasses:
+
+| Component      | Description
+|----------------|---
+| Source         | Top level component that starts and monitors the (potentially multiple) Readers.<br/>Provides a `Pipeline` object which can be used by the hosting progream to `Stop` the processing and/or `AwaitCompletion`.
+| Reader         | Manages reading from a Feed, passing Batches to an Ingester (one per active Tranche)
+| Ingester       | A Source maintains one of these per active Reader. Controls periodic checkpointing. Limits the maximum number of Batches that can be Read Ahead
+| ProgressWriter | used internally by the `Ingester` to buffer (and periodically commit) updates to the checkpointed position to reflect progress that has been achieved for that Tranche of the Source by this Consumer Group
+| Monitor        | Exposes the current read and commit positions for each Tranche within the Source<br/>Enables tests can await completion of processing without having to continually poll to (indirectly) infer whether some desired side effect has been triggered.
+
+## Propulsion Sink Elements
+
+In Propulsion, 'Sink' refers to the store-neutral part of the Processor Pipeline, which consumes the input Batches and Schedules the invocation of Handlers based on events emanating from the 'Source'.
+
+A Sink is fed by a Source.
+
+| Component   | Description
+|-------------|---
+| Submitter   | Buffers Tranches supplied by Ingesters. Passes Batches to the Scheduler on a round-robin basis to ensure each Tranche of input is serviced equally
+| Scheduler   | Loops continually, pioritising Streams to supply to the Dispatcher.<br/>Reports outcome and metrics for Dispatched requests to Stats.<br/>Reports completion of Batches to the Ingester that supplied them [Ingester](#propulsion-source-elements) that supplied it.
+| Stats       | Collates Handler invocation outcomes, maintaining statistics for periodic emission and/or forwarding to a metrics sinks such as `Prometheus`<br/>Gathers generic handler latency statistics, stream counts and category distributions<br/>Can be customised to gather Domain-relevant statistics conveying high level Reactor activity.
+| Dispatcher  | Loops continually, dispatching Stream Queues to Handlers via the Thread Pool.<br/>Responsible for limiting the maximum number of in-flight Handler invocations to the configured Processor Parallelism limit  
+| Handler     | caller-supplied function that's passed a stream name (a Category Name + Aggregate Id pair) and the span of buffered events for that stream<br/>Typically this will be a single event, but this enables optimal processing in catch-up scenarios, when retries are required, or where multiple events are written to the same Stream in close succession.
+
 # The `Propulsion.Streams` Programming Model for Projections, Reactions and Workflows
 
-`Propulsion.Streams` provides a programming model to manage running of _Handlers_ in a manner that optimises for the following:
-- decoupling message handling from a specific event store implementation. Propulsion handles the integration with event store client libraries, buffering the events and gathering statistics before triggering your handler. The Handler is triggered via a 'Sink' that accepts incoming events and handles processing progress. When input batches are fully handled, checkpoints are written (asynchronously) in a manner appropriate to the source in question (for example, you might be reading events from EventStoreDb, but maintain the checkpoints alongside a Read Model that you maintain in CosmosDb or DynamoDb).
-- providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion provides a `MemoryStoreProjector` component that works with `Equinox.MemoryStore` to let you establish a fully deterministic in memory processing pipeline (including handling reactions and waiting for them to complete), without going out of process. See the [Testing](#testing) section)
+Propulsion provides a pluggable set of components that enable you to implement high performance, resilient and observable event processing pipeline for Reaction, Ingestion and Publishing pipelines as part of an Event Sourced system.
 
-providing a clean approach to the testing of Reaction logic with and without involving your actual Event Store. Propulsion can emulate your store with in memory processing (the MemoryStoreProjector component is a key part of that story).
+Each such pipeline manages a related set of follow-on activities. Examples:
+- running reactive workflows triggered by user actions (which in turn may trigger further reactions as ripple effects)
+- maintaining Read Models based on (or just triggerred by) the Events
+- continually synchronising/publishing information for/into partner systems
 
-- getting observability of messages handling and processing. Propulsion exposes diagnostic and telemetry information that enables effective monitoring. That's essential for tuning and troubleshooting your Handlers in production-ready system.
+At a high level, a Propulsion pipeline covers these core responsibilities:
+- The **Source** coordinates reading of Events from an event store's notification mechanisms with a defined read ahead limit (which go by various monikers such as subscriptions, CosmosDB change feed, change data capture, DynamoDB streams etc)
+- The **Sink** manages (asynchronously) buffering events, scheduling and monitoring the activities of the **Handler**s triggered by the Events, gathering and emitting metrics, balancing processing fairly over all active input Tranches
+- The Source and Sink coordinate to asynchronously **Checkpoint**ing progress based on batch completion notifications from the Sink side.
+  - A persistent position is maintained per Consumer Group for each Tranche supplied from the Source.
+  - The checkpointing is configurable in a manner appropriate to the source in question (for example, you might be reading events from EventStoreDb, but maintain the checkpoints alongside a Read Model that you maintain in CosmosDb or DynamoDb).
+  - The `propulsion checkpoint` tool can be used to inspect or override the checkpoint position associated with a specific source+tranche+consumer group
 
-## Overview of running projections with Propulsion
+## Features
 
-### Glossary
+- encapsulates interaction with specific event store client libraries on an opt-in basis (there are no lowest common denominator abstractions). Upgrading underlying client libraries for a given Reactor becomes a matter of altering `PackageReference`s to Propulsion packages, rather than directly coupling to a specific lower level event store client library.
+- provides a clean approach to the testing of Reaction logic with and without involving your actual event store. Propulsion provides a `MemoryStoreProjector` component that, together with `Equinox.MemoryStore` enables a fully deterministic in memory processing pipeline (including handling reactions and waiting for them to complete), without going out of process. See the [Testing](#testing) section).
+- provides observability of message handling and processing. Propulsion exposes diagnostic and telemetry information that enables effective monitoring and alerting. That's essential for tuning and troubleshooting your Handlers in a production system.
 
-This section assumes familiarity with terms like _Event_, _Reactions_, _Read Models_, _Stream_, etc. See the [Event Sourcing section of the Equinox Glossary](https://github.com/jet/equinox/blob/master/DOCUMENTATION.md#event-sourcing)
-
-#### Tranches
-
-A Propulsion source can optionally split it's reading into multiple independent _Tranches_ (a tranche is a portion/division of a pool, it literally means slice in french). Each tranche is read (including reading up to a specified number of batches) and checkpointed independently. The internal Submitter component takes a batch from each Tranche in turn to ensure fair distribution of work across all Tranches that have work to be processed.
-
-### Supported Input sources
+## Supported Input sources
 
 Propulsion provides for processing events from the following sources:
 
-1. `Propulsion.CosmosStore`: Lightly wraps the Change Feed Processor library within the `Microsoft.Azure.Cosmos` client, which provides a load balanced leasing system (comparable to Kafka consumers). This enables multiple running instances of a Reactor program to parallelize processing using the [competing consumers pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/CompetingConsumers.html) by having each instance share the same Processor Name (Consumer Group Name). There can be as many active processors as physical partitions.
-   - Each physical Partition maps to a Tranche, so processing still honors stream concurrency limits, even if the Change Feed Processor library assigns more than one partition to a given instance. (Internally, when the client API supplies a batch of documents, it indicates the Partition Id via the Context's `LeaseToken`).
-   - The Change Feed Processor library can monitor and present metrics about the processing. It estimates the processing Lag to show the distance between the current checkpoint position and the tail of each partition.
-   - Over time, as a Container splits into more physical partitions (either due to assigning > 10K RU per physical partition, or by exceeding the 50GB/partition limit), more Partitions will arise.
-   - The Change Feed Processor library maintains checkpoints within an 'auxiliary container'. By convention, that's a sibling container with the name`{container}-aux`. The document containing the checkpoint position also doubles for managing the current owner of the lease for that partition (Load balancing is by consumers coming in and taking expired leases, or taking over a lease from a consumer that is currently assigned more than one partition).
-   - Checkpoints are maintained by the Change Feed Processor library within an auxiliary (by convention, a sister container with the name`{container}-aux`) CosmosDB container (the document containing the checkpoint doubles as a lease management target)
-2. `Propulsion.DynamoStore`: Reads from an Index Table maintained by a `Propulsion.DynamoStore.Indexer` Lambda
-    - In the current implementation, the Indexer feeds all items into a single Tranche within its index. Extending it to support multiple Tranches based on a hash of the stream identifier would not be difficult - it would involve hashing the stream name and using that to partition the data over multiple tranches.
-    - Where a DynamoStore Index Table has entries in multiple Tranches (Partitions), the Reader will run an independent read loop per Tranche (see preceding note: the Indexer does not yet do this at present). Note `DynamoStoreSource` does not yet implement load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances (as opposed to `CosmosStore`, which, as noted above, provides that directly via the Change Feed Processor facility).
+1. `Propulsion.CosmosStore`: Lightly wraps the Change Feed Processor library within the `Microsoft.Azure.Cosmos` client, which provides a load balanced leasing system (comparable to Kafka consumers). This enables multiple running instances of a Processor bearing the same Consumer Group Name to parallelize processing using the [competing consumers pattern](https://www.enterpriseintegrationpatterns.com/patterns/messaging/CompetingConsumers.html). There can be as many active processors as physical partitions.
+   - Each physical Partition of the CosmosDb Container maps to an input Tranche. The configured Processor Parallelism limit governs the maximum number of Streams for which work is being processed at any time (even if the Change Feed Processor library assigns more than one partition to a given Processor Instance).
+     - (Internally, when the API supplies a batch of Items/Documents, it indicates the Partition Id via the Context's `LeaseToken` property).
+   - Over time, as a Container splits into more physical Partitions (either due to assigning > 10K RU per physical partition, or as the data size approaches the 50GB/partition limit).
+   - The Change Feed Processor library can monitor and present metrics about the processing. It estimates the processing Lag to indicate the distance between the current checkpoint position and the tail of each partition. (These lags can be exposed as Prometheus metrics if desired).
+   - The Change Feed Processor library maintains checkpoints within an 'auxiliary container'. By convention, that's a sibling Container with the name`{container}-aux`. The document containing the checkpoint position also doubles for managing the current owner of the lease for that partition (Load balancing is achieved either by consumers self-assigning expired leases, or forcibly taking over a lease from a consumer that is currently assigned more than one partition).
+2. `Propulsion.DynamoStore`: Reads from an Index Table fed and maintained by a `Propulsion.DynamoStore.Indexer` Lambda.
+    - the Source runs a Reader loop for each Partition of the DynamoStore Index, each mapping to an individual input Tranche. (Currently the Indexer is hardcoded to only feed into a single partition.)
+    - The `Propulsion.DynamoStore.Notifier` mechanism can be used to distribute the processing over as many Lambda instances as there are DynamoStore Index Partitions (via SQS FIFO triggers) without redundant reprocessing of notifications (each Lambda invocation is triggered by a token specific to a single DynamoStore Index Partition)
+    - Note `DynamoStoreSource` does not (yet) implement load balancing, so multiple Processor Instances would typically result in notifications being redundantly reprocessed (as opposed to `CosmosStore`, which, as noted above, provides that directly via the Change Feed Processor's Consumer Load Balancing mechanism).
 3. `Propulsion.EventStoreDb`: Uses the EventStoreDb gRPC based API to pull events from the `$all` stream.
-   - Note `EventStoreDbSource` does not yet implement load balancing (splitting reads by Stream Name hash and then assigning shards across all active instances) across multiple processor instances
-   - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the reader logs the lag on startup, but unlike for `CosmosStore`, there is no logic to log it e.g. every minute and/or feed it to Prometheus wired up)
-   -  Propulsion provides you out of the box checkpoint storage in CosmosStore, DynamoStore, Postgres, SQL Server. There is not presently a [checkpoint store implementation that maintains the checkpoints EventStoreDb itself at present](https://github.com/jet/propulsion/issues/8).
-4. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system. The most direct mechanism, for a source that presents an ATOM-like checkpointable feed where writes go to the tail and you can thus incrementally read, involves just supplying a read function. For cases where the source does not provide a clean way to checkpoint the read position (such as a Table in a data warehouse), the checkpoint can be based on the last traversal time, and the data can be re-ingested at a specified interval. 
+   - does not yet implement load balancing; the assumption is that you'll run a single instance of your Processor. 
+   - In the current implementation, there's no support for surfacing lag metrics on a continual basis (the Reader logs the lag on startup, but unlike for `CosmosStore`, there is no logic to e.g. log it every minute and/or feed it to Prometheus)
+   - Propulsion provides you out of the box checkpoint storage in CosmosStore, DynamoStore, Postgres and SQL Server. There is not presently a [checkpoint store implementation that maintains the checkpoints in EventStoreDb itself at present](https://github.com/jet/propulsion/issues/8).
+4. `Propulsion.MessageDb`: Uses the MessageDb stored procedures to concurrently consume from a specified list of Categories within a MessageDb event store.
+   - a Reader loop providing a Tranche of events is established per nominated Category
+   - does not yet implement load balancing; the assumption is that you'll run a single instance of your Processor.
+   - does no (yet) compute or emit metrics representing the processing lag (number of incoming events due to be processed)
+   - Propulsion provides you out of the box checkpoint storage for CosmosStore, DynamoStore, Postgres and SQL Server. In general you'll want to store the checkpoints alongside your Read Model.
+5. `Propulsion.SqlStreamStore`: Uses the `SqlStreamStore` libraries to consume from MySql, Postgres or SqlServer.
+    - a single Reader loop pulls events from the Store (Each `SqlStreamStore` implementation presents a single unified stream analogous to the EventStoreDb `'$all'` stream)
+    - does not yet implement load balancing; the assumption is that you'll run a single instance of your Processor.
+    - does no (yet) compute or emit metrics representing the processing lag (number of incoming events due to be processed)
+    - Propulsion provides you out of the box checkpoint storage for CosmosStore, DynamoStore, Postgres and SQL Server. In general you'll want to store the checkpoints alongside your Read Model.
+6. `Propulsion.Feed`: Provides for reading from an arbitrary upstream system using custom wiring under your control.
+   - The most direct mechanism, for a source that presents an ATOM-like checkpointable Feed involves just supplying a function that either
+     - reads a page forward from a specified `Position`
+     - provides an `IAsyncEnumerable&lt;Batch&gt;` that walks forward from a specified checkpoint `Position`
     - A Feed can be represented as multiple Tranches. It balances processing across them. For instance, each tenant of an upstream system can be independently read and checkpointed, with new tranches added over time.
     - In the current implementation, there's no support for exposing lag metrics (Logs show the read position and whether the tail has been reached, but not the lag).
     - Propulsion provides you out of the box checkpoint storage for CosmosStore, DynamoStore, Postgres, SQL Server.
+7. `Propulsion.Feed.PeriodicSource`: Provides for periodic scraping of a source that does not present a checkpointable (and thus incrementally readable) Feed. An example would be a SQL Data Warehouse which regularly has arbitrary changes applied to it in a way that does not lend itself to Change Data Capture or any other such mechanism.
+   - Internally, the Source generates a synthetic Checkpoint Position based on when the  last complete traversal commenced. A re-traversal of the full input data is triggered per Tranche when when a specified interval has elapsed since the data for that Tranche was last ingested.
+   - In all other aspects, it's equivalent to the general `Propulsion.Feed` Source; see the preceding section for details.
 
-### _Source pipeline_
-
-'Source' refers to a set of components that comprise the store-specific 'consumer' side of the processing. It encompasses:
-   a. `Source`: the top level component
-      - maintains a reference to the `Sink`, into which the `Ingester`s will feed batches of events
-      - controls the set of Tranches from which events will be consumed (for a store like EventStore, there's only a single Tranche representing the `'$all'` stream; for CosmosStore, there's a Tranche per physical partition in the Container etc)
-      - spins up a `Reader` and an `Ingester` per Tranche
-      - wrapped as a `Pipeline` that can be used to `Stop` the processing and/or `AwaitCompletion`
-   b. `Reader`: responsible for obtaining the input events and passing them to the _ingester_ (one per Tranche)
-   c. `Monitor`: exposes the current read and commit positions achieved for each Tranche, independent of whether the commit of that progress has been completed (one per Source pipeline)
-
-### _Sink pipeline_
-
-'Sink' refers to the end of the processing pipeline that's not specific to a Store. It's primary role is to drive _handler_ invocations based incoming batches of events from the 'Source'. It encompasses: 
-
-   a. `Ingester`: responsible for limiting the maximum read-ahead per Tranche (one per Tranche)
-   b. `ProgressWriter`: used by the `Ingester` to hold, and periodically commit updates to the checkpoint for any progress that has been made (one per Tranche)
-   c. `Scheduler`: takes batches from the Ingester, buffering them. Continually feeds items to the `Dispatcher`, reporting latencies and outcomes (to `Stats`) and batch completion (to `Ingester`)
-   d. `Dispatcher`: handles keeping up to the desired amount of concurrent handlers in flight at any time
-   e. `Stats`: processes Handler invocation outcomes, maintaining statistics for periodic emission and/or forwarding to a metrics sinks such as `Prometheus` (can be customised to gather Domain-relevant statistics identifying the nature of the Reactions processing taking place in addition to generic invocation latency, stream counts and category distributions etc)
-   h. `Handler`s: caller-supplied function that's passed a stream identifier (a StreamName:- Category + Id pair) and the span of waiting events for that stream (typically a single event, but can grow in catch-up scenarios, retries, or multiple events being written in close succession)
-
-### Ordering
+## Ordering guarantees
 
 Event ordering guarantees are a key consideration in running projections or reactions. The origin of the events will intrinsically dictate the upper bound of ordering guarantees possible. Some examples:
 - EventStore, SqlStreamStore: these establish a stable order as each event is written (within streams, but also across all streams). The '`$all`' stream and related APIs preserve this order
-- CosmosDb: the ChangeFeed guarantees to present Items from logical partitions in order of when they were touched (added/updated). While the relative order of writes across streams happens to be stable when there is one physical partition, that's an irrelevant implementation detail that's not useful for building anything other than a throwaway demo.
-- DynamoDb: While DynamoDb streams establishes and preserves the order of each change, that's subject to the 24h retention period limit. The DynamoStore.Indexer and reader all-but preserve that ordering (Note that the indexer does not currently ensure to preserve order _within_ any DDB Streams batch being indexed).
-- MessageDb: Events technically have a global order but the store does not expose a `$all` stream equivalent. It does provide a way to read a given category in commit order (internally, appends to a category are serialized to ensure no writes can be missed). Note that The Propulsion reader logic pulls categories independently, without any attempt to correlate across categories (furthermore the fact, noted below, that scheduling is at stream level also removes any guarantees in terms of relative processing order within a category).
-- MemoryStore: `MemoryStore`, and `Propulsion.MemoryStore` explicitly guarantees that notifications of write for a given stream are processed (and propagated into the Scheduler) in strict order of those writes (all Propulsion Sources are expected to guarantee that Stream level ordering). 
+- CosmosDb: the ChangeFeed guarantees to present Items from _logical_ partitions (i.e. Streams) in order of when they were touched (added/updated). While the relative order of writes across streams happens to be stable when there is one physical partition, that's irrelevant for building anything other than a throwaway demo.
+- DynamoDb: While DynamoDb Streams establishes and preserves the order of each change for a given Table, this information is subject to the 24h retention period limit. The `Propulsion.DynamoStore.Indexer` and its Reader all-but preserve that ordering.
+- MessageDb: Events technically have a global order but the store does not expose a `$all` stream equivalent. It does provide a way to read a given category in commit order (internally, appends to a category are serialized to ensure no writes can be missed). Note that the Propulsion reader logic pulls categories independently, without any attempt to correlate across them.
+- MemoryStore: `MemoryStore`, and `Propulsion.MemoryStore` explicitly guarantee that notifications of writes _for a given stream_ can be processed (and propagated into the Sink) in strict order of those writes (all Propulsion Sources are expected to guarantee that same Stream level ordering). 
 
 While the above factors are significant in how the Propulsion Sources are implemented, **the critical thing to understand is that `Propulsion.Streams` makes no attempt to preserve any ordering beyond the individual stream**.
 
-The primary reason for this is that it would imply that invocation of handlers cannot be concurrent. That would be a major impediment to throughput when rate limiting and/or other bottlenecks impose non-uniform effects on handler latency (you'd ideally continue processing on streams that are not currently impacted by rate limiting or latency spikes, working ahead on the basis that the impeded stream's issues will eventually abate).
+The primary reason for this is that it would imply that the invocation of handlers could never be concurrent. Such a restriction would be a major impediment to throughput when rate limiting and/or other bottlenecks impose non-uniform effects on handler latency (you'd ideally continue processing on streams that are not presently impacted by rate limiting or latency spikes, working ahead on the basis that the impeded stream's issues will eventually abate).
 
-The other significant opportunity one leaves behind if you don't admit concurrency into your projections is that you can never split or load balance the processing across multiple consumers (Propulsion does not presently implement any explicit sharding support, although when using `Propulsion.CosmosStore`, the underlying Change Feed Processor in the Microsoft SDK implements automated balancing of physical partition leases across all competing instances).
+The other significant opportunity that's left on the table if you don't admit concurrency into the picture is that you can never split or [load balance the processing across multiple Processor Instances](#distributing-processing). 
 
-While doing the simplest thing possible to realise any aspect of a system's operation is absolutely the correct starting point for any design, it's also important to consider whether such solutions might impose restrictions that may later be difficult or costly to unravel:
-- re-traversing of all events to build a new version of a read model becomes less viable if the time to do that is hardwired to be limited by the serial processing of the items
-- while grouping multiple operations into a single SQL batch in order to increase throughput can be effective, it should be noted that such a scheme does not generalise well to the e.g. third party API calls, or writes to document stores etc that do not present such facilities. The other thing that should be noted is that in general, batching will tend to increase lock escalation and hence the amount of contention and risk of deadlocks.
-- re-running processing in disaster recovery or amelioration scenarios will have restricted throughput (especially in cases where idempotent reprocessing might mainly involve relatively low cost operations; the lowered individual latency may be dwarfed by the per-call overheads in a way that the original serial processing of the requests might not have surfaced). It's easy to disregard such aspects as nice-to-haves when growing a system from scratch; the point is that there's nothing intrinsic about projection processing that mandates serial processing, and ruling out the opportunity for concurrent processing of streams can result in a system where powerful operational and deployment approaches are ruled out as a result of picking an Easy option over a more Simple one.
-- following the strict order of event writes across streams precludes grouping event processing at the stream level (unless you work in a batched manner). Being able to read ahead, collating events from future batches (while still honoring the batch order with regard to checkpointing etc) afford handlers the ability to process multiple events for a single stream as a group (equally, it allows a handler to determine that a given stream has already reached a particular write position, enabling the ingestion process to discard future redundant reads on the basis as processing catches up) 
+So, while doing the simplest thing possible to realise any aspect of a system's operation is absolutely the correct starting point for any design, it's also important to consider whether such solutions might impose restrictions that may later be difficult or costly to unravel:
+- re-traversing all events to build a new version of a read model becomes less viable if the time to do that is hardwired to be limited by the serial processing of the items
+- while grouping multiple operations into a single SQL batch in order to increase throughput can be effective, it should be noted that such a scheme does not generalise well e.g. third party API calls, conditional updates to document stores etc tend to not provide for batched updates in the same way that a SQL store does. Even where transactional batches are viable it should be noted that batching will tend to cause lock escalation, increasing contention and the risk of deadlocks.
+- re-running processing in disaster recovery or amelioration scenarios will have restricted throughput (especially in cases where idempotent reprocessing might involve relatively low cost operations; the lowered individual latency may be dwarfed by the per-call overheads in a way that the initial processing of the requests might not have surfaced). It's easy to disregard such aspects as nice-to-haves when growing a system from scratch; the point is that there's nothing intrinsic about projection processing that mandates serial processing, and ruling out the opportunity for concurrent processing of streams can result in a system where powerful operational and deployment approaches are ruled out by picking an Easy option over a Simple one.
+
+The bottom line is that following the strict order of event writes across streams precludes grouping event processing at the stream level (unless you work in a batched manner). Being able to read ahead, collating events from future batches (while still honoring the batch order with regard to checkpointing etc) affords handlers the ability to process multiple events for a single stream together. Working at the stream level also enables a handler to provide feedback that a given stream has already reached a particular write position, enabling the ingestion process to skip future redundant work as it catches up.
 
 ### Relationships between data established via projections or reactions
 
-The preceding section lays out why building projections that assume a global order of events and then traversing them serially can be harmful to throughput and make a system harder to operate and/or deploy (and, frequently, the complexity of the processing grows beyond the superficially simple initial logic as you've applied batching and other optimizations).
+The preceding section lays out why building projections that assume a global order of events and then traversing them serially can be harmful to throughput while also tending to make operations and/or deployment more problematic. Not only that, frequently the complexity of the processing grows beyond the superficially simple initial logic as you implement batching and other such optimizations.
 
-Nonetheless, there will invariably be parent-child relationships within data and it's processing. When analyzed, these group into at least the following buckets:
-- foreign key relationships reflecting data dependencies that are necessary to serve queries from a read model
-- data that feeds into an overall data processing flow that is reliant on that dependent data being in place for a given piece of processing to yield a correct or meaningful result
+Nonetheless, there will invariably be parent-child relationships within data and it's processing. These tend to group into at least the following buckets:
+- foreign key relationships reflecting data dependencies intrinsic to being able to serve queries from a read model
+- data that feeds into an overall data processing flow which is reliant on that dependent data being in place to yield a correct or meaningful result
 
-Where the parent and child information can live within the same stream, the stream level ordering guarantee can be used to guard against 'child' data being rendered or operated on without its parent being present directly.
+The ideal/trivial situation is of course to manage both the Parent and Child information within a single stream; in such cases the stream level ordering guarantee will be sufficient to guard against 'child' data being rendered or operated on without its parent being present directly.
+
+The following sections describe strategies that can be applied where this is not possible.
 
 #### Explicit Process Managers
 
-In more complex cases, the projection will need to hide or buffer data until such time as the dependency has been fulfilled. At its most general, this is a [Process Manager](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html). It's important to validate any presumed requirements about being able to render a given read model the instant a child piece of data is ingested into the model; often having a LEFT JOIN in a SELECT exclude the child from a list until such time as the parent has been ingested can be perfectly reasonable regardless of one's desire to have a perfect unified model with all possible foreign keys applied in order to guarantee a watertight model of the entire enterprise (this should be considered alongside other aspects such as whether the projection work is asynchronous, or preemptively carried out prior to reporting completion of a request)
+In more complex cases, the projection will need to hide or buffer data until such time as the dependency has been fulfilled. At its most general, this is a [Process Manager](https://www.enterpriseintegrationpatterns.com/patterns/messaging/ProcessManager.html). 
+
+Equally, before assuming that a Process Manager is warranted, spend the time to validate any 'requirements' you are assuming about being able to render a given read model the instant a child piece of data is ingested into the model; often having a `LEFT JOIN` in a `SELECT` to exclude the child from a list until the parent data has been ingested may be perfectly acceptable. Yes, in spite of one's desire to have your Read Model double as unified enterprise data model with all conceivable foreign keys in place.
 
 ### Phased processing
 
-A key technique in simplifying systems as a whole is to consider whether batching and/or workflows can be managed asynchronously. If we consider the case where a system needs to report completed batches of shipment boxes within a large warehouse:
-- a large number of shipments may be being prepared; we can't batch them until we know that all the required items within have been obtained (or deemed unobtainable) and the box sealed
-- at peak processing time (or where packing is robotized), there can be deluges of shipments being marked complete. We don't want to impose a variable latency on the turnaround of processing for the person or robot doing the picking to be able to commence it's next activity
-- batches need to fulfil size restrictions
-- shipments must be included in exactly one batch, no matter how many times the Completed is processed
-- batches have their own processing lifecycle that starts subsequent to their being filled 
+A key technique in simplifying an overall system is to consider whether batching and/or workflows can be managed asynchronously loosely connected decoupled workflows. If we consider the case where a system needs to report completed batches of shipment boxes within a large warehouse:
+- a large number of shipments may be in the process of being prepared (picked); we can't thus batch shipments them until we know that all the required items within have been obtained (or deemed unobtainable) and the box sealed
+- at peak processing time (or where picking is robotized), there can be deluges of events representing shipments being marked complete. We don't want to impose a variable latency on the turnaround time for a person or robot doing the picking before it is able to commence it's next activity.
+- batches need to fulfill size restrictions
+- shipments must be included in exactly one batch, no matter how many times the Completed event for a Shipment is processed
+- batches have their own processing lifecycle that can only commence when the full set of Shipments that the Batch is composed of is known and can be frozen.
 
-One way of modelling constraints such as this, is to have a Reactor concurrently handle Shipment Completed notifications, with the grouping of shipments into a given batch (while guaranteeing not to exceed te batch size limit) via a single Decision rather than a storm of concurrent ones. When the reactor responsible for inserting the completed shipments into a batch has  completed its work, it can declare the Batch `Closed`, and the next phase of the cycle (post-processing the Batch prior to transmission) can commence (as a separated piece of Reactor logic, potentially implemented as a separate Reactor Service)
+One way to handle constraints such as this is to have a Processor concurrently handle Shipment Completed notifications:
+- Initially, each handler can do some independent work at the shipment level.
+- Once this independent work has completed, grouping Shipments into a Batch (while guaranteeing not to exceed te batch size limit) can converge as a single Decision rather than a potential storm of concurrent ones.
+- Finally, once, the Reactor responsible for inserting the completed shipments into a batch has noted that the batch is full, it can declare the Batch `Closed`
+- This `Closed` event can then be used to trigger the next phase of the cycle (post-processing the Batch prior to transmission). In many cases, it will make sense to have the next phase be an entirely separated Processor)
 
-Of course, it's always possible to map such as process to an equivalent set of serial operations on a complete SQL relational model. However implicitly arriving at a model for this processing by ad-hoc SQL operations that assume serial operations is rarely going to yield consistent performance. In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
+Of course, it's always possible to map any such chain of processes to an equivalent set of serial operations on a more closely coupled SQL relational model. The thing you want to avoid is stumbling over time into a rats nest by a sequence of individually reasonable ad-hoc SQL operations that assume serial operations. Such an ad hoc system is unlikely to end up being either scalable or easy to maintain. In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
+
+### Proactive reaction processing 
+
+In general, decoupling Read Model maintenance Processes from Transactional processing activities per CQRS conventions is a good default.
+
+Its important to also recognize times when preemptively carrying out some of the reactive processing as part of the write flow can be a part of providing a more user friendly solution.
+
+In some cases, the write workflow can make a best effort attempt at carrying out the reactive work (but degrading gracefully under load etc by limiting the number of retry attempts and/or a timeout), while the Reactions Processor still provides the strong guarantee that any requirements that were not fulfilled proactively are guaranteed to complete eventually.
+
+## Distributing Processing
+
+When running multiple Processor Instances, there's the opportunity to have pending work for the Consumer Group be shared across all active instances by filtering the Streams for which events are fed into the Ingester. There are two primary ways in which this can be achieved:
+- Use Consumer Load Balancing to balance assignment of source Partitions to Processor Instances. Currently supported by Cosmos and Kafka sources.
+   - (Note this implies that the number of Processor Instances performing work is restricted to the number of underlying partitions)
+- Use a Lambda SQS FIFO Source Mapping together with the `Propulsion.DynamoStore.Notifier` to map each DynamoStore Index Partition's activity to a single running Lambda instance for that Partition.
+   - In this case, the maximum number of concurrently active Processor Instances is limited by the number of Partitions that the `Propulsion.DynamoStore.Indexer` Lambda has been configured to shard the DynamoStore Index into.
+- (not currently implemented) Have the Reader shard the data into N Tranches for a Source's Feeds/Partitions based on the Stream Name. This would involve:
+   - Implement a way to configure the number of shards that each instance's Reader is to split each Batch (i.e. all Sources need to agree that `$all` content is to be split into Tranches 0, 1, 2 based on a common hashing function)
+   - Implement a leasing system akin to that implemented in the CosmosDb Change Feed Processor library to manage balanced assignment of Tranches to Processor Instances. As leases are assigned and revoked, the Source needs to run a Reader and Ingester per assigmnent, that reads the underlying data and forwards the relevant data solely for the batches assigned to the specific Processor Instance in question
+
+## Consistency, Reading your Writes
+
+When Processing reactions based on a Store's change feed / notification mechanism, there are many factors to be considered:
+- balancing straight forward logic for the base case of a single event on a single stream with the demands of efficiently catch up when there's a backlog of a significant number of events at hand
+- handling at least once delivery of messages (typically under error conditions, but there are other corner cases too). A primary example would be the case where a significant amount of processing has been completed, but the progress had not yet been committed at the time the Processor Instance was torn down; in such a case, an entire (potentially large) batch of events may be re-processed. Regardless of the cause, the handling needs to cope by processing in an idempotent fashion (no bad side effects in terms of incorrect or unstable data or duplicate actions; processing time and resource consumption should reduce compared to the initial processing of the event). 
+- when reading from a store without strong consistency, an event observed on a feed may not yet be visible (have propagated to) the node that you query to establish the state of the aggregate (see Reading Your Writes)
+
+Depending on the nature of your Processor's purpose, your use of the events will vary:
+- performing specific work based solely on the event type and/or its payload without having to first look up data within your Read Model (e.g., a `Created` event may result in `INSERT`ing a new item into a list)
+- treating the events as 'shoulder tap' regarding a given stream. In this mode, the nature of the processing may be that whenever any event is appended to a given stream, there's a generic piece of processing that should be triggered. In many such cases, the actual event(s) that prompted the work may be almost relevant, e.g. if you were expected to publish a Summary Event to an external feed per set of changes observed, then the only event that does not require derivation of a state derived from the complete set of preceding events would be a Creation event.
+
+### Mitigations for not being able to Read Your Writes
+
+The following approaches can be used to cater for cases where it can't be guaranteed that
+[the read performed by a handler will 'see' the prompting event](https://en.wikipedia.org/wiki/Consistency_model#Read-your-writes_consistency)
+(paraphrasing, it's strongly recommended to read
+[articles such as this on _eventual consistency_](https://www.allthingsdistributed.com/2007/12/eventually_consistent.html)
+or the _Designing Data Intensive Applications_ book):
+1. Ensure that the read is guaranteed to be consistent by employing a technique relevant to the store in question, e.g.
+   - EventStoreDb: a Leader connection
+   - MessageDb: use the `requireLeader` flag
+   - DynamoDb: requesting a 'consistent read'
+   - CosmosDb: when using Session Consistency, require that reads are contingent on the session token being used by the feed reader. This can be achieved by using the same `CosmosClient` to ensure the session tokens are synchronized.
+2. Perform a pre-flight check when reading, based on the `Index` of the newest event passed to the handler. In such a case, it may make sense to back off for a small period, before reporting failure to handle the event (by throwing an exception). The Handler will be re-invoked for another attempt, with a better chance of the event being reflected in the read.
+   - Once such a pre-flight check has been carried out, one can safely report `SpanResult.AllProcessed` (or `PartiallyProcessed` if you wish to defer some work due to the backlog of events triggering too much work to perform in a single invocation)
+3. Perform the processing on a 'shoulder tap' basis.
+   - First, load the stream's state, performing any required reactions.
+   - Then report the Version attained for the stream (based on the Index of the last event processed) by yielding a `SpanResult.OverrideWritePosition`.
+   - In this case, one of following edge cases may result:
+     - _The handler saw a version prior to the prompting event_. For example, if a Create event (`Index = 0`) is relayed, but reading does not yield any events (the replica in question is behind the node from which the feed obtained its state). In this case, the Handler can simply yield `SpanResult.OverrideWritePosition`, which will cause the event to be retained in the input buffer (and most likely, a fresh invocation for that same stream will immediately be dispatched)
+     - _The Handler saw a Version fresher than the prompting event_. For example: if a Create (`Index = 0`) is immediately followed by an Update (`Index = 1`), the handler can yield `SpanResult.OverrideWritePosition 2` to reflect the fact that the next event that's of interest will be event `Index = 2`. Regardless of whether Event 1 arrived while the handler was processing Event 0, or whether it arrives some time afterwards, the event will be dropped from the events pending for that Stream's Handler.
+
+### Consistency in the face of at least once delivery and re-traversal of events
+
+In the general case, events from a feed get de-duplicated, and each event should be seen exactly once. However, this cannot be assumed; ultimately any handler needs to be ready to deal with redelivery of any predecessor event on a stream. In the worst case, that means that immediately after `Index = 4` has been processed, a restart may deliver events `Index = 3` and `Index = 4` as the next span of events within tens of milliseconds.
+
+At the other end of the redelivery spectrum, we have full replays. For instance, it's not uncommon to want to either re-traverse an entire set of events (e.g. if some field was not being stored in the derived data but suddenly becomes relevant), or one may opt to rewind to an earlier checkpoint to trigger re-processing (a downstream processor reports having restored a two hour old back resulting in data loss, which could be resolved by rewinding 3 hours and relying on the idempotency guarantees of their APIs).
+
+A related scenario that often presents itself after a system has been running for some time is the desire to add an entirely new (or significantly revised) read model. In such as case, being able to traverse a large number of events efficiently is of value (being able to provision a tweaked read model in hours rather than days has significant leverage).
+
+## For Read Models, default to 'Expand and Contract'
+
+The safest way to manage extending or tweaking a read model is always to go through the [ParallelChange pattern](https://martinfowler.com/bliki/ParallelChange.html):
+- define the tables/entities required, and/or any additional fields or indices. Roll out any schema changes. If you're using a schemaless datastore, this step may not be relevant; perhaps the only thing new is that your documents will now be named `ItemSummary2-{itemId}`
+- configure a new Processor with a different Consumer Group to walk the data and provision the new read model.
+- when that's completed, switch the read logic to use the new model.
+- at a later point in time, you can TRUNCATE the outgoing read model (to reclaim storage space) before eventually removing it entirely.
+
+True, following such a checklist might feel like overkill in some cases (where a quick `ALTER TABLE` might have done the job). But looking for a shortcut is also passing up an opportunity to practice as you play -- in any business critical system (or one with large amounts of data) hacks are less likely to even be viable.
+
+### Versi~~~~oning read models over time
+
+One aspect to call out is that it's easy to underestimate the frequency at which a full re-traversal is required and/or is simply the easiest approach to apply given a non-empty read model store; both during the initial development phase of a system (where processing may only have happened in pre-production environment so a quick `TRUNCATE TABLE` will cure it all) or for a short time (where a quick online `UPDATE` or `SELECT INTO` can pragmatically address a need). Two pieces of advice arise from this:
+- SQL databases are by far the most commonly used read model stores for good reason - they're malleable (you whack in a join or add an index or two and/or the above mentioned `TRUNCATE TABLE`, `SELECT INTO` tricks will take you a long way), and they provide Good Enough performance and scalability for the vast majority of scenarios (you are not Google).
+- it's important to practice how you play with regard to such situations. Use the opportunity to sharpen you and your team's thinking and communication with regard to how to handle such situations rather than cutting corners every time. That muscle memory will pay back far quicker than you think; always sweeping them under the rug (only ever doing hacks) can turn you into the next author of one of those sad "what the Internet didn't tell you about Event Sourcing" articles in short order.
+
+In the long run, getting used to dealing with re-traversal scenarios by building handlers to provision fresh adjacent read models is worthwhile. It also a skill that generalises better - a random document store is unlikely to match the full power of a `SELECT INTO`, but ultimately they may be a better overall solution for your read models (`Equinox.CosmosStore` and `Equinox.DynamoStore` also offer powerful `RollingState` modes that can simplify such processing).
+
+In short, it's strongly recommended to at least go through the thought exercise of considering how you'd revise or extend a read model in a way that works when you have a terabyte of data or a billion items in your read model every time you do a 'little tweak' in a SQL read model.  
+
+## TODO
 
 ### Designing events for projection
 
@@ -182,58 +319,6 @@ Of course, it's always possible to map such as process to an equivalent set of s
 #### Contention with overlapping actors
 
 #### Watchdogs
-
-### Reading your Writes and consistency
-
-When processing based on the a Store's change feed / notification mechanism, there are a number of factors in play:
-- balancing straight forward code in the case of a single event on a single stream versus efficiently managing how to catch up when there's a backlog of a significant number of events~~~~
-- handling at least once delivery of messages (typically under error conditions, but there are other corner cases too). A primary example would be the case where a significant amount of processing has been completed, but the checkpoint had not yet been committed at the time the host process was torn down; in such a case, an entire (potentially large) batch of events may be re-processed. In such a case, the handling needs to be idempotent (no bad side effects in terms of incorrect or unstable data or duplicate actions; no inordinate overloading of capacity compared to the happy path). 
-- when reading without strong consistency, an event observed on a feed may not yet be visible (have propagated to) the node that you query to establish the state of an aggregate (see Reading Your Writes)
-
-Depending on the nature of the processing you're doing, your use of the events will vary:
-- performing specific work based solely on the event and/or its payload (e.g., a `Created` event may result in `INSERT`ing a new item into a list)
-- treating the events as 'shoulder tap' regarding a given stream; in other words, the nature of the processing is such that whenever events are appended to a given stream, there's a generic piece of processing that should be triggered. Often the processing would not be simpler or more efficient if it inspected the prompting event(s). (e.g. if you were expected to publish a Summary Event per event observed to some external feed, then the only event that does not require inspection of state derived from preceding events would be a Creation event)
-
-#### Mitigations for not being able to Read Your Writes
-
-The following approaches can be used to cater for cases where it can't be guaranteed that
-[the read performed by a handler will 'see' the prompting event](https://en.wikipedia.org/wiki/Consistency_model#Read-your-writes_consistency)
-(paraphrasing, it's strongly recommended to read
-[articles such as this on _eventual consistency_](https://www.allthingsdistributed.com/2007/12/eventually_consistent.html)
-or the _Designing Data Intensive Applications_ book):
-- Ensure that the read is guaranteed to be from from the cluster's Leader (e.g., a Leader connection in EventStoreDb, the `requireLeader` flag for MessageDb, requesting a 'consistent read' on DynamoDb) or (for a store with Session Consistency) is contingent on the session token being used by the feed reader (e.g. in CosmosDb, using the same `CosmosClient` to ensure the session tokens are synchronized)
-- Perform a pre-flight check when reading, based on the `Index` of the newest event passed to the handler. In such a case, it may make sense to back off for a small period, before reporting failure to handle the event (by throwing an exception). The Handler will be re-invoked for another attempt, with a better chance of the event being reflected in the read. In this case, one can safely report `SpanResult.AllProcessed` (or `PartiallyProcessed` if you wish to defer some work due to the backlog of events triggering too much work to perform in a single invocation)
-- Perform the processing on a 'shoulder tap' basis: First, load the stream's state, performing any required reactions. Then report the Version attained for the stream (based on the Index of the last event processed) by yielding a `SpanResult.OverrideWritePosition`. In this case, one of following edge cases may result:
-    - The handler saw a version prior to the prompting event. For example, if a Create event (`Index = 0`) is relayed, but reading does not yield any events (the replica in question is behind the node from which the feed obtained its state). In this case, the Handler can simply yield `SpanResult.OverrideWritePosition`, which will cause the event to be retained in the input buffer (and most likely, a fresh invocation for that same stream will immediately be dispatched)
-    - The Handler saw a Version fresher than the prompting event. For example: if a Create (`Index = 0`) is immediately followed by an Update (`Index = 1`), the handler can yield `SpanResult.OverrideWritePosition 2` to reflect the fact that the next event that's of interest will be event `Index = 2`. Regardless of whether Event 1 arrived while the handler was processing Event 0, or whether it arrives some time afterwards, the event will be dropped from the events pending for that Stream's Handler.
-
-### Consistency in the face of at least once delivery and re-traversal of events
-
-In the general case, events from a feed get de-duplicated, and each event should be seen exactly once. However, this cannot be assumed; ultimately any handler needs to be ready to deal with redelivery of any predecessor event on a stream. In the worst case, that means that immediately after `Index = 4` has been processed, a restart may deliver events `Index = 3` and `Index = 4` as the next span of events within tens of milliseconds.
-
-At the other end of the redelivery spectrum, we have full replays. For instance, it's not uncommon to want to either re-traverse an entire set of events (e.g. if some field was not being stored in the derived data but suddenly becomes relevant), or one may opt to rewind to an earlier checkpoint to trigger re-processing (a downstream processor reports having restored a two hour old back resulting in data loss, which could be resolved by rewinding 3 hours and relying on the idempotency guarantees of their APIs).
-
-A related scenario that often presents itself after a system has been running for some time is the desire to add an entirely new (or significantly revised) read model. In such as case, being able to traverse a large number of events efficiently is of value (being able to provision a tweaked read model in hours rather than days has significant leverage).
-
-### For Read Models, Always Expand and Contract
-
-The safest way to manage extending or tweaking a read model is always to go through the [ParallelChange pattern](https://martinfowler.com/bliki/ParallelChange.html):
-- define the tables/entities required, and/or any additional fields or indices. Roll out any schema changes. If you're using a schemaless datastore, this step may not be relevant; perhaps the only thing new is that your documents will now be named `ItemSummary2-{itemId}`
-- configure a new consumer group to walk the data and provision the new read model.
-- when that's completed, switch the read logic to use the new data.
-- at a later point in time, you can TRUNCATE the outgoing read model (to reclaim storage space) before eventually removing it entirely.
-
-True, following such a checklist might feel like overkill in some cases (where a quick `ALTER TABLE` might have done the job). But looking for a shortcut is also passing up an opportunity to practice as you play -- in any business critical system (or one with large amounts of data) hacks are less likely to even be viable.
-
-### Versioning read models over time
-
-One aspect to call out is that it's easy to underestimate the frequency at which such re-processing is required and/or is the best approach to apply; both during the initial development phase of a system (where processing may only have happened in pre-production environment so a quick `TRUNCATE TABLE` will cure it all) or for a short time (where a quick online `UPDATE` or `SELECT INTO` can pragmatically address a need). Two pieces of advice arise from this:
-- SQL databases are by far the most commonly used read model stores for good reason - they're malleable (you whack in a join or add an index or two and/or the above mentioned `TRUNCATE TABLE`, `SELECT INTO` tricks will take you a long way), and they provide Good Enough performance and scalability for the vast majority of scenarios (you are not Google).
-- it's important to practice how you play with regard to such situations. Use the opportunity to sharpen you and your teams thinking and communication with regard to how to handle such situations rather than cutting corners eery time. That muscle memory will pay back quicker than you think; always sweeping them under the rug (only ever doing hacks) can turn you into an author of one of those sad "what the Internet didn't tell you about Event Sourcing" articles in short order.
-
-In the long run, getting used to dealing with re-traversal scenarios by building handlers to provision fresh adjacent read models is worthwhile. It also a skill that generalises better - a random document store is unlikely to match the full power of a `SELECT INTO`, but ultimately they may be a better overall solution for your read models (`Equinox.CosmosStore` and `Equinox.DynamoStore` also offer powerful `RollingState` modes that can simplify such processing).
-
-In short, it's strongly recommended to at least go through the thought exercise of considering how you'd revise or extend a read model in a way that works when you have a terabyte of data or a billion items in your read model every time you do a 'little tweak' in a SQL read model.  
 
 # `Propulsion.CosmosStore` facilities
 
