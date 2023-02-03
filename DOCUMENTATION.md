@@ -235,7 +235,7 @@ When running multiple Processor Instances, there's the opportunity to have pendi
 <a name="why-not-queue-all-the-things"></a>
 ## Processing Reactions based on a Store's Notifications vs Just using a Queue
 
-Its not uncommon for people to use a Queue (e.g. RabbitMQ, Azure Service Bus Queues, AWS SQS etc) to manage reactive processing. This typically involves wiring things up such that relevant events from the Store's notifications trigger a message on that queue. 
+It's not uncommon for people to use a Queue (e.g. RabbitMQ, Azure Service Bus Queues, AWS SQS etc) to manage reactive processing. This typically involves wiring things up such that relevant events from the Store's notifications trigger a message on that queue. 
 
 As a system grows in features, Reaction processing tends to grow into a workflow, with complex needs regarding being able to deal with partner system outages, view the state of a workflow, cancel complex processes etc. That's normally not now it starts off though, especially in any whitepaper trying to sell you a Queue, Low Code or FaaS. 
 
