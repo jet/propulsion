@@ -11,15 +11,15 @@ module private Impl =
 
     let renderPos (Checkpoint.Parse (epochId, offset)) = sprintf"%s@%d" (AppendsEpochId.toString epochId) offset
 
-    let readTranches storeLog context =
+    let readPartitions storeLog context =
         let index = AppendsIndex.Reader.create storeLog context
-        index.ReadKnownTranches()
+        index.ReadKnownPartitions()
 
-    let readTailPositionForTranche log context (AppendsTrancheId.Parse trancheId) ct = task {
+    let readTailPositionForPartition log context (AppendsPartitionId.Parse partitionId) ct = task {
         let index = AppendsIndex.Reader.create log context
-        let! epochId = index.ReadIngestionEpochId(trancheId) |> Async.startImmediateAsTask ct
+        let! epochId = index.ReadIngestionEpochId(partitionId) |> Async.startImmediateAsTask ct
         let epochs = AppendsEpoch.Reader.Config.create log context
-        let! version = epochs.ReadVersion(trancheId, epochId) |> Async.startImmediateAsTask ct
+        let! version = epochs.ReadVersion(partitionId, epochId) |> Async.startImmediateAsTask ct
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
     let logReadFailure (storeLog : Serilog.ILogger) =
@@ -44,10 +44,10 @@ module private Impl =
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
-            (AppendsTrancheId.Parse tid, Checkpoint.Parse (epochId, offset), ct) = taskSeq {
+            (AppendsPartitionId.Parse pid, Checkpoint.Parse (epochId, offset), ct) = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
-        let! _maybeSize, version, state = epochs.Read(tid, epochId, offset) |> Async.startImmediateAsTask ct
+        let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.startImmediateAsTask ct
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
@@ -64,8 +64,8 @@ module private Impl =
             all.Length, chosenEvents, totalEvents, streamEvents
         let largeEnoughToLog = streamEvents.Count > batchCutoff
         if largeEnoughToLog then
-            log.Information("DynamoStoreSource {source}/{tranche}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
-                            sourceId, string tid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
+            log.Information("DynamoStoreSource {source}/{partition}/{epochId}@{offset} {mode:l} {totalChanges} changes {loadingS}/{totalS} streams {loadingE}/{totalE} events",
+                            sourceId, string pid, string epochId, offset, (if hydrating then "Hydrating" else "Feeding"), totalChanges, streamEvents.Count, totalStreams, chosenEvents, totalEvents)
 
         let buffer, cache = ResizeArray<AppendsEpoch.Events.StreamSpan>(), System.Collections.Concurrent.ConcurrentDictionary()
         // For each batch we produce, we load any streams we have not already loaded at this time
@@ -96,8 +96,8 @@ module private Impl =
                 | loadedNow when prevLoaded <> loadedNow ->
                     prevLoaded <- loadedNow
                     let eventsLoaded = cache.Values |> Seq.sumBy Array.length
-                    log.Information("DynamoStoreSource {source}/{tranche}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
-                                    sourceId, string tid, string epochId, Option.toNullable i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, eventsLoaded, chosenEvents)
+                    log.Information("DynamoStoreSource {source}/{partition}/{epochId}@{offset}/{totalChanges} {result} {batch} {events}e Loaded {loadedS}/{loadingS}s {loadedE}/{loadingE}e",
+                                    sourceId, string pid, string epochId, Option.toNullable i, version, "Hydrated", batchIndex, len, cache.Count, streamEvents.Count, eventsLoaded, chosenEvents)
                 | _ -> ()
             batchIndex <- batchIndex + 1
         for i, spans in state.changes do
@@ -158,7 +158,7 @@ type DynamoStoreSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             checkpoints,
             (   if startFromTail <> Some true then None
-                else Some (Impl.readTailPositionForTranche (defaultArg storeLog log) (DynamoStoreContext indexClient))),
+                else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) (DynamoStoreContext indexClient))),
             sink,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
@@ -175,9 +175,9 @@ type DynamoStoreSource
         | None ->
             let context = DynamoStoreContext(indexClient)
             let storeLog = defaultArg storeLog log
-            let! res = Impl.readTranches storeLog context |> Async.startImmediateAsTask ct
-            let appendsTrancheIds = match res with [||] -> [| AppendsTrancheId.wellKnownId |] | ids -> ids
-            return appendsTrancheIds |> Array.map AppendsTrancheId.toTrancheId }
+            let! res = Impl.readPartitions storeLog context |> Async.startImmediateAsTask ct
+            let appendsPartitionIds = match res with [||] -> [| AppendsPartitionId.wellKnownId |] | ids -> ids
+            return appendsPartitionIds |> Array.map AppendsPartitionId.toTrancheId }
 
     abstract member Pump : ct : CancellationToken -> Task<unit>
     default x.Pump(ct) = base.Pump(x.ListTranches, ct)

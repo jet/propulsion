@@ -10,12 +10,12 @@ open System.Collections.Generic
 open System.Net
 open System.Threading
 
-let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyValuePair<Propulsion.Feed.TrancheId, Propulsion.Feed.Position> array =
+let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position> array =
     let tails = Dictionary()
-    let updateTails trancheId checkpoint =
-        match tails.TryGetValue trancheId with
-        | false, _ -> tails.Add(trancheId, checkpoint)
-        | true, cur -> if checkpoint > cur then tails[trancheId] <- checkpoint
+    let updateTails partitionId checkpoint =
+        match tails.TryGetValue partitionId with
+        | false, _ -> tails.Add(partitionId, checkpoint)
+        | true, cur -> if checkpoint > cur then tails[partitionId] <- checkpoint
     let summary = System.Text.StringBuilder()
     let mutable indexStream, otherStream, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do
@@ -32,17 +32,17 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
             | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 match FsCodec.StreamName.parse p with
-                | AppendsEpoch.StreamName (trancheId, epochId) ->
+                | AppendsEpoch.StreamName (partitionId, epochId) ->
                     match int64 updated["a"].N with
                     | 0L -> noEvents <- noEvents + 1
                     | appendedLen ->
                         let n = int64 updated["n"].N
                         let i = n - appendedLen
-                        summary.Append(trancheId).Append('/').Append(epochId).Append(' ').Append(appendedLen).Append('@').Append(i) |> ignore
+                        summary.Append(partitionId).Append('/').Append(epochId).Append(' ').Append(appendedLen).Append('@').Append(i) |> ignore
                         let eventTypes = updated["c"].L
                         let isClosed = eventTypes[eventTypes.Count - 1].S |> AppendsEpoch.Events.isEventTypeClosed
                         let checkpoint = Checkpoint.positionOfEpochClosedAndVersion epochId isClosed n
-                        updateTails trancheId checkpoint
+                        updateTails partitionId checkpoint
                 | _ ->
                     if p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
@@ -56,9 +56,9 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
 
 let private mkRequest topicArn messages =
     let req = PublishBatchRequest(TopicArn = topicArn)
-    messages |> Seq.iteri (fun i struct (trancheId, pos) ->
-        let e = PublishBatchRequestEntry(Id = string i, Subject = trancheId, Message = pos, MessageGroupId = trancheId, MessageDeduplicationId = trancheId + pos)
-        e.MessageAttributes.Add("Tranche", MessageAttributeValue(StringValue = trancheId, DataType="String"))
+    messages |> Seq.iteri (fun i struct (partitionId, pos) ->
+        let e = PublishBatchRequestEntry(Id = string i, Subject = partitionId, Message = pos, MessageGroupId = partitionId, MessageDeduplicationId = partitionId + pos)
+        e.MessageAttributes.Add("Partition", MessageAttributeValue(StringValue = partitionId, DataType="String"))
         e.MessageAttributes.Add("Position", MessageAttributeValue(StringValue = pos, DataType="String"))
         req.PublishBatchRequestEntries.Add(e))
     req
@@ -81,4 +81,4 @@ type SnsClient(topicArn) =
 let handle log (client : SnsClient) dynamoEvent = task {
     match parse log dynamoEvent with
     | [||] -> ()
-    | spans -> do! client.Publish(log, seq { for m in spans -> Propulsion.Feed.TrancheId.toString m.Key, Propulsion.Feed.Position.toString m.Value }) }
+    | spans -> do! client.Publish(log, seq { for m in spans -> AppendsPartitionId.toString m.Key, Propulsion.Feed.Position.toString m.Value }) }

@@ -48,5 +48,5 @@ let handle log (service : DynamoStoreIndexer) dynamoEvent = task {
     match parse log dynamoEvent with
     | [||] -> ()
     // TOCONSIDER if there are multiple shards, they should map to individual TrancheIds in order to avoid continual concurrency violations from competing writers
-    | spans -> return! service.IngestWithoutConcurrency(AppendsTrancheId.wellKnownId, spans) }
+    | spans -> return! service.IngestWithoutConcurrency(AppendsPartitionId.wellKnownId, spans) }
 

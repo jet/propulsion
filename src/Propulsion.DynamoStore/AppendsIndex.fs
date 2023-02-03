@@ -1,4 +1,4 @@
-/// Maintains a pointer for into the  chain for each Tranche
+/// Maintains a pointer for into the chain for each Partition
 /// Allows an Ingester to quickly determine the current Epoch which it should commence writing into
 /// As an Epoch is marked `Closed`, `module Index` will mark a new epoch `Started` on this aggregate
 module Propulsion.DynamoStore.AppendsIndex
@@ -12,44 +12,47 @@ let streamId () = Equinox.StreamId.gen IndexId.toString IndexId.wellKnownId
 module Events =
 
     type Event =
-        | Started of {| tranche : AppendsTrancheId; epoch : AppendsEpochId |}
-        | Snapshotted of {| active : Map<AppendsTrancheId, AppendsEpochId> |}
+        | [<System.Runtime.Serialization.DataMember(Name = "Started")>] StartedPreview of {| tranche : AppendsPartitionId; epoch : AppendsEpochId |}
+        // Since rc.3, the logic has only ever produced Started2 events https://github.com/jet/propulsion/issues/201
+        | [<System.Runtime.Serialization.DataMember(Name = "Started2")>] Started of {| partition : AppendsPartitionId; epoch : AppendsEpochId |}
+        | Snapshotted of {| active : Map<AppendsPartitionId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.gen<Event>
 
 module Fold =
 
-    type State = Map<AppendsTrancheId, AppendsEpochId>
+    type State = Map<AppendsPartitionId, AppendsEpochId>
 
     let initial = Map.empty
     let evolve state = function
-        | Events.Started e -> state |> Map.add e.tranche e.epoch
+        | Events.StartedPreview e -> state |> Map.add e.tranche e.epoch
+        | Events.Started e -> state |> Map.add e.partition e.epoch
         | Events.Snapshotted e -> e.active
     let fold : State -> Events.Event seq -> State = Seq.fold evolve
 
     let isOrigin = function Events.Snapshotted _ -> true | _ -> false
     let toSnapshot s = Events.Snapshotted {| active = s |}
 
-let readEpochId trancheId (state : Fold.State) =
+let readEpochId partitionId (state : Fold.State) =
     state
-    |> Map.tryFind trancheId
+    |> Map.tryFind partitionId
 
-let interpret (trancheId, epochId) (state : Fold.State) =
-    [if state |> readEpochId trancheId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
-        yield Events.Started {| tranche = trancheId; epoch = epochId |}]
+let interpret (partitionId, epochId) (state : Fold.State) =
+    [if state |> readEpochId partitionId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
+        yield Events.Started {| partition = partitionId; epoch = epochId |}]
 
 type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    /// Determines the current active epoch for the specified Tranche
-    member _.ReadIngestionEpochId(trancheId) : Async<AppendsEpochId> =
+    /// Determines the current active epoch for the specified Partition
+    member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
         let decider = resolve ()
-        decider.Query(readEpochId trancheId >> Option.defaultValue AppendsEpochId.initial, Equinox.AllowStale)
+        decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.AllowStale)
 
-    /// Mark specified `epochId` as live for the purposes of ingesting commits for the specified Tranche
+    /// Mark specified `epochId` as live for the purposes of ingesting commits for the specified Partition
     /// Writers are expected to react to having writes to an epoch denied (due to it being Closed) by anointing the successor via this
-    member _.MarkIngestionEpochId(trancheId, epochId) : Async<unit> =
+    member _.MarkIngestionEpochId(partitionId, epochId) : Async<unit> =
         let decider = resolve ()
-        decider.Transact(interpret (trancheId, epochId), Equinox.AllowStale)
+        decider.Transact(interpret (partitionId, epochId), Equinox.AllowStale)
 
 module Config =
 
@@ -60,11 +63,11 @@ module Config =
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownTranches (state : Fold.State) : AppendsTrancheId array =
+    let readKnownPartitions (state : Fold.State) : AppendsPartitionId array =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
-    let readIngestionEpochId trancheId (state : Fold.State) =
-        state |> Map.tryFind trancheId |> Option.defaultValue AppendsEpochId.initial
+    let readIngestionEpochId partitionId (state : Fold.State) =
+        state |> Map.tryFind partitionId |> Option.defaultValue AppendsEpochId.initial
 
     type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
@@ -72,13 +75,13 @@ module Reader =
             let decider = resolve ()
             decider.Query(id)
 
-        member _.ReadKnownTranches() : Async<AppendsTrancheId array> =
+        member _.ReadKnownPartitions() : Async<AppendsPartitionId array> =
             let decider = resolve ()
-            decider.Query(readKnownTranches)
+            decider.Query(readKnownPartitions)
 
-        member _.ReadIngestionEpochId(trancheId) : Async<AppendsEpochId> =
+        member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
             let decider = resolve ()
-            decider.Query(readIngestionEpochId trancheId)
+            decider.Query(readIngestionEpochId partitionId)
 
     let create log context = Service(streamId >> Config.resolve log (context, None) Category)
 #endif

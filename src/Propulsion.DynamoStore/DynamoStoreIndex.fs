@@ -94,10 +94,10 @@ type Buffer() =
 module Reader =
 
     // Returns flattened list of all spans, and flag indicating whether tail reached
-    let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) trancheId epochId
+    let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) partitionId epochId
         : Async<AppendsEpoch.Events.StreamSpan array * bool * int64> = async {
         let ts = Stopwatch.timestamp ()
-        let! maybeStreamBytes, _version, state = epochs.Read(trancheId, epochId, 0)
+        let! maybeStreamBytes, _version, state = epochs.Read(partitionId, epochId, 0)
         let sizeB, loadS = defaultValueArg maybeStreamBytes 0L, Stopwatch.elapsedSeconds ts
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
         let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
@@ -106,13 +106,13 @@ module Reader =
                         string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Log.miB sizeB, loadS)
         return spans, state.closed, sizeB }
 
-    let loadIndex (log, storeLog, context) trancheId gapsLimit: Async<struct (Buffer * int64)> = async {
+    let loadIndex (log, storeLog, context) partitionId gapsLimit: Async<struct (Buffer * int64)> = async {
         let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
         let state = Buffer()
         let mutable invalidSpans = 0
         while more do
-            let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs trancheId epochId
+            let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs partitionId epochId
             totalB <- totalB + streamBytes
             for x in spans do
                 let stream = x.p |> IndexStreamId.toStreamName |> FsCodec.StreamName.toString
@@ -128,6 +128,6 @@ module Reader =
                  else totalSpans <- totalSpans + 1L
             more <- closed
             epochId <- AppendsEpochId.next epochId
-        log.Information("Tranche {tranche} Current Index size {mib:n1} MiB; {gapped} Invalid spans",
-                        string trancheId, Log.miB totalB, invalidSpans)
+        log.Information("Partition {partition} Current Index size {mib:n1} MiB; {gapped} Invalid spans",
+                        string partitionId, Log.miB totalB, invalidSpans)
         return state, totalSpans }

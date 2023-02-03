@@ -10,23 +10,23 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
     let ingester =
         let epochs = AppendsEpoch.Config.create storeLog (epochBytesCutoff, maxVersion, maxStreams) (context, cache)
         let index = AppendsIndex.Config.create storeLog (context, cache)
-        let createIngester trancheId =
-            let log = log.ForContext("tranche", trancheId)
-            let readIngestionEpoch () = index.ReadIngestionEpochId trancheId
-            let markIngestionEpoch epochId = index.MarkIngestionEpochId(trancheId, epochId)
-            let ingest (eid, items) = epochs.Ingest(trancheId, eid, items)
+        let createIngester partitionId =
+            let log = log.ForContext("partition", partitionId)
+            let readIngestionEpoch () = index.ReadIngestionEpochId partitionId
+            let markIngestionEpoch epochId = index.MarkIngestionEpochId(partitionId, epochId)
+            let ingest (eid, items) = epochs.Ingest(partitionId, eid, items)
             ExactlyOnceIngester.create log (readIngestionEpoch, markIngestionEpoch) (ingest, Array.toSeq)
 
         // technically this does not have to be ConcurrentDictionary atm
-        let ingesterForTranche = System.Collections.Concurrent.ConcurrentDictionary<_, ExactlyOnceIngester.Service<_, _, _, _>>()
-        fun trancheId -> ingesterForTranche.GetOrAdd(trancheId, createIngester)
+        let ingesterForPartition = System.Collections.Concurrent.ConcurrentDictionary<_, ExactlyOnceIngester.Service<_, _, _, _>>()
+        fun partitionId -> ingesterForPartition.GetOrAdd(partitionId, createIngester)
 
-    /// Ingests the spans into the epochs chain for this tranche
+    /// Ingests the spans into the epochs chain for this partition
     /// NOTE if this is going to be used in an environment where there can be concurrent calls within a single process, an AsyncBatchingGate should be applied
     ///      in this instance, the nature of Lambda is such that this is not the case
-    /// NOTE regardless of concurrency within a process, it's critical to avoid having >1 writer hitting the same trancheId as this will result on continual conflicts
-    member _.IngestWithoutConcurrency(trancheId, spans) = async {
-        let ingester = ingester trancheId
+    /// NOTE regardless of concurrency within a process, it's critical to avoid having >1 writer hitting the same partition as this will result on continual conflicts
+    member _.IngestWithoutConcurrency(partitionId, spans) = async {
+        let ingester = ingester partitionId
         let! originEpoch = ingester.ActiveIngestionEpochId()
         return! ingester.IngestMany(originEpoch, spans) |> Async.Ignore }
 

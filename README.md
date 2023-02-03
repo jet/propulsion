@@ -46,7 +46,7 @@ If you're looking for a good discussion forum on these kinds of topics, look no 
 
 - `Propulsion.DynamoStore` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore/) Provides bindings to `Equinox.DynamoStore`. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore) on `Equinox.DynamoStore` v `4.0.0`
 
-    1. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the Index Event Store 
+    1. `AppendsIndex`/`AppendsEpoch`: `Equinox.DynamoStore` aggregates that together form the DynamoStore Index
     2. `DynamoStoreIndexer`: writes to `AppendsIndex`/`AppendsEpoch` (used by `Propulsion.DynamoStore.Indexer`, `Propulsion.Tool`)
     3. `DynamoStoreSource`: reads from `AppendsIndex`/`AppendsEpoch` (see `DynamoStoreIndexer`)
     4. `ReaderCheckpoint`: checkpoint storage for `Propulsion.DynamoStore`/`EventStoreDb`/`Feed`/`MessageDb`/`SqlStreamSteamStore` using `Equinox.DynamoStore` v `4.0.0`.
@@ -64,7 +64,7 @@ If you're looking for a good discussion forum on these kinds of topics, look no 
 
 - `Propulsion.DynamoStore.Notifier` [![NuGet](https://img.shields.io/nuget/v/Propulsion.DynamoStore.Notifier.svg)](https://www.nuget.org/packages/Propulsion.DynamoStore.Notifier/) AWS Lambda to report new events indexed by the Indexer to an SNS Topic, in order to enable triggering AWS Lambdas to service Reactions without requiring a long-lived host application. [Depends](https://www.fuget.org/packages/Propulsion.DynamoStore.Notifier) on `Amazon.Lambda.Core`, `Amazon.Lambda.DynamoDBEvents`, `Amazon.Lambda.Serialization.SystemTextJson`, `AWSSDK.SimpleNotificationService`
 
-    1. `Handler`: parses Dynamo DB Streams Source Mapping input, generates a message per updated Tranche in the batch
+    1. `Handler`: parses Dynamo DB Streams Source Mapping input, generates a message per updated Partition in the batch
     2. `Function`: AWS Lambda Function that can be fed via a DynamoDB Streams Event Source Mapping; passes to `Handler`
 
   (Diagnostics are exposed via Console to CloudWatch)
@@ -226,7 +226,7 @@ $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
 ```
 
-### 3. Use `propulsion` tool to inspect DynamoStoreSource Index
+### 3. Use `propulsion` tool to inspect DynamoStore Index
 
 Summarize current state of the index being prepared by `Propulsion.DynamoStore.Indexer`
 
@@ -234,15 +234,15 @@ Summarize current state of the index being prepared by `Propulsion.DynamoStore.I
 
 Example output:
 
-    19:15:50 I Current Tranches / Active Epochs [[0, 354], [2, 15], [3, 13], [4, 13], [5, 13], [6, 64], [7, 53], [8, 53], [9, 60]]  
-    19:15:50 I Inspect Index Tranches list events 👉 eqx -C dump '$AppendsIndex-0' dynamo -t equinox-test-index  
-    19:15:50 I Inspect Batches in Epoch 2 of Index Tranche 0 👉 eqx -C dump '$AppendsEpoch-0_2' -B dynamo -t equinox-test-index
+    19:15:50 I Current Partitions / Active Epochs [[0, 354], [2, 15], [3, 13], [4, 13], [5, 13], [6, 64], [7, 53], [8, 53], [9, 60]]  
+    19:15:50 I Inspect Index Partitions list events 👉 eqx -C dump '$AppendsIndex-0' dynamo -t equinox-test-index  
+    19:15:50 I Inspect Batches in Epoch 2 of Index Partition 0 👉 eqx -C dump '$AppendsEpoch-0_2' -B dynamo -t equinox-test-index
 
 ### 4. Use `propulsion` tool to validate DynamoStoreSource Index  
 
 Validate `Propulsion.DynamoStore.Indexer` has not missed any events (normally you guarantee this by having alerting on Lambda failures) 
  
-    propulsion index -t 0 dynamo -t equinox-test
+    propulsion index -p 0 dynamo -t equinox-test
 
 ### 5. Use `propulsion` tool to reindex and/or add missing notifications
 
