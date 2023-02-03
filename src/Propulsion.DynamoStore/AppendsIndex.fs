@@ -17,7 +17,7 @@ module Events =
     and StartedUpConverter() =
         inherit FsCodec.SystemTextJson.JsonIsomorphism<Started, StartedBackcompatPreRc2>()
         override _.Pickle e = { partition = Some e.partition; tranche = None; epoch = e.epoch }
-        override _.UnPickle e = { partition = e.partition |> Option.orElse e.tranche |> Option.get; epoch = e.epoch }
+        override _.UnPickle e = { partition = (match e.partition with Some p -> p | _ -> e.tranche.Value); epoch = e.epoch }
     and StartedBackcompatPreRc2 = { partition : AppendsPartitionId option; tranche : AppendsPartitionId option; epoch : AppendsEpochId }
 
     type Event =
