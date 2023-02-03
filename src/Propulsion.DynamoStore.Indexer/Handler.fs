@@ -1,12 +1,11 @@
 module Propulsion.DynamoStore.Indexer.Handler
 
 open Amazon.DynamoDBv2
-open Amazon.Lambda.DynamoDBEvents
 open Propulsion.DynamoStore
 
-let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : AppendsEpoch.Events.StreamSpan array =
+let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBEvents.DynamoDBEvent) : AppendsEpoch.Events.StreamSpan array =
     let spans, summary = ResizeArray(), System.Text.StringBuilder()
-    let mutable indexStream, noEvents = 0, 0
+    let mutable indexStream, systemStreams, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do
             match record.Dynamodb.StreamViewType with
             | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
@@ -22,6 +21,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : Append
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
                 let appendedLen = int updated["a"].N
                 if p.StartsWith AppendsEpoch.Category || p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
+                elif p.StartsWith '$' then systemStreams <- systemStreams + 1
                 elif appendedLen = 0 then noEvents <- noEvents + 1
                 else
                     let allBatchEventTypes = [| for x in updated["c"].L -> x.S |]
@@ -37,7 +37,8 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : Append
                         summary.Append(p).Append(et).Append(if i = 0 then " " else sprintf "@%d " i) |> ignore
             | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
         let spans = spans.ToArray()
-        log.Information("Index {indexCount} NoEvents {noEventCount} Spans {spanCount} {summary}", indexStream, noEvents, spans.Length, summary)
+        log.Information("Index {indexCount} System {systemCount} NoEvents {noEventCount} Spans {spanCount} {summary}",
+                        indexStream, systemStreams, noEvents, spans.Length, summary)
         spans
     with e ->
         log.Warning(e, "Failed {summary}", summary)
