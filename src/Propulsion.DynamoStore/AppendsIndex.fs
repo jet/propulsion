@@ -11,10 +11,17 @@ let streamId () = Equinox.StreamId.gen IndexId.toString IndexId.wellKnownId
 [<RequireQualifiedAccess>]
 module Events =
 
+    [<System.Text.Json.Serialization.JsonConverter(typeof<StartedUpConverter>)>]
+    type Started = { partition : AppendsPartitionId; epoch : AppendsEpochId }
+    /// <= rc.2 used a tranche field. >= rc.3 can accept either a tranche or a partition field in the event body, but will only write a partition
+    and StartedUpConverter() =
+        inherit FsCodec.SystemTextJson.JsonIsomorphism<Started, StartedBackcompatPreRc2>()
+        override _.Pickle e = { partition = Some e.partition; tranche = None; epoch = e.epoch }
+        override _.UnPickle e = { partition = e.partition |> Option.orElse e.tranche |> Option.get; epoch = e.epoch }
+    and StartedBackcompatPreRc2 = { partition : AppendsPartitionId option; tranche : AppendsPartitionId option; epoch : AppendsEpochId }
+
     type Event =
-        | [<System.Runtime.Serialization.DataMember(Name = "Started")>] StartedPreview of {| tranche : AppendsPartitionId; epoch : AppendsEpochId |}
-        // Since rc.3, the logic has only ever produced Started2 events https://github.com/jet/propulsion/issues/201
-        | [<System.Runtime.Serialization.DataMember(Name = "Started2")>] Started of {| partition : AppendsPartitionId; epoch : AppendsEpochId |}
+        | Started of Started
         | Snapshotted of {| active : Map<AppendsPartitionId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
     let codec = EventCodec.gen<Event>
@@ -25,7 +32,6 @@ module Fold =
 
     let initial = Map.empty
     let evolve state = function
-        | Events.StartedPreview e -> state |> Map.add e.tranche e.epoch
         | Events.Started e -> state |> Map.add e.partition e.epoch
         | Events.Snapshotted e -> e.active
     let fold : State -> Events.Event seq -> State = Seq.fold evolve
@@ -39,7 +45,7 @@ let readEpochId partitionId (state : Fold.State) =
 
 let interpret (partitionId, epochId) (state : Fold.State) =
     [if state |> readEpochId partitionId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
-        yield Events.Started {| partition = partitionId; epoch = epochId |}]
+        yield Events.Started { partition = partitionId; epoch = epochId }]
 
 type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
