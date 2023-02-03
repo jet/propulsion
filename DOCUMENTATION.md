@@ -196,7 +196,7 @@ In more complex cases, the projection will need to hide or buffer data until suc
 
 Equally, before assuming that a Process Manager is warranted, spend the time to validate any 'requirements' you are assuming about being able to render a given read model the instant a child piece of data is ingested into the model; often having a `LEFT JOIN` in a `SELECT` to exclude the child from a list until the parent data has been ingested may be perfectly acceptable. Yes, in spite of one's desire to have your Read Model double as unified enterprise data model with all conceivable foreign keys in place.
 
-### Phased processing
+#### Phased processing
 
 A key technique in simplifying an overall system is to consider whether batching and/or workflows can be managed asynchronously loosely connected decoupled workflows. If we consider the case where a system needs to report completed batches of shipment boxes within a large warehouse:
 - a large number of shipments may be in the process of being prepared (picked); we can't thus batch shipments them until we know that all the required items within have been obtained (or deemed unobtainable) and the box sealed
@@ -213,7 +213,7 @@ One way to handle constraints such as this is to have a Processor concurrently h
 
 Of course, it's always possible to map any such chain of processes to an equivalent set of serial operations on a more closely coupled SQL relational model. The thing you want to avoid is stumbling over time into a rats nest by a sequence of individually reasonable ad-hoc SQL operations that assume serial operations. Such an ad hoc system is unlikely to end up being either scalable or easy to maintain. In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
 
-### Proactive reaction processing 
+#### Proactive reaction processing 
 
 In general, decoupling Read Model maintenance Processes from Transactional processing activities per CQRS conventions is a good default.
 
@@ -231,6 +231,35 @@ When running multiple Processor Instances, there's the opportunity to have pendi
 - (not currently implemented) Have the Reader shard the data into N Tranches for a Source's Feeds/Partitions based on the Stream Name. This would involve:
    - Implement a way to configure the number of shards that each instance's Reader is to split each Batch (i.e. all Sources need to agree that `$all` content is to be split into Tranches 0, 1, 2 based on a common hashing function)
    - Implement a leasing system akin to that implemented in the CosmosDb Change Feed Processor library to manage balanced assignment of Tranches to Processor Instances. As leases are assigned and revoked, the Source needs to run a Reader and Ingester per assigmnent, that reads the underlying data and forwards the relevant data solely for the batches assigned to the specific Processor Instance in question
+
+<a name="why-not-queue-all-the-things"></a>
+## Processing Reactions based on a Store's Notifications vs Just using a Queue
+
+Its not uncommon for people to use a Queue (e.g. RabbitMQ, Azure Service Bus Queues, AWS SQS etc) to manage reactive processing. This typically involves wiring things up such that relevant events from the Store's notifications trigger a message on that queue. 
+
+As a system grows in features, Reaction processing tends to grow into a workflow, with complex needs regarding being able to deal with partner system outages, view the state of a workflow, cancel complex processes etc. That's normally not now it starts off though, especially in any whitepaper trying to sell you a Queue, Low Code or FaaS. 
+
+Just using a Queue has a number of pleasing properties:
+- The only thing that can prevent your Store notifications processing from getting stuck is if your Queue becomes unwriteable. Typically it'll take a lot of activity in your system for writing to the queue to become the bottleneck.
+- You have a natural way to cope with small spikes in traffic
+- You can normally easily rig things such that you run multiple instances of your Queue Processor if the backlog gets too long (i.e. the Competing Consumer pattern)
+- Anything that fails can be deferred for later retry pretty naturally (i.e. set a visibility timeout on the item)
+- Any case which for some reason triggers an exception, can be dealt with as a Poison Message
+- After a configured amount of time or attempts, you can have messages shift to a Dead Letter Queue. There are established practices regarding alerting in such circumstances and/or triggering retries of Dead Lettered messages  
+- Arranging processing via a Queue also gives a natural way for other systems (or ad-hoc admin tools) to trigger such messages too. For example, you can easily do a manual trigger or re-trigger of some reaction by adding a message out of band.
+- Queues are a generally applicable technique in a wide variety of systems, and look great on a system architecture diagram or a resume
+
+There are also a number of potential negatives; the significance of that depends on your needs:
+- You have another system to understand, worry about the uptime of, and learn to monitor
+- Marking a message invisible (or running competing consumers) will mean you can receive messages regarding a particular action out of order. In other words, you get no useful ordering guarantees (frequently this is not a problem)
+- If the time taken or processing cost of the messages on the Queue are not uniform, having 10,000 or a million messages in the queue might be hard to interpret in terms of how long it will take to clear. You also have no way to know where your high value orders are relative to that batch of 400,000 failures from that third party system 10 minute service outage that will retry in an hours time
+- there are no great ways to 'rewind the position' and retraverse events over a particular period of time without causing lots of confusion
+- running a newer version alongside an existing one (to Expand then Contract for a Read Model) etc involves making a new Queue instance, making process that writes the messages also write to the Queue instance, validating that both queues always get the same messages etc. (As opposed to working direct off the Store notifications - you can just use a new Consumer Group Name, seeded with a nominated Position)
+
+Many of the pleasing properties are not (or at least not directly) provided by a Reaction processing engine like Propulsion, but there are alternate approaches:
+- If the processor hits a poison message, checkpointing cannot progress beyond the Batch the triggering event was in. Processing will continue until the configured maximum batches read ahead count has been reached, but will then stop. This can be mitigated by alerting  based on the built in metrics that are provided regarding the maximum time any stream has been processing ('stuck' messages), or failing (the typical 'poison' message case). (Arguably that's better than risking 40,000 clones of that same poison message over the next 12 hours, affecting all high value orders).
+- While a Poison message can indeed halt all processing, it's only for that Processor. A key aspect of designing your reactive processes is to separate critical activities with high SLAs requirements from activities that have a likelihood of failure. (That's absolutely not a stipulation that every single possible activity should be an independent Processor either).
+- While only ever blindly copying from your Store's notifications straight onto a Queue is generally something to avoid, there's no reason not to employ a Queue in the right place in an overall system; if it's the right tool for a phase in your [Phased Processing](#phased-processing), use it!
 
 ## Consistency, Reading your Writes
 
