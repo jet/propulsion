@@ -235,9 +235,9 @@ When running multiple Processor Instances, there's the opportunity to have pendi
 <a name="why-not-queue-all-the-things"></a>
 ## Processing Reactions based on a Store's Notifications vs Just using a Queue
 
-It's not uncommon for people to use a Queue (e.g. RabbitMQ, Azure Service Bus Queues, AWS SQS etc) to manage reactive processing. This typically involves wiring things up such that relevant events from the Store's notifications trigger a message on that queue. 
+It's not uncommon for people to use a Queue (e.g. RabbitMQ, Azure Service Bus Queues, AWS SQS etc) to manage reactive processing. This typically involves wiring things up such that relevant events from the Store's notifications trigger a message on that queue without any major transformation or processing taking place.
 
-As a system grows in features, Reaction processing tends to grow into a workflow, with complex needs regarding being able to deal with partner system outages, view the state of a workflow, cancel complex processes etc. That's normally not now it starts off though, especially in any whitepaper trying to sell you a Queue, Low Code or FaaS. 
+As a system grows in features, Reaction processing tends to grow into a workflow, with complex needs regarding being able to deal with partner system outages, view the state of a workflow, cancel complex processes etc. That's normally not now it starts off though, especially in any whitepaper or blog trying to sell you a Queue, Low Code or FaaS. 
 
 Just using a Queue has a number of pleasing properties:
 - The only thing that can prevent your Store notifications processing from getting stuck is if your Queue becomes unwriteable. Typically it'll take a lot of activity in your system for writing to the queue to become the bottleneck.
@@ -256,10 +256,19 @@ There are also a number of potential negatives; the significance of that depends
 - there are no great ways to 'rewind the position' and retraverse events over a particular period of time without causing lots of confusion
 - running a newer version alongside an existing one (to Expand then Contract for a Read Model) etc involves making a new Queue instance, making process that writes the messages also write to the Queue instance, validating that both queues always get the same messages etc. (As opposed to working direct off the Store notifications - you can just use a new Consumer Group Name, seeded with a nominated Position)
 
-Many of the pleasing properties are not (or at least not directly) provided by a Reaction processing engine like Propulsion, but there are alternate approaches:
-- Propulsion allows you to configure a maximum number of batches to read ahead in case of a poison message. Checkpointing will *not* progress beyond the Batch containing the poison event. Processing will continue until the configured maximum batches read ahead count has been reached, but will then stop. It is important to be aware of these scenarios and mitigate their impact by catching them early. Alerting should be set up based on the built in metrics that are provided regarding the maximum time any stream has been processing ('stuck' messages), or failing (the typical 'poison' message case). Knowing this scenario is happening is the first step in recovering.
-- While a Poison message can indeed halt all processing, it's only for that Processor. A key aspect of designing your reactive processes is to separate critical activities with high SLAs requirements from activities that have a likelihood of failure. (That's absolutely not a stipulation that every single possible activity should be an independent Processor either).
-- While only ever blindly copying from your Store's notifications straight onto a Queue is generally something to avoid, there's no reason not to employ a Queue in the right place in an overall system; if it's the right tool for a phase in your [Phased Processing](#phased-processing), use it!
+Regardless of whether you are working on the basis of handling store notifications, or pending work via a Queue, it's important to note that decoupled the process inevitably introduces a variable latency. Whether your system can continue to function (either with a full user experience, or in a gracefully degraded mode) in the face of a spike of activity or an outage of a minute/hour/day is far more significant than the P99 overhead. If something is time-sensitive, then a queue handler (or store notification processor) may simply not be the right place to do it.
+
+While only ever blindly copying from your Store's notifications straight onto a Queue is generally something to avoid, there's no reason not to employ a Queue in the right place in an overall system; if it's the right tool for a phase in your [Phased Processing](#phased-processing), use it!
+
+### Poison messages
+
+In practice, for the average set of reactions processing, the most consequential difference between using a Queue and working in the context of a Store notifications processor is what happens in the case of a Poison Message. For Queue processing, Poison Message Handling is a pretty central tenet in the design - keep stuff moving, monitor throughput, add instances to absorb backlogs. For Store Notifications processing, the philosophy is more akin to that of an [Andon Cord in the TPS](https://itrevolution.com/articles/kata/) - design and iterate on the process to build it's resilience.
+
+Propulsion allows you to configure a maximum number of batches to permit the processor to read ahead in case of a poison message. Checkpointing will *not* progress beyond the Batch containing the poison event. Processing will continue until the configured maximum batches read ahead count has been reached, but will then stop. It is important to be aware of these scenarios and mitigate their impact by catching them early (ideally during the design and test phase, but it's critical to have a plan for how you'll deal with the scenario in production). Alerting should be set up based on the built in metrics regarding the maximum time any stream has been processing ('stuck' messages), or failing (the typical 'poison' message case). Knowing this scenario is happening is the first step in recovering.
+
+- NOTE While a Poison message can indeed halt all processing, it's only for that Processor. Separating critical activities with high SLAs requirements from activities that have a likelihood of failure is thus a key consideration. This is absolutely not a stipulation that every single possible activity should be an independent Processor either.
+
+- ASIDE the max read ahead mechanism can also provide throughput benefits, and, in a catch-up scenario it will reduce handler invocations by coalescing multiple events on streams. The main cost is the increased memory consumption that the buffering implies when the limit is reached.
 
 ## Consistency, Reading your Writes
 
