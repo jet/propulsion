@@ -116,11 +116,11 @@ module private Impl =
 [<NoComparison; NoEquality>]
 type LoadMode =
     /// Skip loading of Datta for events; this is the most efficient mode as it means the Source only needs to read from the index
-    | Minimal of categories : string[]
+    | Minimal of categories : string array
     /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
     | MinimalFilter of categoryFilter : (string -> bool)
     /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
-    | WithData of categories : string[]
+    | WithData of categories : string array
                   * degreeOfParallelism : int
                   * /// Defines the Context to use when loading the Event Data/Meta
                     storeContext : DynamoStoreContext
@@ -131,7 +131,7 @@ type LoadMode =
                             storeContext : DynamoStoreContext
 module internal LoadMode =
     let inline arrayContains xs x = Array.contains x xs
-    let (|WithoutEventBodies|Hydrated|) = function
+    let private (|WithoutEventBodies|Hydrated|) = function
         | Minimal categories -> WithoutEventBodies (arrayContains categories)
         | MinimalFilter f -> WithoutEventBodies f
         | WithData (categories, degreeOfParallelism, dynamoStoreContext) -> Hydrated(arrayContains categories, degreeOfParallelism, dynamoStoreContext)
