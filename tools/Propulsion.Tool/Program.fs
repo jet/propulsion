@@ -364,9 +364,8 @@ module Project =
                     sa.CreateCheckpointStore(group, cache, Log.forMetrics)
                 let loadMode =
                     match maybeHydrate with
-                    | Some (context, streamsDop) ->
-                        Propulsion.DynamoStore.LoadMode.Hydrated (nullFilter, streamsDop, context)
-                    | None -> Propulsion.DynamoStore.LoadMode.WithoutEventBodies (fun _categoryName -> true)
+                    | Some (context, streamsDop) -> Propulsion.DynamoStore.LoadMode.WithDataFilter (nullFilter, streamsDop, context)
+                    | None -> Propulsion.DynamoStore.LoadMode.MinimalFilter nullFilter
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,

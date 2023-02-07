@@ -115,14 +115,27 @@ module private Impl =
 
 [<NoComparison; NoEquality>]
 type LoadMode =
+    /// Skip loading of Datta for events; this is the most efficient mode as it means the Source only needs to read from the index
+    | Minimal of categories : string[]
     /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
-    | WithoutEventBodies of categoryFilter : (string -> bool)
+    | MinimalFilter of categoryFilter : (string -> bool)
     /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
-    | Hydrated of categoryFilter : (string -> bool)
+    | WithData of categories : string[]
                   * degreeOfParallelism : int
                   * /// Defines the Context to use when loading the Event Data/Meta
                     storeContext : DynamoStoreContext
+    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
+    | WithDataFilter of categoryFilter : (string -> bool)
+                          * degreeOfParallelism : int
+                          * /// Defines the Context to use when loading the Event Data/Meta
+                            storeContext : DynamoStoreContext
 module internal LoadMode =
+    let inline arrayContains xs x = Array.contains x xs
+    let (|WithoutEventBodies|Hydrated|) = function
+        | Minimal categories -> WithoutEventBodies (arrayContains categories)
+        | MinimalFilter f -> WithoutEventBodies f
+        | WithData (categories, degreeOfParallelism, dynamoStoreContext) -> Hydrated(arrayContains categories, degreeOfParallelism, dynamoStoreContext)
+        | WithDataFilter (categoryFilter, degreeOfParallelism, dynamoStoreContext) -> Hydrated(categoryFilter, degreeOfParallelism, dynamoStoreContext)
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
@@ -205,4 +218,3 @@ type DynamoStoreSource
             // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
             return! x.Checkpoint()
         finally statsInterval.SleepUntilTriggerCleared() }
-
