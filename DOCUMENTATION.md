@@ -63,6 +63,7 @@ There's a [glossary of terms in the Equinox Documentation](https://github.com/je
 | Projection Lag          | The amount of time between when an Event is appended to the store, and when the Handler has processed that event, aka the Response Time
 | Source                  | Umbrella term for the datasource-specific part of a Processor that obtains batches of origin data from Feeds
 | Sink                    | Umbrella term for the datasource-neutral part of a Processor that accepts Batches of Events from the Source, and calls the Checkpointing callbacks when all of the Batch's Events have been handled
+| SLA, SLI, SLO etc       | Terms regarding defining Sevice Level Agreements, Indicators and Objectives respectively, per [Site Reliability Engineering](https://www.amazon.com/Site-Reliability-Engineering-Production-Systems/dp/149192912X) principles. (see [Overview article series](https://servian.dev/introduction-to-site-reliability-engineering-part-1-a-1848f388797))
 | Stream                  | Named ordered sequence of Events as yielded by a Source
 | Tranche                 | Checkpointable sequence of Batches supplied from a Source<br/>CosmosDb Change Feed: mapped 1:1 based on Physical Partitions of the CosmosDb Container<br/>DynamoStore: mapped 1:1 from Partitions of a DynamoStore Index<br/>MessageDb: Mapped from each Category relevant to a given Processor's needs
 
