@@ -47,7 +47,7 @@ There's a [glossary of terms in the Equinox Documentation](https://github.com/je
 
 | Term                    | Description
 |-------------------------|---
-| Consumer Group          | Name used to identify a set of checkpoint positions for each Tranche of a Source
+| Consumer Group          | Name used to identify a set of checkpoint positions for each Tranche of a Source, aka Subscription
 | Consumer Load Balancing | Built in lease-based allocation of Partitions to distribute load across instances of a Processor based on a common Consumer Group Name e.g. the broker managed system in Kafka, the Change Feed Processor library within the `Microsoft.Azure.Cosmos` Client
 | Batch                   | Group of Events from a Source. Typically includes a Checkpoint callback that's invoked when all events have been handled
 | Category                | Group of Streams for a Source matching `{categooryName}-{streamId}` pattern. MessageDB exposes a Feed per Category
@@ -59,6 +59,8 @@ There's a [glossary of terms in the Equinox Documentation](https://github.com/je
 | Processor               | Software system wired to a Source with a common Consumer Group Name.<br/>e.g. in the CosmosDB Client, a Change Feed Processor Consumer specifies a `ProcessorName`
 | Processor Instance      | Configured Source and Sink ready to handle batches of events for a given Consumer Group Name
 | Processor Parallelism   | Upper limit for concurrent Handler invocations for a Processor Instance
+| Projection Gap          | The number of Events that a given Consumer Group will have to traverse to get to the tail 
+| Projection Lag          | The amount of time between when an Event is appended to the store, and when the Handler has processed that event, aka the Response Time
 | Source                  | Umbrella term for the datasource-specific part of a Processor that obtains batches of origin data from Feeds
 | Sink                    | Umbrella term for the datasource-neutral part of a Processor that accepts Batches of Events from the Source, and calls the Checkpointing callbacks when all of the Batch's Events have been handled
 | Stream                  | Named ordered sequence of Events as yielded by a Source
@@ -244,7 +246,7 @@ Just using a Queue has a number of pleasing properties:
 - You have a natural way to cope with small spikes in traffic
 - You can normally easily rig things such that you run multiple instances of your Queue Processor if the backlog gets too long (i.e. the Competing Consumer pattern)
 - Anything that fails can be deferred for later retry pretty naturally (i.e. set a visibility timeout on the item)
-- Any case which for some reason triggers an exception, can be dealt with as a Poison Message
+- Any case which for some reason triggers a recurring exception, can be dealt with as a Poison Message
 - After a configured amount of time or attempts, you can have messages shift to a Dead Letter Queue. There are established practices regarding alerting in such circumstances and/or triggering retries of Dead Lettered messages  
 - Arranging processing via a Queue also gives a natural way for other systems (or ad-hoc admin tools) to trigger such messages too. For example, you can easily do a manual trigger or re-trigger of some reaction by adding a message out of band.
 - Queues are a generally applicable technique in a wide variety of systems, and look great on a system architecture diagram or a resume
@@ -252,13 +254,12 @@ Just using a Queue has a number of pleasing properties:
 There are also a number of potential negatives; the significance of that depends on your needs:
 - You have another system to understand, worry about the uptime of, and learn to monitor
 - Marking a message invisible (or running competing consumers) will mean you can receive messages regarding a particular action out of order. In other words, you get no useful ordering guarantees (frequently this is not a problem)
-- If the time taken or processing cost of the messages on the Queue are not uniform, having 10,000 or a million messages in the queue might be hard to interpret in terms of how long it will take to clear. You also have no way to know where your high value orders are relative to that batch of 400,000 failures from that third party system 10 minute service outage that will retry in an hours time
-- there are no great ways to 'rewind the position' and retraverse events over a particular period of time without causing lots of confusion
-- running a newer version alongside an existing one (to Expand then Contract for a Read Model) etc involves making a new Queue instance, making process that writes the messages also write to the Queue instance, validating that both queues always get the same messages etc. (As opposed to working direct off the Store notifications - you can just use a new Consumer Group Name, seeded with a nominated Position)
-
-Regardless of whether you are working on the basis of handling store notifications, or pending work via a Queue, it's important to note that decoupled the process inevitably introduces a variable latency. Whether your system can continue to function (either with a full user experience, or in a gracefully degraded mode) in the face of a spike of activity or an outage of a minute/hour/day is far more significant than the P99 overhead. If something is time-sensitive, then a queue handler (or store notification processor) may simply not be the right place to do it.
+- there are no simple ways to 'rewind the position' and re-traverse events over a particular period of time
+- running a newer version alongside an existing one (to Expand then Contract for a Read Model) etc involves provisioning a new Queue instance, having the process that writes the messages also write to the new Queue instance, validating that both queues always get the same messages etc. (As opposed to working direct off the Store notifications; there you simply mint a new Consumer Group Name, seeded with a nominated Position, and are assured it will traverse an equivalent span of the notifications that have ever occurred)
 
 While only ever blindly copying from your Store's notifications straight onto a Queue is generally something to avoid, there's no reason not to employ a Queue in the right place in an overall system; if it's the right tool for a phase in your [Phased Processing](#phased-processing), use it!
+
+Regardless of whether you are working on the basis of handling store notifications, or pending work via a Queue, it's important to note that decoupled the process inevitably introduces a variable latency. Whether your system can continue to function (either with a full user experience, or in a gracefully degraded mode) in the face of a spike of activity or an outage of a minute/hour/day is far more significant than the P99 overhead. If something is time-sensitive, then a queue handler (or store notification processor) may simply not be the right place to do it.
 
 ### Poison messages
 
@@ -269,6 +270,38 @@ Propulsion allows you to configure a maximum number of batches to permit the pro
 - NOTE While a Poison message can indeed halt all processing, it's only for that Processor. Separating critical activities with high SLAs requirements from activities that have a likelihood of failure is thus a key consideration. This is absolutely not a stipulation that every single possible activity should be an independent Processor either.
 
 - ASIDE the max read ahead mechanism can also provide throughput benefits, and, in a catch-up scenario it will reduce handler invocations by coalescing multiple events on streams. The main cost is the increased memory consumption that the buffering implies when the limit is reached.
+
+### Interpreting Ages, Lags and Gaps
+
+At the point where a Reader first sees an Event from a Source, it will have a certain Age (the duration since it was appended to the store). The Response Time refers to the time between the write and when it's been Handled (the duration the Handler spends on the Span of Events it is handed is termed the Handler Latency).
+
+For a Queue of items that have a relatively uniform processing time being processed individually, the number of unprocessed messages and the Handler latency can be used to infer how long it will take to clear the backlog of unprocessed message etc e.g., [Little's Law](https://en.wikipedia.org/wiki/Little%27s_law).
+
+It can be tempting to default to feeding everything through Queues in order to be able to apply a consistent monitoring approach. Useful as that is, it's important to not fall prey to the [Streetlight Effect](https://en.wikipedia.org/wiki/Streetlight_effect). Ultimately the value that you give up in not being able to rewind / replay, Expand and Contract should not be underestimated.
+
+For a Store Notifications processor, it can be tempting to apply the same heuristics that one might use based on the number messages in a Queue, replacing the message count with the Projection Gap (the number of Events that have yet to be Handled for this Consumer Group). Here are some considerations to bear in mind:
+- The Gap in terms of number of Events can be hard to derive:
+  - For `CosmosStore`, the number of pending documents that the SDK's Lag Estimation mechanism provides measures the number of items (documents) outstanding. It's difficult accurately map this to an event count as each item holds multiple events. Having said that, the estimation process does not place heavy load on a Store and can be extremely useful.
+  - For a `DynamoStore` Index, estimating the Gap would involve walking each partition forward from the checkpoint, loading the full content through to the tail to determine the number of events
+    - NOTE This is not implemented at present, but definitely something that can and should be. Doing so would involve traversing the ~1MiB per epoch at least once, although the append-only nature would mean that it would be efficient to cache the event counts per complete epoch. Updating from a cached count would be achievable by inspecting the Checkpoint and Tail epochs only (which would frequently coincide).
+  - For `EventStoreDb`, the $all stream does not provide an overall "event number" as such
+      - NOTE this does not mean that an estimation process could not be implemented (and surfaced as a metric etc). Possible approaches include:
+          1. In the current implementation of EventStoreDB, subtracting the Checkpoint position from the Tail Position correlates strongly with the number of aggregate bytes (including the event bodies) to be traversed
+          2. EventStoreDB provides APIs that enable one to traverse events with extensive filtering (e.g. by event type, stream names, regexes etc) with or without loading the event bodies. These can be used to accurately estimate the pending backlog at a relatively low cost in terms of server impact
+- However, even if you know the Gap in terms of number of Events, that may not correlate well
+  - Depending on the nature of your reaction logic, the first event and/or specific Event Types may take significantly more effort to process, rendering the raw count all-but useless.
+- In other cases, you may be in a position where processing can visit each stream once and thereafter rely on some cached information to make subsequent Handler invocations cheap. In such cases, even determining the number of unique streams due to be traversed might be misleading.
+- Finally, there will be a class of reactions where the Stream name, Count of Events, Event Types etc are insufficient, and the full bodies (`Data` or `Meta`) are required.
+
+Overall, pending message counts, event counts, stream counts, unique stream counts, message payload sizes, relevant event type counts are all of varying relevance in estimating the processing Lag. And the processing Lag is just one piece of insight into the backlog of your Reactions processing.
+
+The crux of the issue is this: *it's critical to properly design and plan any aspects of your overall system that will rely on Reactions. If your e-commerce system needs to prioritise high value orders, focus on that, not your the events per second throughput*.
+
+If your business needs to know the live Sum (by Currency) of orders in their Grace Period (not charged to Payment Cards yet as the order can still be cancelled during the 15 minutes after placing), being able to say "our queue has a backlog of 2000 messages (one per order), our max capacity is 2000 per hour" is worse than useless, especially if 20 of those messages relate to orders that are actually 90% of the revenue that will be earned this week (and are stuck because they breach some payment processor rule that kicked in at 6am today). It may be far more useful to discuss having a separate Processor independently traverse Pending and Committed Carts ahead of the actual processing, maintaining business KPIs:
+- histograms with ten minute buckets recording successful vs failed charges by currency and payment processor
+- histograms of Order count and total value by order state (In Grace Period, Payment Successful, Payment Returned)
+
+Conclusion: technical metrics about Lags and Gaps are important in running a production system that involves Reaction processing. They are useful and necessary. But rarely should being able to surface them be the first priority in implementing your system.
 
 ## Consistency, Reading your Writes
 
