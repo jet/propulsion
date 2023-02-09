@@ -99,11 +99,13 @@ A Sink is fed by a Source.
 
 # The `Propulsion.Streams` Programming Model for Projections, Reactions and Workflows
 
-Propulsion provides a pluggable set of components that enable you to implement high performance, resilient and observable event processing pipeline for Reaction, Ingestion and Publishing pipelines as part of an Event Sourced system.
+Propulsion provides a pluggable set of components enabling high performance, resilient and observable event processing for Reaction, Ingestion and Publishing pipelines as part of an Event Sourced system.
 
-Each such pipeline manages a related set of follow-on activities. Examples:
+The design aims to enable unit testing of Handler logic (within a single process) and integration testing (using any relevant Stores, be that via Containers, Simulators or other test environments) of these pipelines as a first class concern.
+
+Each Processor pipeline you implement will address a related set of follow-on activities. Examples:
 - running reactive workflows triggered by user actions (which in turn may trigger further reactions as ripple effects)
-- maintaining Read Models based on (or just triggerred by) the Events
+- maintaining Read Models based on (or, just triggered by) Store Event Notifications
 - continually synchronising/publishing information for/into partner systems
 
 At a high level, a Propulsion pipeline covers these core responsibilities:
