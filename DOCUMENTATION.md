@@ -97,6 +97,7 @@ A Sink is fed by a Source.
 | Dispatcher  | Loops continually, dispatching Stream Queues to Handlers via the Thread Pool.<br/>Responsible for limiting the maximum number of in-flight Handler invocations to the configured Processor Parallelism limit  
 | Handler     | caller-supplied function that's passed a stream name (a Category Name + Aggregate Id pair) and the span of buffered events for that stream<br/>Typically this will be a single event, but this enables optimal processing in catch-up scenarios, when retries are required, or where multiple events are written to the same Stream in close succession.
 
+<a name="programming-model"></a>
 # The `Propulsion.Streams` Programming Model for Projections, Reactions and Workflows
 
 Propulsion provides a pluggable set of components enabling high performance, resilient and observable event processing for Reaction, Ingestion and Publishing pipelines as part of an Event Sourced system.
