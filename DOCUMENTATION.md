@@ -253,8 +253,8 @@ Just using a Queue has a number of pleasing properties:
 - Queues are a generally applicable technique in a wide variety of systems, and look great on a system architecture diagram or a resume
 
 There are also a number of potential negatives; the significance of that depends on your needs:
-- You have another system to understand, worry about the uptime of, and learn to monitor
-- Marking a message invisible (or running competing consumers) will mean you can receive messages regarding a particular action out of order. In other words, you get no useful ordering guarantees (frequently this is not a problem)
+- you have another system to understand, worry about the uptime of, and learn to monitor
+- your choice of Queue may affect the ordering guarantees you can build upon to simplify your Reactor logic. Some queues (such as basic SQS) offer no useful ordering guarantees whatsoever, implying your processor can receive events about a particular stream out of order (either immediately, or as a result of retry/redelivery of a message where the Handler failed). Other queues such as Azure Service Bus and SQS FIFO enable FIFO processing based on group-keys but do so at a significantly lower throughput than their orderless counterparts.
 - there are no simple ways to 'rewind the position' and re-traverse events over a particular period of time
 - running a newer version alongside an existing one (to Expand then Contract for a Read Model) etc involves provisioning a new Queue instance, having the process that writes the messages also write to the new Queue instance, validating that both queues always get the same messages etc. (As opposed to working direct off the Store notifications; there you simply mint a new Consumer Group Name, seeded with a nominated Position, and are assured it will traverse an equivalent span of the notifications that have ever occurred)
 
