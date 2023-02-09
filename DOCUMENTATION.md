@@ -261,13 +261,25 @@ While only ever blindly copying from your Store's notifications straight onto a 
 
 Regardless of whether you are working on the basis of handling store notifications, or pending work via a Queue, it's important to note that decoupled the process inevitably introduces a variable latency. Whether your system can continue to function (either with a full user experience, or in a gracefully degraded mode) in the face of a spike of activity or an outage of a minute/hour/day is far more significant than the P99 overhead. If something is time-sensitive, then a queue handler (or store notification processor) may simply not be the right place to do it.
 
-### Poison messages
+<a name="busy-metrics"></a>
+### Poison messages, busy streams metrics and altering
 
 In practice, for the average set of reactions processing, the most consequential difference between using a Queue and working in the context of a Store notifications processor is what happens in the case of a Poison Message. For Queue processing, Poison Message Handling is a pretty central tenet in the design - keep stuff moving, monitor throughput, add instances to absorb backlogs. For Store Notifications processing, the philosophy is more akin to that of an [Andon Cord in the TPS](https://itrevolution.com/articles/kata/) - design and iterate on the process to build it's resilience.
 
-Propulsion allows you to configure a maximum number of batches to permit the processor to read ahead in case of a poison message. Checkpointing will *not* progress beyond the Batch containing the poison event. Processing will continue until the configured maximum batches read ahead count has been reached, but will then stop. It is important to be aware of these scenarios and mitigate their impact by catching them early (ideally during the design and test phase, but it's critical to have a plan for how you'll deal with the scenario in production). Alerting should be set up based on the built in metrics regarding the maximum time any stream has been processing ('stuck' messages), or failing (the typical 'poison' message case). Knowing this scenario is happening is the first step in recovering.
+Propulsion allows you to configure a maximum number of batches to permit the processor to read ahead in case of a poison message. Checkpointing will *not* progress beyond the Batch containing the poison event. Processing will continue until the configured maximum batches read ahead count has been reached, _but will then stop_.
 
-- NOTE While a Poison message can indeed halt all processing, it's only for that Processor. Separating critical activities with high SLAs requirements from activities that have a likelihood of failure is thus a key consideration. This is absolutely not a stipulation that every single possible activity should be an independent Processor either.
+Depending on the nature of the Processor's responsibility, that will ultimately be noticed indirectly (typically when it's too late). It is thus important to be aware of these scenarios and mitigate their impact by catching them early (ideally, during the design and test phase; but it's critical to have a plan for how you'll deal with the scenario in production). Detecting and analysing when a Processor is not functioning correctly is the first step in recovering.
+
+Typically, alerting should be set up based on the built in `busy` metrics provided, with `oldest` and `newest` stats based with `group` values as follows:
+- `active`: streams that are currently locked for a Handler invocation (but have not yet actually failed). The age represented by the `oldest` can be used to detect Handler invocations that are outside SLI thresholds. However, this should typically only be as a failsafe measure; handlers should typically proactively time out where there is an obvious SLO that can inform such a limit
+- `failing`: streams that have had at least one failed Handler invocation (regardless of whether they are currently the subject of a retry Handler invocation or not). Typically it should be possible to define:
+  - a reasonable limit before you'd want a low level alert to be raised
+  - a point at which you raise an alarm on the basis that the system is in a state that will lead to a SLA breach and hence merits intervention
+- `stalled`: streams that have had only successful Handler invocations, but have not declared any progress via the Handler's `SpanResult`. In some cases, the design of a Reaction Process may be such that one might intentionally back off and retry in some scenarios (see [Consistency](#consistency)). In the general case, a stalled stream may reflect a coding error (e.g., if a handler uses read a stale value from a cache but the cache never gets invalidated, it will never make progress)
+
+Alongside alerting based on breaches of SLO limits, the values of the `busy` metrics are a key high level indicator of the health of a given Processor (along with the Handler Latency distribution).
+
+- NOTE While a Poison message can indeed halt all processing, it's only for that Processor. Separating critical activities with high SLA requirements from activities that have a likelihood of failure is thus a key consideration. This is absolutely not a stipulation that every single possible activity should be an independent Processor either.
 
 - ASIDE the max read ahead mechanism can also provide throughput benefits, and, in a catch-up scenario it will reduce handler invocations by coalescing multiple events on streams. The main cost is the increased memory consumption that the buffering implies when the limit is reached.
 
@@ -303,6 +315,7 @@ If your business needs to know the live Sum (by Currency) of orders in their Gra
 
 Conclusion: technical metrics about Lags and Gaps are important in running a production system that involves Reaction processing. They are useful and necessary. But rarely should being able to surface them be the first priority in implementing your system.
 
+<a name="consistency"></a>
 ## Consistency, Reading your Writes
 
 When Processing reactions based on a Store's change feed / notification mechanism, there are many factors to be considered:
