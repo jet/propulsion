@@ -185,7 +185,7 @@ The bottom line is that following the strict order of event writes across stream
 
 ### Relationships between data established via projections or reactions
 
-The preceding section lays out why building projections that assume a global order of events and then traversing them serially can be harmful to throughput while also tending to make operations and/or deployment more problematic. Not only that, frequently the complexity of the processing grows beyond the superficially simple initial logic as you implement batching and other such optimizations.
+The preceding section lays out why building projections that assume a global order of events and then traversing them serially can be harmful to throughput while also tending to make operations and/or deployment more problematic. Not only that; frequently the complexity of the processing escalates beyond that of the superficially simple initial logic as you implement batching and other such optimizations.
 
 Nonetheless, there will invariably be parent-child relationships within data and it's processing. These tend to group into at least the following buckets:
 - foreign key relationships reflecting data dependencies intrinsic to being able to serve queries from a read model
@@ -216,7 +216,11 @@ One way to handle constraints such as this is to have a Processor concurrently h
 - Finally, once, the Reactor responsible for inserting the completed shipments into a batch has noted that the batch is full, it can declare the Batch `Closed`
 - This `Closed` event can then be used to trigger the next phase of the cycle (post-processing the Batch prior to transmission). In many cases, it will make sense to have the next phase be an entirely separated Processor)
 
-Of course, it's always possible to map any such chain of processes to an equivalent set of serial operations on a more closely coupled SQL relational model. The thing you want to avoid is stumbling over time into a rats nest by a sequence of individually reasonable ad-hoc SQL operations that assume serial operations. Such an ad hoc system is unlikely to end up being either scalable or easy to maintain. In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
+Of course, it's always possible to map any such chain of processes to an equivalent set of serial operations on a more closely coupled SQL relational model. The thing you want to avoid is stumbling over time into a rats nest by a sequence of individually reasonable ad-hoc SQL operations that assume serial operations. Such an ad hoc system is unlikely to end up being either scalable or easy to maintain.
+
+In some cases, the lack of predictable performance might be tolerable; however the absence of a model that allows one to reason about the behavior of the system as a whole is likely to result in an unmaintainable or difficult to operate system. Or your nifty leveraging of cascade deletes may not age well as things change and the amount of data in your system grows. But you may choose to start that way; working iteratively while keeping the implementation clean is enabled by using the [Expand and Contract approach](#parallel-change). 
+
+In conclusion: its critical not to treat the design and implementation of reactions processing as a lesser activity where ease of getting 'something' running trumps all.
 
 #### Proactive reaction processing 
 
@@ -359,6 +363,7 @@ At the other end of the redelivery spectrum, we have full replays. For instance,
 
 A related scenario that often presents itself after a system has been running for some time is the desire to add an entirely new (or significantly revised) read model. In such as case, being able to traverse a large number of events efficiently is of value (being able to provision a tweaked read model in hours rather than days has significant leverage).
 
+<a name="parallel-change"></a>
 ## For Read Models, default to 'Expand and Contract'
 
 The safest way to manage extending or tweaking a read model is always to go through the [ParallelChange pattern](https://martinfowler.com/bliki/ParallelChange.html):
