@@ -270,9 +270,9 @@ While only ever blindly copying from your Store's notifications straight onto a 
 Regardless of whether you are working on the basis of handling store notifications, or pending work via a Queue, it's important to note that decoupled the process inevitably introduces a variable latency. Whether your system can continue to function (either with a full user experience, or in a gracefully degraded mode) in the face of a spike of activity or an outage of a minute/hour/day is far more significant than the P99 overhead. If something is time-sensitive, then a queue handler (or store notification processor) may simply not be the right place to do it.
 
 <a name="busy-metrics"></a>
-### Poison messages, busy streams metrics and altering
+### Poison messages, busy streams metrics and alerting
 
-In practice, for the average set of reactions processing, the most consequential difference between using a Queue and working in the context of a Store notifications processor is what happens in the case of a Poison Message. For Queue processing, Poison Message Handling is a pretty central tenet in the design - keep stuff moving, monitor throughput, add instances to absorb backlogs. For Store Notifications processing, the philosophy is more akin to that of an [Andon Cord in the TPS](https://itrevolution.com/articles/kata/) - design and iterate on the process to build it's resilience.
+In practice, for the average set of reactions processing, the most consequential difference between using a Queue and working in the context of a Store notifications processor is what happens in the case of a Poison Message. For Queue processing, Poison Message Handling is a pretty central tenet in the design - keep stuff moving, monitor throughput, add instances to absorb backlogs. For Store Notifications processing, the philosophy is more akin to that of an [Andon Cord in the TPS](https://itrevolution.com/articles/kata/): design and iterate on the process to build it's resilience.
 
 Propulsion allows you to configure a maximum number of batches to permit the processor to read ahead in case of a poison message. Checkpointing will *not* progress beyond the Batch containing the poison event. Processing will continue until the configured maximum batches read ahead count has been reached, _but will then stop_.
 
@@ -293,7 +293,7 @@ Alongside alerting based on breaches of SLO limits, the values of the `busy` met
 
 ### Interpreting Ages, Lags and Gaps
 
-At the point where a Reader first sees an Event from a Source, it will have a certain Age (the duration since it was appended to the store). The Response Time refers to the time between the write and when it's been Handled (the duration the Handler spends on the Span of Events it is handed is termed the Handler Latency).
+At the point when a Reader loads an Event from a Source, it will be a certain Age (duration since it was appended to the store). The Response Time refers to the time between the append and when it's been Handled (the duration the Handler spends on the Span of Events it is handed is termed the Handler Latency).
 
 For a Queue of items that have a relatively uniform processing time being processed individually, the number of unprocessed messages and the Handler latency can be used to infer how long it will take to clear the backlog of unprocessed message etc e.g., [Little's Law](https://en.wikipedia.org/wiki/Little%27s_law).
 
@@ -324,7 +324,7 @@ If your business needs to know the live Sum (by Currency) of orders in their Gra
 Conclusion: technical metrics about Lags and Gaps are important in running a production system that involves Reaction processing. They are useful and necessary. But rarely should being able to surface them be the first priority in implementing your system.
 
 <a name="consistency"></a>
-## Consistency, Reading your Writes
+## Consistency; Reading your Writes
 
 When Processing reactions based on a Store's change feed / notification mechanism, there are many factors to be considered:
 - balancing straight forward logic for the base case of a single event on a single stream with the demands of efficiently catch up when there's a backlog of a significant number of events at hand
@@ -349,7 +349,7 @@ or the _Designing Data Intensive Applications_ book):
    - CosmosDb: when using Session Consistency, require that reads are contingent on the session token being used by the feed reader. This can be achieved by using the same `CosmosClient` to ensure the session tokens are synchronized.
 2. Perform a pre-flight check when reading, based on the `Index` of the newest event passed to the handler. In such a case, it may make sense to back off for a small period, before reporting failure to handle the event (by throwing an exception). The Handler will be re-invoked for another attempt, with a better chance of the event being reflected in the read.
    - Once such a pre-flight check has been carried out, one can safely report `SpanResult.AllProcessed` (or `PartiallyProcessed` if you wish to defer some work due to the backlog of events triggering too much work to perform in a single invocation)
-3. Perform the processing on a 'shoulder tap' basis.
+3. Perform the processing on a 'shoulder tap' basis, with the final position based on what you read.
    - First, load the stream's state, performing any required reactions.
    - Then report the Version attained for the stream (based on the Index of the last event processed) by yielding a `SpanResult.OverrideWritePosition`.
    - In this case, one of following edge cases may result:
@@ -384,6 +384,20 @@ One aspect to call out is that it's easy to underestimate the frequency at which
 In the long run, getting used to dealing with re-traversal scenarios by building handlers to provision fresh adjacent read models is worthwhile. It also a skill that generalises better - a random document store is unlikely to match the full power of a `SELECT INTO`, but ultimately they may be a better overall solution for your read models (`Equinox.CosmosStore` and `Equinox.DynamoStore` also offer powerful `RollingState` modes that can simplify such processing).
 
 In short, it's strongly recommended to at least go through the thought exercise of considering how you'd [revise or extend a read model](#parallel-change) in a way that works when you have a terabyte of data or a billion items in your read model every time you do a 'little tweak' in a SQL read model.  
+
+### `AsyncBatchingGate`
+
+Where a Processor's activity can result in multiple concurrent Handler invocations writing or publishing to the same resource, the contention this triggers can reduce throughput and increase resource consumption. The solution lies in grouping concurrent writes/transmissions to a given target, which removes the contention (no lock escalations, no retry cycles induced by conflicting writes), and reduces the per-item resource usage (be that in terms of latency, or RU consumption for a rate limited store).
+
+While it's possible to have the Handler be triggered on a batched basis (using `Dispatcher.Batched` instead of `Dispatcher.Concurrent`), that's not the recommended approach as it adds complexity when compared to writing your high level logic in terms of what needs to be done at the stream level. Another key benefit is that latency and error rate metrics are gathered at the stream level, which keeps understanding operational issues simpler. [For some more detail, including an example, see #107](https://github.com/jet/propulsion/issues/107). 
+
+The key ingredient in achieving efficiency equivalent to that attainable when working with multi stream batches is to use the [`AsyncBatchingGate`](https://github.com/jet/equinox/blob/master/src/Equinox.Core/AsyncBatchingGate.fs) construct to group concurrent requests, and then fulfil them as a set. It provides [the following behaviors](https://github.com/jet/equinox/blob/master/tests/Equinox.MemoryStore.Integration/AsyncBatchingGateTests.fs):
+- for an individual gate, only a single request is permitted to be in flight at a time
+- while a request is in flight, incoming requests are queued up in a (thread-safe) queue (callers do an Asynchronous wait)
+- when the gate is clear, all waiting requests are dispatched to the gate's handler function (there's an optional linger period which can be used to reduce overall requests where there's a likelihood that other requests will arise within a short time)
+- all callers `await` the same `Task`, sharing the fate of the batch's processing (if there's an exception, each Handler that participated will likely be retried immediately; they may also be joined by other requests that queued while the dailed request was in flight)
+
+NOTE batching should only be used where there is a direct benefit (the batch handler can run every request as part of a single roundtrip). For instance, if the handler needs to do a roundtrip per downstream tenant, it's better to route through a `ConcurrentDictionary<TenantId, AsyncBatchingGate<_>>` than to force them through a single gate.
 
 ## TODO
 
