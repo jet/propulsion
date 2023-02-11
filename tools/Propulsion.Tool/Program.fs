@@ -358,14 +358,10 @@ module Project =
                   ( Log.Logger, monitored, leases, group, observer,
                     startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval)
             | Choice2Of3 sa ->
-                let (indexStore, indexFilter), maybeHydrate = sa.MonitoringParams()
+                let (indexStore, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =
                     let cache = Equinox.Cache (appName, sizeMb = 1)
                     sa.CreateCheckpointStore(group, cache, Log.forMetrics)
-                let loadMode =
-                    match maybeHydrate with
-                    | Some (context, streamsDop) -> Propulsion.DynamoStore.LoadMode.WithDataFilter (nullFilter, streamsDop, context)
-                    | None -> Propulsion.DynamoStore.LoadMode.MinimalFilter nullFilter
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,

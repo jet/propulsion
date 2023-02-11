@@ -115,27 +115,13 @@ module private Impl =
 
 [<NoComparison; NoEquality>]
 type LoadMode =
-    /// Skip loading of Data for events; this is the most efficient mode as it means the <c>Source</c> only needs to read from the index
-    | Minimal of categories : string array
     /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
-    | MinimalFilter of categoryFilter : (string -> bool)
-    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
-    | WithData of categories : string array
-                  * degreeOfParallelism : int
+    | IndexOnly
+    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass categories check and the categoryFilter before they can be handled
+    | Hydrated of degreeOfParallelism : int
                   * /// Defines the Context to use when loading the Event Data/Meta
                     storeContext : DynamoStoreContext
-    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
-    | WithDataFilter of categoryFilter : (string -> bool)
-                          * degreeOfParallelism : int
-                          * /// Defines the Context to use when loading the Event Data/Meta
-                            storeContext : DynamoStoreContext
 module internal LoadMode =
-    let inline arrayContains xs x = Array.contains x xs
-    let private (|WithoutEventBodies|Hydrated|) = function
-        | Minimal categories -> WithoutEventBodies (arrayContains categories)
-        | MinimalFilter f -> WithoutEventBodies f
-        | WithData (categories, degreeOfParallelism, dynamoStoreContext) -> Hydrated(arrayContains categories, degreeOfParallelism, dynamoStoreContext)
-        | WithDataFilter (categoryFilter, degreeOfParallelism, dynamoStoreContext) -> Hydrated(categoryFilter, degreeOfParallelism, dynamoStoreContext)
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
@@ -148,9 +134,15 @@ module internal LoadMode =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
             if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
-    let map storeLog : LoadMode -> _ = function
-        | WithoutEventBodies categoryFilter -> false, withoutBodies categoryFilter, 1
-        | Hydrated (categoryFilter, dop, storeContext) ->
+    let mapFilters categories categoryFilter =
+        match categories, categoryFilter with
+        | None, None ->                   fun _ -> true
+        | Some categories, None ->        fun x -> Array.contains x categories
+        | None, Some filter ->            filter
+        | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
+    let map categoryFilter storeLog : LoadMode -> _ = function
+        | IndexOnly -> false, withoutBodies categoryFilter, 1
+        | Hydrated (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
             true, withBodies eventsContext categoryFilter, dop
 
@@ -160,6 +152,10 @@ type DynamoStoreSource
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
         loadMode : LoadMode,
+        // The whitelist of Categories to use
+        ?categories,
+        // Predicate to filter Categories to use
+        ?categoryFilter : string -> bool,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
@@ -175,7 +171,8 @@ type DynamoStoreSource
             sink,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
+                (LoadMode.map (LoadMode.mapFilters categories categoryFilter) (defaultArg storeLog log) loadMode)
+                batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
