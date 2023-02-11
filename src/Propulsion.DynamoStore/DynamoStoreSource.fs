@@ -115,7 +115,7 @@ module private Impl =
 
 [<NoComparison; NoEquality>]
 type LoadMode =
-    /// Skip loading of Datta for events; this is the most efficient mode as it means the Source only needs to read from the index
+    /// Skip loading of Data for events; this is the most efficient mode as it means the <c>Source</c> only needs to read from the index
     | Minimal of categories : string array
     /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
     | MinimalFilter of categoryFilter : (string -> bool)
