@@ -41,7 +41,7 @@ module Log =
             /// handler duration in s
             latency : float
         | StreamsBusy of
-            /// "Failing" or "stuck"
+            /// "active", "failing" or "stalled"
             kind : string *
             count : int *
             /// age in S

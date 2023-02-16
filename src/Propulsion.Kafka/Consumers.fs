@@ -44,9 +44,9 @@ module private Binding =
         if m = null then invalidOp "Cannot dereference null message"
         KeyValuePair(m.Key, m.Value)
 
-/// Continuously polls across the assigned partitions, building spans; periodically (at intervals of `emitInterval`), `submit`s accumulated messages as
-///   checkpointable Batches
-/// Pauses if in-flight upper threshold is breached until such time as it drops below that the lower limit
+/// Continuously polls across the assigned partitions, building spans;
+/// Periodically (at intervals of `emitInterval`), `submit`s accumulated messages as checkpointable Batches
+/// Pauses if in-flight upper threshold is breached until such time as it drops below the lower limit
 type KafkaIngestionEngine<'Info>
     (   log : ILogger, counter : Core.InFlightMessageCounter, consumer : IConsumer<_, _>, closeConsumer,
         mapMessage : ConsumeResult<_, _> -> 'Info, emit : Submission.Batch<TopicPartition, 'Info>[] -> unit,
