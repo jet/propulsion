@@ -113,12 +113,15 @@ module private Impl =
         report None hydrated.Length
         yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
+/// Defines the strategy to use for hydrating the events prior to routing them to the Handler
 [<NoComparison; NoEquality>]
 type EventLoadMode =
-    /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
+    /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the Index Table
     | IndexOnly
-    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass categories check and the categoryFilter before they can be handled
-    | WithData of degreeOfParallelism : int
+    /// Populates the Data/Meta fields for events matching the categories and/or categoryFilter
+    /// Requires a roundtrip per stream to the Store Table (constrained by streamParallelismLimit)
+    | WithData of /// Maximum concurrency for stream reads from the Store Table
+                  streamParallelismLimit : int
                   * /// Defines the Context to use when loading the Event Data/Meta
                   storeContext : DynamoStoreContext
 module internal EventLoadMode =
