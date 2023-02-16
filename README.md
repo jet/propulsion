@@ -3,10 +3,10 @@
 Propulsion provides a granular suite of .NET NuGet packages for building Reactive event processing pipelines. It caters for:
 
 - **Event Sourcing Reactions**: Handling projections and reactions based on event feeds from stores such as EventStoreDB and MessageDB, and the Equinox Stores (DynamoStore, CosmosStore, MemoryStore).
+- **Unit and Integration testing support**: The `AwaitCompletion` mechanisms in `MemoryStore` and `FeedSource` provide a clean way to structure test suites in a manner that achieves high test coverage without flaky tests or slow tests.
 - **Generic Ingestion and Publishing pipelines**: The same abstractions can also be used for consuming and/or publishing to any target.
 - **Serverless event pipelines**: The core components do not assume a long-lived process.
-  The `DynamoStore`-related components implement support for running an end-to-end event sourced system using only Amazon DynamoDB and Lambda without requiring a long-lived host process.
-- **Unit and Integration testing support**: The `AwaitCompletion` mechanisms in `MemoryStore` and `FeedSource` provide a clean way to structure test suites in a manner that achieves high test coverage without flaky tests or slow tests.
+  - The `DynamoStore`-related components implement support for running an end-to-end event sourced system using only Amazon DynamoDB and Lambda without requiring a long-lived host process.
 - **Strong metrics support**: Feed Sources and Projectors provide comprehensive logging and metrics. (At present, the primary integration is with Prometheus, but the mechanism is exposed in a pluggable manner).
 
 If you're looking for a good discussion forum on these kinds of topics, look no further than the [DDD-CQRS-ES Discord](https://github.com/ddd-cqrs-es/community)'s [#equinox channel](https://discord.com/channels/514783899440775168/1002635005429825657) ([invite link](https://discord.gg/sEZGSHNNbH)).
