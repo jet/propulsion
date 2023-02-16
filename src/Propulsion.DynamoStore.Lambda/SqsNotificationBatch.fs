@@ -9,12 +9,12 @@ open System.Collections.Generic
 type SqsNotificationBatch(event : SQSEvent) =
     let inputs = [|
         for r in event.Records ->
-            let trancheId = r.MessageAttributes["Tranche"].StringValue |> Propulsion.Feed.TrancheId.parse
+            let trancheId = r.MessageAttributes["Partition"].StringValue |> Propulsion.Feed.TrancheId.parse
             let position = r.MessageAttributes["Position"].StringValue |> int64 |> Propulsion.Feed.Position.parse
             struct (trancheId, position, r.MessageId) |]
 
     member val Count = inputs.Length
-    /// Yields the set of Index Tranches on which we are anticipating there to be work available
+    /// Yields the set of Index Partitions on which we are anticipating there to be work available
     member val Tranches = seq { for trancheId, _, _ in inputs -> trancheId } |> Seq.distinct |> Seq.toArray
     /// Correlates the achieved Tranche Positions with those that triggered the work; requeue any not yet acknowledged as processed
     member _.FailuresForPositionsNotReached(updated : IReadOnlyDictionary<_, _>) =

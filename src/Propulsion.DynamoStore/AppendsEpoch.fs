@@ -13,10 +13,10 @@ open System.Collections.Immutable
 let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
 let [<Literal>] Category = "$AppendsEpoch"
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
-let streamId = Equinox.StreamId.gen2 AppendsTrancheId.toString AppendsEpochId.toString
+let streamId = Equinox.StreamId.gen2 AppendsPartitionId.toString AppendsEpochId.toString
 #endif
 let [<return: Struct>] (|StreamName|_|) = function
-    | FsCodec.StreamName.CategoryAndIds (Category, [| tid; eid |]) -> ValueSome struct (Propulsion.Feed.TrancheId.parse tid, AppendsEpochId.parse eid)
+    | FsCodec.StreamName.CategoryAndIds (Category, [| pid; eid |]) -> ValueSome struct (AppendsPartitionId.parse pid, AppendsEpochId.parse eid)
     | _ -> ValueNone
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -113,10 +113,10 @@ module Ingest =
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, []
 
-type Service internal (shouldClose, resolve : struct (AppendsTrancheId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (shouldClose, resolve : struct (AppendsPartitionId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    member _.Ingest(trancheId, epochId, spans : Events.StreamSpan array, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
-        let decider = resolve (trancheId, epochId)
+    member _.Ingest(partitionId, epochId, spans : Events.StreamSpan array, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
+        let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
         let isSelf p = match IndexStreamId.toStreamName p with FsCodec.StreamName.Category c -> c = Category
@@ -154,14 +154,14 @@ module Reader =
             | i, Events.Ingested e -> changes.Add(int i, Array.append e.add e.app)
         { changes = changes.ToArray(); closed = closed }
 
-    type Service internal (resolve : AppendsTrancheId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
+    type Service internal (resolve : AppendsPartitionId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
 
-        member _.Read(trancheId, epochId, (*inclusive*)minIndex) : Async<int64 voption * int64 * State> =
-            let decider = resolve (trancheId, epochId, minIndex)
+        member _.Read(partitionId, epochId, (*inclusive*)minIndex) : Async<int64 voption * int64 * State> =
+            let decider = resolve (partitionId, epochId, minIndex)
             decider.QueryEx(fun c -> c.StreamEventBytes, c.Version, c.State)
 
-        member _.ReadVersion(trancheId, epochId) : Async<int64> =
-            let decider = resolve (trancheId, epochId, System.Int64.MaxValue)
+        member _.ReadVersion(partitionId, epochId) : Async<int64> =
+            let decider = resolve (partitionId, epochId, System.Int64.MaxValue)
             decider.QueryEx(fun c -> c.Version)
 
     module Config =
@@ -169,5 +169,5 @@ module Reader =
         let private createCategory context minIndex = Config.createWithOriginIndex codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.resolve log (createCategory context minIndex)
-            Service(fun (tid, eid, minIndex) -> streamId (tid, eid) |> resolve minIndex Category)
+            Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex Category)
 #endif

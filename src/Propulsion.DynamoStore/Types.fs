@@ -2,7 +2,7 @@ namespace Propulsion.DynamoStore
 
 open FSharp.UMX
 
-/// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given tranche
+/// Identifies a batch of coalesced deduplicated sets of commits indexed from DynamoDB Streams for a given partition
 type internal AppendsEpochId = int<appendsEpochId>
 and [<Measure>] appendsEpochId
 module internal AppendsEpochId =
@@ -14,17 +14,16 @@ module internal AppendsEpochId =
     let parse : string -> AppendsEpochId = int >> UMX.tag
 
 /// Identifies a chain of epochs within an index that's to be ingested and/or read in sequence
-/// Multiple tranches within an index are analogous to how the Table's data is split into shards
-type internal AppendsTrancheId = int<appendsTrancheId>
-and [<Measure>] appendsTrancheId
-module AppendsTrancheId =
+type internal AppendsPartitionId = int<appendsPartitionId>
+and [<Measure>] appendsPartitionId
+module AppendsPartitionId =
 
-    // Tranches are not yet fully implemented
-    let wellKnownId : AppendsTrancheId = UMX.tag 0
-    let internal toString : AppendsTrancheId -> string = UMX.untag >> string
-    let internal toTrancheId : AppendsTrancheId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
-    let parse : int -> AppendsTrancheId = int >> UMX.tag
-    let internal (|Parse|) : Propulsion.Feed.TrancheId -> AppendsTrancheId = UMX.untag >> int >> UMX.tag
+    // Partitioning is not yet implemented
+    let wellKnownId : AppendsPartitionId = UMX.tag 0
+    let internal toString : AppendsPartitionId -> string = UMX.untag >> string
+    let internal toTrancheId : AppendsPartitionId -> Propulsion.Feed.TrancheId = toString >> UMX.tag
+    let parse : string -> AppendsPartitionId = int >> UMX.tag
+    let internal (|Parse|) : Propulsion.Feed.TrancheId -> AppendsPartitionId = UMX.untag >> int >> UMX.tag
 
 type [<Measure>] checkpoint
 type Checkpoint = int64<checkpoint>

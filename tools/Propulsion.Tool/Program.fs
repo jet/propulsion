@@ -57,7 +57,7 @@ and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
         | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 
 and [<NoEquality; NoComparison>] IndexParameters =
-    | [<AltCommandLine "-t"; Unique>]       TrancheId of int
+    | [<AltCommandLine "-p"; Unique>]       IndexPartitionId of int
     | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
     | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
     | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
@@ -66,7 +66,7 @@ and [<NoEquality; NoComparison>] IndexParameters =
     | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | TrancheId _ ->                "TrancheId to verify/import into. (Optional; omitting displays tranches and epochs list)"
+            | IndexPartitionId _ ->         "PartitionId to verify/import into. (optional, omitting displays partitions->epochs list)"
             | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
             | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
             | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
@@ -206,7 +206,7 @@ module Indexer =
     type Arguments(c, p : ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
-        member val TrancheId =              p.TryGetResult IndexParameters.TrancheId |> Option.map AppendsTrancheId.parse
+        member val TrancheId =              p.TryGetResult IndexParameters.IndexPartitionId |> Option.map (string >> AppendsPartitionId.parse)
         // Larger optimizes for not needing to use TransactWriteItems as frequently
         // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
@@ -248,17 +248,17 @@ module Indexer =
         | None ->
             let index = AppendsIndex.Reader.create Log.forMetrics context
             let! state = index.Read()
-            Log.Information("Current Tranches / Active Epochs {summary}",
+            Log.Information("Current Partitions / Active Epochs {summary}",
                             seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
 
             let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
             let dumpCmd cat sn opts = $"eqx -C dump '{cat}-{sn}' {opts}{storeSpecFragment}"
-            Log.Information("Inspect Index Tranches list events 👉 {cmd}",
+            Log.Information("Inspect Index Partitions list events 👉 {cmd}",
                             dumpCmd AppendsIndex.Category (AppendsIndex.streamId ()) "")
 
-            let tid, eid = AppendsTrancheId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
-            Log.Information("Inspect Batches in Epoch {epoch} of Index Tranche {tranche} 👉 {cmd}",
-                            eid, tid, dumpCmd AppendsEpoch.Category (AppendsEpoch.streamId (tid, eid)) "-B ")
+            let pid, eid = AppendsPartitionId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
+            Log.Information("Inspect Batches in Epoch {epoch} of Index Partition {partition} 👉 {cmd}",
+                            eid, pid, dumpCmd AppendsEpoch.Category (AppendsEpoch.streamId (pid, eid)) "-B ")
         | Some trancheId ->
             let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) trancheId a.GapsLimit
             let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)

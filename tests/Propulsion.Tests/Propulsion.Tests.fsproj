@@ -12,6 +12,7 @@
     <Compile Include="ParallelThrottledValidation.fs" />
     <Compile Include="TestOutputLogger.fs" />
     <Compile Include="SourceTests.fs" />
+    <Compile Include="AppendsIndexTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
