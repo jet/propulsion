@@ -5,7 +5,7 @@ open System
 open System.Threading.Tasks
 
 #if COSMOSV3
-let streamName struct (source, tranche, consumerGroupName : string) =
+let streamName (source, tranche, consumerGroupName : string) =
     if consumerGroupName = null then
         let Category = "ReaderCheckpoint"
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
@@ -120,7 +120,7 @@ let decideUpdate at pos = function
 
 type Decider<'e, 's> = Equinox.Decider<'e, 's>
 
-type Service internal (resolve : struct (SourceId * TrancheId * string) -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
+type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
     interface IFeedCheckpointStore with
 

@@ -113,7 +113,7 @@ module Ingest =
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, []
 
-type Service internal (shouldClose, resolve : struct (AppendsPartitionId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
 
     member _.Ingest(partitionId, epochId, spans : Events.StreamSpan array, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (partitionId, epochId)
