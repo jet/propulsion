@@ -113,18 +113,20 @@ module private Impl =
         report None hydrated.Length
         yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
+/// Defines the strategy to use for hydrating the events prior to routing them to the Handler
 [<NoComparison; NoEquality>]
-type LoadMode =
-    /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
-    | WithoutEventBodies of categoryFilter : (string -> bool)
-    /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass the categoryFilter before they can be handled
-    | Hydrated of categoryFilter : (string -> bool)
-                  * degreeOfParallelism : int
+type EventLoadMode =
+    /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the Index Table
+    | IndexOnly
+    /// Populates the Data/Meta fields for events matching the categories and/or categoryFilter
+    /// Requires a roundtrip per stream to the Store Table (constrained by streamParallelismLimit)
+    | WithData of /// Maximum concurrency for stream reads from the Store Table
+                  streamParallelismLimit : int
                   * /// Defines the Context to use when loading the Event Data/Meta
-                    storeContext : DynamoStoreContext
-module internal LoadMode =
+                  storeContext : DynamoStoreContext
+module internal EventLoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
-    let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
+    let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
                 ValueSome (fun ct -> task {
@@ -135,18 +137,28 @@ module internal LoadMode =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
             if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
-    let map storeLog : LoadMode -> _ = function
-        | WithoutEventBodies categoryFilter -> false, withoutBodies categoryFilter, 1
-        | Hydrated (categoryFilter, dop, storeContext) ->
+    let mapFilters categories categoryFilter =
+        match categories, categoryFilter with
+        | None, None ->                   fun _ -> true
+        | Some categories, None ->        fun x -> Array.contains x categories
+        | None, Some filter ->            filter
+        | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
+    let map categoryFilter storeLog : EventLoadMode -> _ = function
+        | IndexOnly -> false, withoutBodies categoryFilter, 1
+        | WithData (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
-            true, withBodies eventsContext categoryFilter, dop
+            true, withData eventsContext categoryFilter, dop
 
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
-        loadMode : LoadMode,
+        // If the Handler does not utilize the Data/Meta of the events, we can avoid having to read from the Store Table
+        mode : EventLoadMode,
+        // The whitelist of Categories to use
+        ?categories,
+        // Predicate to filter Categories to use
+        ?categoryFilter : string -> bool,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
@@ -162,7 +174,8 @@ type DynamoStoreSource
             sink,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (LoadMode.map (defaultArg storeLog log) loadMode) batchSizeCutoff (DynamoStoreContext indexClient),
+                (EventLoadMode.map (EventLoadMode.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
+                batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
@@ -205,4 +218,3 @@ type DynamoStoreSource
             // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
             return! x.Checkpoint()
         finally statsInterval.SleepUntilTriggerCleared() }
-

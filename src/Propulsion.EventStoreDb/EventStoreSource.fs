@@ -13,9 +13,9 @@ module private Impl =
     let private checkpointPos (xs : EventRecord array) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
-    let readBatch hydrateBodies batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {
+    let readBatch withData batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
-        let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, hydrateBodies, cancellationToken = ct)
+        let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, withData, cancellationToken = ct)
         let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
         return ({ checkpoint = checkpointPos batch; items = toItems categoryFilter batch; isTail = batch.LongLength <> batchSize } : Propulsion.Feed.Core.Batch<_>) }
 
@@ -36,11 +36,11 @@ type EventStoreSource
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         categoryFilter : string -> bool,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
-        ?hydrateBodies,
+        ?withData,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (hydrateBodies = Some true) batchSize categoryFilter client, checkpoints, sink,
+            Impl.readBatch (withData = Some true) batchSize categoryFilter client, checkpoints, sink,
             ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log client))
