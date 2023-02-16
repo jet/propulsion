@@ -114,14 +114,14 @@ module private Impl =
         yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
 [<NoComparison; NoEquality>]
-type LoadMode =
+type EventHydration =
     /// Skip loading of Data/Meta for events; this is the most efficient mode as it means the Source only needs to read from the index
-    | IndexOnly
+    | IndexedFieldsOnly
     /// Populates the Data/Meta fields for events; necessitates loads of all individual streams that pass categories check and the categoryFilter before they can be handled
-    | Hydrated of degreeOfParallelism : int
-                  * /// Defines the Context to use when loading the Event Data/Meta
-                    storeContext : DynamoStoreContext
-module internal LoadMode =
+    | HydrateBodies of degreeOfParallelism : int
+                       * /// Defines the Context to use when loading the Event Data/Meta
+                       storeContext : DynamoStoreContext
+module internal EventHydration =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withBodies (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string array) ->
@@ -140,9 +140,9 @@ module internal LoadMode =
         | Some categories, None ->        fun x -> Array.contains x categories
         | None, Some filter ->            filter
         | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
-    let map categoryFilter storeLog : LoadMode -> _ = function
-        | IndexOnly -> false, withoutBodies categoryFilter, 1
-        | Hydrated (dop, storeContext) ->
+    let map categoryFilter storeLog : EventHydration -> _ = function
+        | IndexedFieldsOnly -> false, withoutBodies categoryFilter, 1
+        | HydrateBodies (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
             true, withBodies eventsContext categoryFilter, dop
 
@@ -151,7 +151,7 @@ type DynamoStoreSource
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid loading them from the Store
-        loadMode : LoadMode,
+        mode : EventHydration,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
@@ -171,7 +171,7 @@ type DynamoStoreSource
             sink,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (LoadMode.map (LoadMode.mapFilters categories categoryFilter) (defaultArg storeLog log) loadMode)
+                (EventHydration.map (EventHydration.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
                 batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),

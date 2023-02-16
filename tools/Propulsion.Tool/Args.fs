@@ -247,12 +247,12 @@ module Dynamo =
                 match streamsDop with
                 | None ->
                     Log.Information("DynamoStoreSource NOT Hydrating events")
-                    Propulsion.DynamoStore.LoadMode.IndexOnly
+                    Propulsion.DynamoStore.EventHydration.IndexedFieldsOnly
                 | Some streamsDop ->
                     Log.Information("DynamoStoreSource Hydrater parallelism {streamsDop}", streamsDop)
                     let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
                     let context = readClient.ConnectStore("Store", table) |> DynamoStoreContext.create
-                    Propulsion.DynamoStore.LoadMode.Hydrated (streamsDop, context)
+                    Propulsion.DynamoStore.EventHydration.HydrateBodies (streamsDop, context)
             indexProps, loadMode
         member _.CreateContext(minItemSizeK) =
             let client = indexWriteClient.Value
