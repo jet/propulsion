@@ -42,6 +42,10 @@ module EquinoxSystemTextJsonParser =
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumStreamEvents categoryFilter d : Default.StreamEvent seq =
         tryParseEquinoxBatch categoryFilter d |> ValueOption.map enumEquinoxCosmosEvents |> ValueOption.defaultValue Seq.empty
+
+    /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
+    let enumCategoryEvents categories d : Default.StreamEvent seq =
+        enumStreamEvents (fun c -> Array.contains c categories) d
 #else
 module EquinoxNewtonsoftParser =
 

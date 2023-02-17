@@ -324,6 +324,15 @@ type SinglePassFeedSource
     member x.Start(readTranches) =
         base.Start(fun ct -> x.Pump(readTranches, ct))
 
+module Categories =
+
+    let mapFilters categories categoryFilter =
+        match categories, categoryFilter with
+        | None, None ->                   fun _ -> true
+        | Some categories, None ->        fun x -> Array.contains x categories
+        | None, Some filter ->            filter
+        | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
+
 namespace Propulsion.Feed
 
 open FSharp.Control

@@ -29,12 +29,15 @@ type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        categoryFilter : string -> bool,
+        // The whitelist of Categories to use
+        ?categories,
+        // Predicate to filter Categories to use
+        ?categoryFilter : string -> bool,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?withData,
         ?startFromTail,
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (withData = Some true) batchSize categoryFilter store, checkpoints, sink,
+            Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) store, checkpoints, sink,
             ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche store))

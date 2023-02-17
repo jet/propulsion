@@ -34,7 +34,10 @@ type EventStoreSource
     (   log : Serilog.ILogger, statsInterval,
         client : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
-        categoryFilter : string -> bool,
+        // The whitelist of Categories to use
+        ?categories,
+        // Predicate to filter Categories to use
+        ?categoryFilter : string -> bool,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?withData,
         // Override default start position to be at the tail of the index. Default: Replay all events.
@@ -42,5 +45,5 @@ type EventStoreSource
         ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (withData = Some true) batchSize categoryFilter client, checkpoints, sink,
+            Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) client, checkpoints, sink,
             ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log client))
