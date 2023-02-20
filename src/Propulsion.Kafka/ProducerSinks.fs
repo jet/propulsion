@@ -53,6 +53,29 @@ type StreamsProducerSink =
                      stats, statsInterval, Default.jsonSize, Default.eventSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
+   static member Start
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+            prepare : StreamName -> Default.StreamSpan -> Async<struct (struct (string * string) voption * 'Outcome)>,
+            producer : Producer,
+            stats : Sync.Stats<'Outcome>, statsInterval,
+            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
+            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            ?purgeInterval,
+            // Default 1 ms
+            ?idleDelay,
+            // Default 1 MiB
+            ?maxBytes,
+            // Default 16384
+            ?maxEvents)
+        : Default.Sink =
+        StreamsProducerSink.Start(
+            log, maxReadAhead, maxConcurrentStreams,
+            (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
+            producer, stats, statsInterval,
+            ?purgeInterval = purgeInterval,
+            ?idleDelay = idleDelay,
+            ?maxBytes = maxBytes,
+            ?maxEvents = maxEvents)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -78,3 +101,26 @@ type StreamsProducerSink =
                      stats, statsInterval,
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
                      ?maxEvents = maxEvents)
+   static member Start
+        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+            prepare : StreamName -> Default.StreamSpan -> Async<struct (string * string)>,
+            producer : Producer,
+            stats : Sync.Stats<unit>, statsInterval,
+            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
+            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
+            ?purgeInterval,
+            // Default 1 ms
+            ?idleDelay,
+            // Default 1 MiB
+            ?maxBytes,
+            // Default 16384
+            ?maxEvents)
+        : Default.Sink =
+        StreamsProducerSink.Start(
+            log, maxReadAhead, maxConcurrentStreams,
+            (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
+            producer, stats, statsInterval,
+            ?purgeInterval = purgeInterval,
+            ?idleDelay = idleDelay,
+            ?maxBytes = maxBytes,
+            ?maxEvents = maxEvents)
