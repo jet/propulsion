@@ -1206,24 +1206,14 @@ module Default =
                 ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
                 ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
                 ?requireCompleteStreams = requireCompleteStreams)
-
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
                 handle : FsCodec.StreamName -> StreamSpan -> Async<struct (SpanResult * 'Outcome)>,
                 stats, statsInterval,
-                // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-                [<O; D null>] ?pendingBufferSize,
-                [<O; D null>] ?purgeInterval,
-                [<O; D null>] ?wakeForResults,
-                [<O; D null>] ?idleDelay,
-                [<O; D null>] ?ingesterStatsInterval,
-                [<O; D null>] ?requireCompleteStreams) =
+                [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
+                [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
             Config.Start(log, maxReadAhead, maxConcurrentStreams,
                 (fun stream span ct -> Async.startImmediateAsTask ct (handle stream span)),
                 stats, statsInterval,
-                ?pendingBufferSize = pendingBufferSize,
-                ?purgeInterval = purgeInterval,
-                ?wakeForResults = wakeForResults,
-                ?idleDelay = idleDelay,
-                ?ingesterStatsInterval = ingesterStatsInterval,
-                ?requireCompleteStreams = requireCompleteStreams)
+                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)

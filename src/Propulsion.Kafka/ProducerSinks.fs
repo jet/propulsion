@@ -10,11 +10,12 @@ open System.Threading
 open System.Threading.Tasks
 
 type ParallelProducerSink =
-    static member Start(maxReadAhead, maxDop, render, producer : Producer, ?statsInterval)
+
+    static member Start(maxReadAhead, maxDop, render : Func<'F, struct(string * string)>, producer : Producer, ?statsInterval)
         : Sink<Ingestion.Ingester<'F seq>> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item ct = task {
-            let key, value = render item
+            let struct (key, value) = render.Invoke item
             do! producer.Produce(key, value, ?headers = None, ct = ct) }
         Parallel.ParallelSink.Start(Log.Logger, maxReadAhead, maxDop, (fun x ct -> handle x ct |> Task.Catch),
                                     statsInterval = statsInterval, logExternalStats = producer.DumpStats)
@@ -54,28 +55,16 @@ type StreamsProducerSink =
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
    static member Start
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+        (   log, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName -> Default.StreamSpan -> Async<struct (struct (string * string) voption * 'Outcome)>,
-            producer : Producer,
-            stats : Sync.Stats<'Outcome>, statsInterval,
-            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval,
-            // Default 1 ms
-            ?idleDelay,
-            // Default 1 MiB
-            ?maxBytes,
-            // Default 16384
-            ?maxEvents)
+            producer, stats, statsInterval,
+            ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Default.Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
             producer, stats, statsInterval,
-            ?purgeInterval = purgeInterval,
-            ?idleDelay = idleDelay,
-            ?maxBytes = maxBytes,
-            ?maxEvents = maxEvents)
+            ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
@@ -102,25 +91,13 @@ type StreamsProducerSink =
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
                      ?maxEvents = maxEvents)
    static member Start
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
+        (   log, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName -> Default.StreamSpan -> Async<struct (string * string)>,
-            producer : Producer,
-            stats : Sync.Stats<unit>, statsInterval,
-            // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
-            // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
-            ?purgeInterval,
-            // Default 1 ms
-            ?idleDelay,
-            // Default 1 MiB
-            ?maxBytes,
-            // Default 16384
-            ?maxEvents)
+            producer, stats, statsInterval,
+            ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Default.Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
             producer, stats, statsInterval,
-            ?purgeInterval = purgeInterval,
-            ?idleDelay = idleDelay,
-            ?maxBytes = maxBytes,
-            ?maxEvents = maxEvents)
+            ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
