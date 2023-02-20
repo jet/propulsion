@@ -126,3 +126,5 @@ module TimelineEvent =
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, categoryFilter, sink) =
     inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>)>(log, store, categoryFilter, TimelineEvent.mapEncoded, sink)
+    new (log, store, categories, sink) =
+        MemoryStoreSource(log, store, (fun x -> Array.contains x categories), sink)

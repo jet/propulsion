@@ -137,12 +137,6 @@ module internal EventLoadMode =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
             if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
-    let mapFilters categories categoryFilter =
-        match categories, categoryFilter with
-        | None, None ->                   fun _ -> true
-        | Some categories, None ->        fun x -> Array.contains x categories
-        | None, Some filter ->            filter
-        | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
     let map categoryFilter storeLog : EventLoadMode -> _ = function
         | IndexOnly -> false, withoutBodies categoryFilter, 1
         | WithData (dop, storeContext) ->
@@ -174,7 +168,7 @@ type DynamoStoreSource
             sink,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (EventLoadMode.map (EventLoadMode.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
+                (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
                 batchSizeCutoff (DynamoStoreContext indexClient),
             Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
