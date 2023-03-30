@@ -71,7 +71,7 @@ module Internal =
 
     let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
-        store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
+        store.ReadCategoryMessages(category, positionInclusive + 1L, batchSize, ct)
 
     let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId ct : Task<Position> = task {
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct)
