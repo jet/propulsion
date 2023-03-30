@@ -43,6 +43,10 @@ let writeMessagesToCategory category = task {
         let streamName = $"{category}-{Guid.NewGuid():N}"
         do! writeMessagesToStream conn streamName }
 
+let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
+                  with member _.HandleOk x = ()
+                       member _.HandleExn(log, x) = () }
+
 [<Fact>]
 let ``It processes events for a category`` () = task {
     let log = Serilog.Log.Logger
@@ -54,9 +58,7 @@ let ``It processes events for a category`` () = task {
     let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
-    let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
-                      with member _.HandleOk x = ()
-                           member _.HandleExn(log, x) = () }
+    let stats = stats log
     let mutable stop = ignore
     let handled = HashSet<_>()
     let handle stream (events: Propulsion.Streams.Default.StreamSpan) _ct = task {
@@ -89,11 +91,14 @@ let ``It processes events for a category`` () = task {
 
 type LogSink() =
     let mutable items = 0
+    let mutable calledTimes = 0
     member _.Events = items
+    member _.CallCount = calledTimes
     interface ILogEventSink with
         member _.Emit(logEvent) =
             match logEvent with
             | Propulsion.Feed.Core.Log.MetricEvent (Propulsion.Feed.Core.Log.Metric.Read r) ->
+                calledTimes <- calledTimes + 1
                 items <- items + r.items
             | _ -> ()
 
@@ -107,23 +112,27 @@ let ``It doesn't read the tail event again`` () = task {
     use conn = new NpgsqlConnection(connString)
     do! conn.OpenAsync()
     do! writeMessagesToStream conn $"{category}-1"
+    do! conn.CloseAsync()
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
-    let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
-                      with member _.HandleOk x = ()
-                           member _.HandleExn(log, x) = () }
+    let stats = stats log
+
     let handle _ _ _ = task {
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
-        log, TimeSpan.FromMilliseconds 100,
-        connString, 1000, TimeSpan.FromMilliseconds 100,
+        log, TimeSpan.FromMilliseconds 10,
+        connString, 1000, TimeSpan.FromMilliseconds 10,
         checkpoints, sink, [| category |])
     use src = source.Start()
 
-    Task.Delay(TimeSpan.FromSeconds 1).ContinueWith(fun _ -> src.Stop()) |> ignore
+    let awaiter = src.Await() |> Async.StartAsTask
 
-    do! src.Await()
+    // Fetch 3 page
+    while logSink.CallCount < 3 do ()
+    src.Stop()
+
+    do! awaiter
 
     test <@ logSink.Events = 20 @> }
 
