@@ -79,7 +79,7 @@ module Internal =
 
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
-        client: Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
+        client : Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         tranches, ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.TailingFeedSource
@@ -101,7 +101,7 @@ type MessageDbSource internal
         MessageDbSource(log, statsInterval, Internal.MessageDbCategoryClient(connectionString),
                         batchSize, tailSleepInterval, checkpoints, sink,
                         categories |> Array.map Propulsion.Feed.TrancheId.parse,
-                        ?startFromTail=startFromTail, ?sourceId=sourceId)
+                        ?startFromTail = startFromTail, ?sourceId = sourceId)
 
     abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
     default _.ListTranches(_ct) = task { return tranches }
