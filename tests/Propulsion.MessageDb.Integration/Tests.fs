@@ -49,7 +49,7 @@ let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, T
                   with member _.HandleOk x = ()
                        member _.HandleExn(log, x) = () }
 
-let makeCheckpoints () = task {
+let makeCheckpoints consumerGroup = task {
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     return checkpoints
@@ -63,7 +63,7 @@ let ``It processes events for a category`` () = task {
     do! writeMessagesToCategory category1
     do! writeMessagesToCategory category2
     let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
-    let! checkpoints = makeCheckpoints ()
+    let! checkpoints = makeCheckpoints consumerGroup
     let stats = stats log
     let mutable stop = ignore
     let handled = HashSet<_>()
@@ -122,7 +122,7 @@ let ``It doesn't read the tail event again`` () = task {
     do! conn.OpenAsync()
     do! writeMessagesToStream conn $"{category}-1"
     do! conn.CloseAsync()
-    let! checkpoints = makeCheckpoints ()
+    let! checkpoints = makeCheckpoints consumerGroup
 
     let stats = stats log
 
@@ -131,13 +131,12 @@ let ``It doesn't read the tail event again`` () = task {
     use sink = Propulsion.Streams.Default.Config.Start(log, 10, 1, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
         log, TimeSpan.FromMilliseconds 10,
-        connString, 1000, TimeSpan.FromMilliseconds 10,
+        connString, 10, TimeSpan.FromMilliseconds 10,
         checkpoints, sink, [| category |])
+
     use src = source.Start()
 
-    // Fetch 3 page
     while logSink.CallCount < 3 do ()
-    src.Stop()
 
     test <@ logSink.Events = 20 @>
     test <@ logSink.Pages = 2 @> }
