@@ -119,20 +119,16 @@ let ``It doesn't read the tail event again`` () = task {
 
     let handle _ _ _ = task {
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Streams.Default.Config.Start(log, 10, 1, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
         log, TimeSpan.FromMilliseconds 10,
         connString, 1000, TimeSpan.FromMilliseconds 10,
         checkpoints, sink, [| category |])
     use src = source.Start()
 
-    let awaiter = src.Await() |> Async.StartAsTask
-
     // Fetch 3 page
     while logSink.CallCount < 3 do ()
     src.Stop()
-
-    do! awaiter
 
     test <@ logSink.Events = 20 @> }
 
