@@ -61,21 +61,22 @@ module Internal =
             let checkpoint = match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> fromPositionInclusive
             return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Core.Batch<_>) }
 
-        member _.ReadCategoryLastVersion(category: TrancheId, ct) : Task<int64> = task {
+        member _.TryReadCategoryLastVersion(category: TrancheId, ct) : Task<int64 voption> = task {
             use! conn = connect ct
             let command = conn.CreateCommand(CommandText = "select max(global_position) from messages where category(stream_name) = @Category;")
             command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
 
             use! reader = command.ExecuteReaderAsync(ct)
-            return if reader.Read() then reader.GetInt64(0) else 0L }
+            return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
     let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
     let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId ct : Task<Position> = task {
-        let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct)
-        return Position.parse lastEventPos }
+        match! store.TryReadCategoryLastVersion(trancheId, ct) with
+        | ValueSome lastEventPos -> return Position.parse (lastEventPos + 1L)
+        | ValueNone -> return Position.initial }
 
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
