@@ -38,7 +38,7 @@ module Internal =
                 index = reader.GetInt64(0), // index within the stream, 0 based
                 eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),
                 ?correlationId = readNullableString 5, ?causationId = readNullableString 6,
-                context = reader.GetInt64(9), // global_position is passed through the Context for checkpointing purposes
+                context = reader.GetInt64(9) + 1L, // global_position is passed through the Context for checkpointing purposes
                 timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)),
                 size = sz) // precomputed Size is required for stats purposes when fed to a StreamsSink
             let sn = reader.GetString(8) |> FsCodec.StreamName.parse
@@ -71,7 +71,7 @@ module Internal =
 
     let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
-        store.ReadCategoryMessages(category, positionInclusive + 1L, batchSize, ct)
+        store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
     let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId ct : Task<Position> = task {
         let! lastEventPos = store.ReadCategoryLastVersion(trancheId, ct)
