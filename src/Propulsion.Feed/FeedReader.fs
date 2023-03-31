@@ -10,7 +10,13 @@ open System.Threading
 open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
-type Batch<'F> = { items : Propulsion.Streams.StreamEvent<'F>[]; checkpoint : Position; isTail : bool }
+type Batch<'F> =
+    {   items : Propulsion.Streams.StreamEvent<'F>[]
+        /// Next computed read position (inclusive). Checkpoint stores treat absence of a value as `Position.initial` (= `0`)
+        checkpoint : Position
+        /// Indicates whether the end of a feed has been reached (a batch being empty does not necessarily imply that)
+        /// Implies tail sleep delay. May trigger completion of `Monitor.AwaitCompletion`
+        isTail : bool }
 
 module internal TimelineEvent =
 
