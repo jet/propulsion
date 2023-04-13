@@ -165,7 +165,7 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle _ (span : Propulsion.Streams.Default.StreamSpan) ct = task {
+            let handle _ (span : Propulsion.Streams.Default.Event[]) ct = task {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }

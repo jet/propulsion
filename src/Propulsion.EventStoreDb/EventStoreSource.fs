@@ -5,12 +5,12 @@ module private Impl =
     open EventStore.Client
     open FSharp.Control
 
-    let private toItems categoryFilter (events : EventRecord array) : Propulsion.Streams.Default.StreamEvent array = [|
+    let private toItems categoryFilter (events : EventRecord[]) : Propulsion.Streams.Default.StreamEvent[] = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
             if categoryFilter (FsCodec.StreamName.category sn) then
                 yield sn, Equinox.EventStoreDb.ClientCodec.timelineEvent e |]
-    let private checkpointPos (xs : EventRecord array) =
+    let private checkpointPos (xs : EventRecord[]) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
     let readBatch withData batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {

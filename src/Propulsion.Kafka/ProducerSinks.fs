@@ -24,7 +24,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
+            prepare : Func<StreamName, Default.Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
             stats : Sync.Stats<'Outcome>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
@@ -56,7 +56,7 @@ type StreamsProducerSink =
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName -> Default.StreamSpan -> Async<struct (struct (string * string) voption * 'Outcome)>,
+            prepare : StreamName -> Default.Event[] -> Async<struct (struct (string * string) voption * 'Outcome)>,
             producer, stats, statsInterval,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Default.Sink =
@@ -68,7 +68,7 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (string * string)>>,
+            prepare : Func<StreamName, Default.Event[], CancellationToken, Task<struct (string * string)>>,
             producer : Producer,
             stats : Sync.Stats<unit>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
@@ -92,7 +92,7 @@ type StreamsProducerSink =
                      ?maxEvents = maxEvents)
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName -> Default.StreamSpan -> Async<struct (string * string)>,
+            prepare : StreamName -> Default.Event[] -> Async<struct (string * string)>,
             producer, stats, statsInterval,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Default.Sink =

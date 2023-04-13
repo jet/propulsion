@@ -200,13 +200,13 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
+                handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
-            let prepare struct (streamName, span) =
+            let prepare _streamName span =
                 let metrics = StreamSpan.metrics Default.eventSize span
-                struct (metrics, struct (streamName, span))
+                struct (metrics, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
                 stats, statsInterval,
@@ -223,7 +223,7 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
-                prepare, handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
+                prepare, handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
                 maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
@@ -239,7 +239,7 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> Default.StreamEvent seq,
-                handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
+                handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
@@ -356,7 +356,7 @@ type StreamsConsumer =
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Func<StreamName, Default.StreamSpan, CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
+            handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
             // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
             // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
@@ -407,7 +407,7 @@ type BatchesConsumer =
                     [| for x in Seq.zip items results ->
                         match x with
                         | item, Choice1Of2 index' ->
-                            let used : StreamSpan<_> = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
+                            let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
                             let metrics = StreamSpan.metrics Default.eventSize used
                             struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
                         | item, Choice2Of2 exn ->

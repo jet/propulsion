@@ -94,7 +94,7 @@ module Scheduling =
         let dumpStats () =
             let startedB, completedB = Array.ofSeq startedBatches.StatsDescending, Array.ofSeq completedBatches.StatsDescending
             let startedI, completedI = Array.ofSeq startedItems.StatsDescending, Array.ofSeq completedItems.StatsDescending
-            let statsTotal (xs : struct (_ * int64) array) = xs |> Array.sumBy ValueTuple.snd
+            let statsTotal (xs : struct (_ * int64)[]) = xs |> Array.sumBy ValueTuple.snd
             let totalItemsCompleted = statsTotal completedI
             let latencyMs = match totalItemsCompleted with 0L -> null | cnt -> box (processingDuration.TotalMilliseconds / float cnt)
             log.Information("Scheduler {cycles} cycles Started {startedBatches}b {startedItems}i Completed {completedBatches}b {completedItems}i latency {completedLatency:f1}ms Ready {readyitems} Waiting {waitingBatches}b",

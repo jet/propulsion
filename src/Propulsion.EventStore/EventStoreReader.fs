@@ -126,7 +126,7 @@ let establishMax (conn : IEventStoreConnection) = task {
 
 /// Walks a stream within the specified constraints; used to grab data when writing to a stream for which a prefix is missing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.StreamSpan -> Async<unit>) =
+let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.Event[] -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
         let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.ofTask
@@ -195,7 +195,7 @@ type Res =
 
 /// Holds work queue, together with stats relating to the amount and/or categories of data being traversed
 /// Processing is driven by external callers running multiple concurrent invocations of `Process`
-type EventStoreReader(connections : _ [], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<struct (int * int)>, tailInterval, dop, ?statsInterval) =
+type EventStoreReader(connections : _[], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<struct (int * int)>, tailInterval, dop, ?statsInterval) =
     let work = System.Collections.Concurrent.ConcurrentQueue()
     let sleepIntervalMs = 100
     let overallStats = OverallStats(?statsInterval=statsInterval)

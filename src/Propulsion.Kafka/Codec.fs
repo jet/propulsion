@@ -58,7 +58,7 @@ type [<NoEquality; NoComparison>] RenderedSpan =
 /// Helpers for mapping to/from `Propulsion.Streams` canonical event types
 module RenderedSpan =
 
-    let ofStreamSpan (streamName : FsCodec.StreamName) (span : Default.StreamSpan) : RenderedSpan =
+    let ofStreamSpan streamName (span : Default.Event[]) : RenderedSpan =
         let ta (x : Default.EventBody) = x.ToArray()
         {   s = FsCodec.StreamName.toString streamName
             i = span[0].Index
@@ -66,7 +66,7 @@ module RenderedSpan =
 
     let enum (span: RenderedSpan) : Default.StreamEvent seq =
         let streamName = StreamName.internalParseSafe span.s
-        let td (x : byte array) : Default.EventBody = System.ReadOnlyMemory x
+        let td (x : byte[]) : Default.EventBody = System.ReadOnlyMemory x
         let inline mkEvent offset (e : RenderedEvent) = FsCodec.Core.TimelineEvent.Create(span.i+int64 offset, e.c, td e.d, td e.m, timestamp = e.t)
         span.e |> Seq.mapi (fun i e -> streamName, mkEvent i e)
 
@@ -91,7 +91,7 @@ type [<NoEquality; NoComparison>] RenderedSummary =
 module RenderedSummary =
 
     let ofStreamEvents (streamName : FsCodec.StreamName) (index : int64) (events : FsCodec.IEventData<Default.EventBody> seq) : RenderedSummary =
-        let ta (x : Default.EventBody) : byte array = x.ToArray()
+        let ta (x : Default.EventBody) : byte[] = x.ToArray()
         {   s = FsCodec.StreamName.toString streamName
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = ta x.Data; m = ta x.Meta } |] }

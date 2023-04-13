@@ -27,9 +27,9 @@ module Events =
 #else
     // NOTE while the `i` values in `app` could be inferred, we redundantly store them to enable optimal tailing
     //      without having to read and/or process/cache all preceding events
-    type Ingested =             { add : StreamSpan array; app : StreamSpan array }
+    type Ingested =             { add : StreamSpan[]; app : StreamSpan[] }
                                 // Structure mapped from DynamoStore.Batch.Schema: p: stream, i: index, c: array of event types
-     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string array }
+     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string[] }
     type Event =
         | Ingested of           Ingested
         | Closed
@@ -92,7 +92,7 @@ module Ingest =
         | [||], [||] -> None
         | s, a -> Some { add = s; app = a }
     /// Trims the supplied inputs, removing items that overlap with this Epoch's per-stream max index
-    let removeDuplicates state inputs : Events.StreamSpan array =
+    let removeDuplicates state inputs : Events.StreamSpan[] =
         [| for eventSpan in flatten inputs do
             match state, eventSpan with
             | Start es
@@ -115,7 +115,7 @@ module Ingest =
 
 type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    member _.Ingest(partitionId, epochId, spans : Events.StreamSpan array, ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
+    member _.Ingest(partitionId, epochId, spans : Events.StreamSpan[], ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
@@ -143,7 +143,7 @@ module Reader =
     type Event = (struct (int64 * Events.Event))
     let codec : FsCodec.IEventCodec<Event, _, _> = EventCodec.withIndex<Events.Event>
 
-    type State = { changes : struct (int * Events.StreamSpan array) array; closed : bool }
+    type State = { changes : struct (int * Events.StreamSpan[])[]; closed : bool }
     let initial = { changes = Array.empty; closed = false }
     let fold (state : State) (events : Event seq) =
         let mutable closed = state.closed

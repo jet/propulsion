@@ -12,10 +12,10 @@ open System.Collections.Generic
 module private Impl =
 
 #if COSMOSV3
-    type EventBody = byte array // V4 defines one directly, here we shim it
+    type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let private toNativeEventBody (xs : Default.EventBody) : byte array = xs.ToArray()
+        let private toNativeEventBody (xs : Default.EventBody) : byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
 #else
     module StreamSpan =
@@ -37,8 +37,8 @@ module Internal =
         type [<NoComparison;NoEquality>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : StreamSpan<Default.EventBody>
-            | PrefixMissing of batch : StreamSpan<Default.EventBody> * writePos : int64
+            | PartialDuplicate of overage : Default.Event[]
+            | PrefixMissing of batch : Default.Event[] * writePos : int64
         let logTo (log : ILogger) malformed (res : StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Choice1Of2 (_, Ok pos) ->
@@ -53,7 +53,7 @@ module Internal =
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.StreamSpan) ct = task {
+        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
@@ -149,7 +149,7 @@ module Internal =
         static member Create(log : ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
-            let attemptWrite struct (stream, span) ct = task {
+            let attemptWrite stream span ct = task {
                 let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))

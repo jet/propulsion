@@ -44,7 +44,7 @@ module private Impl =
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
-            (AppendsPartitionId.Parse pid, Checkpoint.Parse (epochId, offset), ct) = taskSeq {
+            (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
         let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.startImmediateAsTask ct
@@ -83,7 +83,7 @@ module private Impl =
                 for span in buffer do
                     match cache.TryGetValue span.p with
                     | false, _ -> ()
-                    | true, (items : FsCodec.ITimelineEvent<_> array) ->
+                    | true, (items : FsCodec.ITimelineEvent<_>[]) ->
                         // NOTE this could throw if a span has been indexed, but the stream read is from a replica that does not yet have it
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
                         // TOCONSIDER revise logic to share session key etc to rule this out
@@ -127,7 +127,7 @@ type EventLoadMode =
 module internal EventLoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
     let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
-        fun sn (i, cs : string array) ->
+        fun sn (i, cs : string[]) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
                 ValueSome (fun ct -> task {
                                let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, ct, i, maxCount = cs.Length)
@@ -175,7 +175,7 @@ type DynamoStoreSource
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
 
-    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
+    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default _.ListTranches(ct) = task {
         match trancheIds with
         | Some ids -> return ids

@@ -23,8 +23,8 @@ module Internal =
         type [<NoComparison; NoEquality>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : Default.StreamSpan
-            | PrefixMissing of batch : Default.StreamSpan * writePos : int64
+            | PartialDuplicate of overage : Default.Event[]
+            | PrefixMissing of batch : Default.Event[] * writePos : int64
 
         let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
@@ -40,7 +40,7 @@ module Internal =
             | stream, Choice2Of2 (_, exn) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (context : EventStoreContext) stream (span : Default.StreamSpan) ct = task {
+        let write (log : ILogger) (context : EventStoreContext) stream (span : Default.Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if EVENTSTORE_LEGACY
             let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
@@ -110,11 +110,11 @@ module Internal =
 
     type Dispatcher =
 
-        static member Create(log : ILogger, storeLog, connections : _ [], maxDop) =
+        static member Create(log : ILogger, storeLog, connections : _[], maxDop) =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
-            let attemptWrite struct (stream, span) ct = task {
+            let attemptWrite stream span ct = task {
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096

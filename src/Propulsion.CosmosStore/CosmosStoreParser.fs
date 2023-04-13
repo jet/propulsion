@@ -36,14 +36,19 @@ module EquinoxSystemTextJsonParser =
         | _ -> ValueNone
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents struct (streamName, batch : Batch) : Default.StreamEvent seq =
-        batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp = x.t))
+    let enumEquinoxCosmosEvents (batch : Batch) : Default.Event seq =
+        batch.e |> Seq.mapi (fun offset x -> FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp = x.t))
 
-    /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
+    /// Attempts to parse a Document/Item from the Store
+    /// returns ValueNone if it does not bear the hallmarks of a valid Batch
+    let tryEnumStreamEvents categoryFilter d : seq<Default.StreamEvent> voption =
+        tryParseEquinoxBatch categoryFilter d |> ValueOption.map (fun struct (s, xs) -> enumEquinoxCosmosEvents xs |> Seq.map (fun x -> s, x))
+
+    /// Collects all events that pass the categoryFilter from a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumStreamEvents categoryFilter d : Default.StreamEvent seq =
-        tryParseEquinoxBatch categoryFilter d |> ValueOption.map enumEquinoxCosmosEvents |> ValueOption.defaultValue Seq.empty
+        tryEnumStreamEvents categoryFilter d |> ValueOption.defaultValue Seq.empty
 
-    /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
+    /// Collects all events from the specified category list from a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumCategoryEvents categories d : Default.StreamEvent seq =
         enumStreamEvents (fun c -> Array.contains c categories) d
 #else

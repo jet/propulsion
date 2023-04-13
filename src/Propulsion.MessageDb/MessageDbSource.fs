@@ -88,7 +88,7 @@ type MessageDbSource internal
             (   if startFromTail <> Some true then None
                 else Some (Internal.readTailPositionForTranche client)),
             sink,
-            (fun (cat, pos, ct) -> taskSeq {
+            (fun cat pos ct -> taskSeq {
                 let sw = Stopwatch.start ()
                 let! b = Internal.readBatch batchSize client (cat, pos, ct)
                 yield struct (sw.Elapsed, b) }),
@@ -104,7 +104,7 @@ type MessageDbSource internal
                         categories |> Array.map Propulsion.Feed.TrancheId.parse,
                         ?startFromTail = startFromTail, ?sourceId = sourceId)
 
-    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
+    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default _.ListTranches(_ct) = task { return tranches }
 
     abstract member Pump : CancellationToken -> Task<unit>

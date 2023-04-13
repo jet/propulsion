@@ -40,7 +40,7 @@ type FeedSourceBase internal
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
     member _.Checkpoint([<O; D null>]?ct) : Task<IReadOnlyDictionary<TrancheId, Position>> = task {
-        do! Task.parallelLimit 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit array>
+        do! Task.parallelLimit 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
@@ -51,7 +51,7 @@ type FeedSourceBase internal
             ct) = task {
         // TODO implement behavior to pick up newly added tranches by periodically re-running readTranches
         // TODO when that's done, remove workaround in readTranches
-        let! (tranches : TrancheId array) = readTranches ct
+        let! (tranches : TrancheId[]) = readTranches ct
         log.Information("Starting {tranches} tranche readers...", tranches.Length)
         partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
@@ -131,7 +131,7 @@ and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | I
 and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink, sourceIsCompleted) =
 
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
-    let choose f (xs : KeyValuePair<_, _> array) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
+    let choose f (xs : KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
     // Waits for up to propagationDelay, returning the opening tranche positions observed (or empty if the wait has timed out)
     let awaitPropagation sleep (propagationDelay : TimeSpan) positions ct = task {
         let timeout = IntervalTimer propagationDelay
@@ -153,7 +153,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             elif worked && Array.isEmpty current then startPositions <- current // Finished now: clear starting position record, triggering normal exit of loop
         return startPositions }
     let isTrancheDrained (s : TrancheState) = s.isTail && s.IsEmpty
-    let isDrained : KeyValuePair<_, TrancheState> array -> bool = Array.forall (fun (KeyValue (_t, s)) -> isTrancheDrained s)
+    let isDrained : KeyValuePair<_, TrancheState>[] -> bool = Array.forall (fun (KeyValue (_t, s)) -> isTrancheDrained s)
     let awaitCompletion (sleep, logInterval) (sw : System.Diagnostics.Stopwatch) startReadPositions waitMode ct = task {
         let logInterval = IntervalTimer logInterval
         let logWaitStatusUpdateNow () =
@@ -262,14 +262,14 @@ type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, establishOrigin, sink : Propulsion.Streams.Default.Sink,
-        crawl : TrancheId * Position * CancellationToken -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Streams.Default.EventBody>)>,
+        crawl : Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Streams.Default.EventBody>)>>,
         renderPos,
         ?logReadFailure, ?readFailureSleepInterval : TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
     let crawl trancheId (wasLast, startPos, ct) = taskSeq {
         if wasLast then do! Task.delay tailSleepInterval ct
-        try let batches = crawl (trancheId, startPos, ct)
+        try let batches = crawl.Invoke(trancheId, startPos, ct)
             for batch in batches do
                 yield batch
         with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
@@ -295,7 +295,7 @@ type AllFeedSource
     inherit TailingFeedSource
         (   log, statsInterval, sourceId, tailSleepInterval,
             checkpoints, establishOrigin, sink,
-            (fun (_trancheId, pos, ct) -> taskSeq {
+            (fun _trancheId pos ct -> taskSeq {
                   let sw = Stopwatch.start ()
                   let! b = readBatch (pos, ct)
                   yield struct (sw.Elapsed, b) } ),
@@ -312,7 +312,7 @@ type AllFeedSource
 type SinglePassFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId,
-        crawl : TrancheId * Position * CancellationToken -> IAsyncEnumerable<struct (TimeSpan * Batch<_>)>,
+        crawl : Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<_>)>>,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
         ?renderPos, ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
     inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink,

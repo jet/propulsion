@@ -2,7 +2,7 @@ module Propulsion.DynamoStore.ExactlyOnceIngester
 
 open FSharp.UMX // %
 
-type IngestResult<'req, 'res> = { accepted : 'res array; closed : bool; residual : 'req array }
+type IngestResult<'req, 'res> = { accepted : 'res[]; closed : bool; residual : 'req[] }
 
 module Internal =
 
@@ -13,14 +13,14 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
     (   log : Serilog.ILogger,
         readActiveEpoch : unit -> Async<int<'id>>,
         markActiveEpoch : int<'id> -> Async<unit>,
-        ingest : int<'id> * 'req array -> Async<IngestResult<'req, 'res>>,
-        mapResults : 'res array -> 'outcome seq) =
+        ingest : int<'id> * 'req[] -> Async<IngestResult<'req, 'res>>,
+        mapResults : 'res[] -> 'outcome seq) =
 
     let uninitializedSentinel : int = %Internal.unknown
     let mutable currentEpochId_ = uninitializedSentinel
     let currentEpochId () = if currentEpochId_ <> uninitializedSentinel then Some %currentEpochId_ else None
 
-    let rec walk ingestedItems (items : (int<'id> * 'req) array) = async {
+    let rec walk ingestedItems (items : (int<'id> * 'req)[]) = async {
         let epochId = items |> Seq.map fst |> Seq.min
         let epochItems, futureEpochItems = items |> Array.partition (fun (e, _ : 'req) -> e = epochId)
         let! res = ingest (epochId, Array.map snd epochItems)

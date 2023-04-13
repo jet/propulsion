@@ -339,7 +339,7 @@ module Project =
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle (stream : FsCodec.StreamName) (span : Propulsion.Streams.Default.StreamSpan) ct = task {
+            let handle (stream : FsCodec.StreamName) (span : Propulsion.Streams.Default.Event[]) ct = task {
                 match producer with
                 | None -> ()
                 | Some producer ->
@@ -380,7 +380,7 @@ module Project =
             Async.AwaitKeyboardInterruptAsTaskCanceledException()
             sink.AwaitWithStopOnCancellation()
             source.AwaitWithStopOnCancellation() ]
-        return! work |> Async.Parallel |> Async.Ignore<unit array> }
+        return! work |> Async.Parallel |> Async.Ignore<unit[]> }
 
 /// Parse the commandline; can throw exceptions in response to missing arguments and/or `-h`/`--help` args
 let parseCommandLine argv =

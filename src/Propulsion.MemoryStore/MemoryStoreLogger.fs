@@ -7,7 +7,7 @@ let private propEvents name (xs : System.Collections.Generic.KeyValuePair<string
     let items = seq { for kv in xs do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
     log.ForContext(name, sprintf "[%s]" (String.concat ",\n\r" items))
 
-let private propEventJsonUtf8 name (events : FsCodec.ITimelineEvent<ReadOnlyMemory<byte>> array) (log : Serilog.ILogger) =
+let private propEventJsonUtf8 name (events : FsCodec.ITimelineEvent<ReadOnlyMemory<byte>>[]) (log : Serilog.ILogger) =
     log |> propEvents name (seq {
         for e in events do
             let d = e.Data

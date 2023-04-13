@@ -82,9 +82,7 @@ module StreamName =
         | FsCodec.StreamName.Category "" as sid -> (FsCodec.StreamName.toString sid).Substring(1)
         | FsCodec.StreamName.Category cat -> cat
 
-/// A contiguous set of Events from a Ordered stream, as held internally within this module
-type StreamSpan<'Format> = FsCodec.ITimelineEvent<'Format> array
-
+/// Manipulates contiguous set of Events from a Ordered stream, as held internally within this module
 module StreamSpan =
 
     type Metrics = (struct (int * int))
@@ -104,15 +102,15 @@ module StreamSpan =
         let trimmed = span |> Array.takeWhile withinLimits
         metrics eventSize trimmed, trimmed
 
-    let inline idx (span : StreamSpan<'F>) = span[0].Index
-    let inline ver (span : StreamSpan<'F>) = idx span + span.LongLength
-    let dropBeforeIndex min : FsCodec.ITimelineEvent<_> array -> FsCodec.ITimelineEvent<_> array = function
+    let inline idx (span : FsCodec.ITimelineEvent<'F>[]) = span[0].Index
+    let inline ver (span : FsCodec.ITimelineEvent<'F>[]) = idx span + span.LongLength
+    let dropBeforeIndex min : FsCodec.ITimelineEvent<_>[] -> FsCodec.ITimelineEvent<_>[] = function
         | xs when xs.Length = 0 -> null
         | xs when idx xs >= min -> xs // don't adjust if min not within
         | v when ver v <= min -> null // throw away if before min
         | xs -> xs |> Array.skip (min - idx xs |> int) // slice
 
-    let merge min (spans : FsCodec.ITimelineEvent<_> array array) =
+    let merge min (spans : FsCodec.ITimelineEvent<_>[][]) =
         let candidates = [|
             for span in spans do
                 if span <> null then
@@ -151,7 +149,7 @@ module Buffer =
     let [<Literal>] WritePosUnknown = -2L // sentinel value for write position signifying `None` (no write position yet established)
     let [<Literal>] WritePosMalformed = -3L // sentinel value for malformed data
     [<NoComparison; NoEquality; Struct>]
-    type StreamState<'Format> = private { write : int64; queue : FsCodec.ITimelineEvent<'Format> array array } with
+    type StreamState<'Format> = private { write : int64; queue : FsCodec.ITimelineEvent<'Format>[][] } with
         static member Create(write, queue, malformed) =
             if malformed then { write = WritePosMalformed; queue = queue }
             else StreamState<'Format>.Create(write, queue)
@@ -623,7 +621,7 @@ module Scheduling =
         abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)
     and [<Struct; NoComparison; NoEquality>]
-        Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format> array }
+        Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format>[] }
 
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
@@ -772,7 +770,7 @@ module Scheduling =
                     let waitForIncomingBatches = hasCapacity
                     let waitForDispatcherCapacity = not hasCapacity && not wakeForResults
                     let sleepTs = Stopwatch.timestamp ()
-                    let wakeConditions : Task array = [|
+                    let wakeConditions : Task[] = [|
                         if wakeForResults then awaitResults ct
                         elif waitForDispatcherCapacity then dispatcher.AwaitCapacity()
                         if waitForIncomingBatches then awaitPending ct
@@ -855,16 +853,16 @@ module Dispatcher =
             interpretProgress : Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Choice<'P, 'E> -> struct (int64 voption * Choice<'R, 'E>)) =
         static member Create
             (   maxDop,
-                project : struct (FsCodec.StreamName * StreamSpan<'F>) -> CancellationToken -> Task<struct (bool * Choice<'P, 'E>)>,
+                project : FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> CancellationToken -> Task<struct (bool * Choice<'P, 'E>)>,
                 interpretProgress) =
             let project struct (startTs, item : Scheduling.Item<'F>) (ct : CancellationToken) = task {
-                let! struct (progressed, res) = project (item.stream, item.span) ct
+                let! struct (progressed, res) = project item.stream item.span ct
                 return struct (Stopwatch.elapsed startTs, item.stream, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
-        static member Create(maxDop, prepare, handle : Func<_, _, CancellationToken, Task<_>>, toIndex) =
-            let project item ct = task {
-                let struct (met, struct (_sn, span : StreamSpan<'F>)) = prepare item
-                try let! struct (spanResult, outcome) = handle.Invoke(_sn, span, ct)
+        static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex) =
+            let project sn span ct = task {
+                let struct (met, span : FsCodec.ITimelineEvent<'F>[]) = prepare.Invoke(sn, span)
+                try let! struct (spanResult, outcome) = handle.Invoke(sn, span, ct)
                     let index' = toIndex span spanResult
                     return struct (index' > span[0].Index, Choice1Of2 struct (index', met, outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -883,9 +881,9 @@ module Dispatcher =
 
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
-        (   select : Scheduling.Item<'F> seq -> Scheduling.Item<'F> array,
-            handle : Scheduling.Item<'F> array -> CancellationToken ->
-                     Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>) array>) =
+        (   select : Scheduling.Item<'F> seq -> Scheduling.Item<'F>[],
+            handle : Scheduling.Item<'F>[] -> CancellationToken ->
+                     Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]>) =
         let inner = DopDispatcher 1
         let result = Event<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)>()
 
@@ -987,7 +985,7 @@ module Projector =
             let startIngester (rangeLog, partitionId : int) = StreamsIngester.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
             Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
-/// Represents progress attained during the processing of the supplied <c>StreamSpan</c> for a given <c>StreamName</c>.
+/// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
 /// Incoming <c>StreamEvent</c>s with <c>Index</c>es prior to the Write Position implied by the result are proactively
 /// dropped from incoming buffers, yielding increased throughput due to reduction of redundant processing.
@@ -995,11 +993,11 @@ type SpanResult =
    /// Indicates no events where processed.
    /// Handler should be supplied the same events (plus any that arrived in the interim) in the next scheduling cycle.
    | NoneProcessed
-   /// Indicates all events supplied in the <c>StreamSpan</c> have been processed.
-   /// Write Position should move beyond the last event in the supplied StreamSpan.
+   /// Indicates all <c>Event</c>s supplied have been processed.
+   /// Write Position should move beyond the last event supplied.
    | AllProcessed
    /// Indicates only a subset of the presented events have been processed;
-   /// Write Position should move <c>count</c> items of the <c>StreamSpan</c> forward.
+   /// Write Position should remove <c>count</c> items from the <c>Event</c>s supplied.
    | PartiallyProcessed of count : int
    /// Apply an externally observed Version determined by the handler during processing.
    /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
@@ -1008,7 +1006,7 @@ type SpanResult =
 
 module SpanResult =
 
-    let toIndex<'F> (span : StreamSpan<'F>) = function
+    let toIndex<'F> (span : FsCodec.ITimelineEvent<'F>[]) = function
         | NoneProcessed -> span[0].Index
         | AllProcessed -> span[0].Index + span.LongLength
         | PartiallyProcessed count -> span[0].Index + int64 count
@@ -1020,7 +1018,7 @@ type StreamsSink =
     /// and a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member StartEx<'Progress, 'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : struct (FsCodec.StreamName * _) -> _,
+            prepare : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], struct(StreamSpan.Metrics * FsCodec.ITimelineEvent<'F>[])>,
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             toIndex,
             stats, statsInterval, eventSize,
@@ -1042,7 +1040,7 @@ type StreamsSink =
                                           ?requireCompleteStreams = requireCompleteStreams)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
 
-    /// Project StreamSpans using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
+    /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
@@ -1059,15 +1057,15 @@ type StreamsSink =
             [<O; D null>] ?ingesterStatsInterval,
             [<O; D null>] ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let prepare struct (streamName, span) =
+        let prepare _streamName span =
             let metrics = StreamSpan.metrics eventSize span
-            struct (metrics, struct (streamName, span))
+            struct (metrics, span)
         StreamsSink.StartEx<SpanResult, 'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, eventSize,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
 
-    /// Project StreamSpans using a <code>handle</code> function that guarantees to always handles all events in the <code>span</code>
+    /// Project Events using a <code>handle</code> function that guarantees to always handles all events supplied
     static member Start<'Outcome, 'F>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<'Outcome>>,
@@ -1083,8 +1081,8 @@ type StreamsSink =
             [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let handle streamName (span : FsCodec.ITimelineEvent<'F>[]) ct = task {
-            let! res = handle.Invoke(streamName, span, ct)
+        let handle streamName (events : FsCodec.ITimelineEvent<'F>[]) ct = task {
+            let! res = handle.Invoke(streamName, events, ct)
             return struct (SpanResult.AllProcessed, res) }
         StreamsSink.Start<'Outcome, 'F>(
             log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
@@ -1149,12 +1147,12 @@ module Sync =
 
             let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-            let attemptWrite struct (stream, span : FsCodec.ITimelineEvent<'F>[]) ct = task {
-                let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) span
+            let attemptWrite stream (events : FsCodec.ITimelineEvent<'F>[]) ct = task {
+                let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
                 let prepareTs = Stopwatch.timestamp ()
                 try let! res, outcome = handle.Invoke(stream, span', ct)
                     let index' = SpanResult.toIndex span' res
-                    return struct (index' > span[0].Index, Choice1Of2 struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
+                    return struct (index' > events[0].Index, Choice1Of2 struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
 
             let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
@@ -1178,20 +1176,23 @@ module Default =
 
     /// Canonical Data/Meta type supplied by the majority of Sources
     type EventBody = ReadOnlyMemory<byte>
-    /// A contiguous set of Events from a Ordered stream, using the Canonical Data/Meta type
-    type StreamSpan = StreamSpan<EventBody>
+
+    /// Timeline Event with Data/Meta in the default format
+    type Event = FsCodec.ITimelineEvent<EventBody>
+    let eventSize (x : Event) = x.Size
+    let jsonSize (x : Event) = eventSize x + 80
+
     /// A Single Event from an Ordered stream, using the Canonical Data/Meta type
     type StreamEvent = StreamEvent<EventBody>
-    let eventSize (x : FsCodec.ITimelineEvent<EventBody>) = x.Size
-    let jsonSize (x : FsCodec.ITimelineEvent<EventBody>) = eventSize x + 80
 
     type Sink = Sink<Ingestion.Ingester<StreamEvent seq>>
 
     type Config =
 
+        /// Project Events using a C#/Task-friendly <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
-                handle : Func<FsCodec.StreamName, StreamSpan, CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
+                handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
                 stats, statsInterval,
                 // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
                 [<O; D null>] ?pendingBufferSize,
@@ -1206,14 +1207,16 @@ module Default =
                 ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
                 ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
                 ?requireCompleteStreams = requireCompleteStreams)
+
+        /// Project Events using an F# Async <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
-                handle : FsCodec.StreamName -> StreamSpan -> Async<struct (SpanResult * 'Outcome)>,
+                handle : FsCodec.StreamName -> Event[] -> Async<struct (SpanResult * 'Outcome)>,
                 stats, statsInterval,
                 [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
                 [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
             Config.Start(log, maxReadAhead, maxConcurrentStreams,
-                (fun stream span ct -> Async.startImmediateAsTask ct (handle stream span)),
+                (fun stream events ct -> Async.startImmediateAsTask ct (handle stream events)),
                 stats, statsInterval,
                 ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)

@@ -1,16 +1,14 @@
 module Propulsion.MessageDb.Integration.Tests
 
-open System.Diagnostics
 open FSharp.Control
 open Npgsql
 open NpgsqlTypes
 open Propulsion.MessageDb
 open Propulsion.Internal
-open Serilog
-open Serilog.Core
 open Swensen.Unquote
 open System
 open System.Collections.Generic
+open System.Diagnostics
 open System.Threading.Tasks
 open Xunit
 
@@ -74,7 +72,7 @@ let ``It processes events for a category`` () = task {
     let stats = stats log
     let mutable stop = ignore
     let handled = HashSet<_>()
-    let handle stream (events: Propulsion.Streams.Default.StreamSpan) _ct = task {
+    let handle stream (events: Propulsion.Streams.Default.Event[]) _ct = task {
         lock handled (fun _ ->
            for evt in events do
                handled.Add((stream, evt.Index)) |> ignore)
@@ -120,8 +118,7 @@ type ActivityCapture() =
 
 [<Fact>]
 let ``It doesn't read the tail event again`` () = task {
-    let logSink = LogSink()
-    let log = LoggerConfiguration().WriteTo.Sink(logSink).CreateLogger()
+    let log = Serilog.Log.Logger
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category = $"{Guid.NewGuid():N}"
     use! conn = connect ()
@@ -140,9 +137,9 @@ let ``It doesn't read the tail event again`` () = task {
         checkpoints, sink, [| category |])
 
     use capture = new ActivityCapture()
+    use _src = source.Start()
 
     do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) :> Task
 
     // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
     test <@ capture.Operations.Count = 5 @> }
-

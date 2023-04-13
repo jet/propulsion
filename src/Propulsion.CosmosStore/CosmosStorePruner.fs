@@ -47,7 +47,7 @@ module Pruner =
         override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneUntil stream (span: Default.StreamSpan) ct = task {
+    let handle pruneUntil stream (span: Default.Event[]) ct = task {
         // The newest event eligible for deletion defines the cutoff point
         let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
@@ -82,9 +82,9 @@ type CosmosStorePruner =
         : Default.Sink =
         let dispatcher =
             let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.startImmediateAsTask ct
-            let interpret struct (stream, span) =
+            let interpret stream span =
                 let metrics = StreamSpan.metrics Default.eventSize span
-                struct (metrics, struct (stream, span))
+                struct (metrics, span)
             Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ -> id))
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
