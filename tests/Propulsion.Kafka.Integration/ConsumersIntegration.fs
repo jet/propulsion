@@ -97,7 +97,7 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let deserialize consumerId (e : ITimelineEvent<Propulsion.Streams.Default.EventBody>) : ConsumedTestMessage =
+    let deserialize consumerId (e : ITimelineEvent<Propulsion.Sinks.EventBody>) : ConsumedTestMessage =
         let d = e.Data
         let d = serdes.Deserialize(System.Text.Encoding.UTF8.GetString d.Span)
         { consumerId = consumerId; meta = d; payload = unbox e.Context }
@@ -122,14 +122,14 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Streams.Scheduling.Item<Propulsion.Streams.Default.EventBody>[]) ct = task {
+            let handle (streams : Propulsion.Sinks.SchedulingItem[]) ct = task {
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
-                return [| for x in streams -> Choice1Of2 (x.span[x.span.Length-1].Index+1L) |] |> Seq.ofArray }
+                return [| for x in streams -> Choice1Of2 (Propulsion.Streams.StreamSpan.ver x.span) |] |> Seq.ofArray }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
@@ -148,7 +148,7 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : Propulsion.Streams.Default.EventBody * obj =
+    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : Propulsion.Sinks.EventBody * obj =
         let m = Binding.message x
         System.Text.Encoding.UTF8.GetBytes(m.Value) |> ReadOnlyMemory,
         box { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value }
@@ -165,7 +165,7 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle _ (span : Propulsion.Streams.Default.Event[]) ct = task {
+            let handle _ (span : Propulsion.Sinks.Event[]) ct = task {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }

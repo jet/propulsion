@@ -8,8 +8,8 @@ namespace Propulsion.EventStoreDb
 open Equinox.EventStoreDb
 #endif
 
-open Propulsion
 open Propulsion.Internal
+open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
 open System.Collections.Generic
@@ -23,8 +23,8 @@ module Internal =
         type [<NoComparison; NoEquality>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : Default.Event[]
-            | PrefixMissing of batch : Default.Event[] * writePos : int64
+            | PartialDuplicate of overage : Event[]
+            | PrefixMissing of batch : Event[] * writePos : int64
 
         let logTo (log : ILogger) (res : FsCodec.StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
@@ -40,7 +40,7 @@ module Internal =
             | stream, Choice2Of2 (_, exn) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (context : EventStoreContext) stream (span : Default.Event[]) ct = task {
+        let write (log : ILogger) (context : EventStoreContext) stream (span : Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if EVENTSTORE_LEGACY
             let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
@@ -118,7 +118,7 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+                let struct (met, span') = StreamSpan.slice Event.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
@@ -149,11 +149,11 @@ type EventStoreSink =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             ?ingesterStatsInterval)
-        : Default.Sink =
+        : Sink =
         let dispatcher = Internal.Dispatcher.Create(log, storeLog, connections, maxConcurrentStreams)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let scheduler =
             let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-            let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
+            let dumpStreams logStreamStates _log = logStreamStates Event.eventSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, ?purgeInterval = purgeInterval, ?idleDelay = idleDelay)
         Projector.Pipeline.Start( log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

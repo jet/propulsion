@@ -3,7 +3,7 @@
 open FsCodec
 open Propulsion
 open Propulsion.Internal
-open Propulsion.Streams
+open Propulsion.Sinks
 open Serilog
 open System
 open System.Threading
@@ -24,9 +24,9 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : Func<StreamName, Default.Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
+            prepare : Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
-            stats : Sync.Stats<'Outcome>, statsInterval,
+            stats : Streams.Sync.Stats<'Outcome>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -36,7 +36,7 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents)
-        : Default.Sink =
+        : Sink =
             let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
             let handle (stream : StreamName) span ct = task {
                 let! (maybeMsg, outcome : 'Outcome) = prepare.Invoke(stream, span, ct)
@@ -47,19 +47,19 @@ type StreamsProducerSink =
                     | _ -> ()
                     do! producer.Produce(key, message, ct = ct)
                 | ValueNone -> ()
-                return struct (SpanResult.AllProcessed, outcome)
+                return struct (Streams.SpanResult.AllProcessed, outcome)
             }
-            Sync.StreamsSync.Start
+            Streams.Sync.StreamsSync.Start
                 (    log, maxReadAhead, maxConcurrentStreams, (fun s e ct -> handle s e ct),
-                     stats, statsInterval, Default.jsonSize, Default.eventSize,
+                     stats, statsInterval, Event.jsonSize, Event.eventSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName -> Default.Event[] -> Async<struct (struct (string * string) voption * 'Outcome)>,
+            prepare : StreamName -> Event[] -> Async<struct (struct (string * string) voption * 'Outcome)>,
             producer, stats, statsInterval,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
-        : Default.Sink =
+        : Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
@@ -68,9 +68,9 @@ type StreamsProducerSink =
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            prepare : Func<StreamName, Default.Event[], CancellationToken, Task<struct (string * string)>>,
+            prepare : Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
             producer : Producer,
-            stats : Sync.Stats<unit>, statsInterval,
+            stats : Streams.Sync.Stats<unit>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -80,7 +80,7 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents)
-        : Default.Sink =
+        : Sink =
             let prepare stream span ct = task {
                 let! kv = prepare.Invoke(stream, span, ct)
                 return struct (ValueSome kv, ())
@@ -92,10 +92,10 @@ type StreamsProducerSink =
                      ?maxEvents = maxEvents)
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
-            prepare : StreamName -> Default.Event[] -> Async<struct (string * string)>,
+            prepare : StreamName -> Event[] -> Async<struct (string * string)>,
             producer, stats, statsInterval,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
-        : Default.Sink =
+        : Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),

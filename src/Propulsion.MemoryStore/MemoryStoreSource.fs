@@ -9,8 +9,8 @@ open System.Threading.Tasks
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
-                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Streams.Default.EventBody>,
-                           sink : Propulsion.Streams.Default.Sink) =
+                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Sinks.EventBody>,
+                           sink : Propulsion.Sinks.Sink) =
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
     let monitor = lazy MemoryStoreMonitor(log, positions, sink)
@@ -19,7 +19,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
     let mutable prepared = -1L
 
     let enqueueSubmission, awaitSubmissions, tryDequeueSubmission =
-        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Streams.Default.StreamEvent seq>> in let r, w = c.Reader, c.Writer
+        let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>> in let r, w = c.Reader, c.Writer
         Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
     let handleStoreCommitted struct (categoryName, aggregateId, events : FsCodec.ITimelineEvent<_> []) =
@@ -79,7 +79,7 @@ and internal TranchePositions() =
     member x.Completed with get () = completed
                        and set value = lock x.CompletedMonitor (fun () -> completed <- value; Monitor.Pulse x.CompletedMonitor)
 
-and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink) =
+and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Sinks.Sink) =
 
     /// Deterministically waits until all <c>Submit</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us

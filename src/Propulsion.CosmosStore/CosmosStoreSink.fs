@@ -3,6 +3,7 @@ namespace Propulsion.CosmosStore
 open Equinox.CosmosStore.Core
 open FsCodec
 open Propulsion.Internal
+open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
 open System
@@ -15,14 +16,14 @@ module private Impl =
     type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let private toNativeEventBody (xs : Default.EventBody) : byte[] = xs.ToArray()
+        let private toNativeEventBody (xs : Propulsion.Sinks.EventBody) : byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
 #else
     module StreamSpan =
 
         // v4 and later use JsonElement, but Propulsion is sticking with byte arrays until 3.x (at which point it'll probably shift to ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies)
         open System.Text.Json
-        let private toNativeEventBody (x : Default.EventBody) : JsonElement =
+        let private toNativeEventBody (x : EventBody) : JsonElement =
             if x.IsEmpty then JsonElement()
             else JsonSerializer.Deserialize(x.Span)
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
@@ -37,8 +38,8 @@ module Internal =
         type [<NoComparison;NoEquality>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : Default.Event[]
-            | PrefixMissing of batch : Default.Event[] * writePos : int64
+            | PartialDuplicate of overage : Event[]
+            | PrefixMissing of batch : Event[] * writePos : int64
         let logTo (log : ILogger) malformed (res : StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Choice1Of2 (_, Ok pos) ->
@@ -53,7 +54,7 @@ module Internal =
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.Event[]) ct = task {
+        let write (log : ILogger) (ctx : EventsContext) stream (span : Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
@@ -150,7 +151,7 @@ module Internal =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
-                let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+                let struct (met, span') = StreamSpan.slice Event.jsonSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -183,12 +184,12 @@ type CosmosStoreSink =
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
-        : Default.Sink =
+        : Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
             let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-            let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
-            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Default.eventSize,
+            let dumpStreams logStreamStates _log = logStreamStates Event.eventSize
+            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Event.eventSize,
                               ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

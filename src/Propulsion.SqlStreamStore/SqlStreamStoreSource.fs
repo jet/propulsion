@@ -2,7 +2,7 @@ namespace Propulsion.SqlStreamStore
 
 module private Impl =
 
-    let private toStreamEvent (dataJson : string) struct (sn, msg: SqlStreamStore.Streams.StreamMessage) : Propulsion.Streams.Default.StreamEvent =
+    let private toStreamEvent (dataJson : string) struct (sn, msg: SqlStreamStore.Streams.StreamMessage) : Propulsion.Sinks.StreamEvent =
         let c = msg.Type
         let d = match dataJson with null -> System.ReadOnlyMemory.Empty | x -> x |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory
         let m = msg.JsonMetadata |> System.Text.Encoding.UTF8.GetBytes |> System.ReadOnlyMemory
@@ -28,7 +28,7 @@ module private Impl =
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
         store : SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use

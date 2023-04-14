@@ -1,7 +1,7 @@
 ﻿namespace Propulsion.EventStore
 
 open Propulsion.Internal
-open Propulsion.Streams
+open Propulsion.Sinks
 open Serilog
 open System
 open System.Collections.Generic
@@ -10,7 +10,7 @@ open System.Threading
 open System.Threading.Tasks
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : Default.StreamEvent seq
+    | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : StreamEvent seq
     | CloseSeries of seriesIndex : int
 
 module StripedIngesterImpl =
@@ -33,7 +33,7 @@ module StripedIngesterImpl =
             if interval.IfDueRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : Default.StreamEvent seq
+        | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : StreamEvent seq
         | CloseSeries of seriesIndex : int
         | ActivateSeries of seriesIndex : int
 
@@ -48,14 +48,14 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<Default.StreamEvent seq>,
+    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<StreamEvent seq>,
         maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpIntervalMs = pumpInterval |> Option.map TimeSpan.toMs |> Option.defaultValue 5
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
     let maxInFlightBatches = Sem maxInFlightBatches
     let stats = Stats(log, statsInterval)
-    let pending = Queue<Propulsion.Ingestion.Batch<StreamEvent<_> seq>>()
+    let pending = Queue<Propulsion.Ingestion.Batch<StreamEvent seq>>()
     let readingAhead, ready = Dictionary<int, ResizeArray<_>>(), Dictionary<int, ResizeArray<_>>()
     let mutable activeSeries = initialSeriesIndex
 

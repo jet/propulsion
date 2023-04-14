@@ -24,7 +24,7 @@ let quickStart log stats categories handle = async {
     let maxReadAhead = 100
     let maxConcurrentStreams = 2
     use sink = 
-      Propulsion.Streams.Default.Config.Start(
+      Propulsion.Sinks.Config.Start(
         log, maxReadAhead, maxConcurrentStreams, 
         handle, stats, TimeSpan.FromMinutes 1)
         
@@ -44,7 +44,7 @@ let quickStart log stats categories handle = async {
       
     do! src.Await() }
     
-let handle stream (events: Propulsion.Streams.Default.Event[]) _ct = task {
+let handle stream (events: Propulsion.Sinks.Event[]) _ct = task {
     // ... process the events
     return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
     

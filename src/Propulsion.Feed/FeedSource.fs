@@ -14,7 +14,7 @@ open System.Threading.Tasks
 type FeedSourceBase internal
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         checkpoints : IFeedCheckpointStore, establishOrigin : Func<TrancheId, CancellationToken, Task<Position>> option,
-        sink : Propulsion.Streams.Default.Sink,
+        sink : Propulsion.Sinks.Sink,
         renderPos : Position -> string,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
@@ -128,7 +128,7 @@ and internal TrancheState =
     member x.IsEmpty = x.completed = x.read
 
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
-and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Streams.Default.Sink, sourceIsCompleted) =
+and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Sinks.Sink, sourceIsCompleted) =
 
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
     let choose f (xs : KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
@@ -261,8 +261,8 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
 type TailingFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, establishOrigin, sink : Propulsion.Streams.Default.Sink,
-        crawl : Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Streams.Default.EventBody>)>>,
+        checkpoints : IFeedCheckpointStore, establishOrigin, sink : Propulsion.Sinks.Sink,
+        crawl : Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>>,
         renderPos,
         ?logReadFailure, ?readFailureSleepInterval : TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
@@ -285,8 +285,8 @@ type TailingFeedSource
 type AllFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        readBatch : Position * CancellationToken -> Task<Batch<Propulsion.Streams.Default.EventBody>>,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        readBatch : Position * CancellationToken -> Task<Batch<Propulsion.Sinks.EventBody>>,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // Custom checkpoint rendering logic
         ?renderPos,
         // Custom logic to derive an origin position if the checkpoint store doesn't have one
@@ -313,7 +313,7 @@ type SinglePassFeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId,
         crawl : Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<_>)>>,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         ?renderPos, ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
     inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink,
                               crawl,
@@ -350,7 +350,7 @@ type Page<'F> = { items : FsCodec.ITimelineEvent<'F>[]; checkpoint : Position; i
 type FeedSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan,
         sourceId, tailSleepInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // Responsible for managing retries and back offs; yielding an exception will result in abend of the read loop
         readPage : TrancheId * Position * CancellationToken -> Task<Page<_>>,
         ?renderPos) =

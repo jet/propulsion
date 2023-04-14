@@ -2,7 +2,7 @@ namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
 
-open Propulsion.Streams
+open Propulsion.Sinks
 
 /// Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams
 /// <remarks>NOTE No attempt is made to filter out Tip (`id=-1`) batches from the ChangeFeed; Equinox versions >= 3, Tip batches can bear events.</remarks>
@@ -36,20 +36,20 @@ module EquinoxSystemTextJsonParser =
         | _ -> ValueNone
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents (batch : Batch) : Default.Event seq =
+    let enumEquinoxCosmosEvents (batch : Batch) : Event seq =
         batch.e |> Seq.mapi (fun offset x -> FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp = x.t))
 
     /// Attempts to parse a Document/Item from the Store
     /// returns ValueNone if it does not bear the hallmarks of a valid Batch
-    let tryEnumStreamEvents categoryFilter d : seq<Default.StreamEvent> voption =
+    let tryEnumStreamEvents categoryFilter d : seq<StreamEvent> voption =
         tryParseEquinoxBatch categoryFilter d |> ValueOption.map (fun struct (s, xs) -> enumEquinoxCosmosEvents xs |> Seq.map (fun x -> s, x))
 
     /// Collects all events that pass the categoryFilter from a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumStreamEvents categoryFilter d : Default.StreamEvent seq =
+    let enumStreamEvents categoryFilter d : StreamEvent seq =
         tryEnumStreamEvents categoryFilter d |> ValueOption.defaultValue Seq.empty
 
     /// Collects all events from the specified category list from a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumCategoryEvents categories d : Default.StreamEvent seq =
+    let enumCategoryEvents categories d : StreamEvent seq =
         enumStreamEvents (fun c -> Array.contains c categories) d
 #else
 module EquinoxNewtonsoftParser =
@@ -69,12 +69,12 @@ module EquinoxNewtonsoftParser =
         d.ContainsKey "p" && d.ContainsKey "i" && d.ContainsKey "n" && d.ContainsKey "e"
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents (batch : Batch) : Default.StreamEvent seq =
+    let enumEquinoxCosmosEvents (batch : Batch) : StreamEvent seq =
         let streamName = FsCodec.StreamName.parse batch.p // we expect all Equinox data to adhere to "{category}-{streamId}" form (or we'll throw)
         batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp=x.t))
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
-    let enumStreamEvents d : Default.StreamEvent seq =
+    let enumStreamEvents d : StreamEvent seq =
         if isEquinoxBatch d then d.Cast<Batch>() |> enumEquinoxCosmosEvents
         else Seq.empty
 #endif

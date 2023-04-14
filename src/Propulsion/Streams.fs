@@ -1012,6 +1012,49 @@ module SpanResult =
         | PartiallyProcessed count -> span[0].Index + int64 count
         | OverrideWritePosition index -> index
 
+type BatchesSink =
+
+    static member Start<'Progress, 'Outcome, 'F>
+        (   log : ILogger, maxReadAhead,
+            select, handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Choice<int64, exn>>>>,
+            stats, statsInterval, eventSize,
+            ?pendingBufferSize,
+            ?purgeInterval,
+            ?wakeForResults,
+            ?idleDelay,
+            ?ingesterStatsInterval, ?requireCompleteStreams)
+        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+        let handle (items : Scheduling.Item<'F>[]) ct
+            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
+            let sw = Stopwatch.start ()
+            let avgElapsed () =
+                let tot = float sw.ElapsedMilliseconds
+                TimeSpan.FromMilliseconds(tot / float items.Length)
+            try let! results = handle.Invoke(items, ct)
+                let ae = avgElapsed ()
+                return
+                    [| for x in Seq.zip items results ->
+                        match x with
+                        | item, Choice1Of2 index' ->
+                            let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
+                            let metrics = StreamSpan.metrics eventSize used
+                            struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
+                        | item, Choice2Of2 exn ->
+                            let metrics = StreamSpan.metrics eventSize item.span
+                            ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
+            with e ->
+                let ae = avgElapsed ()
+                return
+                    [| for x in items ->
+                        let metrics = StreamSpan.metrics eventSize x.span
+                        ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
+        let dispatcher = Dispatcher.Batched(select, handle)
+        let dumpStreams logStreamStates _log = logStreamStates eventSize
+        let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
+                                          defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                                          ?requireCompleteStreams = requireCompleteStreams)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
+
 type StreamsSink =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
@@ -1171,7 +1214,7 @@ module Sync =
                     (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, statsInterval)
-
+(*
 module Default =
 
     /// Canonical Data/Meta type supplied by the majority of Sources
@@ -1187,7 +1230,10 @@ module Default =
 
     type Sink = Sink<Ingestion.Ingester<StreamEvent seq>>
 
-    type Config =
+    /// Stream State as provided to the <c>select</c> function for a <c>BatchesSink</c>
+    type SchedulingItem = Scheduling.Item<EventBody>
+
+    type Config private () =
 
         /// Project Events using a C#/Task-friendly <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
         static member StartEx<'Outcome>
@@ -1221,3 +1267,22 @@ module Default =
                 stats, statsInterval,
                 ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                 ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+
+        static member StartBatched<'Outcome>
+            (   log, maxReadAhead,
+                select : SchedulingItem seq -> SchedulingItem[],
+                handle : Func<SchedulingItem[], CancellationToken, Task<seq<Choice<SpanResult, exn>>>>,
+                stats, statsInterval,
+                [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
+                [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
+            let handle items ct = task {
+                let! res = handle.Invoke(items, ct)
+                return seq { for i, r in Seq.zip items res ->
+                                match r with
+                                | Choice1Of2 sr -> Choice1Of2 (SpanResult.toIndex i.span sr)
+                                | Choice2Of2 ex -> Choice2Of2 ex }
+            }
+            BatchesSink.Start(log, maxReadAhead, select, handle, stats, statsInterval, eventSize,
+                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
+                ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+*)

@@ -2,7 +2,7 @@
 
 open EventStore.ClientAPI
 open Propulsion.Internal // Sem
-open Propulsion.Streams
+open Propulsion.Sinks
 open Serilog // NB Needs to shadow ILogger
 open System
 open System.Collections.Generic
@@ -126,7 +126,7 @@ let establishMax (conn : IEventStoreConnection) = task {
 
 /// Walks a stream within the specified constraints; used to grab data when writing to a stream for which a prefix is missing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Default.Event[] -> Async<unit>) =
+let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Event[] -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
         let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.ofTask
@@ -143,7 +143,7 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : i
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
 type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
 let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
-        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent<_> option) (postBatch : Position -> StreamEvent<_>[] -> Async<struct (int * int)>) =
+        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent option) (postBatch : Position -> StreamEvent[] -> Async<struct (int * int)>) =
     let sw = Stopwatch.start () // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
@@ -155,7 +155,7 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
         streams.Clear(); cats.Clear()
         for struct (sn, _) in events do
             if streams.Add sn then
-                cats.Add (StreamName.categorize sn) |> ignore
+                cats.Add(Propulsion.Streams.StreamName.categorize sn) |> ignore
         let! cur, max = postBatch currentSlice.NextPosition events
         Log.Information("Read {pos,10} {pct:p1} {ft:n3}s {mb:n1}MB {count,4} {categories,4}c {streams,4}s {events,4}e Post {pt:n3}s {cur}/{max}",
                         range.Current.CommitPosition, range.PositionAsRangePercentage, (let e = sw.Elapsed in e.TotalSeconds), Log.miB batchBytes,
@@ -187,7 +187,7 @@ type Req =
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type Res =
     /// A batch read from a Chunk
-    | Batch of seriesId : int * pos : Position * items : Default.StreamEvent seq
+    | Batch of seriesId : int * pos : Position * items : StreamEvent seq
     /// Ingestion buffer requires an explicit end of chunk message before next chunk can commence processing
     | EndOfChunk of seriesId : int
     // A Batch read from a Stream or StreamPrefix

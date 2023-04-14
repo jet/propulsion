@@ -1,7 +1,6 @@
 ﻿namespace Propulsion.EventStore
 
 open Propulsion.Internal
-open Propulsion.Streams
 open System
 
 type StartPos = Absolute of int64 | Chunk of int | Percentage of float | TailOrCheckpoint | StartOrCheckpoint
@@ -36,16 +35,16 @@ module Mapping =
     type RecordedEvent with
         member x.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(x.CreatedEpoch)
 
-    let (|PropulsionTimelineEvent|) (x : RecordedEvent) : FsCodec.ITimelineEvent<_> =
+    let (|PropulsionTimelineEvent|) (x : RecordedEvent) : Propulsion.Sinks.Event =
         let inline len0ToNull (x : _[]) = match x with null -> ReadOnlyMemory.Empty | x when x.Length = 0 -> ReadOnlyMemory.Empty | x -> ReadOnlyMemory x
-        FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp) :> _
+        FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp)
 
-    let (|PropulsionStreamEvent|) (x : RecordedEvent) : StreamEvent<_> =
-        StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
+    let (|PropulsionStreamEvent|) (x : RecordedEvent) : Propulsion.Sinks.StreamEvent =
+        Propulsion.Streams.StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
 
 type EventStoreSource =
     static member Pump
-        (   log : Serilog.ILogger, sink : Default.Sink, checkpoints : Checkpoint.CheckpointSeries,
+        (   log : Serilog.ILogger, sink : Propulsion.Sinks.Sink, checkpoints : Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
             maxReadAhead, statsInterval, ct) = task {
         let conn = connect ()

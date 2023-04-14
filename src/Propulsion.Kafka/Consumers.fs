@@ -3,10 +3,10 @@
 namespace Propulsion.Kafka
 
 open Confluent.Kafka
-open FsCodec
 open FsKafka
 open Propulsion
 open Propulsion.Internal
+open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
 open System
@@ -187,7 +187,7 @@ module Core =
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
-                logStreamStates Default.eventSize
+                logStreamStates Event.eventSize
             let scheduler =
                 Scheduling.Engine(
                     Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, SpanResult.toIndex), stats, dumpStreams, pendingBufferSize = 5,
@@ -200,12 +200,12 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
+                handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let prepare _streamName span =
-                let metrics = StreamSpan.metrics Default.eventSize span
+                let metrics = StreamSpan.metrics Event.eventSize span
                 struct (metrics, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
@@ -223,7 +223,7 @@ module Core =
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents,
-                prepare, handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
+                prepare, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
                 maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
@@ -238,8 +238,8 @@ module Core =
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
-                keyValueToStreamEvents : KeyValuePair<string, string> -> Default.StreamEvent seq,
-                handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
+                keyValueToStreamEvents : KeyValuePair<string, string> -> StreamEvent seq,
+                handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>, maxDop,
                 stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
@@ -265,7 +265,7 @@ module Core =
     // This type is not a formal part of the API; the intent is to provide context as to the origin of the event for insertion into a parser error message
     // Arguably it should be an anonymous record...
     type ConsumeResultContext = { topic : string; partition : int; offset : int64 }
-    let toDataAndContext (result : ConsumeResult<string, string>) : Default.EventBody * obj =
+    let toDataAndContext (result : ConsumeResult<string, string>) : EventBody * obj =
         let m = Binding.message result
         if m = null then invalidOp "Cannot dereference null message"
         let data = System.Text.Encoding.UTF8.GetBytes m.Value
@@ -281,7 +281,7 @@ type StreamNameSequenceGenerator() =
     let indices = Dictionary()
 
     /// Generates an index for the specified StreamName. Sequence starts at 0, incrementing per call.
-    member _.GenerateIndex(streamName : StreamName) =
+    member _.GenerateIndex(streamName : FsCodec.StreamName) =
         let streamName = FsCodec.StreamName.toString streamName
         match indices.TryGetValue streamName with
         | true, v -> let x = v + 1L in indices[streamName] <- x; x
@@ -289,9 +289,9 @@ type StreamNameSequenceGenerator() =
 
     /// Provides a generic mapping from a ConsumeResult to a <c>StreamName</c> and <c>ITimelineEvent</c>
     member x.ConsumeResultToStreamEvent
-        (   toStreamName : ConsumeResult<_, _> -> StreamName,
-            toTimelineEvent : ConsumeResult<_, _> * int64 -> ITimelineEvent<_>)
-        : ConsumeResult<_, _> -> Default.StreamEvent seq =
+        (   toStreamName : ConsumeResult<_, _> -> FsCodec.StreamName,
+            toTimelineEvent : ConsumeResult<_, _> * int64 -> FsCodec.ITimelineEvent<_>)
+        : ConsumeResult<_, _> -> StreamEvent seq =
         fun consumeResult ->
             let sn = toStreamName consumeResult
             let e = toTimelineEvent (consumeResult, x.GenerateIndex sn)
@@ -302,24 +302,24 @@ type StreamNameSequenceGenerator() =
     /// 2) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload<br/>
     /// 3) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
     member x.ConsumeResultToStreamEvent
-        (    toStreamName : ConsumeResult<_, _> -> StreamName,
-             toDataAndContext : ConsumeResult<_, _> -> Default.EventBody * obj)
-        : ConsumeResult<string, string> -> Default.StreamEvent seq =
+        (    toStreamName : ConsumeResult<_, _> -> FsCodec.StreamName,
+             toDataAndContext : ConsumeResult<_, _> -> EventBody * obj)
+        : ConsumeResult<string, string> -> StreamEvent seq =
         x.ConsumeResultToStreamEvent(toStreamName, Core.toTimelineEvent toDataAndContext)
 
     /// Enables customizing of mapping from ConsumeResult to<br/>
     /// 1) The <c>ITimelineEvent.Data : byte[]</c>, which bears the (potentially transformed in <c>toDataAndContext</c>) UTF-8 payload<br/>
     /// 2) The <c>ITimelineEvent.Context : obj</c>, which can be used to include any metadata
-    member x.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> Default.EventBody * obj, ?defaultCategory)
-        : ConsumeResult<string, string> -> Default.StreamEvent seq =
+    member x.ConsumeResultToStreamEvent(toDataAndContext : ConsumeResult<_, _> -> EventBody * obj, ?defaultCategory)
+        : ConsumeResult<string, string> -> StreamEvent seq =
         let defaultCategory = defaultArg defaultCategory ""
         x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory, Core.toTimelineEvent toDataAndContext)
 
     /// Enables customizing of mapping from ConsumeResult to the StreamName<br/>
     /// The body of the message is passed as the <c>ITimelineEvent.Data</c><br/>
     /// Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
-    member x.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> StreamName)
-        : ConsumeResult<string, string> -> Default.StreamEvent seq =
+    member x.ConsumeResultToStreamEvent(toStreamName : ConsumeResult<_, _> -> FsCodec.StreamName)
+        : ConsumeResult<string, string> -> StreamEvent seq =
         x.ConsumeResultToStreamEvent(toStreamName, Core.toDataAndContext)
 
     /// Default Mapping: <br/>
@@ -328,12 +328,12 @@ type StreamNameSequenceGenerator() =
     /// - Stores the topic, partition and offset as a <c>ConsumeResultContext</c> in the <c>ITimelineEvent.Context</c>
     member x.ConsumeResultToStreamEvent(
             // Placeholder category to use for StreamName where key is null and/or does not adhere to standard {category}-{streamId} form
-            ?defaultCategory) : ConsumeResult<string, string> -> Default.StreamEvent seq =
+            ?defaultCategory) : ConsumeResult<string, string> -> StreamEvent seq =
         let defaultCategory = defaultArg defaultCategory ""
         x.ConsumeResultToStreamEvent(Core.toStreamName defaultCategory)
 
     /// Takes the key and value as extracted from the ConsumeResult, mapping them respectively to the StreamName and ITimelineEvent.Data
-    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : Default.StreamEvent seq =
+    member x.KeyValueToStreamEvent(KeyValue (k, v : string), ?eventType, ?defaultCategory) : StreamEvent seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
         Seq.singleton (sn, e)
@@ -350,13 +350,13 @@ type StreamsConsumer =
     static member Start<'Outcome>
         (   log : ILogger, config : KafkaConsumerConfig,
             // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
-            consumeResultToStreamEvents : ConsumeResult<_, _> -> Default.StreamEvent seq,
+            consumeResultToStreamEvents : ConsumeResult<_, _> -> StreamEvent seq,
             // Handler responses:
             // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Func<StreamName, Default.Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
+            handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
             // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
             // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
             // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
@@ -386,7 +386,7 @@ type BatchesConsumer =
         (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
             select,
             // Handler responses:
-            // - the result seq is expected to match the ordering of the input <c>DispatchItem</c>s
+            // - the result seq is expected to match the ordering of the input <c>Scheduling.Item</c>s
             // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
@@ -395,8 +395,8 @@ type BatchesConsumer =
             stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?logExternalState) =
-        let handle (items : Scheduling.Item<Default.EventBody>[]) ct
-            : Task<struct (TimeSpan * StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
+        let handle (items : Scheduling.Item<EventBody>[]) ct
+            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
@@ -408,21 +408,21 @@ type BatchesConsumer =
                         match x with
                         | item, Choice1Of2 index' ->
                             let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
-                            let metrics = StreamSpan.metrics Default.eventSize used
+                            let metrics = StreamSpan.metrics Event.eventSize used
                             struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
                         | item, Choice2Of2 exn ->
-                            let metrics = StreamSpan.metrics Default.jsonSize item.span
+                            let metrics = StreamSpan.metrics Event.jsonSize item.span
                             ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
-                        let metrics = StreamSpan.metrics Default.jsonSize x.span
+                        let metrics = StreamSpan.metrics Event.jsonSize x.span
                         ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
-            logStreamStates Default.eventSize
+            logStreamStates Event.eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =

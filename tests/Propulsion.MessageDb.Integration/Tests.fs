@@ -72,7 +72,7 @@ let ``It processes events for a category`` () = task {
     let stats = stats log
     let mutable stop = ignore
     let handled = HashSet<_>()
-    let handle stream (events: Propulsion.Streams.Default.Event[]) _ct = task {
+    let handle stream (events: Propulsion.Sinks.Event[]) _ct = task {
         lock handled (fun _ ->
            for evt in events do
                handled.Add((stream, evt.Index)) |> ignore)
@@ -80,7 +80,7 @@ let ``It processes events for a category`` () = task {
         if handled.Count >= 2000 then
             stop ()
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.StartEx(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Sinks.Core.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
         ConnectionString, 1000, TimeSpan.FromMilliseconds 100,
@@ -129,7 +129,7 @@ let ``It doesn't read the tail event again`` () = task {
 
     let handle _ _ _ = task {
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.StartEx(log, 1, 1, handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Sinks.Core.Start(log, 1, 1, handle, stats, TimeSpan.FromMinutes 1)
     let batchSize = 10
     let source = MessageDbSource(
         log, TimeSpan.FromMilliseconds 1000,

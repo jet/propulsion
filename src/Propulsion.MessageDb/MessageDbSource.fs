@@ -81,7 +81,7 @@ module Internal =
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
         client : Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         tranches, ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,

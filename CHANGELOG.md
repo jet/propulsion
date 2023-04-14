@@ -16,6 +16,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Scheduler`: Split out stats re `rateLimited` and `timedOut` vs `exceptions` [#194](https://github.com/jet/propulsion/pull/194)
 - `Scheduler`: `purgeInterval` to control memory usage [#97](https://github.com/jet/propulsion/pull/97)
 - `Scheduler`: `wakeForResults` option to maximize throughput (without having to drop sleep interval to zero) [#161](https://github.com/jet/propulsion/pull/161)
+- `Sinks`, `Sinks.Config`: top level APIs for wiring common sink structures [#208](https://github.com/jet/propulsion/pull/208)
 - `Ingester`: Expose optional `ingesterStatsInterval` control [#154](https://github.com/jet/propulsion/pull/154)
 - `Internal.Async.AwaitKeyboardInterruptAsTaskCanceledException`: Honored cancellation; moved to `Propulsion.Internal` [#160](https://github.com/jet/propulsion/pull/160)
 - `Propulsion.EventStoreDb`: Ported `EventStore` to target `Equinox.EventStore` >= `4.0.0` (using the gRPC interface)  [#139](https://github.com/jet/propulsion/pull/139)
@@ -39,7 +40,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Scheduler`: Replaced `Concurrent*` with `System.Threading.Channels` [#156](https://github.com/jet/propulsion/pull/156)
 - `Scheduler`: `Struct`/`voption` conversions; buffer reuse  [#157](https://github.com/jet/propulsion/pull/157)
 - `Scheduler`: Replaced `Thead.Sleep` with `Task.WhenAny`; Added Sleep time logging [#161](https://github.com/jet/propulsion/pull/161)
-- `Streams`: Changed dominant `ITimelineEvent` `EventBody` type from `byte[]` to `System.ReadOnlyMemory<byte>` (`Streams.Default.EventBody`) [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
+- `Streams`: Changed dominant `ITimelineEvent` `EventBody` type from `byte[]` to `System.ReadOnlyMemory<byte>` (`Sinks.EventBody`) [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
 - `Propulsion.CosmosStore`: Changed to target `Equinox.CosmosStore` v `4.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.EventStore`: Pinned to target `Equinox.EventStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.EventStoreDb`** [#139](https://github.com/jet/propulsion/pull/139)
@@ -49,7 +50,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Removed
 
-- `Streams.StreamSpan`: Changed from a record to individual arguments of `FsCodec.StreamName` and `Streams.Default.Event[]` [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
+- `Streams.StreamSpan`: Changed from a record to individual arguments of `FsCodec.StreamName` and `Sinks.Event[]` [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
 - `Propulsion.Cosmos`: Should not be in general use - users should port to `Propulsion.CosmosStore3`, then `Propulsion.CosmosStore` [#193](https://github.com/jet/propulsion/pull/193)
 - `Destructurama.FSharp` dependency [#152](https://github.com/jet/propulsion/pull/152)
 - `Ingester`,`Submitter`: Removed requirement to specify sleep intervals [#154](https://github.com/jet/propulsion/pull/154)

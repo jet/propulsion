@@ -34,7 +34,7 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<Propulsion.Streams.Default.EventBody> =
+    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<Propulsion.Sinks.EventBody> =
         { items = items; checkpoint = position; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.positionOfEpochAndOffset epochId offset) false items
@@ -146,7 +146,7 @@ module internal EventLoadMode =
 type DynamoStoreSource
     (   log : Serilog.ILogger, statsInterval,
         indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid having to read from the Store Table
         mode : EventLoadMode,
         // The whitelist of Categories to use

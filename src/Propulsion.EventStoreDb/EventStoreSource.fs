@@ -5,7 +5,7 @@ module private Impl =
     open EventStore.Client
     open FSharp.Control
 
-    let private toItems categoryFilter (events : EventRecord[]) : Propulsion.Streams.Default.StreamEvent[] = [|
+    let private toItems categoryFilter (events : EventRecord[]) : Propulsion.Sinks.StreamEvent[] = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
             if categoryFilter (FsCodec.StreamName.category sn) then
@@ -33,7 +33,7 @@ module private Impl =
 type EventStoreSource
     (   log : Serilog.ILogger, statsInterval,
         client : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use

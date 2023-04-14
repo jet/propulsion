@@ -339,13 +339,13 @@ module Project =
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle (stream : FsCodec.StreamName) (span : Propulsion.Streams.Default.Event[]) ct = task {
+            let handle (stream : FsCodec.StreamName) (span : Propulsion.Sinks.Event[]) ct = task {
                 match producer with
                 | None -> ()
                 | Some producer ->
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Newtonsoft.Json.JsonConvert.SerializeObject
                     return! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore |> Async.startImmediateAsTask ct }
-            Propulsion.Streams.StreamsSink.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, Propulsion.Streams.Default.eventSize, idleDelay = a.IdleDelay)
+            Propulsion.Streams.StreamsSink.Start(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, stats.StatsInterval, Propulsion.Sinks.Event.eventSize, idleDelay = a.IdleDelay)
         let source =
             let nullFilter _ = true
             match storeArgs with
