@@ -1190,7 +1190,7 @@ module Default =
     type Config =
 
         /// Project Events using a C#/Task-friendly <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
-        static member Start<'Outcome>
+        static member StartEx<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
                 handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
                 stats, statsInterval,
@@ -1209,13 +1209,14 @@ module Default =
                 ?requireCompleteStreams = requireCompleteStreams)
 
         /// Project Events using an F# Async <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
+        /// See also StartEx
         static member Start<'Outcome>
             (   log, maxReadAhead, maxConcurrentStreams,
                 handle : FsCodec.StreamName -> Event[] -> Async<struct (SpanResult * 'Outcome)>,
                 stats, statsInterval,
                 [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
                 [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
-            Config.Start(log, maxReadAhead, maxConcurrentStreams,
+            Config.StartEx(log, maxReadAhead, maxConcurrentStreams,
                 (fun stream events ct -> Async.startImmediateAsTask ct (handle stream events)),
                 stats, statsInterval,
                 ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
