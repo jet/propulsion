@@ -1,5 +1,6 @@
 module Propulsion.MessageDb.Integration.Tests
 
+open System.Diagnostics
 open FSharp.Control
 open Npgsql
 open NpgsqlTypes
@@ -29,6 +30,15 @@ let createStreamMessage streamName =
     cmd.Parameters.AddWithValue("Data", NpgsqlDbType.Jsonb, """{"name": "world"}""") |> ignore
     cmd
 
+[<Literal>]
+let ConnectionString = "Host=localhost; Port=5433; Username=message_store; Password=;"
+
+let connect () = task {
+    let conn = new NpgsqlConnection(ConnectionString)
+    do! conn.OpenAsync()
+    return conn
+}
+
 let writeMessagesToStream (conn: NpgsqlConnection) streamName = task {
     let batch = conn.CreateBatch()
     for _ in 1..20 do
@@ -36,13 +46,10 @@ let writeMessagesToStream (conn: NpgsqlConnection) streamName = task {
         batch.BatchCommands.Add(cmd)
     do! batch.ExecuteNonQueryAsync() :> Task }
 
-let writeMessagesToCategory category = task {
-    use conn = new NpgsqlConnection("Host=localhost; Port=5433; Username=message_store; Password=;")
-    do! conn.OpenAsync()
+let writeMessagesToCategory conn category = task {
     for _ in 1..50 do
         let streamName = $"{category}-{Guid.NewGuid():N}"
         do! writeMessagesToStream conn streamName
-    do! conn.CloseAsync()
 }
 
 let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
@@ -56,13 +63,13 @@ let makeCheckpoints consumerGroup = task {
 }
 [<Fact>]
 let ``It processes events for a category`` () = task {
+    use! conn = connect ()
     let log = Serilog.Log.Logger
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category1 = $"{Guid.NewGuid():N}"
     let category2 = $"{Guid.NewGuid():N}"
-    do! writeMessagesToCategory category1
-    do! writeMessagesToCategory category2
-    let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
+    do! writeMessagesToCategory conn category1
+    do! writeMessagesToCategory conn category2
     let! checkpoints = makeCheckpoints consumerGroup
     let stats = stats log
     let mutable stop = ignore
@@ -78,7 +85,7 @@ let ``It processes events for a category`` () = task {
     use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
-        connString, 1000, TimeSpan.FromMilliseconds 100,
+        ConnectionString, 1000, TimeSpan.FromMilliseconds 100,
         checkpoints, sink, [| category1; category2 |])
     use src = source.Start()
     stop <- src.Stop
@@ -95,21 +102,21 @@ let ``It processes events for a category`` () = task {
     let ordering = handled |> Seq.groupBy fst |> Seq.map (snd >> Seq.map snd >> Seq.toArray) |> Seq.toArray
     test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @> }
 
-type LogSink() =
-    let mutable items = 0
-    let mutable pages = 0
-    let mutable calledTimes = 0
-    member _.Events = items
-    member _.Pages = pages
-    member _.CallCount = calledTimes
-    interface ILogEventSink with
-        member _.Emit(logEvent) =
-            match logEvent with
-            | Propulsion.Feed.Core.Log.MetricEvent (Propulsion.Feed.Core.Log.Metric.Read r) ->
-                calledTimes <- calledTimes + 1
-                items <- items + r.items
-                pages <- pages + r.pages
-            | _ -> ()
+
+type ActivityCapture() =
+    let operations = ResizeArray()
+    let listener =
+         let l = new ActivityListener()
+         l.Sample <- fun _ -> ActivitySamplingResult.AllDataAndRecorded
+         l.ShouldListenTo <- fun s -> s.Name = "Npgsql"
+         l.ActivityStopped <- fun act -> operations.Add(act)
+
+         ActivitySource.AddActivityListener(l)
+         l
+
+    member _.Operations = operations
+    interface IDisposable with
+      member _.Dispose() = listener.Dispose()
 
 [<Fact>]
 let ``It doesn't read the tail event again`` () = task {
@@ -117,27 +124,25 @@ let ``It doesn't read the tail event again`` () = task {
     let log = LoggerConfiguration().WriteTo.Sink(logSink).CreateLogger()
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category = $"{Guid.NewGuid():N}"
-    let connString = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
-    use conn = new NpgsqlConnection(connString)
-    do! conn.OpenAsync()
+    use! conn = connect ()
     do! writeMessagesToStream conn $"{category}-1"
-    do! conn.CloseAsync()
     let! checkpoints = makeCheckpoints consumerGroup
 
     let stats = stats log
 
     let handle _ _ _ = task {
         return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.Start(log, 10, 1, handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Streams.Default.Config.Start(log, 1, 1, handle, stats, TimeSpan.FromMinutes 1)
+    let batchSize = 10
     let source = MessageDbSource(
-        log, TimeSpan.FromMilliseconds 10,
-        connString, 10, TimeSpan.FromMilliseconds 10,
+        log, TimeSpan.FromMilliseconds 1000,
+        ConnectionString, batchSize, TimeSpan.FromMilliseconds 1000,
         checkpoints, sink, [| category |])
 
-    use src = source.Start()
+    use capture = new ActivityCapture()
 
-    while logSink.CallCount < 3 do ()
+    do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) :> Task
 
-    test <@ logSink.Events = 20 @>
-    test <@ logSink.Pages = 2 @> }
+    // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
+    test <@ capture.Operations.Count = 5 @> }
 
