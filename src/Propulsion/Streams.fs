@@ -881,7 +881,7 @@ module Dispatcher =
 
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
-        (   select : Scheduling.Item<'F> seq -> Scheduling.Item<'F>[],
+        (   select : Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
             handle : Scheduling.Item<'F>[] -> CancellationToken ->
                      Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]>) =
         let inner = DopDispatcher 1
@@ -891,7 +891,7 @@ module Dispatcher =
         // we propagate the selected streams to the handler
         let trySelect (potential : seq<Scheduling.Item<'F>>) markStarted =
             let mutable hasCapacity, dispatched = true, false
-            let streams : Scheduling.Item<'F>[] = select potential
+            let streams : Scheduling.Item<'F>[] = select.Invoke potential
             if Array.any streams then
                 let res = inner.TryAdd(handle streams)
                 if not res then failwith "Checked we can add, what gives?"
@@ -1014,14 +1014,14 @@ module SpanResult =
 
 type BatchesSink =
 
+    /// Establishes a Sink pipeline that continually dispatches to a single instance of a <c>handle</c> function
+    /// Prior to the dispatch, the potential streams to include in the batch are identified by the <c>select</c> function
     static member Start<'Progress, 'Outcome, 'F>
         (   log : ILogger, maxReadAhead,
-            select, handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Choice<int64, exn>>>>,
+            select : Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>, handle : Func<Scheduling.Item<'F>[], CancellationToken, Task<seq<Choice<int64, exn>>>>,
             stats, statsInterval, eventSize,
             ?pendingBufferSize,
-            ?purgeInterval,
-            ?wakeForResults,
-            ?idleDelay,
+            ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?ingesterStatsInterval, ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items : Scheduling.Item<'F>[]) ct
@@ -1214,75 +1214,3 @@ module Sync =
                     (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
             Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, statsInterval)
-(*
-module Default =
-
-    /// Canonical Data/Meta type supplied by the majority of Sources
-    type EventBody = ReadOnlyMemory<byte>
-
-    /// Timeline Event with Data/Meta in the default format
-    type Event = FsCodec.ITimelineEvent<EventBody>
-    let eventSize (x : Event) = x.Size
-    let jsonSize (x : Event) = eventSize x + 80
-
-    /// A Single Event from an Ordered stream, using the Canonical Data/Meta type
-    type StreamEvent = StreamEvent<EventBody>
-
-    type Sink = Sink<Ingestion.Ingester<StreamEvent seq>>
-
-    /// Stream State as provided to the <c>select</c> function for a <c>BatchesSink</c>
-    type SchedulingItem = Scheduling.Item<EventBody>
-
-    type Config private () =
-
-        /// Project Events using a C#/Task-friendly <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
-        static member StartEx<'Outcome>
-            (   log, maxReadAhead, maxConcurrentStreams,
-                handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
-                stats, statsInterval,
-                // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-                [<O; D null>] ?pendingBufferSize,
-                [<O; D null>] ?purgeInterval,
-                [<O; D null>] ?wakeForResults,
-                [<O; D null>] ?idleDelay,
-                [<O; D null>] ?ingesterStatsInterval,
-                [<O; D null>] ?requireCompleteStreams)
-            : Sink =
-            StreamsSink.Start<'Outcome, EventBody>(
-                log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
-                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
-                ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
-                ?requireCompleteStreams = requireCompleteStreams)
-
-        /// Project Events using an F# Async <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
-        /// See also StartEx
-        static member Start<'Outcome>
-            (   log, maxReadAhead, maxConcurrentStreams,
-                handle : FsCodec.StreamName -> Event[] -> Async<struct (SpanResult * 'Outcome)>,
-                stats, statsInterval,
-                [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
-                [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
-            Config.StartEx(log, maxReadAhead, maxConcurrentStreams,
-                (fun stream events ct -> Async.startImmediateAsTask ct (handle stream events)),
-                stats, statsInterval,
-                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
-
-        static member StartBatched<'Outcome>
-            (   log, maxReadAhead,
-                select : SchedulingItem seq -> SchedulingItem[],
-                handle : Func<SchedulingItem[], CancellationToken, Task<seq<Choice<SpanResult, exn>>>>,
-                stats, statsInterval,
-                [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
-                [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
-            let handle items ct = task {
-                let! res = handle.Invoke(items, ct)
-                return seq { for i, r in Seq.zip items res ->
-                                match r with
-                                | Choice1Of2 sr -> Choice1Of2 (SpanResult.toIndex i.span sr)
-                                | Choice2Of2 ex -> Choice2Of2 ex }
-            }
-            BatchesSink.Start(log, maxReadAhead, select, handle, stats, statsInterval, eventSize,
-                ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-                ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
-*)
