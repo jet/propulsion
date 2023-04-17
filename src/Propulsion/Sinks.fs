@@ -37,15 +37,15 @@ type StreamResult =
    /// Apply an externally observed Version determined by the handler during processing.
    /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
    /// events that have already been handled be dropped from the scheduler's buffers and/or as they arrive.
-   | OverrideWritePosition of version : int64
+   | OverrideNextIndex of version : int64
 
 module StreamResult =
 
     let toIndex<'F> (span : FsCodec.ITimelineEvent<'F>[]) = function
-        | NoneProcessed -> span[0].Index
-        | AllProcessed -> span[0].Index + span.LongLength
-        | PartiallyProcessed count -> span[0].Index + int64 count
-        | OverrideWritePosition index -> index
+        | NoneProcessed ->              span[0].Index
+        | AllProcessed ->               span[0].Index + span.LongLength
+        | PartiallyProcessed count ->   span[0].Index + int64 count
+        | OverrideNextIndex index ->    index
 
 /// Internal helpers used to compute buffer sizes for stats
 module Event =

@@ -122,7 +122,7 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Sinks.SchedulingItem[]) ct = task {
+            let handle (streams : Propulsion.Sinks.StreamState[]) ct = task {
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do

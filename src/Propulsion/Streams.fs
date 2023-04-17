@@ -621,7 +621,7 @@ module Scheduling =
         abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Result<'P, 'E> -> struct (int64 voption * Result<'R, 'E>)
     and [<Struct; NoComparison; NoEquality>]
-        Item<'Format> = { stream : FsCodec.StreamName; writePos : int64 voption; span : FsCodec.ITimelineEvent<'Format>[] }
+        Item<'Format> = { stream: FsCodec.StreamName; nextIndex: int64 voption; span: FsCodec.ITimelineEvent<'Format>[] }
 
     /// Consolidates ingested events into streams; coordinates dispatching of these to projector/ingester in the order implied by the submission order
     /// a) does not itself perform any reading activities
@@ -676,7 +676,7 @@ module Scheduling =
             if requireCompleteStreams && Option.isSome purgeInterval then invalidArg (nameof requireCompleteStreams) "Cannot be combined with a purgeInterval"
             fun stream ->
                 streams.ChooseDispatchable(stream, not requireCompleteStreams)
-                |> ValueOption.map (fun ss -> { stream = stream; writePos = ss.WritePos; span = ss.HeadSpan })
+                |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems : seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
             let handleStarted (stream, ts) = stats.HandleStarted(stream, ts); streams.MarkBusy(stream)
