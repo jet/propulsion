@@ -44,11 +44,12 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
 
     abstract member HandleOk : outcome : 'Outcome -> unit
 
-type Factory =
+type Factory private () =
 
     static member StartAsync
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (Propulsion.Sinks.StreamResult * 'Outcome)>>,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
+            toIndex : Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
             stats : Stats<'Outcome>, sliceSize, eventSize,
             ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
@@ -59,7 +60,7 @@ type Factory =
             let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
             let prepareTs = Stopwatch.timestamp ()
             try let! res, outcome = handle.Invoke(stream, span', ct)
-                let index' = Propulsion.Sinks.StreamResult.toIndex span' res
+                let index' = toIndex.Invoke(span', res)
                 return struct (index' > events[0].Index, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
             with e -> return struct (false, Error struct (met, e)) }
 
@@ -79,23 +80,3 @@ type Factory =
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
-
-    static member Start
-        (   log, maxReadAhead, maxConcurrentStreams,
-            handle : FsCodec.StreamName -> Propulsion.Sinks.Event[] -> Async<Propulsion.Sinks.StreamResult * 'Outcome>,
-            stats : Stats<'Outcome>,
-            // Default 1 ms
-            ?idleDelay,
-            // Default 1 MiB
-            ?maxBytes,
-            // Default 16384
-            ?maxEvents,
-            // Hook to wire in external stats
-            ?dumpExternalStats,
-            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
-            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
-        : Propulsion.Sinks.Sink =
-        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
-        Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats, Propulsion.Sinks.Event.renderedSize, Propulsion.Sinks.Event.storedSize,
-                           ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)

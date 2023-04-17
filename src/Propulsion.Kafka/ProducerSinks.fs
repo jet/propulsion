@@ -22,7 +22,7 @@ type ParallelProducerSink =
 
 type StreamsProducerSink =
 
-   static member StartAsync
+    static member StartAsync
         (   log : ILogger, maxReadAhead,
             maxConcurrentStreams, prepare : Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
@@ -50,12 +50,12 @@ type StreamsProducerSink =
                 return struct (StreamResult.AllProcessed, outcome)
             }
             Sync.Factory.StartAsync
-                (    log, maxReadAhead, maxConcurrentStreams, handle,
-                     stats, Event.renderedSize, Event.storedSize,
-                     maxBytes = maxBytes, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
-                     ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
+                (   log, maxReadAhead, maxConcurrentStreams, handle, StreamResult.toIndex,
+                    stats, Event.renderedSize, Event.storedSize,
+                    maxBytes = maxBytes, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
+                    ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
 
-   static member Start
+    static member Start
         (   log, maxReadAhead,
             maxConcurrentStreams, prepare : StreamName -> Event[] -> Async<(string * string) option * 'Outcome>,
             producer,
@@ -70,7 +70,7 @@ type StreamsProducerSink =
             log, maxReadAhead, maxConcurrentStreams, prepare', producer, stats,
             ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
 
-   static member StartAsync
+    static member StartAsync
         (   log : ILogger, maxReadAhead,
             maxConcurrentStreams, prepare : Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
             producer : Producer, stats : Sync.Stats<unit>,
@@ -89,11 +89,11 @@ type StreamsProducerSink =
                 return struct (ValueSome kv, ())
             }
             StreamsProducerSink.StartAsync
-                (    log, maxReadAhead, maxConcurrentStreams, prepare', producer, stats,
-                     ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
-                     ?maxEvents = maxEvents)
+                (   log, maxReadAhead, maxConcurrentStreams, prepare', producer, stats,
+                    ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
+                    ?maxEvents = maxEvents)
 
-   static member Start
+    static member Start
         (   log, maxReadAhead,
             maxConcurrentStreams, prepare : StreamName -> Event[] -> Async<string * string>,
             producer,
