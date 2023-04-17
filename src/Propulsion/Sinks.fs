@@ -12,20 +12,13 @@ type EventBody = ReadOnlyMemory<byte>
 /// Timeline Event with Data/Meta in the default format
 type Event = FsCodec.ITimelineEvent<EventBody>
 
-/// Internal helpers used to compute buffer sizes for stats
-module Event =
+/// Helpers for use with spans of events as supplied to a handler
+module Events =
 
-    let storedSize (x : Event) = x.Size
-    let renderedSize (x : Event) = storedSize x + 80
-
-/// A Single Event from an Ordered stream, using the Canonical Data/Meta type
-type StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
-
-/// Canonical Sink type that the bulk of Sources are configured to feed into
-type Sink = Propulsion.Sink<Ingestion.Ingester<StreamEvent seq>>
-
-/// Stream State as provided to the <c>select</c> function for a <c>BatchesSink</c>
-type SchedulingItem = Propulsion.Streams.Scheduling.Item<EventBody>
+    /// The Index of the next event ordinarily expected on the next handler invocation (assuming this invocation handles all successfully)
+    let nextIndex : Event[] -> int64 = Streams.StreamSpan.ver
+    /// The Index of the first event as supplied to this handler
+    let index : Event[] -> int64 = Streams.StreamSpan.idx
 
 /// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
@@ -53,6 +46,20 @@ module StreamResult =
         | AllProcessed -> span[0].Index + span.LongLength
         | PartiallyProcessed count -> span[0].Index + int64 count
         | OverrideWritePosition index -> index
+
+/// Internal helpers used to compute buffer sizes for stats
+module Event =
+
+    let storedSize (x : Event) = x.Size
+    let renderedSize (x : Event) = storedSize x + 80
+
+/// Canonical Sink type that the bulk of Sources are configured to feed into
+type Sink = Propulsion.Sink<Ingestion.Ingester<StreamEvent seq>>
+/// A Single Event from an Ordered stream ready to be fed into a Sink's Ingester, using the Canonical Data/Meta type
+and StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
+
+/// Stream State as provided to the <c>select</c> function for a <c>StartBatched</c>
+type SchedulingItem = Propulsion.Streams.Scheduling.Item<EventBody>
 
 type Factory private () =
 
