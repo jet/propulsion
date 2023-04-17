@@ -48,8 +48,8 @@ type Factory =
 
     static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
-            stats : Stats<'Outcome>, statsInterval, sliceSize, eventSize,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (Propulsion.Sinks.StreamResult * 'Outcome)>>,
+            stats : Stats<'Outcome>, sliceSize, eventSize,
             // Default 1 ms
             ?idleDelay,
             // Default 1 MiB
@@ -69,7 +69,7 @@ type Factory =
             let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
             let prepareTs = Stopwatch.timestamp ()
             try let! res, outcome = handle.Invoke(stream, span', ct)
-                let index' = SpanResult.toIndex span' res
+                let index' = Propulsion.Sinks.StreamResult.toIndex span' res
                 return struct (index' > events[0].Index, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
             with e -> return struct (false, Error struct (met, e)) }
 
@@ -88,4 +88,4 @@ type Factory =
             Scheduling.Engine<struct (int64 * struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, statsInterval)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)

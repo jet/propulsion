@@ -86,7 +86,7 @@ type CosmosStorePruner =
             let interpret _stream span =
                 let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ -> id))
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ r -> r))
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
         let dumpStreams logStreamStates _log = logStreamStates Event.storedSize

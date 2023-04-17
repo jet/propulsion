@@ -168,7 +168,7 @@ module Helpers =
             let handle _ (span : Propulsion.Sinks.Event[]) ct = task {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
-                return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
+                return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =

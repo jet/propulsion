@@ -1,10 +1,9 @@
 module Propulsion.MessageDb.Integration.Tests
 
-open FSharp.Control
 open Npgsql
 open NpgsqlTypes
-open Propulsion.MessageDb
 open Propulsion.Internal
+open Propulsion.MessageDb
 open Swensen.Unquote
 open System
 open System.Collections.Generic
@@ -59,6 +58,7 @@ let makeCheckpoints consumerGroup = task {
     do! checkpoints.CreateSchemaIfNotExists()
     return checkpoints
 }
+
 [<Fact>]
 let ``It processes events for a category`` () = task {
     use! conn = connect ()
@@ -79,8 +79,8 @@ let ``It processes events for a category`` () = task {
         test <@ Array.chooseV Simple.codec.TryDecode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
         if handled.Count >= 2000 then
             stop ()
-        return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
+        return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
         ConnectionString, 1000, TimeSpan.FromMilliseconds 100,
@@ -100,7 +100,6 @@ let ``It processes events for a category`` () = task {
     let ordering = handled |> Seq.groupBy fst |> Seq.map (snd >> Seq.map snd >> Seq.toArray) |> Seq.toArray
     test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @> }
 
-
 type ActivityCapture() =
     let operations = ResizeArray()
     let listener =
@@ -114,11 +113,11 @@ type ActivityCapture() =
 
     member _.Operations = operations
     interface IDisposable with
-      member _.Dispose() = listener.Dispose()
+        member _.Dispose() = listener.Dispose()
 
 [<Fact>]
 let ``It doesn't read the tail event again`` () = task {
-    let log = Serilog.Log.Logger
+    let log = Serilog.LoggerConfiguration().CreateLogger()
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category = $"{Guid.NewGuid():N}"
     use! conn = connect ()
@@ -128,8 +127,8 @@ let ``It doesn't read the tail event again`` () = task {
     let stats = stats log
 
     let handle _ _ _ = task {
-        return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 1, handle, stats, TimeSpan.FromMinutes 1)
+        return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 1, handle, stats)
     let batchSize = 10
     let source = MessageDbSource(
         log, TimeSpan.FromMilliseconds 1000,

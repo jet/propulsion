@@ -859,11 +859,11 @@ module Dispatcher =
                 let! struct (progressed, res) = project item.stream item.span ct
                 return struct (Stopwatch.elapsed startTs, item.stream, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
-        static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex) =
+        static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex : Func<_, 'R, int64>) =
             let project sn span ct = task {
                 let struct (met, span : FsCodec.ITimelineEvent<'F>[]) = prepare.Invoke(sn, span)
                 try let! struct (spanResult, outcome) = handle.Invoke(sn, span, ct)
-                    let index' = toIndex span spanResult
+                    let index' = toIndex.Invoke(span, spanResult)
                     return struct (index' > span[0].Index, Ok struct (index', met, outcome))
                 with e -> return struct (false, Error struct (met, e)) }
             let interpretProgress (_streams : Scheduling.StreamStates<'F>) _stream = function
@@ -985,43 +985,16 @@ module Projector =
             let startIngester (rangeLog, partitionId : int) = StreamsIngester.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
             Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
-/// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
-/// This will be reflected in adjustments to the Write Position for the stream in question.
-/// Incoming <c>StreamEvent</c>s with <c>Index</c>es prior to the Write Position implied by the result are proactively
-/// dropped from incoming buffers, yielding increased throughput due to reduction of redundant processing.
-type SpanResult =
-   /// Indicates no events where processed.
-   /// Handler should be supplied the same events (plus any that arrived in the interim) in the next scheduling cycle.
-   | NoneProcessed
-   /// Indicates all <c>Event</c>s supplied have been processed.
-   /// Write Position should move beyond the last event supplied.
-   | AllProcessed
-   /// Indicates only a subset of the presented events have been processed;
-   /// Write Position should remove <c>count</c> items from the <c>Event</c>s supplied.
-   | PartiallyProcessed of count : int
-   /// Apply an externally observed Version determined by the handler during processing.
-   /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
-   /// events that have already been handled be dropped from the scheduler's buffers and/or as they arrive.
-   | OverrideWritePosition of version : int64
-
-module SpanResult =
-
-    let toIndex<'F> (span : FsCodec.ITimelineEvent<'F>[]) = function
-        | NoneProcessed -> span[0].Index
-        | AllProcessed -> span[0].Index + span.LongLength
-        | PartiallyProcessed count -> span[0].Index + int64 count
-        | OverrideWritePosition index -> index
-
 type Concurrent private () =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
     /// and a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
-    static member StartEx<'Progress, 'Outcome, 'F>
+    static member StartEx<'Progress, 'Outcome, 'F, 'R>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], struct(StreamSpan.Metrics * FsCodec.ITimelineEvent<'F>[])>,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
-            toIndex,
-            stats, statsInterval, eventSize,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
+            toIndex : Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
+            eventSize, stats : Scheduling.Stats<_, _>,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
@@ -1038,13 +1011,14 @@ type Concurrent private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
 
     /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
-    static member Start<'Outcome, 'F>
+    static member Start<'Outcome, 'F, 'R>
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (SpanResult * 'Outcome)>>,
-            stats, statsInterval, eventSize,
+            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
+            toIndex : Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
+            eventSize, stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize,
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
@@ -1060,34 +1034,10 @@ type Concurrent private () =
         let prepare _streamName span =
             let metrics = StreamSpan.metrics eventSize span
             struct (metrics, span)
-        Concurrent.StartEx<SpanResult, 'Outcome, 'F>(
-            log, maxReadAhead, maxConcurrentStreams, prepare, handle, SpanResult.toIndex, stats, statsInterval, eventSize,
+        Concurrent.StartEx<'R, 'Outcome, 'F, 'R>(
+            log, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, eventSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
-
-    /// Project Events using a <code>handle</code> function that guarantees to always handles all events supplied
-    static member Start<'Outcome, 'F>
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<'Outcome>>,
-            stats, statsInterval, eventSize,
-            // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
-            [<O; D null>] ?pendingBufferSize,
-            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
-            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            [<O; D null>] ?purgeInterval,
-            // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
-            [<O; D null>] ?wakeForResults,
-            // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
-        let handle streamName (events : FsCodec.ITimelineEvent<'F>[]) ct = task {
-            let! res = handle.Invoke(streamName, events, ct)
-            return struct (SpanResult.AllProcessed, res) }
-        Concurrent.Start<'Outcome, 'F>(
-            log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, eventSize,
-            ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-            ?ingesterStatsInterval = ingesterStatsInterval)
 
 type Batched private () =
 
@@ -1096,7 +1046,7 @@ type Batched private () =
     static member Start<'Progress, 'Outcome, 'F>
         (   log : ILogger, maxReadAhead,
             select : Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>, handle : Func<Scheduling.Item<'F>[], CancellationToken, Task<seq<Result<int64, exn>>>>,
-            stats, statsInterval, eventSize,
+            eventSize, stats : Scheduling.Stats<_, _>,
             ?pendingBufferSize,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?ingesterStatsInterval, ?requireCompleteStreams)
@@ -1130,4 +1080,4 @@ type Batched private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)

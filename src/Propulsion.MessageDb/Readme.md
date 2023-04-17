@@ -23,10 +23,7 @@ let quickStart log stats categories handle = async {
     let connStr = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let maxReadAhead = 100
     let maxConcurrentStreams = 2
-    use sink = 
-        Propulsion.Sinks.Factory.StartConcurrent(
-            log, maxReadAhead, maxConcurrentStreams, 
-            handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Sinks.Factory.StartConcurrent(log, maxReadAhead, maxConcurrentStreams, handle, stats)
         
     use src = 
         MessageDbSource(
@@ -46,7 +43,7 @@ let quickStart log stats categories handle = async {
     
 let handle stream (events: Propulsion.Sinks.Event[]) = async {
     // ... process the events
-    return Propulsion.Streams.SpanResult.AllProcessed, () }
+    return Propulsion.Sinks.StreamResult.AllProcessed, () }
     
 quickStart Log.Logger (createStats ()) [| category |] handle
 ```

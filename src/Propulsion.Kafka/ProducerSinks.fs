@@ -18,7 +18,7 @@ type ParallelProducerSink =
             let struct (key, value) = render.Invoke item
             do! producer.Produce(key, value, ?headers = None, ct = ct) }
         Parallel.Factory.Start(Log.Logger, maxReadAhead, maxDop, (fun x ct -> handle x ct |> Task.Catch),
-                                    statsInterval = statsInterval, logExternalStats = producer.DumpStats)
+                               statsInterval = statsInterval, logExternalStats = producer.DumpStats)
 
 type StreamsProducerSink =
 
@@ -26,7 +26,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
-            stats : Sync.Stats<'Outcome>, statsInterval,
+            stats : Sync.Stats<'Outcome>,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -47,31 +47,31 @@ type StreamsProducerSink =
                     | _ -> ()
                     do! producer.Produce(key, message, ct = ct)
                 | ValueNone -> ()
-                return struct (Streams.SpanResult.AllProcessed, outcome)
+                return struct (StreamResult.AllProcessed, outcome)
             }
             Sync.Factory.Start
                 (    log, maxReadAhead, maxConcurrentStreams, handle,
-                     stats, statsInterval, Event.renderedSize, Event.storedSize,
+                     stats, Event.renderedSize, Event.storedSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
 
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName -> Event[] -> Async<struct (struct (string * string) voption * 'Outcome)>,
-            producer, stats, statsInterval,
+            producer, stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
-            producer, stats, statsInterval,
+            producer, stats,
             ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
 
    static member Start
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
             producer : Producer,
-            stats : Sync.Stats<unit>, statsInterval,
+            stats : Sync.Stats<unit>,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -88,17 +88,19 @@ type StreamsProducerSink =
             }
             StreamsProducerSink.Start
                 (    log, maxReadAhead, maxConcurrentStreams, Func<_, _, _, _>(prepare), producer,
-                     stats, statsInterval,
+                     stats,
                      ?idleDelay = idleDelay, ?purgeInterval = purgeInterval, ?maxBytes = maxBytes,
                      ?maxEvents = maxEvents)
+
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName -> Event[] -> Async<struct (string * string)>,
-            producer, stats, statsInterval,
+            producer,
+            stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Sink =
         StreamsProducerSink.Start(
             log, maxReadAhead, maxConcurrentStreams,
             (fun sn ss ct -> Async.startImmediateAsTask ct (prepare sn ss)),
-            producer, stats, statsInterval,
+            producer, stats,
             ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
