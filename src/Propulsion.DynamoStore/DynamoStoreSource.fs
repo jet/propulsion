@@ -130,7 +130,7 @@ module internal EventLoadMode =
         fun sn (i, cs : string[]) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
                 ValueSome (fun ct -> task {
-                               let! _pos, events = eventsContext.Read(FsCodec.StreamName.toString sn, ct, i, maxCount = cs.Length)
+                               let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
                                return events |> Array.map mapTimelineEvent })
             else ValueNone
     let private withoutBodies categoryFilter =
