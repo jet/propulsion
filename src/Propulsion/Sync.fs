@@ -46,21 +46,11 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
 
 type Factory =
 
-    static member Start
+    static member StartAsync
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct (Propulsion.Sinks.StreamResult * 'Outcome)>>,
             stats : Stats<'Outcome>, sliceSize, eventSize,
-            // Default 1 ms
-            ?idleDelay,
-            // Default 1 MiB
-            ?maxBytes,
-            // Default 16384
-            ?maxEvents,
-            // Hook to wire in external stats
-            ?dumpExternalStats,
-            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
-            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
-            ?purgeInterval)
+            ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
 
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
@@ -89,3 +79,23 @@ type Factory =
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
+
+    static member Start
+        (   log, maxReadAhead, maxConcurrentStreams,
+            handle : FsCodec.StreamName -> Propulsion.Sinks.Event[] -> Async<Propulsion.Sinks.StreamResult * 'Outcome>,
+            stats : Stats<'Outcome>,
+            // Default 1 ms
+            ?idleDelay,
+            // Default 1 MiB
+            ?maxBytes,
+            // Default 16384
+            ?maxEvents,
+            // Hook to wire in external stats
+            ?dumpExternalStats,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval)
+        : Propulsion.Sinks.Sink =
+        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats, Propulsion.Sinks.Event.renderedSize, Propulsion.Sinks.Event.storedSize,
+                           ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)
