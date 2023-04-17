@@ -29,14 +29,14 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
     override this.Handle message =
         let inline adds x (set : HashSet<_>) = set.Add x |> ignore
         match message with
-        | { stream = stream; result = Choice1Of2 (((es, bs), prepareElapsed), outcome) } ->
+        | { stream = stream; result = Ok (((es, bs), prepareElapsed), outcome) } ->
             adds stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             prepareStats.Record prepareElapsed
             base.RecordOk message
             this.HandleOk outcome
-        | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
+        | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
             adds stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
@@ -70,15 +70,15 @@ type Factory =
             let prepareTs = Stopwatch.timestamp ()
             try let! res, outcome = handle.Invoke(stream, span', ct)
                 let index' = SpanResult.toIndex span' res
-                return struct (index' > events[0].Index, Choice1Of2 struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
-            with e -> return struct (false, Choice2Of2 struct (met, e)) }
+                return struct (index' > events[0].Index, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
+            with e -> return struct (false, Error struct (met, e)) }
 
         let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
-            | Choice1Of2 struct (i', stats, outcome) ->
-                struct (ValueSome i', Choice1Of2 struct (stats, outcome))
-            | Choice2Of2 struct (struct (eventCount, bytesCount) as stats, exn : exn) ->
+            | Ok struct (i', stats, outcome) ->
+                struct (ValueSome i', Ok struct (stats, outcome))
+            | Error struct (struct (eventCount, bytesCount) as stats, exn : exn) ->
                 log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
-                ValueNone, Choice2Of2 struct (stats, exn)
+                ValueNone, Error struct (stats, exn)
 
         let dispatcher : Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretWriteResultProgress)
         let dumpStreams logStreamStates log =

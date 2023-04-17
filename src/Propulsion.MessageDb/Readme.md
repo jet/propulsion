@@ -24,29 +24,29 @@ let quickStart log stats categories handle = async {
     let maxReadAhead = 100
     let maxConcurrentStreams = 2
     use sink = 
-      Propulsion.Sinks.Config.Start(
-        log, maxReadAhead, maxConcurrentStreams, 
-        handle, stats, TimeSpan.FromMinutes 1)
+        Propulsion.Sinks.Factory.StartConcurrent(
+            log, maxReadAhead, maxConcurrentStreams, 
+            handle, stats, TimeSpan.FromMinutes 1)
         
     use src = 
-      MessageDbSource(
-        log, statsInterval = TimeSpan.FromMinutes 1,
-        connStr, batchSize = 1000, 
-        // Controls the time to wait once fully caught up
-        // before requesting a new batch of events
-        tailSleepInterval = TimeSpan.FromMilliseconds 100,
-        checkpoints, sink,
-        // An array of message-db categories to subscribe to 
-        // Propulsion guarantees that events within streams are
-        // handled in order, it makes no guarantees across streams (Even within categories)
-        categories
-      ).Start()
-      
+        MessageDbSource(
+            log, statsInterval = TimeSpan.FromMinutes 1,
+            connStr, batchSize = 1000, 
+            // Controls the time to wait once fully caught up
+            // before requesting a new batch of events
+            tailSleepInterval = TimeSpan.FromMilliseconds 100,
+            checkpoints, sink,
+            // An array of message-db categories to subscribe to 
+            // Propulsion guarantees that events within streams are
+            // handled in order, it makes no guarantees across streams (Even within categories)
+            categories
+        ).Start()
+          
     do! src.Await() }
     
-let handle stream (events: Propulsion.Sinks.Event[]) _ct = task {
+let handle stream (events: Propulsion.Sinks.Event[]) = async {
     // ... process the events
-    return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
+    return Propulsion.Streams.SpanResult.AllProcessed, () }
     
 quickStart Log.Logger (createStats ()) [| category |] handle
 ```

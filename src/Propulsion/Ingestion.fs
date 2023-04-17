@@ -12,7 +12,7 @@ open System.Threading.Tasks
 type ProgressWriter<'Res when 'Res : equality>() =
     let mutable committedEpoch = None
     let mutable validatedPos = None
-    let result = Event<Choice<'Res, exn>>()
+    let result = Event<Result<'Res, exn>>()
 
     [<CLIEvent>] member _.Result = result.Publish
 
@@ -25,9 +25,9 @@ type ProgressWriter<'Res when 'Res : equality>() =
         match Volatile.Read &validatedPos with
         | Some (v, f) when Volatile.Read(&committedEpoch) <> Some v ->
             try do! f ct
-                result.Trigger(Choice1Of2 v)
+                result.Trigger(Ok v)
                 Volatile.Write(&committedEpoch, Some v)
-            with e -> result.Trigger(Choice2Of2 e)
+            with e -> result.Trigger(Error e)
         | _ -> () }
 
     member _.Post(version, f) =
@@ -38,7 +38,7 @@ type private InternalMessage =
     /// Confirmed completion of a batch
     | Validated of epoch : int64
     /// Result from updating of Progress to backing store - processed up to nominated `epoch` or threw `exn`
-    | ProgressResult of Choice<int64, exn>
+    | ProgressResult of Result<int64, exn>
     /// Internal message for stats purposes
     | Added of epoch : int64 * streams : int * events : int
 
@@ -61,10 +61,10 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
     member _.Handle : InternalMessage -> unit = function
         | Validated epoch ->
             validatedEpoch <- Some epoch
-        | ProgressResult (Choice1Of2 epoch) ->
+        | ProgressResult (Ok epoch) ->
             commits <- commits + 1
             committedEpoch <- Some epoch
-        | ProgressResult (Choice2Of2 (_exn : exn)) ->
+        | ProgressResult (Error (_exn : exn)) ->
             commitFails <- commitFails + 1
         | Added (epoch, streams, events) ->
             readEpoch <- Some epoch

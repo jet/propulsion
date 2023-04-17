@@ -50,10 +50,11 @@ type StreamsProducerSink =
                 return struct (Streams.SpanResult.AllProcessed, outcome)
             }
             Sync.Factory.Start
-                (    log, maxReadAhead, maxConcurrentStreams, (fun s e ct -> handle s e ct),
+                (    log, maxReadAhead, maxConcurrentStreams, handle,
                      stats, statsInterval, Event.renderedSize, Event.storedSize,
-                     maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
+                     maxBytes = maxBytes, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
+
    static member Start
         (   log, maxReadAhead, maxConcurrentStreams,
             prepare : StreamName -> Event[] -> Async<struct (struct (string * string) voption * 'Outcome)>,

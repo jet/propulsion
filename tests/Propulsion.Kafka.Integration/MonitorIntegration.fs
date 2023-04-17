@@ -21,7 +21,7 @@ let createConsumerConfig broker topic groupId =
 let startConsumerFromConfig log config handler =
     let handler' r _ct = task {
         do! handler r
-        return Choice1Of2 () }
+        return Ok () }
     ParallelConsumer.Start(log, config, testPartitionCount, id, handler')
 let startConsumer log broker topic groupId handler =
     let config = createConsumerConfig broker topic groupId

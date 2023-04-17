@@ -35,22 +35,22 @@ module Internal =
     module Writer =
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | RateLimited | TooLarge | Malformed | Other
 
-        type [<NoComparison;NoEquality>] Result =
+        type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
             | PartialDuplicate of overage : Event[]
             | PrefixMissing of batch : Event[] * writePos : int64
-        let logTo (log : ILogger) malformed (res : StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+        let logTo (log : ILogger) malformed (res : StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
-            | stream, Choice1Of2 (_, Ok pos) ->
+            | stream, Ok (_, Result.Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Choice1Of2 (_, Duplicate updatedPos) ->
+            | stream, Ok (_, Result.Duplicate updatedPos) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Choice1Of2 (_, PartialDuplicate overage) ->
+            | stream, Ok (_, Result.PartialDuplicate overage) ->
                 log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage[0].Index, overage.Length)
-            | stream, Choice1Of2 (_, PrefixMissing (batch, pos)) ->
+            | stream, Ok (_, Result.PrefixMissing (batch, pos)) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch[0].Index - pos, batch.Length, batch[0].Index)
-            | stream, Choice2Of2 (_, exn) ->
+            | stream, Error (_, exn) ->
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
@@ -64,12 +64,12 @@ module Internal =
 #endif
             let res' =
                 match res with
-                | AppendResult.Ok pos -> Ok pos.index
+                | AppendResult.Ok pos -> Result.Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
                     match pos.index with
-                    | actual when actual < span[0].Index -> PrefixMissing (span, actual)
-                    | actual when actual >= span[0].Index + span.LongLength -> Duplicate actual
-                    | actual -> PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
+                    | actual when actual < span[0].Index -> Result.PrefixMissing (span, actual)
+                    | actual when actual >= span[0].Index + span.LongLength -> Result.Duplicate actual
+                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
             log.Debug("Result: {res}", res')
             return res' }
         let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e : exn) =
@@ -121,7 +121,7 @@ module Internal =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             match message with
-            | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
+            | { stream = stream; result = Ok ((es, bs), res) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -131,7 +131,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 base.RecordOk(message)
-            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
+            | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -153,15 +153,15 @@ module Internal =
             let attemptWrite stream span ct = task {
                 let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
-                    return struct (span'.Length > 0, Choice1Of2 struct (met, res))
-                with e -> return struct (false, Choice2Of2 struct (met, e)) }
+                    return struct (span'.Length > 0, Ok struct (met, res))
+                with e -> return struct (false, Error struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 struct (_stats, Writer.Ok pos) ->                struct (streams.RecordWriteProgress(stream, pos, null), false)
-                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null), false
-                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
-                    | Choice2Of2 struct (_stats, exn) ->
+                    | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
+                    | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null), false
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
+                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
+                    | Error struct (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed), malformed
                 let struct (ss, malformed) = applyResultToStreamState res

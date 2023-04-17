@@ -51,14 +51,13 @@ type Factory private () =
     static member StartBatchedAsync<'Outcome>
         (   log, maxReadAhead,
             select : SchedulingItem seq -> SchedulingItem[],
-            handle : Func<SchedulingItem[], CancellationToken, Task<seq<Choice<Streams.SpanResult, exn>>>>,
+            handle : Func<SchedulingItem[], CancellationToken, Task<seq<Result<Streams.SpanResult, exn>>>>,
             stats, statsInterval,
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle items ct = task {
             let! res = handle.Invoke(items, ct)
-            let spanResultToStreamPos span = function Choice1Of2 sr -> Choice1Of2 (Streams.SpanResult.toIndex span sr) | Choice2Of2 ex -> Choice2Of2 ex
-            return seq { for i, r in Seq.zip items res -> spanResultToStreamPos i.span r } }
+            return seq { for i, r in Seq.zip items res -> Result.map (Streams.SpanResult.toIndex i.span) r } }
         Streams.Batched.Start(log, maxReadAhead, select, handle, stats, statsInterval, Event.storedSize,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
@@ -82,7 +81,7 @@ type Factory private () =
     static member StartBatched<'Outcome>
         (   log, maxReadAhead,
             select : SchedulingItem seq -> SchedulingItem[],
-            handle : SchedulingItem[] -> Async<seq<Choice<Streams.SpanResult, exn>>>,
+            handle : SchedulingItem[] -> Async<seq<Result<Streams.SpanResult, exn>>>,
             stats, statsInterval,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,

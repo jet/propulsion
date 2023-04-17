@@ -129,7 +129,7 @@ module Helpers =
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
                 (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
-                return [| for x in streams -> Choice1Of2 (Propulsion.Streams.StreamSpan.ver x.span) |] |> Seq.ofArray }
+                return [| for x in streams -> Ok (Propulsion.Streams.StreamSpan.ver x.span) |] |> Seq.ofArray }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =

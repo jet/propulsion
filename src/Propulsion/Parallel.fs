@@ -58,14 +58,14 @@ module Scheduling =
             x.faults.Push exn
 
         /// Prepares an initial set of shared state for a batch of tasks, together with the Async<unit> computations that will feed their results into it
-        static member Create(batch : Batch<'S, 'M>, handle : Func<_, CancellationToken, Task<Choice<unit, exn>>>) : WipBatch<'S, 'M> * seq<CancellationToken -> Task<unit>> =
+        static member Create(batch : Batch<'S, 'M>, handle : Func<_, CancellationToken, Task<Result<unit, exn>>>) : WipBatch<'S, 'M> * seq<CancellationToken -> Task<unit>> =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> fun ct -> task {
                     let ts = Stopwatch.timestamp ()
                     try match! handle.Invoke(item, ct) with
-                        | Choice1Of2 () -> x.RecordOk(Stopwatch.elapsed ts)
-                        | Choice2Of2 exn -> x.RecordExn(Stopwatch.elapsed ts, exn)
+                        | Ok () -> x.RecordOk(Stopwatch.elapsed ts)
+                        | Error exn -> x.RecordExn(Stopwatch.elapsed ts, exn)
                     // This exception guard _should_ technically not be necessary per the interface contract, but cannot risk an orphaned batch
                     with exn -> x.RecordExn(Stopwatch.elapsed ts, exn) } }
 

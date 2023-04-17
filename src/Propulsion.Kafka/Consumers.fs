@@ -145,11 +145,11 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
 type ParallelConsumer private () =
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
-    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
+    /// Processor pumps until `handle` yields an `Error` or `Stop()` is requested.
     static member Start<'Msg>
         (   log : ILogger, config : KafkaConsumerConfig, maxDop,
             mapResult : ConsumeResult<string, string> -> 'Msg,
-            handle : Func<'Msg, CancellationToken, Task<Choice<unit, exn>>>,
+            handle : Func<'Msg, CancellationToken, Task<Result<unit, exn>>>,
             // Default 5m
             ?statsInterval, ?logExternalStats) =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
@@ -167,7 +167,7 @@ type ParallelConsumer private () =
         ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, mapResult, submitter.Ingest, statsInterval, pumpDispatcher = dispatcher.Pump)
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
-    /// Processor pumps until `handle` yields a `Choice2Of2` or `Stop()` is requested.
+    /// Processor pumps until `handle` yields an `Error` or `Stop()` is requested.
     static member Start
         (   log : ILogger, config : KafkaConsumerConfig, maxDop, handle : Func<KeyValuePair<string, string>, CancellationToken, Task<unit>>,
             // Default 5m
@@ -387,16 +387,16 @@ type BatchesConsumer =
             select,
             // Handler responses:
             // - the result seq is expected to match the ordering of the input <c>Scheduling.Item</c>s
-            // - Choice1Of2: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-            // - Choice2Of2: Records the processing of the stream in question as having faulted (the stream's pending events and/or
+            // - Ok: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+            // - Error: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Choice<int64, exn>>>>,
+            handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Result<int64, exn>>>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?logExternalState) =
         let handle (items : Scheduling.Item<EventBody>[]) ct
-            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Choice<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
+            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
@@ -406,19 +406,19 @@ type BatchesConsumer =
                 return
                     [| for x in Seq.zip items results ->
                         match x with
-                        | item, Choice1Of2 index' ->
+                        | item, Ok index' ->
                             let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
                             let metrics = StreamSpan.metrics Event.storedSize used
-                            struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
-                        | item, Choice2Of2 exn ->
+                            struct (ae, item.stream, true, Ok struct (index', struct (metrics, ())))
+                        | item, Error exn ->
                             let metrics = StreamSpan.metrics Event.renderedSize item.span
-                            ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
+                            ae, item.stream, false, Result.Error struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Event.renderedSize x.span
-                        ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
+                        ae, x.stream, false, Result.Error struct (metrics, e) |] }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
