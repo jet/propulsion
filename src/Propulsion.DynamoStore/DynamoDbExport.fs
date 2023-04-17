@@ -10,7 +10,7 @@ module DynamoDbJsonParser =
      and [<Struct>] Item = { p : StringVal; n : NumVal; c : ListVal<StringVal> }
      and [<Struct>] StringVal = { S : string }
      and [<Struct>] NumVal = { N : string }
-     and ListVal<'t> = { L : 't array }
+     and ListVal<'t> = { L : 't[] }
 
     let read (path : string) : seq<struct (string * DynamoStoreIndex.EventSpan)> = seq {
         use r = new StreamReader(path)

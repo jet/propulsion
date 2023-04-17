@@ -2,6 +2,7 @@
 namespace Propulsion.CosmosStore
 
 open Propulsion.Internal
+open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
 open System
@@ -47,12 +48,12 @@ module Pruner =
         override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
-    let handle pruneUntil stream (span: Default.StreamSpan) ct = task {
+    let handle pruneUntil stream (span: Event[]) ct = task {
         // The newest event eligible for deletion defines the cutoff point
         let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
         // 1. All requested events already deleted, no writes took place
-        //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideWritePosition)
+        //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideNextIndex)
         // 2. All events deleted as requested
         //    (N events over M batches were removed)
         // 3. Some deletions deferred
@@ -79,16 +80,16 @@ type CosmosStorePruner =
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
-        : Default.Sink =
+        : Sink =
         let dispatcher =
             let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.startImmediateAsTask ct
-            let interpret struct (stream, span) =
-                let metrics = StreamSpan.metrics Default.eventSize span
-                struct (metrics, struct (stream, span))
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ -> id))
+            let interpret _stream span =
+                let metrics = StreamSpan.metrics Event.storedSize span
+                struct (metrics, span)
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ r -> r))
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let stats = Pruner.Stats(log.ForContext<Pruner.Stats>(), statsInterval, stateInterval)
-        let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
+        let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

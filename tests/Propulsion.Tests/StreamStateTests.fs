@@ -6,11 +6,11 @@ open Xunit
 
 let canonicalTime = System.DateTimeOffset.UtcNow
 
-let mk p c : StreamSpan<string> =
+let mk p c : FsCodec.ITimelineEvent<string>[] =
     [| for x in 0..c-1 -> FsCodec.Core.TimelineEvent.Create(p + int64 x, p + int64 x |> string, null, timestamp = canonicalTime) |]
 let merge = StreamSpan.merge
 let dropBeforeIndex = StreamSpan.dropBeforeIndex
-let is (xs : StreamSpan<string>[]) (res : StreamSpan<string>[]) =
+let is (xs : FsCodec.ITimelineEvent<string>[][]) (res : FsCodec.ITimelineEvent<string>[][]) =
     (xs = null && res = null)
     || (xs, res) ||> Seq.forall2 (fun x y -> (x = null && y = null)
                                              || (x[0].Index = y[0].Index && (x, y) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType)))

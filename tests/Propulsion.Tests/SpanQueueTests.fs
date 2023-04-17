@@ -40,7 +40,7 @@ module Span =
 
     (* Generalized form of the above with some additional stipulations *)
 
-    let [<Property>] properties (FsCheck.NonNegativeInt pos, FsCheck.PositiveInt len, FsCheck.NonNegativeInt retry) (lensAndGaps : _ array) =
+    let [<Property>] properties (FsCheck.NonNegativeInt pos, FsCheck.PositiveInt len, FsCheck.NonNegativeInt retry) (lensAndGaps : _[]) =
         let existing = [|
             let mutable p = 0
             for FsCheck.PositiveInt len, FsCheck.PositiveInt gap in lensAndGaps ->
@@ -51,7 +51,7 @@ module Span =
         let adding = mks pos len
         let result = ins adding existing
 
-        let reMergeRandomElement (xs : _ array) retryIndex =
+        let reMergeRandomElement (xs : _[]) retryIndex =
             let sel = min retryIndex (xs.Length - 1)
             ins xs[sel] xs
 

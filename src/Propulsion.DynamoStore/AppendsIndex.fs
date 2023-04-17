@@ -69,7 +69,7 @@ module Config =
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownPartitions (state : Fold.State) : AppendsPartitionId array =
+    let readKnownPartitions (state : Fold.State) : AppendsPartitionId[] =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
     let readIngestionEpochId partitionId (state : Fold.State) =
@@ -81,7 +81,7 @@ module Reader =
             let decider = resolve ()
             decider.Query(id)
 
-        member _.ReadKnownPartitions() : Async<AppendsPartitionId array> =
+        member _.ReadKnownPartitions() : Async<AppendsPartitionId[]> =
             let decider = resolve ()
             decider.Query(readKnownPartitions)
 

@@ -79,10 +79,10 @@ module Fold =
         | [Events.Updated _], state -> [], [toSnapshot state]
         | xs, state ->                 xs, [toSnapshot state]
 #else
-    let transmute events state : Events.Event array * Events.Event array =
+    let transmute events state : Events.Event[] * Events.Event[] =
         match events, state with
-        | [| Events.Updated _ |], state -> [||], [|toSnapshot state|]
-        | xs, state ->                     xs, [|toSnapshot state|]
+        | [| Events.Updated _ |], state -> [||], [| toSnapshot state |]
+        | xs, state ->                     xs, [| toSnapshot state |]
 #endif
 let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
 let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =

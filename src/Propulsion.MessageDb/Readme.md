@@ -23,30 +23,27 @@ let quickStart log stats categories handle = async {
     let connStr = "Host=localhost; Database=message_store; Port=5433; Username=message_store; Password=;"
     let maxReadAhead = 100
     let maxConcurrentStreams = 2
-    use sink = 
-      Propulsion.Streams.Default.Config.Start(
-        log, maxReadAhead, maxConcurrentStreams, 
-        handle, stats, TimeSpan.FromMinutes 1)
+    use sink = Propulsion.Sinks.Factory.StartConcurrent(log, maxReadAhead, maxConcurrentStreams, handle, stats)
         
     use src = 
-      MessageDbSource(
-        log, statsInterval = TimeSpan.FromMinutes 1,
-        connStr, batchSize = 1000, 
-        // Controls the time to wait once fully caught up
-        // before requesting a new batch of events
-        tailSleepInterval = TimeSpan.FromMilliseconds 100,
-        checkpoints, sink,
-        // An array of message-db categories to subscribe to 
-        // Propulsion guarantees that events within streams are
-        // handled in order, it makes no guarantees across streams (Even within categories)
-        categories
-      ).Start()
-      
+        MessageDbSource(
+            log, statsInterval = TimeSpan.FromMinutes 1,
+            connStr, batchSize = 1000, 
+            // Controls the time to wait once fully caught up
+            // before requesting a new batch of events
+            tailSleepInterval = TimeSpan.FromMilliseconds 100,
+            checkpoints, sink,
+            // An array of message-db categories to subscribe to 
+            // Propulsion guarantees that events within streams are
+            // handled in order, it makes no guarantees across streams (Even within categories)
+            categories
+        ).Start()
+          
     do! src.Await() }
     
-let handle stream (events: StreamSpan<_>) _ct = task {
-    // process the events
-    return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
+let handle stream (events: Propulsion.Sinks.Event[]) = async {
+    // ... process the events
+    return Propulsion.Sinks.StreamResult.AllProcessed, () }
     
 quickStart Log.Logger (createStats ()) [| category |] handle
 ```

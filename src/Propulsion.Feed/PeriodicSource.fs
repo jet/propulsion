@@ -53,8 +53,8 @@ type PeriodicSource
     (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
         // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
         // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> IAsyncEnumerable<struct (TimeSpan * SourceItem<_> array)>, refreshInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        crawl : TrancheId -> IAsyncEnumerable<struct (TimeSpan * SourceItem<_>[])>, refreshInterval : TimeSpan,
+        checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
@@ -75,7 +75,7 @@ type PeriodicSource
         let mutable elapsed = TimeSpan.Zero
         for ts, xs in crawl trancheId do
             elapsed <- elapsed + ts
-            let streamEvents : Propulsion.Streams.Default.StreamEvent seq = seq {
+            let streamEvents : Propulsion.Sinks.StreamEvent seq = seq {
                 for si in xs ->
                     let i = index
                     index <- index + 1L

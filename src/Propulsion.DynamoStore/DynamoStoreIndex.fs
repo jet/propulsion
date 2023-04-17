@@ -4,7 +4,7 @@ open Propulsion.Internal
 
 /// Represents a (potentially coalesced) span of events as loaded from either the Index or a DynamoDB Export
 type [<Struct>] EventSpan =
-    { i : int; c : string array }
+    { i : int; c : string[] }
     static member Create(index, eventTypes) = { i = index; c = eventTypes }
     member x.Index = x.i
     member x.Length = x.c.Length
@@ -20,7 +20,7 @@ module StreamQueue =
 
     /// Responsible for coalescing overlapping and/or adjacent spans
     /// Requires, and ensures, that queue is ordered correctly before and afterwards
-    let insert (y : EventSpan) (xs : EventSpan array) =
+    let insert (y : EventSpan) (xs : EventSpan[]) =
         if y.Length = 0 then invalidArg (nameof y) "Can't be zero length"
         if xs = null then nullArg (nameof xs)
         if Array.isEmpty xs then Array.singleton y else
@@ -49,7 +49,7 @@ module StreamQueue =
         elif acc = null then Array.singleton y
         else acc.Add y; acc.ToArray()
 
-type [<Struct>] BufferStreamState = { writePos : int; spans : EventSpan array }
+type [<Struct>] BufferStreamState = { writePos : int; spans : EventSpan[] }
 
 type Buffer() =
 
@@ -95,7 +95,7 @@ module Reader =
 
     // Returns flattened list of all spans, and flag indicating whether tail reached
     let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) partitionId epochId
-        : Async<AppendsEpoch.Events.StreamSpan array * bool * int64> = async {
+        : Async<AppendsEpoch.Events.StreamSpan[] * bool * int64> = async {
         let ts = Stopwatch.timestamp ()
         let! maybeStreamBytes, _version, state = epochs.Read(partitionId, epochId, 0)
         let sizeB, loadS = defaultValueArg maybeStreamBytes 0L, Stopwatch.elapsedSeconds ts

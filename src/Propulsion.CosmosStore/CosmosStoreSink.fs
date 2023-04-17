@@ -3,6 +3,7 @@ namespace Propulsion.CosmosStore
 open Equinox.CosmosStore.Core
 open FsCodec
 open Propulsion.Internal
+open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
 open System
@@ -12,17 +13,17 @@ open System.Collections.Generic
 module private Impl =
 
 #if COSMOSV3
-    type EventBody = byte array // V4 defines one directly, here we shim it
+    type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let private toNativeEventBody (xs : Default.EventBody) : byte array = xs.ToArray()
+        let private toNativeEventBody (xs : Propulsion.Sinks.EventBody) : byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
 #else
     module StreamSpan =
 
         // v4 and later use JsonElement, but Propulsion is sticking with byte arrays until 3.x (at which point it'll probably shift to ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies)
         open System.Text.Json
-        let private toNativeEventBody (x : Default.EventBody) : JsonElement =
+        let private toNativeEventBody (x : EventBody) : JsonElement =
             if x.IsEmpty then JsonElement()
             else JsonSerializer.Deserialize(x.Span)
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
@@ -34,26 +35,26 @@ module Internal =
     module Writer =
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | RateLimited | TooLarge | Malformed | Other
 
-        type [<NoComparison;NoEquality>] Result =
+        type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
             | Ok of updatedPos : int64
             | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : StreamSpan<Default.EventBody>
-            | PrefixMissing of batch : StreamSpan<Default.EventBody> * writePos : int64
-        let logTo (log : ILogger) malformed (res : StreamName * Choice<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+            | PartialDuplicate of overage : Event[]
+            | PrefixMissing of batch : Event[] * writePos : int64
+        let logTo (log : ILogger) malformed (res : StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
-            | stream, Choice1Of2 (_, Ok pos) ->
+            | stream, Ok (_, Result.Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Choice1Of2 (_, Duplicate updatedPos) ->
+            | stream, Ok (_, Result.Duplicate updatedPos) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Choice1Of2 (_, PartialDuplicate overage) ->
+            | stream, Ok (_, Result.PartialDuplicate overage) ->
                 log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage[0].Index, overage.Length)
-            | stream, Choice1Of2 (_, PrefixMissing (batch, pos)) ->
+            | stream, Ok (_, Result.PrefixMissing (batch, pos)) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch[0].Index - pos, batch.Length, batch[0].Index)
-            | stream, Choice2Of2 (_, exn) ->
+            | stream, Error (_, exn) ->
                 let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : EventsContext) stream (span : Default.StreamSpan) ct = task {
+        let write (log : ILogger) (ctx : EventsContext) stream (span : Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
@@ -63,12 +64,12 @@ module Internal =
 #endif
             let res' =
                 match res with
-                | AppendResult.Ok pos -> Ok pos.index
+                | AppendResult.Ok pos -> Result.Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
                     match pos.index with
-                    | actual when actual < span[0].Index -> PrefixMissing (span, actual)
-                    | actual when actual >= span[0].Index + span.LongLength -> Duplicate actual
-                    | actual -> PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
+                    | actual when actual < span[0].Index -> Result.PrefixMissing (span, actual)
+                    | actual when actual >= span[0].Index + span.LongLength -> Result.Duplicate actual
+                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
             log.Debug("Result: {res}", res')
             return res' }
         let (|TimedOutMessage|RateLimitedMessage|TooLargeMessage|MalformedMessage|Other|) (e : exn) =
@@ -120,7 +121,7 @@ module Internal =
             let inline adds x (set:HashSet<_>) = set.Add x |> ignore
             let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
             match message with
-            | { stream = stream; result = Choice1Of2 ((es, bs), res) } ->
+            | { stream = stream; result = Ok ((es, bs), res) } ->
                 adds stream okStreams
                 okEvents <- okEvents + es
                 okBytes <- okBytes + int64 bs
@@ -130,7 +131,7 @@ module Internal =
                 | Writer.Result.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
                 | Writer.Result.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
                 base.RecordOk(message)
-            | { stream = stream; result = Choice2Of2 ((es, bs), Exception.Inner exn) } ->
+            | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
                 adds stream failStreams
                 exnEvents <- exnEvents + es
                 exnBytes <- exnBytes + int64 bs
@@ -149,18 +150,18 @@ module Internal =
         static member Create(log : ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
-            let attemptWrite struct (stream, span) ct = task {
-                let struct (met, span') = StreamSpan.slice Default.jsonSize (maxEvents, maxBytes) span
+            let attemptWrite stream span ct = task {
+                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
-                    return struct (span'.Length > 0, Choice1Of2 struct (met, res))
-                with e -> return struct (false, Choice2Of2 struct (met, e)) }
+                    return struct (span'.Length > 0, Ok struct (met, res))
+                with e -> return struct (false, Error struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Choice1Of2 struct (_stats, Writer.Ok pos) ->                struct (streams.RecordWriteProgress(stream, pos, null), false)
-                    | Choice1Of2 (_stats, Writer.Duplicate pos) ->                streams.RecordWriteProgress(stream, pos, null), false
-                    | Choice1Of2 (_stats, Writer.PartialDuplicate overage) ->     streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
-                    | Choice1Of2 (_stats, Writer.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
-                    | Choice2Of2 struct (_stats, exn) ->
+                    | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
+                    | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null), false
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
+                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
+                    | Error struct (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed), malformed
                 let struct (ss, malformed) = applyResultToStreamState res
@@ -183,12 +184,12 @@ type CosmosStoreSink =
             // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
-        : Default.Sink =
+        : Sink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
             let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-            let dumpStreams logStreamStates _log = logStreamStates Default.eventSize
-            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Default.eventSize,
+            let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
+            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Event.storedSize,
                               ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

@@ -10,7 +10,7 @@ open System.Collections.Generic
 open System.Net
 open System.Threading
 
-let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position> array =
+let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
     let tails = Dictionary()
     let updateTails partitionId checkpoint =
         match tails.TryGetValue partitionId with

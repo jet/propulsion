@@ -1,16 +1,13 @@
 module Propulsion.MessageDb.Integration.Tests
 
-open System.Diagnostics
-open FSharp.Control
 open Npgsql
 open NpgsqlTypes
-open Propulsion.MessageDb
 open Propulsion.Internal
-open Serilog
-open Serilog.Core
+open Propulsion.MessageDb
 open Swensen.Unquote
 open System
 open System.Collections.Generic
+open System.Diagnostics
 open System.Threading.Tasks
 open Xunit
 
@@ -61,6 +58,7 @@ let makeCheckpoints consumerGroup = task {
     do! checkpoints.CreateSchemaIfNotExists()
     return checkpoints
 }
+
 [<Fact>]
 let ``It processes events for a category`` () = task {
     use! conn = connect ()
@@ -74,15 +72,15 @@ let ``It processes events for a category`` () = task {
     let stats = stats log
     let mutable stop = ignore
     let handled = HashSet<_>()
-    let handle stream (events: Propulsion.Streams.Default.StreamSpan) _ct = task {
+    let handle stream (events: Propulsion.Sinks.Event[]) _ct = task {
         lock handled (fun _ ->
            for evt in events do
                handled.Add((stream, evt.Index)) |> ignore)
         test <@ Array.chooseV Simple.codec.TryDecode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
         if handled.Count >= 2000 then
             stop ()
-        return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.Start(log, 2, 2, handle, stats, TimeSpan.FromMinutes 1)
+        return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
         ConnectionString, 1000, TimeSpan.FromMilliseconds 100,
@@ -102,7 +100,6 @@ let ``It processes events for a category`` () = task {
     let ordering = handled |> Seq.groupBy fst |> Seq.map (snd >> Seq.map snd >> Seq.toArray) |> Seq.toArray
     test <@ ordering |> Array.forall ((=) [| 0L..19L |]) @> }
 
-
 type ActivityCapture() =
     let operations = ResizeArray()
     let listener =
@@ -116,12 +113,11 @@ type ActivityCapture() =
 
     member _.Operations = operations
     interface IDisposable with
-      member _.Dispose() = listener.Dispose()
+        member _.Dispose() = listener.Dispose()
 
 [<Fact>]
 let ``It doesn't read the tail event again`` () = task {
-    let logSink = LogSink()
-    let log = LoggerConfiguration().WriteTo.Sink(logSink).CreateLogger()
+    let log = Serilog.LoggerConfiguration().CreateLogger()
     let consumerGroup = $"{Guid.NewGuid():N}"
     let category = $"{Guid.NewGuid():N}"
     use! conn = connect ()
@@ -131,8 +127,8 @@ let ``It doesn't read the tail event again`` () = task {
     let stats = stats log
 
     let handle _ _ _ = task {
-        return struct (Propulsion.Streams.SpanResult.AllProcessed, ()) }
-    use sink = Propulsion.Streams.Default.Config.Start(log, 1, 1, handle, stats, TimeSpan.FromMinutes 1)
+        return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 1, handle, stats)
     let batchSize = 10
     let source = MessageDbSource(
         log, TimeSpan.FromMilliseconds 1000,
@@ -140,9 +136,9 @@ let ``It doesn't read the tail event again`` () = task {
         checkpoints, sink, [| category |])
 
     use capture = new ActivityCapture()
+    use _src = source.Start()
 
     do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) :> Task
 
     // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
     test <@ capture.Operations.Count = 5 @> }
-

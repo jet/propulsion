@@ -81,14 +81,14 @@ module Internal =
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
         client : Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Streams.Default.Sink,
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         tranches, ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
             (   if startFromTail <> Some true then None
                 else Some (Internal.readTailPositionForTranche client)),
             sink,
-            (fun (cat, pos, ct) -> taskSeq {
+            (fun cat pos ct -> taskSeq {
                 let sw = Stopwatch.start ()
                 let! b = Internal.readBatch batchSize client (cat, pos, ct)
                 yield struct (sw.Elapsed, b) }),
@@ -104,7 +104,7 @@ type MessageDbSource internal
                         categories |> Array.map Propulsion.Feed.TrancheId.parse,
                         ?startFromTail = startFromTail, ?sourceId = sourceId)
 
-    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId array>
+    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default _.ListTranches(_ct) = task { return tranches }
 
     abstract member Pump : CancellationToken -> Task<unit>
