@@ -151,7 +151,7 @@ module Internal =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
-                let struct (met, span') = StreamSpan.slice Event.jsonSize (maxEvents, maxBytes) span
+                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return struct (false, Choice2Of2 struct (met, e)) }
@@ -189,7 +189,7 @@ type CosmosStoreSink =
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
             let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-            let dumpStreams logStreamStates _log = logStreamStates Event.eventSize
-            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Event.eventSize,
+            let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
+            Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Event.storedSize,
                               ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

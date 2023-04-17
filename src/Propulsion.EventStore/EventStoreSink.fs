@@ -118,7 +118,7 @@ module Internal =
                 let index = Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let struct (met, span') = StreamSpan.slice Event.jsonSize (maxEvents, maxBytes) span
+                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
                     return struct (span'.Length > 0, Choice1Of2 struct (met, res))
                 with e -> return false, Choice2Of2 struct (met, e) }
@@ -154,6 +154,6 @@ type EventStoreSink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let scheduler =
             let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
-            let dumpStreams logStreamStates _log = logStreamStates Event.eventSize
+            let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, ?purgeInterval = purgeInterval, ?idleDelay = idleDelay)
         Projector.Pipeline.Start( log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

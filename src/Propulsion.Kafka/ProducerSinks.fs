@@ -17,7 +17,7 @@ type ParallelProducerSink =
         let handle item ct = task {
             let struct (key, value) = render.Invoke item
             do! producer.Produce(key, value, ?headers = None, ct = ct) }
-        Parallel.ParallelSink.Start(Log.Logger, maxReadAhead, maxDop, (fun x ct -> handle x ct |> Task.Catch),
+        Parallel.Factory.Start(Log.Logger, maxReadAhead, maxDop, (fun x ct -> handle x ct |> Task.Catch),
                                     statsInterval = statsInterval, logExternalStats = producer.DumpStats)
 
 type StreamsProducerSink =
@@ -26,7 +26,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
             producer : Producer,
-            stats : Streams.Sync.Stats<'Outcome>, statsInterval,
+            stats : Sync.Stats<'Outcome>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -49,9 +49,9 @@ type StreamsProducerSink =
                 | ValueNone -> ()
                 return struct (Streams.SpanResult.AllProcessed, outcome)
             }
-            Streams.Sync.StreamsSync.Start
+            Sync.Factory.Start
                 (    log, maxReadAhead, maxConcurrentStreams, (fun s e ct -> handle s e ct),
-                     stats, statsInterval, Event.jsonSize, Event.eventSize,
+                     stats, statsInterval, Event.renderedSize, Event.storedSize,
                      maxBytes = maxBytes, ?idleDelay = idleDelay,?purgeInterval = purgeInterval,
                      ?maxEvents = maxEvents, dumpExternalStats = producer.DumpStats)
    static member Start
@@ -70,7 +70,7 @@ type StreamsProducerSink =
         (   log : ILogger, maxReadAhead, maxConcurrentStreams,
             prepare : Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
             producer : Producer,
-            stats : Streams.Sync.Stats<unit>, statsInterval,
+            stats : Sync.Stats<unit>, statsInterval,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,

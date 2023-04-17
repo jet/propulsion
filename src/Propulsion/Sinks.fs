@@ -15,8 +15,8 @@ type Event = FsCodec.ITimelineEvent<EventBody>
 /// Internal helpers used to compute buffer sizes for stats
 module Event =
 
-    let eventSize (x : Event) = x.Size
-    let jsonSize (x : Event) = eventSize x + 80
+    let storedSize (x : Event) = x.Size
+    let renderedSize (x : Event) = storedSize x + 80
 
 /// A Single Event from an Ordered stream, using the Canonical Data/Meta type
 type StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
@@ -27,10 +27,10 @@ type Sink = Propulsion.Sink<Ingestion.Ingester<StreamEvent seq>>
 /// Stream State as provided to the <c>select</c> function for a <c>BatchesSink</c>
 type SchedulingItem = Propulsion.Streams.Scheduling.Item<EventBody>
 
-type Core private () =
+type Factory private () =
 
     /// Project Events using up to <c>maxConcurrentStreams</c> <code>handle</code> function that yields a SpanResult and an Outcome to be fed to the Stats
-    static member Start<'Outcome>
+    static member StartConcurrentAsync<'Outcome>
         (   log, maxReadAhead,
             maxConcurrentStreams, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (Streams.SpanResult * 'Outcome)>>,
             stats, statsInterval,
@@ -41,14 +41,14 @@ type Core private () =
             [<O; D null>] ?ingesterStatsInterval,
             [<O; D null>] ?requireCompleteStreams)
         : Sink =
-        Streams.StreamsSink.Start<'Outcome, EventBody>(
-            log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, Event.eventSize,
+        Streams.Concurrent.Start<'Outcome, EventBody>(
+            log, maxReadAhead, maxConcurrentStreams, handle, stats, statsInterval, Event.storedSize,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
             ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
             ?requireCompleteStreams = requireCompleteStreams)
 
     /// Project Events using a <code>handle</code> function that yields a SpanResult per <c>select</c>ed Item
-    static member StartBatched<'Outcome>
+    static member StartBatchedAsync<'Outcome>
         (   log, maxReadAhead,
             select : SchedulingItem seq -> SchedulingItem[],
             handle : Func<SchedulingItem[], CancellationToken, Task<seq<Choice<Streams.SpanResult, exn>>>>,
@@ -59,24 +59,21 @@ type Core private () =
             let! res = handle.Invoke(items, ct)
             let spanResultToStreamPos span = function Choice1Of2 sr -> Choice1Of2 (Streams.SpanResult.toIndex span sr) | Choice2Of2 ex -> Choice2Of2 ex
             return seq { for i, r in Seq.zip items res -> spanResultToStreamPos i.span r } }
-        Streams.BatchesSink.Start(log, maxReadAhead, select, handle, stats, statsInterval, Event.eventSize,
+        Streams.Batched.Start(log, maxReadAhead, select, handle, stats, statsInterval, Event.storedSize,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
 
-type Config private () =
-
     /// Project Events using up to <c>maxConcurrentStreams</c> instances of a <code>handle</code> function
     /// Each dispatched handle invocation yields a SpanResult conveying progress, together with an Outcome to be fed to the Stats
-    static member Start<'Outcome>
+    static member StartConcurrent<'Outcome>
         (   log, maxReadAhead,
             maxConcurrentStreams, handle : FsCodec.StreamName -> Event[] -> Async<struct (Streams.SpanResult * 'Outcome)>,
             stats, statsInterval,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
-        Core.Start(log, maxReadAhead, maxConcurrentStreams,
-            (fun stream events ct -> Async.startImmediateAsTask ct (handle stream events)),
-            stats, statsInterval,
+        let handle' stream events ct = Async.startImmediateAsTask ct (handle stream events)
+        Factory.StartConcurrentAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats, statsInterval,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
 
@@ -91,6 +88,6 @@ type Config private () =
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle items ct = Async.startImmediateAsTask ct (handle items)
-        Core.StartBatched(log, maxReadAhead, select, handle, stats, statsInterval,
+        Factory.StartBatchedAsync(log, maxReadAhead, select, handle, stats, statsInterval,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)

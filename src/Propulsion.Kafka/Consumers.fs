@@ -187,7 +187,7 @@ module Core =
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
-                logStreamStates Event.eventSize
+                logStreamStates Event.storedSize
             let scheduler =
                 Scheduling.Engine(
                     Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, SpanResult.toIndex), stats, dumpStreams, pendingBufferSize = 5,
@@ -205,7 +205,7 @@ module Core =
                 ?logExternalState,
                 ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let prepare _streamName span =
-                let metrics = StreamSpan.metrics Event.eventSize span
+                let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
@@ -408,21 +408,21 @@ type BatchesConsumer =
                         match x with
                         | item, Choice1Of2 index' ->
                             let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
-                            let metrics = StreamSpan.metrics Event.eventSize used
+                            let metrics = StreamSpan.metrics Event.storedSize used
                             struct (ae, item.stream, true, Choice1Of2 struct (index', struct (metrics, ())))
                         | item, Choice2Of2 exn ->
-                            let metrics = StreamSpan.metrics Event.jsonSize item.span
+                            let metrics = StreamSpan.metrics Event.renderedSize item.span
                             ae, item.stream, false, Choice2Of2 struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
-                        let metrics = StreamSpan.metrics Event.jsonSize x.span
+                        let metrics = StreamSpan.metrics Event.renderedSize x.span
                         ae, x.stream, false, Choice2Of2 struct (metrics, e) |] }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
-            logStreamStates Event.eventSize
+            logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
