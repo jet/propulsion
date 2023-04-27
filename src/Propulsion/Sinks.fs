@@ -12,6 +12,9 @@ type EventBody = ReadOnlyMemory<byte>
 /// Timeline Event with Data/Meta in the default format
 type Event = FsCodec.ITimelineEvent<EventBody>
 
+/// Codec compatible with canonical <c>Event</c> type
+type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
+
 /// Helpers for use with spans of events as supplied to a handler
 module Events =
 
