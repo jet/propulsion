@@ -9,7 +9,7 @@ open System.Threading.Tasks
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
-                           mapTimelineEvent : FsCodec.ITimelineEvent<'F> -> FsCodec.ITimelineEvent<Sinks.EventBody>,
+                           mapTimelineEvent : Func<FsCodec.ITimelineEvent<'F>, FsCodec.ITimelineEvent<Sinks.EventBody>>,
                            sink : Propulsion.Sinks.Sink) =
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
@@ -22,22 +22,26 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>> in let r, w = c.Reader, c.Writer
         Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
-    let handleStoreCommitted struct (categoryName, aggregateId, events : FsCodec.ITimelineEvent<_> []) =
+    let handleStoreCommitted struct (categoryName, aggregateId, items : Propulsion.Sinks.StreamEvent[]) =
         let epoch = Interlocked.Increment &prepared
         positions.Prepared <- epoch
-        if debug then MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, events)
+        if debug then MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, items |> Array.map ValueTuple.snd)
         // Completion notifications are guaranteed to be delivered deterministically, in order of submission
         let markCompleted () =
             if verbose then MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
             positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
-        enqueueSubmission { isTail = true; epoch = epoch; checkpoint = (fun _ -> task { () }); items = events |> Array.map (fun e -> FsCodec.StreamName.create categoryName aggregateId, e); onCompletion = markCompleted }
+        enqueueSubmission { isTail = true; epoch = epoch; checkpoint = (fun _ -> task { () }); items = items; onCompletion = markCompleted }
 
     let storeCommitsSubscription =
-        let mapBody struct (categoryName, streamId, es) = struct (categoryName, streamId, es |> Array.map mapTimelineEvent)
         store.Committed
-        |> Observable.filter (fun struct (categoryName, _streamId, _es) -> categoryFilter categoryName)
-        |> Observable.subscribe (mapBody >> handleStoreCommitted)
+        |> Observable.choose (fun struct (sn, es) ->
+            let struct (categoryName, streamId) = FsCodec.StreamName.splitCategoryAndStreamId sn
+            if categoryFilter categoryName then
+                let items : Propulsion.Sinks.StreamEvent[] = es |> Array.map (fun e -> sn, mapTimelineEvent.Invoke e)
+                Some (struct (categoryName, streamId, items))
+            else None)
+        |> Observable.subscribe handleStoreCommitted
 
     member private _.Pump(ct : CancellationToken) = task {
         while not ct.IsCancellationRequested do
@@ -120,7 +124,7 @@ and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePosit
 
 module TimelineEvent =
 
-    let mapEncoded = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
+    let mapEncoded = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Deflate.EncodedToUtf8)
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time

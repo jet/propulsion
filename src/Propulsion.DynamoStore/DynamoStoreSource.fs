@@ -125,7 +125,7 @@ type EventLoadMode =
                   * /// Defines the Context to use when loading the Event Data/Meta
                   storeContext : DynamoStoreContext
 module internal EventLoadMode =
-    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map FsCodec.Deflate.EncodedToUtf8
+    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Deflate.EncodedToUtf8)
     let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
         fun sn (i, cs : string[]) ->
             if categoryFilter (FsCodec.StreamName.category sn) then
@@ -133,12 +133,12 @@ module internal EventLoadMode =
                                let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
                                return events |> Array.map mapTimelineEvent })
             else ValueNone
-    let private withoutBodies categoryFilter =
+    let private withoutData categoryFilter =
         fun sn (i, cs) ->
             let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
             if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
     let map categoryFilter storeLog : EventLoadMode -> _ = function
-        | IndexOnly -> false, withoutBodies categoryFilter, 1
+        | IndexOnly -> false, withoutData categoryFilter, 1
         | WithData (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
             true, withData eventsContext categoryFilter, dop

@@ -106,6 +106,6 @@ module internal EventCodec =
         let down (_ : 'e) = failwith "Unexpected"
         FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Deflate.EncodeTryDeflate
     let withIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<struct (int64 * 'c), _, _> =
-        let up struct (raw : FsCodec.ITimelineEvent<_>, e) = struct (raw.Index, e)
+        let up (raw : FsCodec.ITimelineEvent<_>) e = struct (raw.Index, e)
         withUpconverter<'c, struct (int64 * 'c)> up
 #endif
