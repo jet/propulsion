@@ -37,7 +37,7 @@ type EventStoreSource
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : string -> bool,
+        ?categoryFilter : System.Func<string, bool>,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?withData,
         // Override default start position to be at the tail of the index. Default: Replay all events.

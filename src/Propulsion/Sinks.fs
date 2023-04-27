@@ -12,6 +12,9 @@ type EventBody = ReadOnlyMemory<byte>
 /// Timeline Event with Data/Meta in the default format
 type Event = FsCodec.ITimelineEvent<EventBody>
 
+/// Codec compatible with canonical <c>Event</c> type
+type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
+
 /// Helpers for use with spans of events as supplied to a handler
 module Events =
 
@@ -111,6 +114,29 @@ type Factory private () =
         Factory.StartConcurrentAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+
+    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a <code>handle</code> function
+    /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
+    /// Like StartConcurrent, but the events supplied to the Handler are constrained by <c>maxBytes</c> and <c>maxEvents</c>
+    static member StartConcurrentChunked<'Outcome>
+        (   log, maxReadAhead,
+            maxConcurrentStreams, handle : FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            stats : Sync.Stats<'Outcome>,
+            // Default 1 ms
+            ?idleDelay,
+            // Default 1 MiB
+            ?maxBytes,
+            // Default 16384
+            ?maxEvents,
+            // Hook to wire in external stats
+            ?dumpExternalStats,
+            // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
+            // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
+            ?purgeInterval)
+        : Sink =
+        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        Sync.Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', StreamResult.toIndex, stats, Event.renderedSize, Event.storedSize,
+                                ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)
 
     /// Project Events by continually <c>select</c>ing and then dispatching a batch of streams to a <code>handle</code> function
     /// Per handled stream, the result can be either a StreamResult conveying progress, or an exception

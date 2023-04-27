@@ -32,7 +32,7 @@ type SqlStreamStoreSource
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : string -> bool,
+        ?categoryFilter : System.Func<string, bool>,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?withData,
         ?startFromTail,

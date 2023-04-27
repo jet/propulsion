@@ -122,21 +122,20 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Sinks.StreamState[]) ct = task {
+            let handle (streams : Propulsion.Sinks.StreamState[]) = async {
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do
                       c <- c + 1
-                      do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
+                      do! handler (getConsumer()) (deserialize consumerId event)
                 (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
-                return [| for x in streams -> Ok (Propulsion.Streams.StreamSpan.ver x.span) |] |> Seq.ofArray }
+                return seq { for x in streams -> Ok (Propulsion.Streams.StreamSpan.ver x.span) } }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
-                BatchesConsumer.Start
+                Factory.StartBatched
                     (   log, config, mapParallelConsumeResultToKeyValuePair, messageIndexes.KeyValueToStreamEvent,
-                        select, handle,
-                        stats, TimeSpan.FromSeconds 10.)
+                        select, handle, stats)
 
             consumerCell := Some consumer
 
@@ -165,16 +164,16 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle _ (span : Propulsion.Sinks.Event[]) ct = task {
+            let handle _ (span : Propulsion.Sinks.Event[]) = async {
                 for event in span do
-                    do! handler (getConsumer()) (deserialize consumerId event) |> Async.startImmediateAsTask ct
-                return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+                    do! handler (getConsumer()) (deserialize consumerId event)
+                return Propulsion.Sinks.StreamResult.AllProcessed, () }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
-                 StreamsConsumer.Start<unit>
+                 Factory.StartConcurrent<unit>
                     (   log, config, messageIndexes.ConsumeResultToStreamEvent(mapStreamConsumeResultToDataAndContext),
-                        handle, 256, stats, TimeSpan.FromSeconds 10)
+                        256, handle, stats)
 
             consumerCell := Some consumer
 

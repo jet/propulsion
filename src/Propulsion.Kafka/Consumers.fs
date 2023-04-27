@@ -182,8 +182,8 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                prepare, handle, maxDop,
-                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
+                prepare, maxDop, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
+                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>,
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
@@ -195,23 +195,19 @@ module Core =
             let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) : struct (_ * Buffer.Batch) =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
+            let statsInterval = stats.StatsInterval.Period
             let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
             ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
         static member Start<'Info, 'Outcome>
-            (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>, maxDop,
-                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
-                ?logExternalState,
-                ?purgeInterval, ?wakeForResults, ?idleDelay) =
+            (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents, maxDop, handle, stats,
+                ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let prepare _streamName span =
                 let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)
             StreamsConsumer.Start<'Info, 'Outcome>(
-                log, config, consumeResultToInfo, infoToStreamEvents, prepare, handle, maxDop,
-                stats, statsInterval,
-                ?logExternalState = logExternalState,
-                ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+                log, config, consumeResultToInfo, infoToStreamEvents, prepare, maxDop, handle, stats,
+                ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
         (* KeyValuePair optimized mappings (these were the original implementation); retained as:
             - the default mapping overloads in Propulsion.Kafka.StreamsConsumer pass the ConsumeResult to parser functions,
@@ -222,15 +218,10 @@ module Core =
         static member Start<'Outcome>
             (   log : ILogger, config : KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
-                keyValueToStreamEvents,
-                prepare, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
-                maxDop,
-                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
-                ?logExternalState,
-                ?purgeInterval, ?wakeForResults, ?idleDelay) =
+                keyValueToStreamEvents, prepare, maxDop, handle, stats,
+                ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, prepare, handle, maxDop,
-                stats, statsInterval = statsInterval,
+                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, prepare, maxDop, handle, stats,
                 ?logExternalState = logExternalState,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
@@ -240,12 +231,11 @@ module Core =
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents : KeyValuePair<string, string> -> StreamEvent seq,
                 handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>, maxDop,
-                stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
-                ?logExternalState,
-                ?purgeInterval, ?wakeForResults, ?idleDelay) =
+                stats,
+                ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
-                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, handle, maxDop,
-                stats, statsInterval,
+                log, config, Binding.mapConsumeResult, keyValueToStreamEvents, maxDop, handle,
+                stats,
                 ?logExternalState = logExternalState,
                 ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
@@ -338,63 +328,23 @@ type StreamNameSequenceGenerator() =
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
         Seq.singleton (sn, e)
 
-type StreamsConsumer =
+type Factory private () =
 
-    /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>
-    /// The Consumer feeds <c>StreamEvent</c>s (mapped from the Kafka <c>ConsumeResult</c> by <c>consumeResultToStreamEvents</c>) to an (internal) Sink.<br/>
-    /// The Sink runs up to <c>maxDop</c> instances of <c>handler</c> concurrently.<br/>
-    /// Each <c>handler</c> invocation processes the pending span of events for a <i>single</i> given stream.<br/>
-    /// There is a strong guarantee that there is only a single <c>handler</c> in flight for any given stream at any time.<br>
-    /// Processor <c>'Outcome<c/>s are passed to be accumulated into the <c>stats</c> for periodic emission.<br/>
-    /// Processor will run perpetually in a background until `Stop()` is requested.
-    static member Start<'Outcome>
+    static member StartConcurrentAsync<'Outcome>
         (   log : ILogger, config : KafkaConsumerConfig,
-            // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
             consumeResultToStreamEvents : ConsumeResult<_, _> -> StreamEvent seq,
-            // Handler responses:
-            // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-            // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
-            // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
-            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
-            // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
-            // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
-            // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
-            maxDop,
-            // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
-            stats : Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>, statsInterval,
+            maxDop, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>, stats,
             ?logExternalState,
             ?purgeInterval, ?wakeForResults, ?idleDelay) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
-            log, config, id, consumeResultToStreamEvents, handle, maxDop,
-            stats, statsInterval,
+            log, config, id, consumeResultToStreamEvents, maxDop, handle, stats,
             ?logExternalState = logExternalState,
             ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
-type BatchesConsumer =
-
-    /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>
-    /// The Consumer feeds <c>StreamEvent</c>s (mapped from the Kafka <c>ConsumeResult</c> by <c>consumeResultToInfo</c> and <c>infoToStreamEvents</c>) to an (internal) Sink.<br/>
-    /// The Sink loops continually:-<br/>
-    /// 1. supplying all pending items the scheduler has ingested thus far (controlled via <c>schedulerIngestionBatchCount</c>
-    ///    and incoming batch sizes) to <c>select</c> to determine streams to process in this iteration.<br/>
-    /// 2. (if any items <c>select</c>ed) passing them to the <c>handle</c>r for processing.<br/>
-    /// 3. The <c>handler</c> results are passed to the <c>stats</c> for periodic emission.<br/>
-    /// Processor <c>'Outcome<c/>s are passed to be accumulated into the <c>stats</c> for periodic emission.<br/>
-    /// Processor will run perpetually in a background until `Stop()` is requested.
-    static member Start<'Info>
+    static member StartBatchedAsync<'Info>
         (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-            select,
-            // Handler responses:
-            // - the result seq is expected to match the ordering of the input <c>Scheduling.Item</c>s
-            // - Ok: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
-            // - Error: Records the processing of the stream in question as having faulted (the stream's pending events and/or
-            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Result<int64, exn>>>>,
-            // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats : Scheduling.Stats<struct (StreamSpan.Metrics * unit), struct (StreamSpan.Metrics * exn)>, statsInterval,
-            ?purgeInterval, ?wakeForResults, ?idleDelay,
-            ?logExternalState) =
+            select, handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Result<int64, exn>>>>, stats,
+            ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
         let handle (items : Scheduling.Item<EventBody>[]) ct
             : Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
@@ -428,5 +378,59 @@ type BatchesConsumer =
         let mapConsumedMessagesToStreamsBatch onCompletion (x : Submission.Batch<TopicPartition, 'Info>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
+        let statsInterval = stats.StatsInterval.Period
         let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
         ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
+
+    /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>
+    /// The Consumer feeds <c>StreamEvent</c>s (mapped from the Kafka <c>ConsumeResult</c> by <c>consumeResultToInfo</c> and <c>infoToStreamEvents</c>) to an (internal) Sink.<br/>
+    /// The Sink loops continually:-<br/>
+    /// 1. supplying all pending items the scheduler has ingested thus far (controlled via <c>schedulerIngestionBatchCount</c>
+    ///    and incoming batch sizes) to <c>select</c> to determine streams to process in this iteration.<br/>
+    /// 2. (if any items <c>select</c>ed) passing them to the <c>handle</c>r for processing.<br/>
+    /// 3. The <c>handler</c> results are passed to the <c>stats</c> for periodic emission.<br/>
+    /// Processor <c>'Outcome<c/>s are passed to be accumulated into the <c>stats</c> for periodic emission.<br/>
+    /// Processor will run perpetually in a background until `Stop()` is requested.
+    static member StartBatched<'Info>
+        (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
+            select : StreamState seq -> StreamState[],
+            // Handler responses:
+            // - the result seq is expected to match the ordering of the input <c>Scheduling.Item</c>s
+            // - Ok: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+            // - Error: Records the processing of the stream in question as having faulted (the stream's pending events and/or
+            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
+            handle : StreamState[] -> Async<seq<Result<int64, exn>>>,
+            // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
+            stats,
+            ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
+        let handle' xs ct = Async.startImmediateAsTask ct (handle xs)
+        Factory.StartBatchedAsync<'Info>(log, config, consumeResultToInfo, infoToStreamEvents, select, handle', stats,
+                                         ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
+
+    /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>
+    /// The Consumer feeds <c>StreamEvent</c>s (mapped from the Kafka <c>ConsumeResult</c> by <c>consumeResultToStreamEvents</c>) to an (internal) Sink.<br/>
+    /// The Sink runs up to <c>maxDop</c> instances of <c>handler</c> concurrently.<br/>
+    /// Each <c>handler</c> invocation processes the pending span of events for a <i>single</i> given stream.<br/>
+    /// There is a strong guarantee that there is only a single <c>handler</c> in flight for any given stream at any time.<br>
+    /// Processor <c>'Outcome<c/>s are passed to be accumulated into the <c>stats</c> for periodic emission.<br/>
+    /// Processor will run perpetually in a background until `Stop()` is requested.
+    static member StartConcurrent<'Outcome>
+        (   log : ILogger, config : KafkaConsumerConfig,
+            // often implemented via <c>StreamNameSequenceGenerator.ConsumeResultToStreamEvent</c> where the incoming message does not have an embedded sequence number
+            consumeResultToStreamEvents : ConsumeResult<_, _> -> StreamEvent seq,
+            // The maximum number of instances of <c>handle</c> that are permitted to be dispatched at any point in time.
+            // The scheduler seeks to maximise the in-flight <c>handle</c>rs at any point in time.
+            // The scheduler guarantees to never schedule two concurrent <c>handler<c> invocations for the same stream.
+            maxDop,
+            // Handler responses:
+            // - first component: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
+            // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
+            // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
+            //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
+            handle : FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
+            stats,
+            ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
+        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        Factory.StartConcurrentAsync(log, config, consumeResultToStreamEvents, maxDop, handle', stats,
+                                     ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
