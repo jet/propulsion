@@ -330,8 +330,8 @@ module Categories =
         match categories, categoryFilter with
         | None, None ->                   fun _ -> true
         | Some categories, None ->        fun x -> Array.contains x categories
-        | None, Some filter ->            filter
-        | Some categories, Some filter -> fun x -> Array.contains x categories && filter x
+        | None, Some (filter : Func<_, bool>) -> filter.Invoke
+        | Some categories, Some filter -> fun x -> Array.contains x categories && filter.Invoke x
 
 namespace Propulsion.Feed
 

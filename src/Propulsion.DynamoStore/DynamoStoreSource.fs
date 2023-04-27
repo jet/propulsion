@@ -152,7 +152,7 @@ type DynamoStoreSource
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : string -> bool,
+        ?categoryFilter : Func<string, bool>,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
