@@ -80,12 +80,12 @@ module Helpers =
                 | None -> Thread.SpinWait 20; getConsumer()
                 | Some c -> c
 
-            let deserialize consumerId (KeyValue (k,v)) : ConsumedTestMessage =
+            let deserialize consumerId (KeyValue (_k, v : string)) : ConsumedTestMessage =
                 let d = serdes.Deserialize(v)
                 let v = serdes.Deserialize(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
             let handle item ct = handler (getConsumer()) (deserialize consumerId item) |> Async.startImmediateAsTask ct |> Task.Catch
-            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle, statsInterval=TimeSpan.FromSeconds 10.)
+            let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer
 
