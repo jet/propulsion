@@ -64,6 +64,7 @@ and StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
 /// Stream State as provided to the <c>select</c> function for a <c>StartBatched</c>
 type StreamState = Propulsion.Streams.Scheduling.Item<EventBody>
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     /// Project Events using up to <c>maxConcurrentStreams</c> <code>handle</code> functions that yield a StreamResult and an Outcome to be fed to the Stats

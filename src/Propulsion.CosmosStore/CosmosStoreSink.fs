@@ -21,7 +21,7 @@ module private Impl =
 #else
     module StreamSpan =
 
-        // v4 and later use JsonElement, but Propulsion is sticking with byte arrays until 3.x (at which point it'll probably shift to ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies)
+        // v4 and later use JsonElement, but Propulsion is using ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies
         open System.Text.Json
         let private toNativeEventBody (x : EventBody) : JsonElement =
             if x.IsEmpty then JsonElement()

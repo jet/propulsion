@@ -142,6 +142,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
         new ConsumerPipeline(consumer, task, triggerStop)
 
+[<AbstractClass; Sealed>]
 type ParallelConsumer private () =
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
@@ -328,6 +329,7 @@ type StreamNameSequenceGenerator() =
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
         Seq.singleton (sn, e)
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     static member StartConcurrentAsync<'Outcome>

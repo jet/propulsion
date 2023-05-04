@@ -985,6 +985,7 @@ module Projector =
             let startIngester (rangeLog, partitionId : int) = StreamsIngester.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
             Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
+[<AbstractClass; Sealed>]
 type Concurrent private () =
 
     /// Custom projection mechanism that divides work into a <code>prepare</code> phase that selects the prefix of the queued StreamSpan to handle,
@@ -1039,6 +1040,7 @@ type Concurrent private () =
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
 
+[<AbstractClass; Sealed>]
 type Batched private () =
 
     /// Establishes a Sink pipeline that continually dispatches to a single instance of a <c>handle</c> function

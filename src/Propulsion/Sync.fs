@@ -44,6 +44,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
 
     abstract member HandleOk : outcome : 'Outcome -> unit
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     static member StartAsync

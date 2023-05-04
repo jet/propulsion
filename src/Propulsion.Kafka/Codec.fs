@@ -8,12 +8,13 @@ open Newtonsoft.Json
 open Propulsion.Sinks
 
 /// Prepackaged serialization helpers with appropriate settings given the types will roundtrip correctly with default Json.net settings
+[<AbstractClass; Sealed>]
 type Serdes private () =
 
-    static let serdes = lazy FsCodec.NewtonsoftJson.Serdes Options.Default
+    static let serdes = FsCodec.NewtonsoftJson.Serdes.Default
 
-    static member Serialize<'T>(value : 'T) : string = serdes.Value.Serialize(value)
-    static member Deserialize(json : string) : 'T = serdes.Value.Deserialize(json)
+    static member Serialize<'T>(value : 'T) : string = serdes.Serialize(value)
+    static member Deserialize(json : string) : 'T = serdes.Deserialize(json)
 
 /// Rendition of an event within a RenderedSpan
 type [<NoEquality; NoComparison>] RenderedEvent =
