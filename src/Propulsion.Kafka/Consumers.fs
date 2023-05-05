@@ -405,7 +405,7 @@ type Factory private () =
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
-        let handle' xs ct = Async.startImmediateAsTask ct (handle xs)
+        let handle' xs ct = handle xs |> Async.startImmediateAsTask ct
         Factory.StartBatchedAsync<'Info>(log, config, consumeResultToInfo, infoToStreamEvents, select, handle', stats,
                                          ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
@@ -433,6 +433,6 @@ type Factory private () =
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
-        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        let handle' s xs ct = task { let! r, o = handle s xs |> Async.startImmediateAsTask ct in return struct (r, o) }
         Factory.StartConcurrentAsync(log, config, consumeResultToStreamEvents, maxDop, handle', stats,
                                      ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
