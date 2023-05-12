@@ -27,7 +27,7 @@ type Scenario(testOutput) =
     let ``TailingFeedSource Stop / AwaitCompletion semantics`` () = task {
         let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
         let source = Propulsion.Feed.Core.TailingFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", TimeSpan.FromMinutes 1,
-                                                            checkpoints, (*establishOrigin*)None, sink, crawl, string)
+                                                            checkpoints, (*establishOrigin*)None, sink, string, crawl)
         use src = source.Start(fun ct -> source.Pump((fun _ -> task { return [| TrancheId.parse "tid" |] }), ct))
         // Yields sink exception, if any
         do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
