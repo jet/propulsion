@@ -5,6 +5,9 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="..\Propulsion\Infrastructure.fs">
+            <Link>Infrastructure.fs</Link>
+        </Compile>
         <Compile Include="FeedReader.fs" />
         <Compile Include="FeedSource.fs" />
         <Compile Include="PeriodicSource.fs" />
@@ -12,9 +15,8 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="FSharp.Control.AsyncSeq" Version="3.2.1" />
         <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
-
-        <PackageReference Include="FSharp.Control.TaskSeq" Version="0.3.0" />
     </ItemGroup>
 
     <ItemGroup>

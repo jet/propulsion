@@ -3,6 +3,7 @@ namespace Propulsion.Feed.Core
 open FSharp.Control
 open Propulsion.Feed
 open Propulsion.Internal
+open Propulsion.Infrastructure
 open Serilog
 open System
 open System.Collections.Generic
@@ -161,10 +162,12 @@ type FeedReader
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
         while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
-            for readLatency, batch in crawl (lastWasTail, currentPos) ct do
-                do! submitPage (readLatency, batch)
-                currentPos <- batch.checkpoint
-                lastWasTail <- batch.isTail
+            do! AsyncSeq.ofAsyncEnum (crawl (lastWasTail, currentPos) ct)
+                |> AsyncSeq.iterAsync (fun struct(readLatency, batch) -> async {
+                    do! submitPage (readLatency, batch) |> Async.AwaitTaskCorrect
+                    currentPos <- batch.checkpoint
+                    lastWasTail <- batch.isTail })
+                |> Async.startImmediateAsTask ct
         match awaitIngesterShutdown with
         | Some a when not ct.IsCancellationRequested ->
             let completionTimer = Stopwatch.start ()
