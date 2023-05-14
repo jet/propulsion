@@ -21,19 +21,6 @@ jobs:
           - 5432:5432
         # needed because the postgres container does not provide a healthcheck
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
-      zookeeper:
-        image: zookeeper:3.4
-        ports:
-          - 2181:2181
-      kafka:
-        image: ches/kafka
-        env:
-          KAFKA_ADVERTISED_HOST_NAME: 127.0.0.1
-          ZOOKEEPER_IP: 127.0.0.1
-          KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
-          KAFKA_NUM_PARTITIONS: 4
-        ports:
-          - 9092:9092
     steps:
       - name: Checkout
         uses: actions/checkout@v2
@@ -63,7 +50,6 @@ jobs:
         
       - name: Run Tests
         env:
-          TEST_KAFKA_BROKER: 127.0.0.1:9092
           MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
           CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
-        run: dotnet test Propulsion.sln --no-restore --verbosity normal
+        run: dotnet test Propulsion.sln --no-restore --verbosity minimal
