@@ -34,6 +34,7 @@
 
   <Target Name="VSTest">
     <Exec Command="dotnet test tests/Propulsion.Tests $(Cfg) $(TestOptions)" />
+    <Exec Command="dotnet test tests/Propulsion.MessageDb.Integration $(Cfg) $(TestOptions)" />
     <!-- NB previously, when there were multiple integration tests running concurrently, they failed on CI (i.e. doing dotnet test on the .sln causes various hangs etc.)-->
     <!-- Wild guess says this is down to having two rdkafkas in a single process but who knows.-->
     <Exec Command="dotnet test tests/Propulsion.Kafka.Integration $(Cfg) $(TestOptions)" />
