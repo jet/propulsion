@@ -63,7 +63,7 @@ jobs:
         
       - name: Run Tests
         env:
-          TEST_KAFKA_BROKER: localhost:9092
+          TEST_KAFKA_BROKER: 127.0.0.1:9092
           MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
           CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
         run: dotnet test Propulsion.sln --no-restore --verbosity normal
