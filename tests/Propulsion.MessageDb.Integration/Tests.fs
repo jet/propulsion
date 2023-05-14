@@ -27,8 +27,12 @@ let createStreamMessage streamName =
     cmd.Parameters.AddWithValue("Data", NpgsqlDbType.Jsonb, """{"name": "world"}""") |> ignore
     cmd
 
-[<Literal>]
-let ConnectionString = "Host=localhost; Port=5432; Username=message_store; Password=;"
+let ConnectionString = Environment.GetEnvironmentVariable "MSG_DB_CONNECTION_STRING"
+let CheckpointConnectionString = Environment.GetEnvironmentVariable "CHECKPOINT_CONNECTION_STRING"
+type FactIfConnString() =
+    inherit FactAttribute()
+    override x.Skip = if null <> ConnectionString then null else "Skipping as no MSG_DB_CONNECTION_STRING supplied"
+    override x.Timeout = 60 * 15 * 1000
 
 let connect () = task {
     let conn = new NpgsqlConnection(ConnectionString)
@@ -54,7 +58,7 @@ let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, T
                        member _.HandleExn(log, x) = () }
 
 let makeCheckpoints consumerGroup = task {
-    let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
+    let checkpoints = ReaderCheckpoint.CheckpointStore(CheckpointConnectionString, "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
     return checkpoints }
 
