@@ -30,7 +30,7 @@ jobs:
           dotnet-version: '7.0.x'
 
       - name: Install dependencies
-        run: dotnet restore
+        run: dotnet restore Propulsion.sln
         
       - name: Install message-db
         env:
