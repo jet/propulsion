@@ -2,8 +2,8 @@ namespace Propulsion.Feed.Core
 
 open FSharp.Control
 open Propulsion.Feed
-open Propulsion.Internal
 open Propulsion.Infrastructure
+open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
