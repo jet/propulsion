@@ -126,7 +126,7 @@ type FeedReader
         renderPos,
         ?logCommitFailure,
         // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
-        ?awaitIngesterShutdown) =
+        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>) =
 
     let stats = Stats(partition, source, tranche, renderPos)
 
@@ -168,6 +168,7 @@ type FeedReader
                     currentPos <- batch.checkpoint
                     lastWasTail <- batch.isTail })
                 |> Async.startImmediateAsTask ct
+                |> Task.ignore<unit>
         match awaitIngesterShutdown with
         | Some a when not ct.IsCancellationRequested ->
             let completionTimer = Stopwatch.start ()
