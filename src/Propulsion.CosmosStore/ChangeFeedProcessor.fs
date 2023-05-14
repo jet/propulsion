@@ -152,16 +152,15 @@ type ChangeFeedProcessor =
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
                 let emitLagMetrics (ct : CancellationToken) = task {
                     while not ct.IsCancellationRequested do
-                        let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : IAsyncEnumerable<'u> = taskSeq {
+                        let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : Task<'u seq> = task {
                             // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
                             use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
+                            let result = ResizeArray()
                             while query.HasMoreResults do
                                 let! res = query.ReadNextAsync(ct)
-                                for x in res do
-                                    yield map x }
-                        let! leasesState =
-                            feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                            |> TaskSeq.toArrayAsync
+                                for x in res do result.Add(map x)
+                            return result :> 'u seq }
+                        let! leasesState = feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
                         do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
                 emitLagMetrics)
         let wrap (f : unit -> Task) () = task { return! f () }
