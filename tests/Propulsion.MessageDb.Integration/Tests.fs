@@ -56,8 +56,7 @@ let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, T
 let makeCheckpoints consumerGroup = task {
     let checkpoints = ReaderCheckpoint.CheckpointStore("Host=localhost; Database=message_store; Port=5433; Username=postgres; Password=postgres", "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
     do! checkpoints.CreateSchemaIfNotExists()
-    return checkpoints
-}
+    return checkpoints }
 
 [<Fact>]
 let ``It processes events for a category`` () = task {
@@ -136,7 +135,6 @@ let ``It doesn't read the tail event again`` () = task {
         checkpoints, sink, [| category |])
 
     use capture = new ActivityCapture()
-    use _src = source.Start()
 
     do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) :> Task
 
