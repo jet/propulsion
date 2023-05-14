@@ -56,11 +56,11 @@ type PeriodicSource
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawlInternal (read : Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
+    let crawlInternal (read : Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = AsyncSeq.toAsyncEnum(asyncSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
-        | waitTime when waitTime.Ticks > 0L -> do! Task.delay waitTime ct
+        | waitTime when waitTime.Ticks > 0L -> do! Async.Sleep waitTime
         | _ -> ()
 
         let basePosition = DateTimeOffset.UtcNow |> DateTimeOffsetPosition.ofDateTimeOffset
@@ -70,7 +70,7 @@ type PeriodicSource
         let buffer = ResizeArray()
         let mutable index = 0L
         let mutable elapsed = TimeSpan.Zero
-        for ts, xs in read.Invoke trancheId do
+        for ts, xs in AsyncSeq.ofAsyncEnum (read.Invoke trancheId) do
             elapsed <- elapsed + ts
             let streamEvents : Propulsion.Sinks.StreamEvent seq = seq {
                 for si in xs ->
@@ -91,7 +91,7 @@ type PeriodicSource
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
             | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Core.TimelineEvent.toCheckpointPosition
-        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Core.Batch<_>) }
+        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Core.Batch<_>) })
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                            // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
