@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: ethangarofolo/messagedb
+        image: ethangarofolo/message-db
         ports:
           # will assign a random free host port
           - 5432:5432
