@@ -27,12 +27,15 @@ let createStreamMessage streamName =
     cmd.Parameters.AddWithValue("Data", NpgsqlDbType.Jsonb, """{"name": "world"}""") |> ignore
     cmd
 
-let ConnectionString = Environment.GetEnvironmentVariable "MSG_DB_CONNECTION_STRING"
-let CheckpointConnectionString = Environment.GetEnvironmentVariable "CHECKPOINT_CONNECTION_STRING"
-type FactIfConnString() =
-    inherit FactAttribute()
-    override x.Skip = if null <> ConnectionString then null else "Skipping as no MSG_DB_CONNECTION_STRING supplied"
-    override x.Timeout = 60 * 15 * 1000
+let ConnectionString =
+    match Environment.GetEnvironmentVariable "MSG_DB_CONNECTION_STRING" with
+    | null -> "Host=localhost; Database=message_store; Port=5432; Username=message_store"
+    | s -> s
+let CheckpointConnectionString =
+    match Environment.GetEnvironmentVariable "CHECKPOINT_CONNECTION_STRING" with
+    | null -> "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
+    | s -> s
+
 
 let connect () = task {
     let conn = new NpgsqlConnection(ConnectionString)
