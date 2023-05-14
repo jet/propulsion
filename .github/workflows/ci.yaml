@@ -54,10 +54,16 @@ jobs:
           curl -L https://github.com/message-db/message-db/archive/refs/tags/v$MESSAGE_DB_VERSION.tar.gz -o /tmp/eventide/message-db.tgz
           tar -xf /tmp/eventide/message-db.tgz --directory /tmp/eventide
           (cd /tmp/eventide/message-db-${MESSAGE_DB_VERSION}/database && ./install.sh)
-
+          
+      - name: Restore
+        run: dotnet restore Propulsion.sln
+        
+      - name: Build
+        run: dotnet build Propulsion.sln --configuration Release --no-restore
+        
       - name: Run Tests
         env:
           TEST_KAFKA_BROKER: localhost:9092
           MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
           CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
-        run: dotnet build build.proj -v d 
+        run: dotnet test Propulsion.sln --no-restore --verbosity normal
