@@ -15,7 +15,7 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-rc.9.2" />
+    <PackageReference Include="Equinox.EventStoreDb" Version="4.0.0-rc.9.6" />
   </ItemGroup>
 
   <ItemGroup>
