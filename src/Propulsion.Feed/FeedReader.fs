@@ -2,6 +2,7 @@ namespace Propulsion.Feed.Core
 
 open FSharp.Control
 open Propulsion.Feed
+open Propulsion.Infrastructure
 open Propulsion.Internal
 open Serilog
 open System
@@ -125,7 +126,7 @@ type FeedReader
         renderPos,
         ?logCommitFailure,
         // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
-        ?awaitIngesterShutdown) =
+        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>) =
 
     let stats = Stats(partition, source, tranche, renderPos)
 
@@ -161,10 +162,13 @@ type FeedReader
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
         while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
-            for readLatency, batch in crawl (lastWasTail, currentPos) ct do
-                do! submitPage (readLatency, batch)
-                currentPos <- batch.checkpoint
-                lastWasTail <- batch.isTail
+            do! AsyncSeq.ofAsyncEnum (crawl (lastWasTail, currentPos) ct)
+                |> AsyncSeq.iterAsync (fun struct(readLatency, batch) -> async {
+                    do! submitPage (readLatency, batch) |> Async.AwaitTaskCorrect
+                    currentPos <- batch.checkpoint
+                    lastWasTail <- batch.isTail })
+                |> Async.startImmediateAsTask ct
+                |> Task.ignore<unit>
         match awaitIngesterShutdown with
         | Some a when not ct.IsCancellationRequested ->
             let completionTimer = Stopwatch.start ()

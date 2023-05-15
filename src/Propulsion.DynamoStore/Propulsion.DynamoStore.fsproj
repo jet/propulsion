@@ -6,6 +6,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="..\Propulsion\Infrastructure.fs" Link="Infrastructure.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="ExactlyOnceIngester.fs" />
         <Compile Include="AppendsIndex.fs" />

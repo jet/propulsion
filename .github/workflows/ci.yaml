@@ -1,0 +1,55 @@
+name: Run tests
+
+on:
+  push:
+    branches:
+      - '**'
+    tags-ignore:
+      - '*'
+
+jobs:
+  build-test-deploy:
+    name: Build and test
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:12
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          # will assign a random free host port
+          - 5432:5432
+        # needed because the postgres container does not provide a healthcheck
+        options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '6.0.x'
+
+      - name: Install message-db
+        env:
+          MESSAGE_DB_VERSION: 1.3.0
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGPORT: '5432'
+        run: |
+          mkdir -p /tmp/eventide
+          curl -L https://github.com/message-db/message-db/archive/refs/tags/v$MESSAGE_DB_VERSION.tar.gz -o /tmp/eventide/message-db.tgz
+          tar -xf /tmp/eventide/message-db.tgz --directory /tmp/eventide
+          (cd /tmp/eventide/message-db-${MESSAGE_DB_VERSION}/database && ./install.sh)
+          
+      - name: Restore
+        run: dotnet restore Propulsion.sln
+        
+      - name: Build
+        run: dotnet build Propulsion.sln --configuration Release --no-restore
+        
+      - name: Run Tests
+        env:
+          MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
+          CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
+        run: dotnet test Propulsion.sln --no-restore --verbosity minimal

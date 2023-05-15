@@ -116,6 +116,11 @@ module Task =
     let parallelUnlimited ct xs : Task<'t []> =
         parallel_ 0 ct xs
 
+    let inline ignore (a: Task<'T>): Task = task {
+        let! _ = a
+        return ()
+    }
+
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
     member _.HasCapacity = inner.CurrentCount <> 0
