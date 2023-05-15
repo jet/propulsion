@@ -13,7 +13,7 @@ module private Impl =
     let private checkpointPos (xs : EventRecord[]) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
-    let readBatch withData batchSize categoryFilter (store : EventStoreClient) (pos, ct) = task {
+    let readBatch withData batchSize categoryFilter (store : EventStoreClient) pos ct = task {
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, withData, cancellationToken = ct)
         let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
@@ -46,4 +46,4 @@ type EventStoreSource
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) client, checkpoints, sink,
-            ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche log client))
+            ?establishOrigin = match startFromTail with Some true -> Some (Impl.readTailPositionForTranche log client) | _ -> None)

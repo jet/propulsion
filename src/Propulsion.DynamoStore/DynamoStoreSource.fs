@@ -165,12 +165,11 @@ type DynamoStoreSource
             checkpoints,
             (   if startFromTail <> Some true then None
                 else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) (DynamoStoreContext indexClient))),
-            sink,
+            sink, Impl.renderPos,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                 (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
                 batchSizeCutoff (DynamoStoreContext indexClient),
-            Impl.renderPos,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))

@@ -189,6 +189,7 @@ type ParallelIngester<'Item> =
             struct (items.Length, items.Length)
         Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     static member Start

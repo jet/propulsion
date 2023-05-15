@@ -64,6 +64,7 @@ and StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
 /// Stream State as provided to the <c>select</c> function for a <c>StartBatched</c>
 type StreamState = Propulsion.Streams.Scheduling.Item<EventBody>
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     /// Project Events using up to <c>maxConcurrentStreams</c> <code>handle</code> functions that yield a StreamResult and an Outcome to be fed to the Stats
@@ -134,7 +135,7 @@ type Factory private () =
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval)
         : Sink =
-        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        let handle' s xs ct = task { let! r, o = handle s xs |> Async.startImmediateAsTask ct in return struct (r, o) }
         Sync.Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', StreamResult.toIndex, stats, Event.renderedSize, Event.storedSize,
                                 ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)
 
@@ -148,7 +149,7 @@ type Factory private () =
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
-        let handle items ct = Async.startImmediateAsTask ct (handle items)
+        let handle items ct = handle items |> Async.startImmediateAsTask ct
         Factory.StartBatchedAsync(log, maxReadAhead, select, handle, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)

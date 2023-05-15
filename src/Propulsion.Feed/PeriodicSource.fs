@@ -50,16 +50,13 @@ type SourceItem<'F> = { streamName : FsCodec.StreamName; eventData : FsCodec.IEv
 ///   in order to ensure that the Index of each event propagated to the Sink is monotonically increasing as required. <br/>
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
-    (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId,
-        // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
-        // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
-        crawl : TrancheId -> IAsyncEnumerable<struct (TimeSpan * SourceItem<_>[])>, refreshInterval : TimeSpan,
+    (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId, refreshInterval : TimeSpan,
         checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawl trancheId (_wasLast, position, ct) : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
+    let crawlInternal (read : Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -73,7 +70,7 @@ type PeriodicSource
         let buffer = ResizeArray()
         let mutable index = 0L
         let mutable elapsed = TimeSpan.Zero
-        for ts, xs in crawl trancheId do
+        for ts, xs in read.Invoke trancheId do
             elapsed <- elapsed + ts
             let streamEvents : Propulsion.Sinks.StreamEvent seq = seq {
                 for si in xs ->
@@ -96,13 +93,23 @@ type PeriodicSource
             | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Core.TimelineEvent.toCheckpointPosition
         yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Core.Batch<_>) }
 
+    member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
+                           // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
+                           // Yielding an exception will result in the <c>Pump<c/> loop terminating, tearing down the source pipeline
+                           crawl: Func<TrancheId, IAsyncEnumerable<struct (TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>>,
+                           ct) =
+        base.Pump(readTranches.Invoke, (crawlInternal crawl), ct)
+
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>
     /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
     /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
-    member internal _.Pump(readTranches : CancellationToken -> Task<TrancheId[]>, ct) =
-        base.Pump(readTranches, crawl, ct)
+    abstract member StartAsync: crawl: Func<TrancheId, IAsyncEnumerable<struct (TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>>
+                                * ?readTranches : Func<CancellationToken, Task<TrancheId[]>>
+                                 -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    default x.StartAsync(crawl, ?readTranches) =
+        let readTranches = match readTranches with Some f -> f.Invoke | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
+        base.Start(fun ct -> x.Pump(readTranches, crawl, ct))
 
-    abstract member Start : ?readTranches : (CancellationToken -> Task<TrancheId[]>) -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
-    default x.Start(?readTranches) =
-        let readTranches = match readTranches with Some f -> f | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
-        base.Start(fun ct -> x.Pump(readTranches, ct))
+    member x.Start(crawl : TrancheId -> IAsyncEnumerable<struct(TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>, ?readTranches) =
+        let readTranches = readTranches |> Option.map (fun f -> Func<_, _>(fun ct -> Async.startImmediateAsTask ct f))
+        x.StartAsync(crawl, ?readTranches = readTranches)

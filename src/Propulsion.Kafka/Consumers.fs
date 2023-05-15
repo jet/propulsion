@@ -142,6 +142,7 @@ type ConsumerPipeline private (inner : IConsumer<string, string>, task : Task<un
         let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
         new ConsumerPipeline(consumer, task, triggerStop)
 
+[<AbstractClass; Sealed>]
 type ParallelConsumer private () =
 
     /// Builds a processing pipeline per the `config` running up to `dop` instances of `handle` concurrently to maximize global throughput across partitions.
@@ -328,6 +329,7 @@ type StreamNameSequenceGenerator() =
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
         Seq.singleton (sn, e)
 
+[<AbstractClass; Sealed>]
 type Factory private () =
 
     static member StartConcurrentAsync<'Outcome>
@@ -403,7 +405,7 @@ type Factory private () =
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
-        let handle' xs ct = Async.startImmediateAsTask ct (handle xs)
+        let handle' xs ct = handle xs |> Async.startImmediateAsTask ct
         Factory.StartBatchedAsync<'Info>(log, config, consumeResultToInfo, infoToStreamEvents, select, handle', stats,
                                          ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
@@ -431,6 +433,6 @@ type Factory private () =
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
-        let handle' s xs ct = task { let! r, o = Async.startImmediateAsTask ct (handle s xs) in return struct (r, o) }
+        let handle' s xs ct = task { let! r, o = handle s xs |> Async.startImmediateAsTask ct in return struct (r, o) }
         Factory.StartConcurrentAsync(log, config, consumeResultToStreamEvents, maxDop, handle', stats,
                                      ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)

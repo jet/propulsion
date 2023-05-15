@@ -11,7 +11,7 @@ module private Impl =
     let private readWithDataAsStreamEvent (struct (_sn, msg : SqlStreamStore.Streams.StreamMessage) as m) ct = task {
         let! json = msg.GetJsonData(ct)
         return toStreamEvent json m }
-    let readBatch withData batchSize categoryFilter (store : SqlStreamStore.IStreamStore) (pos, ct) = task {
+    let readBatch withData batchSize categoryFilter (store : SqlStreamStore.IStreamStore) pos ct = task {
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, withData, ct)
         let filtered = page.Messages
                        |> Seq.choose (fun (msg : SqlStreamStore.Streams.StreamMessage) ->
@@ -23,7 +23,7 @@ module private Impl =
 
     let readTailPositionForTranche (store : SqlStreamStore.IStreamStore) _trancheId ct = task {
         let! lastEventPos = store.ReadHeadPosition(ct)
-        return Propulsion.Feed.Position.parse(lastEventPos + 1L) }
+        return Propulsion.Feed.Position.parse (lastEventPos + 1L) }
 
 type SqlStreamStoreSource
     (   log : Serilog.ILogger, statsInterval,
@@ -35,9 +35,9 @@ type SqlStreamStoreSource
         ?categoryFilter : System.Func<string, bool>,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?withData,
-        ?startFromTail,
-        ?sourceId) =
+        // Override default start position to be at the tail of the index. Default: Replay all events.
+        ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) store, checkpoints, sink,
-            ?establishOrigin = if startFromTail <> Some true then None else Some (Impl.readTailPositionForTranche store))
+            ?establishOrigin = match startFromTail with Some true -> Some (Impl.readTailPositionForTranche store) | _ -> None)

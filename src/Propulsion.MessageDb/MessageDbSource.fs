@@ -69,7 +69,7 @@ module Internal =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-    let internal readBatch batchSize (store : MessageDbCategoryClient) (category, pos, ct) : Task<Core.Batch<_>> =
+    let internal readBatch batchSize (store : MessageDbCategoryClient) struct (category, pos, ct) : Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
@@ -81,27 +81,20 @@ module Internal =
 type MessageDbSource internal
     (   log : Serilog.ILogger, statsInterval,
         client : Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
-        tranches, ?startFromTail, ?sourceId) =
+        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink, tranches,
+        ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.TailingFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
-            (   if startFromTail <> Some true then None
-                else Some (Internal.readTailPositionForTranche client)),
-            sink,
-            (fun cat pos ct -> taskSeq {
-                let sw = Stopwatch.start ()
-                let! b = Internal.readBatch batchSize client (cat, pos, ct)
-                yield struct (sw.Elapsed, b) }),
-            string)
+            (match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None), sink, string,
+            Propulsion.Feed.Core.TailingFeedSource.readOne (Internal.readBatch batchSize client))
     new(    log, statsInterval,
             connectionString, batchSize, tailSleepInterval,
-            checkpoints, sink,
-            categories,
+            checkpoints, sink, categories,
             // Override default start position to be at the tail of the index. Default: Replay all events.
             ?startFromTail, ?sourceId) =
-        MessageDbSource(log, statsInterval, Internal.MessageDbCategoryClient(connectionString),
-                        batchSize, tailSleepInterval, checkpoints, sink,
-                        categories |> Array.map Propulsion.Feed.TrancheId.parse,
+        MessageDbSource(log, statsInterval,
+                        Internal.MessageDbCategoryClient(connectionString), batchSize, tailSleepInterval,
+                        checkpoints, sink, categories |> Array.map Propulsion.Feed.TrancheId.parse,
                         ?startFromTail = startFromTail, ?sourceId = sourceId)
 
     abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>

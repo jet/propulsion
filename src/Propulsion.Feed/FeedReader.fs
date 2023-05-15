@@ -104,7 +104,7 @@ type FeedReader
         crawl :
             bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
-            * CancellationToken
+            -> CancellationToken
             -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>,
         // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
@@ -161,7 +161,7 @@ type FeedReader
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
         while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
-            for readLatency, batch in crawl (lastWasTail, currentPos, ct) do
+            for readLatency, batch in crawl (lastWasTail, currentPos) ct do
                 do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail

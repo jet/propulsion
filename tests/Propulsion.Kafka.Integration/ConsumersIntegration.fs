@@ -3,7 +3,6 @@ namespace Propulsion.Kafka.Integration
 open Confluent.Kafka // required for shimming
 open FsCodec
 open FsKafka
-open Newtonsoft.Json
 open Propulsion.Internal
 open Propulsion.Kafka
 open Propulsion.Tests
@@ -32,10 +31,11 @@ module Helpers =
         member c.StopAfter(delay : TimeSpan) =
             Task.Delay(delay).ContinueWith(fun (_ : Task) -> c.Stop()) |> ignore
 
+    let serdes = NewtonsoftJson.Serdes.Default
     type TestMeta = { key : string; value : string; partition : int; offset : int64 }
     let mapParallelConsumeResultToKeyValuePair (x : ConsumeResult<_, _>) : KeyValuePair<string, string> =
         let m = Binding.message x
-        KeyValuePair(m.Key, JsonConvert.SerializeObject { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = Binding.offsetValue x.Offset })
+        KeyValuePair(m.Key, serdes.Serialize { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = Binding.offsetValue x.Offset })
     type TestMessage = { producerId : int ; messageId : int }
     type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
@@ -49,7 +49,7 @@ module Helpers =
                 [1 .. messagesPerProducer]
                 |> Seq.map (fun msgId ->
                     let key = string msgId
-                    let value = JsonConvert.SerializeObject { producerId = producerId ; messageId = msgId }
+                    let value = serdes.Serialize { producerId = producerId ; messageId = msgId }
                     key, value)
 
                 |> Seq.chunkBySize 100
@@ -67,7 +67,6 @@ module Helpers =
         override x.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
         override x.Timeout = 60 * 15 * 1000
 
-    let serdes = NewtonsoftJson.Serdes NewtonsoftJson.Options.Default
     let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
         let mkConsumer (consumerId : int) = async {
 
@@ -81,8 +80,8 @@ module Helpers =
                 | Some c -> c
 
             let deserialize consumerId (KeyValue (_k, v : string)) : ConsumedTestMessage =
-                let d = serdes.Deserialize(v)
-                let v = serdes.Deserialize(d.value)
+                let d = serdes.Deserialize<TestMeta>(v)
+                let v = serdes.Deserialize<TestMessage>(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
             let handle item ct = handler (getConsumer()) (deserialize consumerId item) |> Async.startImmediateAsTask ct |> Task.Catch
             let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle, statsInterval = TimeSpan.FromSeconds 10.)
@@ -98,9 +97,7 @@ module Helpers =
     }
 
     let deserialize consumerId (e : ITimelineEvent<Propulsion.Sinks.EventBody>) : ConsumedTestMessage =
-        let d = e.Data
-        let d = serdes.Deserialize(System.Text.Encoding.UTF8.GetString d.Span)
-        { consumerId = consumerId; meta = d; payload = unbox e.Context }
+        { consumerId = consumerId; meta = serdes.Deserialize(e.Data); payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
         inherit Propulsion.Streams.Stats<unit>(log, statsInterval, stateInterval)
