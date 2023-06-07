@@ -3,6 +3,7 @@
 open FSharp.UMX
 open Propulsion.Internal
 open System // must shadow UMX to use DateTimeOffSet
+open System.Threading.Tasks
 
 type CheckpointSeriesId = string<checkpointSeriesId>
 and [<Measure>] checkpointSeriesId
@@ -67,7 +68,7 @@ type Command =
     | Override of at : DateTimeOffset * checkpointFreq : TimeSpan * pos : int64
     | Update of at : DateTimeOffset * pos : int64
 
-let interpret command (state : Fold.State) =
+let interpret command (state: Fold.State): seq<Events.Event> =
     let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
     let mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
         let next = at.Add interval
@@ -91,30 +92,31 @@ let interpret command (state : Fold.State) =
             [Events.Checkpointed { config = config; pos = checkpoint }]
     | c, s -> failwithf "Command %A invalid when %A" c s
 
-type Service internal (resolve : CheckpointSeriesId -> Equinox.Decider<Events.Event, Fold.State>) =
+open Equinox // to disambiguate DeciderCore \/ -- TODO remove
+type Service internal (resolve : CheckpointSeriesId -> DeciderCore<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
-    member _.Read(series) =
-        let stream = resolve series
-        stream.Query(id, load = Equinox.AllowStale)
+    member _.Read(series, ct) =
+        let decider = resolve series
+        decider.Query(id, load = Equinox.AnyCachedValue, ct = ct)
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Start(series, freq : TimeSpan, pos : int64) =
-        let stream = resolve series
-        stream.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AllowStale)
+    member _.Start(series, freq : TimeSpan, pos : int64, ct) : Task<unit> =
+        let decider = resolve series
+        decider.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Override(series, freq : TimeSpan, pos : int64) =
-        let stream = resolve series
-        stream.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AllowStale)
+    member _.Override(series, freq : TimeSpan, pos : int64, ct) =
+        let decider = resolve series
+        decider.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-    member _.Commit(series, pos : int64) =
-        let stream = resolve series
-        stream.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AllowStale)
+    member _.Commit(series, pos : int64, ct) =
+        let decider = resolve series
+        decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
 let create resolve = Service(streamId >> resolve Category)
 
@@ -125,7 +127,7 @@ type CheckpointSeries(groupName, resolve, ?log) =
     let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
     let inner = create (resolve log)
 
-    member _.Read(ct) = inner.Read seriesId |> Async.startImmediateAsTask ct
-    member _.Start(freq, pos) = inner.Start(seriesId, freq, pos)
-    member _.Override(freq, pos) = inner.Override(seriesId, freq, pos)
-    member _.Commit(pos, ct) = inner.Commit(seriesId, pos) |> Async.startImmediateAsTask ct
+    member _.Read(ct): Task<Fold.State> = inner.Read(seriesId, ct)
+    member _.Start(freq, pos, ct): Task<unit> = inner.Start(seriesId, freq, pos, ct)
+    member _.Override(freq, pos, ct): Task<unit> = inner.Override(seriesId, freq, pos, ct)
+    member _.Commit(pos, ct): Task<unit> = inner.Commit(seriesId, pos, ct)

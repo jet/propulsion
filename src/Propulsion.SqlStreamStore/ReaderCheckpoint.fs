@@ -4,7 +4,6 @@ open Dapper
 open FSharp.Control
 open Microsoft.Data.SqlClient
 open Propulsion.Feed
-open Propulsion.Internal
 open System
 open System.Data
 

@@ -52,7 +52,7 @@ type EventStoreSource =
         let! initialCheckpointState = checkpoints.Read ct
         let! maxPos = maxInParallel
 
-        let! startPos = Async.startImmediateAsTask ct <| async {
+        let! startPos = task {
             let mkPos x = EventStore.ClientAPI.Position(x, 0L)
             let requestedStartPos =
                 match spec.start with
@@ -61,16 +61,16 @@ type EventStoreSource =
                 | Percentage pct -> Reader.posFromPercentage (pct, maxPos)
                 | TailOrCheckpoint -> maxPos
                 | StartOrCheckpoint -> EventStore.ClientAPI.Position.Start
-            let! startMode, startPos, checkpointFreq = async {
+            let! startMode, startPos, checkpointFreq = task {
                 match initialCheckpointState, requestedStartPos with
                 | Checkpoint.Fold.NotStarted, r ->
                     if spec.forceRestart then invalidOp "Cannot specify --forceRestart when no progress yet committed"
-                    do! checkpoints.Start(spec.checkpointInterval, r.CommitPosition)
+                    do! checkpoints.Start(spec.checkpointInterval, r.CommitPosition, ct)
                     return Starting, r, spec.checkpointInterval
                 | Checkpoint.Fold.Running s, _ when not spec.forceRestart ->
                     return Resuming, mkPos s.state.pos, TimeSpan.FromSeconds(float s.config.checkpointFreqS)
                 | Checkpoint.Fold.Running _, r ->
-                    do! checkpoints.Override(spec.checkpointInterval, r.CommitPosition)
+                    do! checkpoints.Override(spec.checkpointInterval, r.CommitPosition, ct)
                     return Overridding, r, spec.checkpointInterval }
             log.Information("Sync {mode} {groupName} @ {pos} (chunk {chunk}, {pct:p1}) checkpointing every {checkpointFreq:n1}m",
                 startMode, spec.groupName, startPos.CommitPosition, Reader.chunk startPos, float startPos.CommitPosition / float maxPos.CommitPosition,
@@ -92,7 +92,7 @@ type EventStoreSource =
                 0, [|conn|], spec.streamReaders + 1
 
         let striper = StripedIngester(log.ForContext("Tranche", "Stripes"), ingester, maxReadAhead, initialSeriesId, statsInterval)
-        let! _pumpStripes = striper.Pump |> Async.startImmediateAsTask ct // will die with us, which is only after Reader finishes :point_down:
+        let! _pumpStripes = striper.Pump |> Async.executeAsTask ct // will die with us, which is only after Reader finishes :point_down:
 
         let post = function
             | Reader.Res.EndOfChunk seriesId -> striper.Submit <| Message.CloseSeries seriesId
@@ -101,4 +101,4 @@ type EventStoreSource =
                 striper.Submit <| Message.Batch(seriesId, cp, (fun ct -> checkpoints.Commit(cp, ct)), xs)
 
         let reader = Reader.EventStoreReader(conns, spec.batchSize, spec.minBatchSize, tryMapEvent, post, spec.tailInterval, dop)
-        do! reader.Pump(initialSeriesId, startPos, maxPos) |> Async.startImmediateAsTask ct }
+        do! reader.Pump(initialSeriesId, startPos, maxPos) |> Async.executeAsTask ct }

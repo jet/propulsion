@@ -28,7 +28,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
     member _.Wait() : Task<unit> = task
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
-    member _.Await() : Async<unit> = Async.AwaitTaskCorrect task
+    member _.Await() : Async<unit> = task |> Async.ofTask
 
     /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
     /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>Await</c> if such semantics are not desired.

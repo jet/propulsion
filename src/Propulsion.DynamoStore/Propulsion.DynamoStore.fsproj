@@ -6,7 +6,6 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="..\Propulsion\Infrastructure.fs" Link="Infrastructure.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="ExactlyOnceIngester.fs" />
         <Compile Include="AppendsIndex.fs" />
@@ -23,8 +22,8 @@
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-rc.9.6" />
-      <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.9.6" />
+      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-rc.10" />
+      <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.10" />
     </ItemGroup>
     
     <ItemGroup>

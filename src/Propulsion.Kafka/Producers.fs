@@ -49,5 +49,5 @@ type Producer
     member x.Produce(key, value, ?headers, ?ct) =
         let ct = defaultArg ct CancellationToken.None
         match headers with
-        | Some h -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value, h) |> Async.Ignore |> Async.startImmediateAsTask ct), ct)
-        | None -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value) |> Async.Ignore |> Async.startImmediateAsTask ct), ct)
+        | Some h -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value, h) |> Async.Ignore |> Async.executeAsTask ct), ct)
+        | None -> x.Produce((fun producer ct -> producer.ProduceAsync(key, value) |> Async.Ignore |> Async.executeAsTask ct), ct)

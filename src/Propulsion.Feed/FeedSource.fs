@@ -267,25 +267,24 @@ type TailingFeedSource
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos,
                            ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
-    let crawl trancheId (wasLast, startPos) ct = AsyncSeq.toAsyncEnum(asyncSeq {
-        if wasLast then do! Async.Sleep tailSleepInterval
-        try let batches = crawl.Invoke(trancheId, startPos, ct) |> AsyncSeq.ofAsyncEnum
+    let crawl trancheId (wasLast, startPos) ct = taskSeq {
+        if wasLast then do! Task.delay tailSleepInterval ct
+        try let batches = crawl.Invoke(trancheId, startPos, ct)
             for batch in batches do
                 yield batch
         with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
             match logReadFailure with None -> log.ForContext("tranche", trancheId).ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
-            match readFailureSleepInterval with None -> () | Some interval -> do! Async.Sleep interval
-    })
+            match readFailureSleepInterval with None -> () | Some interval -> do! Task.delay interval ct }
 
     member _.Pump(readTranches, ct) =
         base.Pump(readTranches, crawl, ct)
 
 module TailingFeedSource =
 
-    let readOne readBatch cat pos ct = AsyncSeq.toAsyncEnum (asyncSeq {
+    let readOne (readBatch : _ -> Task<_>) cat pos ct = taskSeq {
         let sw = Stopwatch.start ()
-        let! b = readBatch struct (cat, pos, ct) |> Async.AwaitTaskCorrect
-        yield struct (sw.Elapsed, b) })
+        let! b = readBatch struct (cat, pos, ct)
+        yield struct (sw.Elapsed, b) }
 
 /// Drives reading and checkpointing from a source that aggregates data from multiple streams as a singular source
 /// without shards/physical partitions (tranches), such as the SqlStreamStore and EventStoreDB $all feeds
@@ -342,7 +341,6 @@ open Propulsion.Internal
 open System
 open System.Threading
 open System.Threading.Tasks
-open Propulsion.Infrastructure
 
 [<NoComparison; NoEquality>]
 type Page<'F> = { items : FsCodec.ITimelineEvent<'F>[]; checkpoint : Position; isTail : bool }
@@ -359,13 +357,13 @@ type FeedSource
 
     let crawl (readPage: Func<TrancheId,Position,CancellationToken,Task<Page<_>>>) trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
-        fun (wasLast, pos) ct -> AsyncSeq.toAsyncEnum(asyncSeq {
+        fun (wasLast, pos) ct -> taskSeq {
             if wasLast then
-                do! Async.Sleep tailSleepInterval
+                do! Task.delay tailSleepInterval ct
             let readTs = Stopwatch.timestamp ()
-            let! page = (readPage.Invoke(trancheId, pos, ct)) |> Async.AwaitTaskCorrect
+            let! page = readPage.Invoke(trancheId, pos, ct)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>)) })
+            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail } : Core.Batch<_>)) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                   readPage: Func<TrancheId, Position, CancellationToken, Task<Page<Propulsion.Sinks.EventBody>>>, ct): Task<unit> =
@@ -380,5 +378,5 @@ type FeedSource
         base.Start(fun ct -> x.Pump(readTranches, readPage, ct))
 
     member x.Start(readTranches : unit -> Async<TrancheId[]>, readPage : TrancheId -> Position -> Async<Page<Propulsion.Sinks.EventBody>>) =
-        x.StartAsync((fun ct -> readTranches () |> Async.startImmediateAsTask ct),
-                     (fun t p ct-> readPage t p |> Async.startImmediateAsTask ct))
+        x.StartAsync((fun ct -> readTranches () |> Async.executeAsTask ct),
+                     (fun t p ct -> readPage t p |> Async.executeAsTask ct))

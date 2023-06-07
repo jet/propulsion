@@ -98,7 +98,13 @@ module Async =
 
     let ofUnitTask (t : Task) = Async.AwaitTaskCorrect t
     let ofTask (t : Task<'t>) = Async.AwaitTaskCorrect t
-    let inline startImmediateAsTask ct (a : Async<'t>) = Async.StartImmediateAsTask(a, cancellationToken = ct)
+
+    let inline call (start: CancellationToken -> Task<'T>) = async {
+        let! ct = Async.CancellationToken
+        return! start ct |> ofTask }
+
+    let inline startImmediateAsTask (computation: Async<'T>) ct: Task<'T> = Async.StartImmediateAsTask(computation, ct)
+    let inline executeAsTask ct (computation: Async<'T>) : Task<'T> = startImmediateAsTask computation ct
 
 module Task =
 
@@ -106,9 +112,8 @@ module Task =
     let inline start create = run create |> ignore<Task>
     let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
     let inline Catch (t : Task<'t>) = task { try let! r = t in return Ok r with e -> return Error e }
-    let private parallel_ maxDop ct (xs : seq<CancellationToken -> Task<'t>>) : Task<'t []> =
-        let run ct (f : CancellationToken -> Task<'t>) = Async.RunSynchronously(async { return f ct |> Async.ofTask }, cancellationToken = ct)
-        Async.Parallel(xs |> Seq.map (run ct), ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.startImmediateAsTask ct
+    let private parallel_ maxDop ct (xs: seq<CancellationToken -> Task<'t>>) : Task<'t []> =
+        Async.Parallel(xs |> Seq.map Async.call, ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.executeAsTask ct
     let parallelLimit maxDop ct xs : Task<'t []> =
         parallel_ maxDop ct xs
     let sequential ct xs : Task<'t []> =
@@ -116,10 +121,9 @@ module Task =
     let parallelUnlimited ct xs : Task<'t []> =
         parallel_ 0 ct xs
 
-    let inline ignore (a: Task<'T>): Task = task {
+    let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
-        return ()
-    }
+        return () }
 
 type Sem(max) =
     let inner = new SemaphoreSlim(max)
@@ -148,7 +152,7 @@ type Async with
         use _ = Console.CancelKeyPress.Subscribe(fun (a : ConsoleCancelEventArgs) ->
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
-        return! Async.ofUnitTask tcs.Task }
+        return! tcs.Task |> Async.ofUnitTask }
 
 type OAttribute = System.Runtime.InteropServices.OptionalAttribute
 type DAttribute = System.Runtime.InteropServices.DefaultParameterValueAttribute

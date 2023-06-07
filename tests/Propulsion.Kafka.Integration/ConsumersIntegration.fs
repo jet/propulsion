@@ -83,7 +83,7 @@ module Helpers =
                 let d = serdes.Deserialize<TestMeta>(v)
                 let v = serdes.Deserialize<TestMessage>(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
-            let handle item ct = handler (getConsumer()) (deserialize consumerId item) |> Async.startImmediateAsTask ct |> Task.Catch
+            let handle item ct = handler (getConsumer()) (deserialize consumerId item) |> Async.executeAsTask ct |> Task.Catch
             let consumer = ParallelConsumer.Start(log, config, 128, mapParallelConsumeResultToKeyValuePair, handle, statsInterval = TimeSpan.FromSeconds 10.)
 
             consumerCell := Some consumer

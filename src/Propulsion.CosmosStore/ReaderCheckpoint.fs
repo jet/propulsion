@@ -128,13 +128,13 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         /// Yields the checkpoint interval and the starting position
         member _.Start(source, tranche, establishOrigin, ct) : Task<struct (TimeSpan * Position)> =
             let decider = resolve (source, tranche, consumerGroupName)
-            let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> async { return! f.Invoke(ct) |> Async.AwaitTask }
+            let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
 #if COSMOSV3
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
 #else
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AllowStale)
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AnyCachedValue)
 #endif
-            |> Async.startImmediateAsTask ct
+            |> Async.executeAsTask ct
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position, ct) =
@@ -142,14 +142,14 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 #if COSMOSV3
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 #else
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AnyCachedValue)
 #endif
-            |> Async.startImmediateAsTask ct :> _
+            |> Async.executeAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters
-    member _.Override(source, tranche, pos : Position) =
+    member _.Override(source, tranche, pos : Position, ct): Task<unit> =
         let decider = resolve (source, tranche, consumerGroupName)
-        decider.Transact(decideOverride DateTimeOffset.UtcNow defaultCheckpointFrequency pos)
+        decider.Transact(decideOverride DateTimeOffset.UtcNow defaultCheckpointFrequency pos) |> Async.executeAsTask ct
 
 #if MEMORYSTORE
 module MemoryStore =
