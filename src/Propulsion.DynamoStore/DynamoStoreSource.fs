@@ -2,7 +2,6 @@
 
 open Equinox.DynamoStore
 open FSharp.Control
-open Propulsion.Infrastructure
 open Propulsion.Internal
 open System
 open System.Threading
@@ -45,10 +44,10 @@ module private Impl =
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
-            (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = AsyncSeq.toAsyncEnum(asyncSeq {
+            (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
-        let! _maybeSize, version, state = epochs.Read(pid, epochId, offset)
+        let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.startImmediateAsTask ct
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
@@ -104,15 +103,15 @@ module private Impl =
         for i, spans in state.changes do
             let pending = spans |> Array.filter (fun (span : AppendsEpoch.Events.StreamSpan) -> streamEvents.ContainsKey(span.p))
             if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
-                let! hydrated = materializeSpans ct |> Async.AwaitTaskCorrect
+                let! hydrated = materializeSpans ct
                 report (Some i) hydrated.Length
                 yield struct (sw.Elapsed, sliceBatch epochId i hydrated) // not i + 1 as the batch does not include these changes
                 sw.Reset()
                 buffer.Clear()
             buffer.AddRange(pending)
-        let! hydrated = materializeSpans ct |> Async.AwaitTaskCorrect
+        let! hydrated = materializeSpans ct
         report None hydrated.Length
-        yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) })
+        yield struct (sw.Elapsed, finalBatch epochId (version, state) hydrated) }
 
 /// Defines the strategy to use for hydrating the events prior to routing them to the Handler
 [<NoComparison; NoEquality>]

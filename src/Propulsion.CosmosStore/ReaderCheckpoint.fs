@@ -132,7 +132,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 #if COSMOSV3
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
 #else
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AllowStale)
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AnyCachedValue)
 #endif
             |> Async.startImmediateAsTask ct
         /// Ingest a position update
@@ -142,7 +142,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 #if COSMOSV3
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
 #else
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AllowStale)
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AnyCachedValue)
 #endif
             |> Async.startImmediateAsTask ct :> _
 
