@@ -82,7 +82,7 @@ type CosmosStorePruner =
             ?ingesterStatsInterval)
         : Sink =
         let dispatcher =
-            let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.startImmediateAsTask ct
+            let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.executeAsTask ct
             let interpret _stream span =
                 let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)

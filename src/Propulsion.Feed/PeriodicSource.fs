@@ -111,5 +111,5 @@ type PeriodicSource
         base.Start(fun ct -> x.Pump(readTranches, crawl, ct))
 
     member x.Start(crawl : TrancheId -> IAsyncEnumerable<struct(TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>, ?readTranches) =
-        let readTranches = readTranches |> Option.map (fun f -> Func<_, _>(fun ct -> Async.startImmediateAsTask ct f))
+        let readTranches = readTranches |> Option.map (fun f -> Func<_, _>(Async.startImmediateAsTask f))
         x.StartAsync(crawl, ?readTranches = readTranches)

@@ -58,7 +58,7 @@ module Internal =
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
-                       |> Async.startImmediateAsTask ct
+                       |> Async.executeAsTask ct
 #else
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _), ct)
 #endif

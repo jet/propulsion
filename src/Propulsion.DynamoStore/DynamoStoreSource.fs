@@ -17,9 +17,9 @@ module private Impl =
 
     let readTailPositionForPartition log context (AppendsPartitionId.Parse partitionId) ct = task {
         let index = AppendsIndex.Reader.create log context
-        let! epochId = index.ReadIngestionEpochId(partitionId) |> Async.startImmediateAsTask ct
+        let! epochId = index.ReadIngestionEpochId(partitionId) |> Async.executeAsTask ct
         let epochs = AppendsEpoch.Reader.Config.create log context
-        let! version = epochs.ReadVersion(partitionId, epochId) |> Async.startImmediateAsTask ct
+        let! version = epochs.ReadVersion(partitionId, epochId) |> Async.executeAsTask ct
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
     let logReadFailure (storeLog : Serilog.ILogger) =
@@ -47,7 +47,7 @@ module private Impl =
             (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = taskSeq {
         let epochs = AppendsEpoch.Reader.Config.create storeLog context
         let sw = Stopwatch.start ()
-        let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.startImmediateAsTask ct
+        let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.executeAsTask ct
         let totalChanges = state.changes.Length
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
@@ -181,7 +181,7 @@ type DynamoStoreSource
         | None ->
             let context = DynamoStoreContext(indexClient)
             let storeLog = defaultArg storeLog log
-            let! res = Impl.readPartitions storeLog context |> Async.startImmediateAsTask ct
+            let! res = Impl.readPartitions storeLog context |> Async.executeAsTask ct
             let appendsPartitionIds = match res with [||] -> [| AppendsPartitionId.wellKnownId |] | ids -> ids
             return appendsPartitionIds |> Array.map AppendsPartitionId.toTrancheId }
 

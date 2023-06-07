@@ -378,5 +378,5 @@ type FeedSource
         base.Start(fun ct -> x.Pump(readTranches, readPage, ct))
 
     member x.Start(readTranches : unit -> Async<TrancheId[]>, readPage : TrancheId -> Position -> Async<Page<Propulsion.Sinks.EventBody>>) =
-        x.StartAsync((fun ct -> readTranches () |> Async.startImmediateAsTask ct),
-                     (fun t p ct-> readPage t p |> Async.startImmediateAsTask ct))
+        x.StartAsync((fun ct -> readTranches () |> Async.executeAsTask ct),
+                     (fun t p ct -> readPage t p |> Async.executeAsTask ct))

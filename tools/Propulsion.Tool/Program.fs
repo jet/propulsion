@@ -179,13 +179,13 @@ module Checkpoints =
             match a.StoreArgs with
             | Choice1Of3 a ->
                 let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
-                return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos)
+                return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos, ct)
             | Choice2Of3 a ->
                 let store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
-                return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos)
+                return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos, ct)
             | Choice3Of3 a ->
                 let store = a.CreateCheckpointStore(group)
-                return store, null, fun pos -> store.Override(source, tranche, pos, ct) |> Async.AwaitTask }
+                return store, null, fun pos -> store.Override(source, tranche, pos, ct) }
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
         match p.TryGetResult OverridePosition with
         | None ->

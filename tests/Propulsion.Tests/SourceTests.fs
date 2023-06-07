@@ -48,7 +48,7 @@ type Scenario(testOutput) =
         // Hence waiting with the Monitor is not actually necessary (though it provides progress logging which otherwise would be less thorough)
         if withWait then
             // Yields sink exception, if any
-            do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Async.AwaitTask
+            do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Async.ofTask
         // Yields source exception, if any
         do! src.Await()
         test <@ src.RanToCompletion @> }

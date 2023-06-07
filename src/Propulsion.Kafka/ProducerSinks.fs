@@ -63,7 +63,7 @@ type StreamsProducerSink =
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Sink =
         let prepare' s xs ct = task {
-            let! r, o = prepare s xs |> Async.startImmediateAsTask ct
+            let! r, o = prepare s xs |> Async.executeAsTask ct
             let r' = r |> ValueOption.ofOption |> ValueOption.map ValueTuple.Create
             return struct (r', o) }
         StreamsProducerSink.StartAsync(
@@ -101,7 +101,7 @@ type StreamsProducerSink =
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
         : Sink =
         let prepare' s xs ct = task {
-            let! k, v = prepare s xs |> Async.startImmediateAsTask ct
+            let! k, v = prepare s xs |> Async.executeAsTask ct
             return struct (k, v) }
         StreamsProducerSink.StartAsync(
             log, maxReadAhead, maxConcurrentStreams, prepare', producer, stats,
