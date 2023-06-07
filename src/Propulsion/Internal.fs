@@ -116,7 +116,7 @@ module Task =
     let parallelUnlimited ct xs : Task<'t []> =
         parallel_ 0 ct xs
 
-    let inline ignore (a: Task<'T>): Task<unit> = task {
+    let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
         return ()
     }
