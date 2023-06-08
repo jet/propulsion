@@ -12,6 +12,7 @@ module CheckpointSeriesId =
     let toString (x : CheckpointSeriesId) = UMX.untag x
 
 let [<Literal>] Category = "Sync"
+let [<Literal>] Category_ = Category
 let streamId = Equinox.StreamId.gen CheckpointSeriesId.toString
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
@@ -92,7 +93,7 @@ let interpret command (state: Fold.State): seq<Events.Event> =
             [Events.Checkpointed { config = config; pos = checkpoint }]
     | c, s -> failwithf "Command %A invalid when %A" c s
 
-open Equinox // to disambiguate DeciderCore \/ -- TODO remove
+open Equinox // to disambiguate DeciderCore \/ -- TODO remove as this brings Category into scope and makes a mess
 type Service internal (resolve : CheckpointSeriesId -> DeciderCore<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
@@ -118,7 +119,7 @@ type Service internal (resolve : CheckpointSeriesId -> DeciderCore<Events.Event,
         let decider = resolve series
         decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
-let create resolve = Service(streamId >> resolve Category)
+let create resolve = Service(streamId >> resolve Category_)
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
