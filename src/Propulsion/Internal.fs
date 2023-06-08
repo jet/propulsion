@@ -99,9 +99,12 @@ module Async =
     let ofUnitTask (t : Task) = Async.AwaitTaskCorrect t
     let ofTask (t : Task<'t>) = Async.AwaitTaskCorrect t
 
-    let inline call (start: CancellationToken -> Task<'T>) = async {
+    let inline call (start: CancellationToken -> Task<'T>): Async<'T> = async {
         let! ct = Async.CancellationToken
         return! start ct |> ofTask }
+    let inline callUnit (start: CancellationToken -> Task): Async<unit> = async {
+        let! ct = Async.CancellationToken
+        return! start ct |> ofUnitTask }
 
     let inline startImmediateAsTask (computation: Async<'T>) ct: Task<'T> = Async.StartImmediateAsTask(computation, ct)
     let inline executeAsTask ct (computation: Async<'T>) : Task<'T> = startImmediateAsTask computation ct
