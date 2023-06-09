@@ -58,6 +58,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb", "src
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb.Integration", "tests\Propulsion.MessageDb.Integration\Propulsion.MessageDb.Integration.fsproj", "{9738D2C1-EE7C-400F-8B14-31B5B7B66839}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MemoryLeakRepro", "tests\MemoryLeakRepro\MemoryLeakRepro.fsproj", "{553CC588-4EC2-4728-824C-F986315ED572}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -156,6 +158,10 @@ Global
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.Build.0 = Release|Any CPU
+		{553CC588-4EC2-4728-824C-F986315ED572}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{553CC588-4EC2-4728-824C-F986315ED572}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{553CC588-4EC2-4728-824C-F986315ED572}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{553CC588-4EC2-4728-824C-F986315ED572}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
