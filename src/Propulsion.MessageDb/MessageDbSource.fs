@@ -13,19 +13,24 @@ module internal Npgsql =
         do! conn.OpenAsync(ct)
         return conn }
 
+
+module private Queries =
+    [<Literal>]
+    let getCategoryMessages =
+        "select position, type, data, metadata, id::uuid,
+           (metadata::jsonb->>'$correlationId')::text,
+           (metadata::jsonb->>'$causationId')::text,
+           time, stream_name, global_position
+         from get_category_messages($1, $2, $3);"
+    [<Literal>]
+    let getLastPosition = "select max(global_position) from messages where category(stream_name) = $1;"
+
 module Internal =
 
     open NpgsqlTypes
     open Propulsion.Feed
     open System.Data.Common
     open System.Text.Json
-
-    [<Literal>]
-    let private CategoryQuery = "select position, type, data, metadata, id::uuid,
-                                   (metadata::jsonb->>'$correlationId')::text,
-                                   (metadata::jsonb->>'$causationId')::text,
-                                   time, stream_name, global_position
-                                 from get_category_messages($1, $2, $3);"
 
     module private Json =
         let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
@@ -53,7 +58,7 @@ module Internal =
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
             use! conn = connect ct
-            let command = conn.CreateCommand(CommandText = CategoryQuery)
+            let command = conn.CreateCommand(CommandText = Queries.getCategoryMessages)
             command.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
             command.Parameters.AddWithValue(NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
             command.Parameters.AddWithValue(NpgsqlDbType.Bigint, int64 batchSize) |> ignore
@@ -66,8 +71,8 @@ module Internal =
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct) : Task<int64 voption> = task {
             use! conn = connect ct
-            let command = conn.CreateCommand(CommandText = "select max(global_position) from messages where category(stream_name) = @Category;")
-            command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
+            let command = conn.CreateCommand(CommandText = Queries.getLastPosition)
+            command.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
 
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
