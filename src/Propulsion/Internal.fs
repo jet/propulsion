@@ -1,6 +1,7 @@
 module Propulsion.Internal
 
 open System
+open System.Threading.Tasks
 
 module TimeSpan =
 
@@ -63,10 +64,10 @@ module Channel =
     let unboundedSw<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true))
     let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
     let boundedSw<'t> c = Channel.CreateBounded<'t>(BoundedChannelOptions(c, SingleWriter = true))
-    let waitToWrite (w : ChannelWriter<_>) ct = w.WaitToWriteAsync(ct)
+    let waitToWrite (w : ChannelWriter<_>) ct = w.WaitToWriteAsync(ct).AsTask() :> Task
     let tryWrite (w : ChannelWriter<_>) = w.TryWrite
     let write (w : ChannelWriter<_>) = w.TryWrite >> ignore
-    let inline awaitRead (r : ChannelReader<_>) ct = let vt = r.WaitToReadAsync(ct) in vt.AsTask()
+    let inline awaitRead (r : ChannelReader<_>) ct = r.WaitToReadAsync(ct).AsTask()
     let inline tryRead (r : ChannelReader<_>) () =
         let mutable msg = Unchecked.defaultof<_>
         if r.TryRead(&msg) then ValueSome msg else ValueNone

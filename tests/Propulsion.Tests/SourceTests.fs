@@ -6,6 +6,7 @@ open Propulsion.Internal
 open Serilog
 open Swensen.Unquote
 open System
+open System.Threading
 open Xunit
 
 type Scenario(testOutput) =
@@ -34,7 +35,7 @@ type Scenario(testOutput) =
         // source runs until someone explicitly stops it, or it throws
         src.Stop()
         // TailingFeedSource does not implicitly wait for completion or flush
-        do! source.Checkpoint() |> Task.ignore
+        do! source.Checkpoint(CancellationToken.None) |> Task.ignore
         // Yields source exception, if any
         do! src.Await()
         test <@ src.RanToCompletion @> }
