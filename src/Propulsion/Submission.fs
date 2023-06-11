@@ -116,7 +116,7 @@ type SubmissionEngine<'P, 'M, 'S, 'B when 'P : equality>
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
             let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
-            do! Task.WhenAny[| if awaitCapacity then let vt = waitToSubmitBatch ct in vt.AsTask() :> Task
+            do! Task.WhenAny[| if awaitCapacity then let vt = waitToSubmitBatch cts.Token in vt.AsTask() :> Task
                                awaitIncoming cts.Token :> Task
                                Task.Delay(stats.Interval.RemainingMs, cts.Token) |] :> Task
             cts.Cancel() }
