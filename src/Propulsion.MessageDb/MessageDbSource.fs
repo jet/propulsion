@@ -20,6 +20,13 @@ module Internal =
     open System.Data.Common
     open System.Text.Json
 
+    [<Literal>]
+    let private CategoryQuery = "select position, type, data, metadata, id::uuid,
+                                   (metadata::jsonb->>'$correlationId')::text,
+                                   (metadata::jsonb->>'$causationId')::text,
+                                   time, stream_name, global_position
+                                 from get_category_messages($1, $2, $3);"
+
     module private Json =
         let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
 
@@ -46,14 +53,10 @@ module Internal =
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
             use! conn = connect ct
-            let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
-                                                                   (metadata::jsonb->>'$correlationId')::text,
-                                                                   (metadata::jsonb->>'$causationId')::text,
-                                                                   time, stream_name, global_position
-                                                            from get_category_messages(@Category, @Position, @BatchSize);")
-            command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
-            command.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
-            command.Parameters.AddWithValue("BatchSize", NpgsqlDbType.Bigint, int64 batchSize) |> ignore
+            let command = conn.CreateCommand(CommandText = CategoryQuery)
+            command.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
+            command.Parameters.AddWithValue(NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
+            command.Parameters.AddWithValue(NpgsqlDbType.Bigint, int64 batchSize) |> ignore
 
             use! reader = command.ExecuteReaderAsync(ct)
             let events = [| while reader.Read() do parseRow reader |]
