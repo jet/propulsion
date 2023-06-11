@@ -22,7 +22,7 @@
     <ItemGroup>
       <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-rc.10" />
+      <PackageReference Include="Equinox.DynamoStore" Version="4.0.0-rc.11" />
       <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.10" />
     </ItemGroup>
     
