@@ -617,7 +617,7 @@ module Scheduling =
         abstract member Pump : CancellationToken -> Task<unit>
         abstract member State : struct (int * int)
         abstract member HasCapacity : bool with get
-        abstract member AwaitCapacity : CancellationToken -> Task<unit>
+        abstract member AwaitCapacity : CancellationToken -> Task
         abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Result<'P, 'E> -> struct (int64 voption * Result<'R, 'E>)
     and [<Struct; NoComparison; NoEquality>]
