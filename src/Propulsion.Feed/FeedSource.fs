@@ -62,7 +62,8 @@ type FeedSourceBase internal
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
         pumpStats ct |> ignore
-        do! (tranches, partitions) ||> Array.mapi2 pumpPartition |> Task.parallelUnlimited ct |> Task.ignore<unit[]>
+        let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
+        do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
 
     member x.Start(pump) =
