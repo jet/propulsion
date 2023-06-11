@@ -43,7 +43,7 @@ module internal Impl =
         return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
     let exec connString f ct = task {
-        use! conn = connect connString ct
+        use! conn = Internal.createConnectionAndOpen connString ct
         return! f conn ct }
 
 type CheckpointStore(connString : string, schema : string, consumerGroupName, defaultCheckpointFrequency : System.TimeSpan) =
