@@ -58,6 +58,10 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb", "src
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.MessageDb.Integration", "tests\Propulsion.MessageDb.Integration\Propulsion.MessageDb.Integration.fsproj", "{9738D2C1-EE7C-400F-8B14-31B5B7B66839}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{6150040E-74E6-4783-B85E-81BFC7428926}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "MemoryLeakRepro", "tests\MemoryLeakRepro\MemoryLeakRepro.fsproj", "{99FC11DF-AD32-4AE8-83EA-949FFD824FB8}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -156,11 +160,16 @@ Global
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{9738D2C1-EE7C-400F-8B14-31B5B7B66839}.Release|Any CPU.Build.0 = Release|Any CPU
+		{99FC11DF-AD32-4AE8-83EA-949FFD824FB8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99FC11DF-AD32-4AE8-83EA-949FFD824FB8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99FC11DF-AD32-4AE8-83EA-949FFD824FB8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99FC11DF-AD32-4AE8-83EA-949FFD824FB8}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
+		{99FC11DF-AD32-4AE8-83EA-949FFD824FB8} = {6150040E-74E6-4783-B85E-81BFC7428926}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {DF04AF73-7412-46E5-9CC8-15CB48E3139A}

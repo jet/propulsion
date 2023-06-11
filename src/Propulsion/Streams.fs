@@ -790,8 +790,8 @@ module Scheduling =
 
         member internal _.SubmitStreams(x : Streams<_>) =
             enqueueStreams x
-        member internal _.WaitToSubmit() =
-            waitToSubmit ()
+        member internal _.WaitToSubmit(ct) =
+            waitToSubmit ct
         member internal _.TrySubmit(x : Batch) =
             tryWritePending x
 
