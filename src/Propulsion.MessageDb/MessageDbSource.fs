@@ -9,21 +9,13 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-module internal Npgsql =
-
-    let connect connectionString ct = task {
-        let conn = new NpgsqlConnection(connectionString)
-        do! conn.OpenAsync(ct)
-        return conn }
-
-
 module private GetCategoryMessages =
     [<Literal>]
     let getCategoryMessages =
         "select position, type, data, metadata, id::uuid, time, stream_name, global_position
          from get_category_messages($1, $2, $3);"
-    let prepareCommand (category: TrancheId) (fromPositionInclusive: int64) (batchSize: int) =
-        let cmd = new NpgsqlCommand(CommandText = getCategoryMessages)
+    let prepareCommand connection (category: TrancheId) (fromPositionInclusive: int64) (batchSize: int) =
+        let cmd = new NpgsqlCommand(getCategoryMessages, connection)
         cmd.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
         cmd.Parameters.AddWithValue(NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
         cmd.Parameters.AddWithValue(NpgsqlDbType.Bigint, int64 batchSize) |> ignore
@@ -32,27 +24,28 @@ module private GetCategoryMessages =
 module private GetLastPosition =
     [<Literal>]
     let getLastPosition = "select max(global_position) from messages where category(stream_name) = $1;"
-    let prepareCommand category =
-        let cmd = new NpgsqlCommand(CommandText = getLastPosition)
+    let prepareCommand connection category =
+        let cmd = new NpgsqlCommand(getLastPosition, connection)
         cmd.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
         cmd
 
 module Internal =
-    open System.Data.Common
-    open System.Text.Json
+    let createConnectionAndOpen connectionString ct = task {
+        let conn = new NpgsqlConnection(connectionString)
+        do! conn.OpenAsync(ct)
+        return conn }
 
-    module private Json =
-        let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
+    let private jsonNull = ReadOnlyMemory(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(null))
 
-        let fromReader idx (reader: DbDataReader) =
+    type System.Data.Common.DbDataReader with
+        member reader.GetJson idx =
             if reader.IsDBNull(idx) then jsonNull
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes |> ReadOnlyMemory
 
     type MessageDbCategoryClient(connectionString) =
-        let connect = Npgsql.connect connectionString
-        let parseRow (reader: DbDataReader) =
-            let readUtf8String idx = Json.fromReader idx reader
-            let et, data, meta = reader.GetString(1), readUtf8String 2, readUtf8String 3
+        let connect = createConnectionAndOpen connectionString
+        let parseRow (reader: System.Data.Common.DbDataReader) =
+            let et, data, meta = reader.GetString(1), reader.GetJson 2, reader.GetJson 3
             let sz = data.Length + meta.Length + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0), // index within the stream, 0 based
@@ -65,8 +58,7 @@ module Internal =
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
             use! conn = connect ct
-            use command = GetCategoryMessages.prepareCommand category fromPositionInclusive batchSize
-            command.Connection <- conn
+            use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
             use! reader = command.ExecuteReaderAsync(ct)
             let events = [| while reader.Read() do parseRow reader |]
@@ -76,8 +68,7 @@ module Internal =
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct) : Task<int64 voption> = task {
             use! conn = connect ct
-            use command = GetLastPosition.prepareCommand category
-            command.Connection <- conn
+            use command = GetLastPosition.prepareCommand conn category
 
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
