@@ -132,8 +132,9 @@ type Sem(max) =
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = struct(max - inner.CurrentCount, max)
     member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
-    member x.WaitButRelease(ct) = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
-        inner.WaitAsync().ContinueWith((fun _ -> x.Release()), ct, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
+    member x.WaitButRelease(ct: CancellationToken) = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
+        if inner.Wait(0) then let _ = x.Release() in Task.CompletedTask
+        else inner.WaitAsync(ct).ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
     /// Manage a controlled shutdown by accumulating reservations of the full capacity.
