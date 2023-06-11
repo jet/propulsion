@@ -32,7 +32,7 @@ type FeedSourceBase internal
     let dumpStats () = for _i, r in partitions do r.DumpStats()
     let rec pumpStats ct : Task = task {
         try do! Task.delay statsInterval ct
-        finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the Async.Sleep
+        finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the sleep
         return! pumpStats ct }
 
     member val internal Positions = positions
