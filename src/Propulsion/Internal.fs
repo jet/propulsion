@@ -63,7 +63,7 @@ module Channel =
     let unboundedSw<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true))
     let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
     let boundedSw<'t> c = Channel.CreateBounded<'t>(BoundedChannelOptions(c, SingleWriter = true))
-    let waitToWrite (w : ChannelWriter<_>)= w.WaitToWriteAsync
+    let waitToWrite (w : ChannelWriter<_>) ct = w.WaitToWriteAsync(ct)
     let tryWrite (w : ChannelWriter<_>) = w.TryWrite
     let write (w : ChannelWriter<_>) = w.TryWrite >> ignore
     let inline awaitRead (r : ChannelReader<_>) ct = let vt = r.WaitToReadAsync(ct) in vt.AsTask()

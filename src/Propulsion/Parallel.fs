@@ -207,7 +207,7 @@ type Factory private () =
             let onCompletion () = x.onCompletion(); onCompletion()
             (), { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
         let trueTask = ValueTask.FromResult(true)
-        let alwaysReady () : ValueTask<bool> = trueTask
+        let alwaysReady _ : ValueTask<bool> = trueTask
         let submitBatch (x : Scheduling.Batch<_, 'Item>) : int voption =
             scheduler.Submit x
             ValueSome 0

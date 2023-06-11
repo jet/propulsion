@@ -59,7 +59,7 @@ type SubmissionEngine<'P, 'M, 'S, 'B when 'P : equality>
     (   log : ILogger, statsInterval,
         mapBatch : (unit -> unit) -> Batch<'P, 'M> -> struct ('S * 'B),
         submitStreams : 'S -> unit, // We continually submit the spans of events as we receive them, in order to minimise handler invocations required
-        waitToSubmitBatch : unit -> ValueTask<bool>, // We continually fill the target to the degree possible. When full, we sleep until capacity is released on completion
+        waitToSubmitBatch : CancellationToken -> ValueTask<bool>, // We continually fill the target to the degree possible. When full, we sleep until capacity is released on completion
         trySubmitBatch : 'B -> int voption) = // batches are submitted just in time in order to balance progress across partitions
     let stats = Stats<'P>(log, statsInterval)
     let buffer = Dictionary<'P, PartitionQueue<'B>>()
@@ -116,7 +116,7 @@ type SubmissionEngine<'P, 'M, 'S, 'B when 'P : equality>
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
             let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
-            do! Task.WhenAny[| if awaitCapacity then let vt = waitToSubmitBatch () in vt.AsTask() :> Task
+            do! Task.WhenAny[| if awaitCapacity then let vt = waitToSubmitBatch cts.Token in vt.AsTask() :> Task
                                awaitIncoming cts.Token :> Task
                                Task.Delay(stats.Interval.RemainingMs, cts.Token) |] :> Task
             cts.Cancel() }
