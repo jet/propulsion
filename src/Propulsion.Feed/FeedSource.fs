@@ -61,7 +61,7 @@ type FeedSourceBase internal
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
-        pumpStats ct |> ignore
+        pumpStats ct |> ignore // loops in background until overall pumping is cancelled
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
