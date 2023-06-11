@@ -770,14 +770,11 @@ module Scheduling =
                     let waitForIncomingBatches = hasCapacity
                     let waitForDispatcherCapacity = not hasCapacity && not wakeForResults
                     let sleepTs = Stopwatch.timestamp ()
-                    let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
-                    let wakeConditions : Task[] = [|
-                        if wakeForResults then awaitResults cts.Token
-                        elif waitForDispatcherCapacity then dispatcher.AwaitCapacity(cts.Token)
-                        if waitForIncomingBatches then awaitPending cts.Token
-                        Task.Delay(int sleepIntervalMs, cts.Token) |]
-                    do! Task.WhenAny(wakeConditions) :> Task
-                    cts.Cancel()
+                    let startWaits ct = [| if wakeForResults then awaitResults ct :> Task
+                                           elif waitForDispatcherCapacity then dispatcher.AwaitCapacity(ct)
+                                           if waitForIncomingBatches then awaitPending ct
+                                           Task.Delay(int sleepIntervalMs, ct) |]
+                    do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct))
                     t.RecordSleep sleepTs
                 // 4. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
                 let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active

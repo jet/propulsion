@@ -1,7 +1,6 @@
 module Propulsion.Internal
 
 open System
-open System.Threading.Tasks
 
 module TimeSpan =
 
@@ -59,6 +58,7 @@ type IntervalTimer(period : TimeSpan) =
 module Channel =
 
     open System.Threading.Channels
+    open System.Threading.Tasks
 
     let unboundedSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleReader = true))
     let unboundedSw<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true))
@@ -118,6 +118,11 @@ module Task =
     let inline Catch (t : Task<'t>) = task { try let! r = t in return Ok r with e -> return Error e }
     let private parallel_ maxDop ct (xs: seq<CancellationToken -> Task<'t>>) : Task<'t []> =
         Async.Parallel(xs |> Seq.map Async.call, ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.executeAsTask ct
+    /// Runs an inner task with a dedicated Linked TokenSource. Cancels via the ct upon completion
+    let inline runWithCancellation (ct: CancellationToken) ([<InlineIfLambda>]f: CancellationToken -> Task) = task {
+        let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+        try do! f cts.Token
+        finally cts.Cancel() }
     let parallelLimit maxDop ct xs : Task<'t []> =
         parallel_ maxDop ct xs
     let sequential ct xs : Task<'t []> =

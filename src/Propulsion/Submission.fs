@@ -115,11 +115,10 @@ type SubmissionEngine<'P, 'M, 'S, 'B when 'P : equality>
             while tryPropagate () |> shouldLoop do ()
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
-            let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
-            do! Task.WhenAny[| if awaitCapacity then waitToSubmitBatch cts.Token
-                               awaitIncoming cts.Token :> Task
-                               Task.Delay(stats.Interval.RemainingMs, cts.Token) |] :> Task
-            cts.Cancel() }
+            let startWaits ct = [| if awaitCapacity then waitToSubmitBatch ct
+                                   awaitIncoming ct
+                                   Task.Delay(stats.Interval.RemainingMs, ct) |]
+            do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct)) }
 
     /// Supplies a set of Batches for holding and forwarding to scheduler at the right time
     member _.Ingest(items : Batch<'P, 'M>[]) =
