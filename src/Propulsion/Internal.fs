@@ -119,6 +119,11 @@ module Task =
     let inline Catch (t : Task<'t>) = task { try let! r = t in return Ok r with e -> return Error e }
     let private parallel_ maxDop ct (xs: seq<CancellationToken -> Task<'t>>) : Task<'t []> =
         Async.Parallel(xs |> Seq.map Async.call, ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.executeAsTask ct
+    /// Runs an inner task with a dedicated Linked Token Source. Cancels via the ct upon completion, before Disposing the LCTS
+    let inline runWithCancellation (ct: CancellationToken) ([<InlineIfLambda>]f: CancellationToken -> Task) = task {
+        use cts = CancellationTokenSource.CreateLinkedTokenSource(ct) // https://stackoverflow.com/questions/6960520/when-to-dispose-cancellationtokensource
+        try do! f cts.Token
+        finally cts.Cancel() }
     let parallelLimit maxDop ct xs : Task<'t []> =
         parallel_ maxDop ct xs
     let sequential ct xs : Task<'t []> =
