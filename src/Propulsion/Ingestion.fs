@@ -127,7 +127,9 @@ type Ingester<'Items> private
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
-            do! Task.WhenAny(awaitIncoming ct, awaitMessage ct, Task.Delay(stats.Interval.RemainingMs)) :> Task }
+            let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+            do! Task.WhenAny(awaitIncoming cts.Token, awaitMessage cts.Token, Task.Delay(stats.Interval.RemainingMs, cts.Token)) :> Task
+            cts.Cancel() }
 
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items

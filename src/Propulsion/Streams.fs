@@ -617,7 +617,7 @@ module Scheduling =
         abstract member Pump : CancellationToken -> Task<unit>
         abstract member State : struct (int * int)
         abstract member HasCapacity : bool with get
-        abstract member AwaitCapacity : unit -> Task<unit>
+        abstract member AwaitCapacity : CancellationToken -> Task<unit>
         abstract member TryReplenish : pending : seq<Item<'F>> * handleStarted : (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress : StreamStates<'F> * FsCodec.StreamName * Result<'P, 'E> -> struct (int64 voption * Result<'R, 'E>)
     and [<Struct; NoComparison; NoEquality>]
@@ -770,12 +770,14 @@ module Scheduling =
                     let waitForIncomingBatches = hasCapacity
                     let waitForDispatcherCapacity = not hasCapacity && not wakeForResults
                     let sleepTs = Stopwatch.timestamp ()
+                    let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
                     let wakeConditions : Task[] = [|
-                        if wakeForResults then awaitResults ct
-                        elif waitForDispatcherCapacity then dispatcher.AwaitCapacity()
-                        if waitForIncomingBatches then awaitPending ct
-                        Task.Delay(int sleepIntervalMs) |]
+                        if wakeForResults then awaitResults cts.Token
+                        elif waitForDispatcherCapacity then dispatcher.AwaitCapacity(cts.Token)
+                        if waitForIncomingBatches then awaitPending cts.Token
+                        Task.Delay(int sleepIntervalMs, cts.Token) |]
                     do! Task.WhenAny(wakeConditions) :> Task
+                    cts.Cancel()
                     t.RecordSleep sleepTs
                 // 4. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
                 let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active
@@ -812,7 +814,7 @@ module Dispatcher =
         [<CLIEvent>] member _.Result = result.Publish
         member _.State = dop.State
         member _.HasCapacity = dop.HasCapacity
-        member _.AwaitButRelease() = dop.WaitButRelease()
+        member _.AwaitButRelease(ct) = dop.WaitButRelease(ct)
         member _.TryAdd(item) = dop.TryTake() && tryWrite item
 
         member _.Pump(ct : CancellationToken) = task {
@@ -843,7 +845,7 @@ module Dispatcher =
         member _.Pump ct = inner.Pump ct
         member _.State = inner.State
         member _.HasCapacity = inner.HasCapacity
-        member _.AwaitCapacity() = inner.AwaitButRelease()
+        member _.AwaitCapacity(ct) = inner.AwaitButRelease(ct)
         member _.TryReplenish(pending, markStarted, project) = tryFillDispatcher pending markStarted project
 
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
@@ -875,7 +877,7 @@ module Dispatcher =
             override _.Pump ct = inner.Pump ct
             override _.State = inner.State
             override _.HasCapacity = inner.HasCapacity
-            override _.AwaitCapacity() = inner.AwaitCapacity()
+            override _.AwaitCapacity(ct) = inner.AwaitCapacity(ct)
             override _.TryReplenish(pending, handleStarted) = inner.TryReplenish(pending, handleStarted, project)
             override _.InterpretProgress(streams, stream, res) = interpretProgress streams stream res
 
@@ -908,7 +910,7 @@ module Dispatcher =
                 return! inner.Pump ct }
             override _.State = inner.State
             override _.HasCapacity = inner.HasCapacity
-            override _.AwaitCapacity() = inner.AwaitButRelease()
+            override _.AwaitCapacity(ct) = inner.AwaitButRelease(ct)
             override _.TryReplenish(pending, handleStarted) = trySelect pending handleStarted
             override _.InterpretProgress(_streams : Scheduling.StreamStates<_>, _stream : FsCodec.StreamName, res : Result<_, _>) =
                 match res with

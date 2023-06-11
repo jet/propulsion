@@ -206,7 +206,8 @@ type Factory private () =
         let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : struct (unit * Scheduling.Batch<_, 'Item>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             (), { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
-        let alwaysReady () : ValueTask<bool> = ValueTask.FromResult(true)
+        let trueTask = ValueTask.FromResult(true)
+        let alwaysReady () : ValueTask<bool> = trueTask
         let submitBatch (x : Scheduling.Batch<_, 'Item>) : int voption =
             scheduler.Submit x
             ValueSome 0

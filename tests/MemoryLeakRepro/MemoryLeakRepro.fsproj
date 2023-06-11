@@ -10,6 +10,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\..\src\Propulsion.MemoryStore\Propulsion.MemoryStore.fsproj" />
       <ProjectReference Include="..\..\src\Propulsion.MessageDb\Propulsion.MessageDb.fsproj" />
     </ItemGroup>
 
