@@ -123,7 +123,6 @@ module Task =
         parallel_ 1 ct xs
     let parallelUnlimited ct xs : Task<'t []> =
         parallel_ 0 ct xs
-
     let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
         return () }
@@ -132,11 +131,12 @@ type Sem(max) =
     let inner = new SemaphoreSlim(max)
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = struct(max - inner.CurrentCount, max)
-    member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
-    member x.WaitButRelease() = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
-        inner.WaitAsync().ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
-    member _.Release() = inner.Release() |> ignore
     member _.TryTake() = inner.Wait 0
+    member _.Release() = inner.Release() |> ignore
+    member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
+    member x.WaitButRelease(ct: CancellationToken) = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
+        if x.TryTake() then x.Release(); Task.CompletedTask
+        else x.Wait(ct).ContinueWith((fun _ -> x.Release()), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default)
     /// Manage a controlled shutdown by accumulating reservations of the full capacity.
     member x.WaitForCompleted(ct : CancellationToken) = task {
         for _ in 1..max do do! x.Wait(ct)

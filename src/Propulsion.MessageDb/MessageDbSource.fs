@@ -1,59 +1,64 @@
 namespace Propulsion.MessageDb
 
 open FSharp.Control
+open Npgsql
+open NpgsqlTypes
+open Propulsion.Feed
 open Propulsion.Internal
 open System
 open System.Threading
 open System.Threading.Tasks
 
-module internal Npgsql =
+module private GetCategoryMessages =
+    [<Literal>]
+    let getCategoryMessages =
+        "select position, type, data, metadata, id::uuid, time, stream_name, global_position
+         from get_category_messages($1, $2, $3);"
+    let prepareCommand connection (category: TrancheId) (fromPositionInclusive: int64) (batchSize: int) =
+        let cmd = new NpgsqlCommand(getCategoryMessages, connection)
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Bigint, int64 batchSize) |> ignore
+        cmd
 
-    let connect connectionString ct = task {
-        let conn = new Npgsql.NpgsqlConnection(connectionString)
+module private GetLastPosition =
+    [<Literal>]
+    let getLastPosition = "select max(global_position) from messages where category(stream_name) = $1;"
+    let prepareCommand connection category =
+        let cmd = new NpgsqlCommand(getLastPosition, connection)
+        cmd.Parameters.AddWithValue(NpgsqlDbType.Text, TrancheId.toString category) |> ignore
+        cmd
+
+module Internal =
+    let createConnectionAndOpen connectionString ct = task {
+        let conn = new NpgsqlConnection(connectionString)
         do! conn.OpenAsync(ct)
         return conn }
 
-module Internal =
+    let private jsonNull = ReadOnlyMemory(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(null))
 
-    open NpgsqlTypes
-    open Propulsion.Feed
-    open System.Data.Common
-    open System.Text.Json
-
-    module private Json =
-        let private jsonNull = ReadOnlyMemory(JsonSerializer.SerializeToUtf8Bytes(null))
-
-        let fromReader idx (reader: DbDataReader) =
+    type System.Data.Common.DbDataReader with
+        member reader.GetJson idx =
             if reader.IsDBNull(idx) then jsonNull
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes |> ReadOnlyMemory
 
     type MessageDbCategoryClient(connectionString) =
-        let connect = Npgsql.connect connectionString
-        let parseRow (reader: DbDataReader) =
-            let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
-            let readUtf8String idx = Json.fromReader idx reader
-            let et, data, meta = reader.GetString(1), readUtf8String 2, readUtf8String 3
+        let connect = createConnectionAndOpen connectionString
+        let parseRow (reader: System.Data.Common.DbDataReader) =
+            let et, data, meta = reader.GetString(1), reader.GetJson 2, reader.GetJson 3
             let sz = data.Length + meta.Length + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0), // index within the stream, 0 based
                 eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),
-                ?correlationId = readNullableString 5, ?causationId = readNullableString 6,
-                context = reader.GetInt64(9) + 1L, // global_position is passed through the Context for checkpointing purposes
-                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)),
+                context = reader.GetInt64(7) + 1L, // global_position is passed through the Context for checkpointing purposes
+                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(5), DateTimeKind.Utc)),
                 size = sz) // precomputed Size is required for stats purposes when fed to a StreamsSink
-            let sn = reader.GetString(8) |> FsCodec.StreamName.parse
+            let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
             use! conn = connect ct
-            let command = conn.CreateCommand(CommandText = "select position, type, data, metadata, id::uuid,
-                                                                   (metadata::jsonb->>'$correlationId')::text,
-                                                                   (metadata::jsonb->>'$causationId')::text,
-                                                                   time, stream_name, global_position
-                                                            from get_category_messages(@Category, @Position, @BatchSize);")
-            command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
-            command.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, fromPositionInclusive) |> ignore
-            command.Parameters.AddWithValue("BatchSize", NpgsqlDbType.Bigint, int64 batchSize) |> ignore
+            use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
             use! reader = command.ExecuteReaderAsync(ct)
             let events = [| while reader.Read() do parseRow reader |]
@@ -63,8 +68,7 @@ module Internal =
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct) : Task<int64 voption> = task {
             use! conn = connect ct
-            let command = conn.CreateCommand(CommandText = "select max(global_position) from messages where category(stream_name) = @Category;")
-            command.Parameters.AddWithValue("Category", NpgsqlDbType.Text, TrancheId.toString category) |> ignore
+            use command = GetLastPosition.prepareCommand conn category
 
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
