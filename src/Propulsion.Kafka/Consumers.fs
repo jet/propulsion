@@ -160,7 +160,7 @@ type ParallelConsumer private () =
         let mapBatch onCompletion (x : Submission.Batch<_, _>) : struct (unit * Parallel.Scheduling.Batch<_, 'Msg>) =
             let onCompletion' () = x.onCompletion(); onCompletion()
             (), { partitionId = x.partitionId; messages = x.messages; onCompletion = onCompletion'; }
-        let alwaysReady _ : ValueTask<bool> = ValueTask.FromResult(true)
+        let alwaysReady _ = Task.CompletedTask
         let submitBatch (x : Parallel.Scheduling.Batch<_, _>) : int voption =
             scheduler.Submit x
             ValueSome x.messages.Length
