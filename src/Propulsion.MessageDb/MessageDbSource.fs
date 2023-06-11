@@ -17,10 +17,7 @@ module internal Npgsql =
 module private Queries =
     [<Literal>]
     let getCategoryMessages =
-        "select position, type, data, metadata, id::uuid,
-           (metadata::jsonb->>'$correlationId')::text,
-           (metadata::jsonb->>'$causationId')::text,
-           time, stream_name, global_position
+        "select position, type, data, metadata, id::uuid, time, stream_name, global_position
          from get_category_messages($1, $2, $3);"
     [<Literal>]
     let getLastPosition = "select max(global_position) from messages where category(stream_name) = $1;"
@@ -42,18 +39,16 @@ module Internal =
     type MessageDbCategoryClient(connectionString) =
         let connect = Npgsql.connect connectionString
         let parseRow (reader: DbDataReader) =
-            let readNullableString idx = if reader.IsDBNull(idx) then None else Some (reader.GetString idx)
             let readUtf8String idx = Json.fromReader idx reader
             let et, data, meta = reader.GetString(1), readUtf8String 2, readUtf8String 3
             let sz = data.Length + meta.Length + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0), // index within the stream, 0 based
                 eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),
-                ?correlationId = readNullableString 5, ?causationId = readNullableString 6,
-                context = reader.GetInt64(9) + 1L, // global_position is passed through the Context for checkpointing purposes
-                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(7), DateTimeKind.Utc)),
+                context = reader.GetInt64(7) + 1L, // global_position is passed through the Context for checkpointing purposes
+                timestamp = DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(5), DateTimeKind.Utc)),
                 size = sz) // precomputed Size is required for stats purposes when fed to a StreamsSink
-            let sn = reader.GetString(8) |> FsCodec.StreamName.parse
+            let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
