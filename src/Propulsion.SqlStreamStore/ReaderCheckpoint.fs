@@ -60,6 +60,7 @@ type Service(connString : string, consumerGroupName, defaultCheckpointFrequency)
         return! createIfNotExists conn }
 
     interface IFeedCheckpointStore with
+        member _.ConsumerGroupName = consumerGroupName
 
         member _.Start(source, tranche, establishOrigin, ct) = task {
             use conn = createConnection connString
