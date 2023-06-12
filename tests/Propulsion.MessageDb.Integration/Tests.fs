@@ -74,12 +74,12 @@ type ActivityCapture() =
 type Tests() =
     let sdk =
         Sdk.CreateTracerProviderBuilder()
-           .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName = "Propulsion.MessageDb.Integration"))
+           .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService(serviceName = "Tests"))
            .AddSource("Equinox")
            .AddSource("Equinox.MessageDb")
            .AddSource("Propulsion")
            .AddSource("Propulsion.MessageDb.Integration")
-           .AddSource("Npqsl")
+           .AddSource("Npgsql")
            .AddOtlpExporter(fun opts -> opts.Endpoint <- Uri("http://localhost:4317"))
            .AddConsoleExporter()
            .Build()

@@ -865,16 +865,17 @@ module Dispatcher =
                 if act <> null then
                     let struct(category, streamId) = FsCodec.StreamName.splitCategoryAndStreamId item.stream
                     act.DisplayName <- $"{category} process"
-                    act.SetTag("eqx.stream_name", item.stream)
-                       .SetTag("eqx.stream_id", streamId)
-                       .SetTag("eqx.category", category)
-                       .SetTag("eqx.timestamp", item.span[0].Timestamp)
+                    act.SetTag("propulsion.stream_name", item.stream)
+                       .SetTag("propulsion.stream_id", streamId)
+                       .SetTag("propulsion.category", category)
+                       .SetTag("propulsion.batch_size", item.span.Length)
+                       .SetTag("propulsion.first_timestamp", item.span[0].Timestamp)
                     |> ignore
                 let! struct (progressed, res) = project item.stream item.span ct
                 let elapsed = Stopwatch.elapsed startTs
                 if act <> null then
                     let oldestItemTs = item.span[0].Timestamp
-                    act.SetTag("eqx.lead_time_ms", (DateTimeOffset.UtcNow - oldestItemTs).TotalMilliseconds) |> ignore
+                    act.SetTag("propulsion.lead_time_ms", (DateTimeOffset.UtcNow - oldestItemTs).TotalMilliseconds) |> ignore
                 return struct (elapsed, item.stream, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
         static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex : Func<_, 'R, int64>) =
