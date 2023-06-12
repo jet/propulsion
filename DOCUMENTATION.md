@@ -482,3 +482,20 @@ Resources:
 - [low level documentation of the client settings](https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md)
 - [thorough free book](https://www.confluent.io/wp-content/uploads/confluent-kafka-definitive-guide-complete.pdf)
 - [medium post covering some high level structures that Jet explored in this space](https://medium.com/@eulerfx/scaling-event-sourcing-at-jet-9c873cac33b8).
+
+
+# Telemetry
+
+Propulsion emits OpenTelemetry spans for stream processing. All span attributes are prefixed with the `propulsion.` 
+namespace
+
+## {category} process
+
+| Attribute         | Description                                                                                                      |
+|-------------------|------------------------------------------------------------------------------------------------------------------|
+| `category`        | The category being processed                                                                                     |
+| `stream_name`     | The full stream name being processed                                                                             |
+| `stream_id`       | The id of the stream being processed                                                                             |
+| `batch_size`      | The size of the batch being processed                                                                            |
+| `first_timestamp` | The receive timestamp of the first event in the batch being handled                                              |
+| `lead_time_ms`    | The [lead time](https://www.merriam-webster.com/dictionary/lead%20time) in milliseconds for processing the batch |
