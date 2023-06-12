@@ -269,7 +269,9 @@ type TailingFeedSource
 
     let crawl trancheId (wasLast, startPos) ct = taskSeq {
         if wasLast then do! Task.delay tailSleepInterval ct
-        try yield! crawl.Invoke(trancheId, startPos, ct)
+        try let batches = crawl.Invoke(trancheId, startPos, ct)
+            for batch in batches do
+                yield batch
         with e -> // Swallow (and sleep, if requested) if there's an issue reading from a tailing log
             match logReadFailure with None -> log.ForContext("tranche", trancheId).ForContext<TailingFeedSource>().Warning(e, "Read failure") | Some l -> l e
             match readFailureSleepInterval with None -> () | Some interval -> do! Task.delay interval ct }

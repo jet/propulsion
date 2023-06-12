@@ -31,4 +31,3 @@ type IFeedCheckpointStore =
     /// Determines the starting position, and checkpointing frequency for a given tranche
     abstract member Start: source: SourceId * tranche : TrancheId * establishOrigin : Func<CancellationToken, Task<Position>> option * ct : CancellationToken -> Task<struct (TimeSpan * Position)>
     abstract member Commit: source: SourceId * tranche : TrancheId * pos: Position * CancellationToken -> Task
-    abstract member ConsumerGroupName: string

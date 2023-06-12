@@ -61,7 +61,6 @@ type CheckpointStore(connString : string, schema : string, consumerGroupName, de
         setPos source tranche pos ct |> Task.ignore
 
     interface IFeedCheckpointStore with
-        member _.ConsumerGroupName = consumerGroupName
 
         member _.Start(source, tranche, establishOrigin, ct) =
             let start conn ct = task {

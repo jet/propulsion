@@ -123,7 +123,6 @@ type Decider<'e, 's> = Equinox.Decider<'e, 's>
 type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
     interface IFeedCheckpointStore with
-        member _.ConsumerGroupName = consumerGroupName
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
