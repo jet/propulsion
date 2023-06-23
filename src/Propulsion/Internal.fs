@@ -1,7 +1,6 @@
 module Propulsion.Internal
 
 open System
-open System.Threading.Tasks
 
 module TimeSpan =
 
@@ -56,6 +55,17 @@ type IntervalTimer(period : TimeSpan) =
         while x.IsTriggered && not timeout.IsDue do
             System.Threading.Thread.Sleep(defaultArg sleepMs 1)
 
+module Exception =
+
+    let rec inner (e : exn) =
+        match e with
+        | :? AggregateException as ae when ae.InnerExceptions.Count = 1 -> inner ae.InnerException
+        | e -> e
+    let (|Inner|) = inner
+    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
+
+open System.Threading.Tasks
+
 module Channel =
 
     open System.Threading.Channels
@@ -83,17 +93,7 @@ module Channel =
         while r.TryRead(&msg) do
             yield msg }
 
-module Exception =
-
-    let rec inner (e : exn) =
-        match e with
-        | :? AggregateException as ae when ae.InnerExceptions.Count = 1 -> inner ae.InnerException
-        | e -> e
-    let (|Inner|) = inner
-    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
-
 open System.Threading
-open System.Threading.Tasks
 
 module Async =
 
@@ -109,6 +109,7 @@ module Async =
 
     let inline startImmediateAsTask (computation: Async<'T>) ct: Task<'T> = Async.StartImmediateAsTask(computation, ct)
     let inline executeAsTask ct (computation: Async<'T>) : Task<'T> = startImmediateAsTask computation ct
+    let parallelLimit maxDop xs: Async<'t []> = Async.Parallel(xs, maxDegreeOfParallelism = maxDop)
 
 module Task =
 

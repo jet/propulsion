@@ -93,8 +93,7 @@ let interpret command (state: Fold.State): seq<Events.Event> =
             [Events.Checkpointed { config = config; pos = checkpoint }]
     | c, s -> failwithf "Command %A invalid when %A" c s
 
-open Equinox // to disambiguate DeciderCore \/ -- TODO remove as this brings Category into scope and makes a mess
-type Service internal (resolve : CheckpointSeriesId -> DeciderCore<Events.Event, Fold.State>) =
+type Service internal (resolve : CheckpointSeriesId -> Equinox.DeciderCore<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
     member _.Read(series, ct) =
