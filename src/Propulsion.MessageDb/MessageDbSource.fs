@@ -123,5 +123,5 @@ type MessageDbSource internal
 
             if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
             // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
-            return! x.Checkpoint()
+            return! x.Checkpoint(CancellationToken.None)
         finally statsInterval.SleepUntilTriggerCleared() }

@@ -30,17 +30,17 @@ type FeedSourceBase internal
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
     let dumpStats () = for _i, r in partitions do r.DumpStats()
-    let rec pumpStats () = async {
-        try do! Async.Sleep statsInterval
-        finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the Async.Sleep
-        return! pumpStats () }
+    let rec pumpStats ct : Task = task {
+        try do! Task.delay statsInterval ct
+        finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the sleep
+        return! pumpStats ct }
 
     member val internal Positions = positions
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member _.Checkpoint([<O; D null>]?ct) : Task<IReadOnlyDictionary<TrancheId, Position>> = task {
-        do! Task.parallelLimit 4 (defaultArg ct CancellationToken.None) (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
+    member _.Checkpoint(ct) : Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+        do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
         return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
@@ -61,11 +61,10 @@ type FeedSourceBase internal
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
-        // This will get cancelled as we exit in the case where everything is drained (or, in the exception case)
-        let! _stats = pumpStats () |> Async.StartChild
+        pumpStats ct |> ignore // loops in background until overall pumping is cancelled
         let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
-        do! x.Checkpoint() |> Task.ignore }
+        do! x.Checkpoint(ct) |> Task.ignore }
 
     member x.Start(pump) =
         let ct, stop =
