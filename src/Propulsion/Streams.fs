@@ -770,12 +770,12 @@ module Scheduling =
                     let waitForIncomingBatches = hasCapacity
                     let waitForDispatcherCapacity = not hasCapacity && not wakeForResults
                     let sleepTs = Stopwatch.timestamp ()
-                    let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+                    use cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
                     let wakeConditions : Task[] = [|
                         if wakeForResults then awaitResults cts.Token
                         elif waitForDispatcherCapacity then dispatcher.AwaitCapacity(cts.Token)
                         if waitForIncomingBatches then awaitPending cts.Token
-                        Task.Delay(int sleepIntervalMs, cts.Token) |]
+                        Task.Delay(sleepIntervalMs, cts.Token) |]
                     do! Task.WhenAny(wakeConditions) :> Task
                     cts.Cancel()
                     t.RecordSleep sleepTs

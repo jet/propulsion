@@ -115,7 +115,7 @@ type SubmissionEngine<'P, 'M, 'S, 'B when 'P : equality>
             while tryPropagate () |> shouldLoop do ()
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then stats.Dump(queueStats)
-            let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+            use cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
             do! Task.WhenAny[| if awaitCapacity then waitToSubmitBatch cts.Token
                                awaitIncoming cts.Token :> Task
                                Task.Delay(stats.Interval.RemainingMs, cts.Token) |] :> Task

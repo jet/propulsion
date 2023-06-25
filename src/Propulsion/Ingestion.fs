@@ -127,7 +127,7 @@ type Ingester<'Items> private
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
             if stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
-            let cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+            use cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
             do! Task.WhenAny(awaitIncoming cts.Token, awaitMessage cts.Token, Task.Delay(stats.Interval.RemainingMs, cts.Token)) :> Task
             cts.Cancel() }
 
