@@ -33,16 +33,20 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
                 let p = record.Dynamodb.Keys["p"].S
                 match FsCodec.StreamName.parse p with
                 | AppendsEpoch.StreamName (partitionId, epochId) ->
-                    match int64 updated["a"].N with
-                    | 0L -> noEvents <- noEvents + 1
-                    | appendedLen ->
-                        let n = int64 updated["n"].N
-                        let i = n - appendedLen
-                        summary.Append(partitionId).Append('/').Append(epochId).Append(' ').Append(appendedLen).Append('@').Append(i) |> ignore
-                        let eventTypes = updated["c"].L
-                        let isClosed = eventTypes[eventTypes.Count - 1].S |> AppendsEpoch.Events.isEventTypeClosed
-                        let checkpoint = Checkpoint.positionOfEpochClosedAndVersion epochId isClosed n
-                        updateTails partitionId checkpoint
+                    // Calf writes won't have an "a" field
+                    let appendedLen = match updated.TryGetValue "a" with true, v -> int64 v.N | false, _ -> 0
+                    // Tip writes may not actually have added events, if the sync was transmuted to an update of the unfolds only
+                    // In such cases, we would not want to trigger a downstream write
+                    // (This should not actually manifest for AppendsEpoch streams; mentioning for completeness)
+                    if appendedLen = 0 then noEvents <- noEvents + 1 else
+
+                    let n = int64 updated["n"].N
+                    let i = n - appendedLen
+                    summary.Append(partitionId).Append('/').Append(epochId).Append(' ').Append(appendedLen).Append('@').Append(i) |> ignore
+                    let eventTypes = updated["c"].L
+                    let isClosed = eventTypes[eventTypes.Count - 1].S |> AppendsEpoch.Events.isEventTypeClosed
+                    let checkpoint = Checkpoint.positionOfEpochClosedAndVersion epochId isClosed n
+                    updateTails partitionId checkpoint
                 | _ ->
                     if p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
