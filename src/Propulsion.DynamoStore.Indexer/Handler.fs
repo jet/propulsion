@@ -19,11 +19,16 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBE
             | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
-                let appendedLen = int updated["a"].N
                 if p.StartsWith AppendsEpoch.Category || p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
                 elif p.StartsWith '$' then systemStreams <- systemStreams + 1
-                elif appendedLen = 0 then noEvents <- noEvents + 1
                 else
+                    // Equinox writes all enter via the Tip. The "a" field of the tip indicates how many events were pushed in this insert/update
+                    // Calf entries will not have a "a" field (pre-release versions of DynamoStore previously wrote directly to the calf)
+                    let appendedLen = match updated.TryGetValue "a" with true, v -> int v.N | false, _ -> 0
+                    // If nothing was written (e.g. the write was transmuted to a snapshot update only)
+                    // then the count may be 0, in which case skip parse
+                    if appendedLen = 0 then noEvents <- noEvents + 1 else
+
                     let allBatchEventTypes = [| for x in updated["c"].L -> x.S |]
                     match allBatchEventTypes |> Array.skip (allBatchEventTypes.Length - appendedLen) with
                     | [||] -> ()
