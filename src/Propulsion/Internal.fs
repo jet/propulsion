@@ -64,6 +64,7 @@ module Exception =
     let (|Inner|) = inner
     let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
 
+open System.Threading
 open System.Threading.Tasks
 
 module Channel =
@@ -92,8 +93,6 @@ module Channel =
         let mutable msg = Unchecked.defaultof<_>
         while r.TryRead(&msg) do
             yield msg }
-
-open System.Threading
 
 module Async =
 
