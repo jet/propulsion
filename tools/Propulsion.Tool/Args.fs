@@ -288,7 +288,7 @@ module Mdb =
             Array.ofList (p.GetResults Category), conn ()
 
         member x.CreateCheckpointStore(group) =
-            Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn (), schema, group, TimeSpan.FromSeconds 5.)
+            Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn (), schema, group)
 
         member x.CreateCheckpointStoreTable([<O; D null>] ?ct) = task {
             let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConn (), Password = null)

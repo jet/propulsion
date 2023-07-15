@@ -96,9 +96,9 @@ let decideStart establishOrigin at freq state = async {
     | Fold.NotStarted ->
         let! origin = establishOrigin
         let config, checkpoint = mk at freq origin
-        return struct (configFreq config, checkpoint.pos), [Events.Started { config = config; origin = checkpoint}]
+        return checkpoint.pos, [Events.Started { config = config; origin = checkpoint}]
     | Fold.Running s ->
-        return (configFreq s.config, s.state.pos), [] }
+        return s.state.pos, [] }
 
 let decideOverride at (freq : TimeSpan) pos = function
     | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> []
@@ -126,7 +126,7 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche, establishOrigin, ct) : Task<struct (TimeSpan * Position)> =
+        member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
 #if COSMOSV3

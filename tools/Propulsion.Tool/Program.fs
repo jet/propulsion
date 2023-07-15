@@ -189,8 +189,8 @@ module Checkpoints =
         Log.Information("Checkpoint Source {source} Tranche {tranche} Consumer Group {group}", source, tranche, group)
         match p.TryGetResult OverridePosition with
         | None ->
-            let! interval, pos = store.Start(source, tranche, None, ct)
-            Log.Information("Checkpoint position {pos}; Checkpoint event frequency {checkpointEventIntervalM:f0}m", pos, interval.TotalMinutes)
+            let! pos = store.Start(source, tranche, None, ct)
+            Log.Information("Checkpoint position {pos}", pos)
         | Some pos ->
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
             do! overridePosition pos
