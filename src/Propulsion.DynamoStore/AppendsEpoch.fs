@@ -72,11 +72,12 @@ module Fold =
 
 module Ingest =
 
-    let (|Start|Append|Discard|) ({ versions = cur } : Fold.State, eventSpan : Events.StreamSpan) =
+    let (|Start|Append|Discard|Gap|) ({ versions = cur } : Fold.State, eventSpan : Events.StreamSpan) =
         match cur.TryGetValue eventSpan.p with
         | false, _ -> Start eventSpan
         | true, curNext ->
             match next eventSpan - curNext with
+            | appendLen when appendLen > eventSpan.c.Length -> Gap (appendLen - eventSpan.c.Length)
             | appendLen when appendLen > 0 -> Append ({ p = eventSpan.p; i = curNext; c = Array.skip (eventSpan.c.Length - appendLen) eventSpan.c } : Events.StreamSpan)
             | _ -> Discard
 
@@ -87,6 +88,7 @@ module Ingest =
             match state, eventSpan with
             | Start es -> started.Add es
             | Append es -> appended.Add es
+            | Gap g -> invalidOp (sprintf "Invalid gap of %d at %d in '%O'" g eventSpan.i eventSpan.p)
             | Discard -> ()
         match started.ToArray(), appended.ToArray() with
         | [||], [||] -> None
@@ -97,6 +99,7 @@ module Ingest =
             match state, eventSpan with
             | Start es
             | Append es -> es
+            | Gap _ -> eventSpan
             | Discard -> () |]
     let decide shouldClose (inputs : Events.StreamSpan seq) : _ -> _ * _ = function
         | ({ closed = false; versions = cur } as state : Fold.State) ->

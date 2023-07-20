@@ -1,6 +1,5 @@
 ﻿module Propulsion.Tests.AppendsEpochTests
 
-open FSharp.UMX
 open Propulsion.DynamoStore
 open Propulsion.DynamoStore.AppendsEpoch
 open Swensen.Unquote
