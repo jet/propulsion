@@ -13,6 +13,7 @@
     <Compile Include="TestOutputLogger.fs" />
     <Compile Include="SourceTests.fs" />
     <Compile Include="AppendsIndexTests.fs" />
+    <Compile Include="AppendsEpochTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
