@@ -1,14 +1,15 @@
 namespace Propulsion.DynamoStore
 
-type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff, ?maxItemsPerEpoch, ?maxVersion, ?storeLog) =
+type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff, ?maxItemsPerEpoch, ?maxVersion, ?storeLog, ?onlyWarnOnGap) =
     let maxVersion = defaultArg maxVersion 5_000
     let maxStreams = defaultArg maxItemsPerEpoch 100_000
     do if maxStreams > AppendsEpoch.MaxItemsPerEpoch then invalidArg (nameof maxStreams) "Cannot exceed AppendsEpoch.MaxItemsPerEpoch"
     let storeLog = defaultArg storeLog log
     let log = log.ForContext<DynamoStoreIndexer>()
+    let onlyWarnOnGap = defaultArg onlyWarnOnGap false
 
     let ingester =
-        let epochs = AppendsEpoch.Config.create storeLog (epochBytesCutoff, maxVersion, maxStreams) (context, cache)
+        let epochs = AppendsEpoch.Config.create storeLog (epochBytesCutoff, maxVersion, maxStreams, onlyWarnOnGap) (context, cache)
         let index = AppendsIndex.Config.create storeLog (context, cache)
         let createIngester partitionId =
             let log = log.ForContext("partition", partitionId)
@@ -30,7 +31,7 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
         let! originEpoch = ingester.ActiveIngestionEpochId()
         return! ingester.IngestMany(originEpoch, spans) |> Async.Ignore }
 
-type DynamoStoreIngester(log, context, ?storeLog) =
+type DynamoStoreIngester(log, context, ?storeLog, ?onlyWarnOnGap : bool) =
 
     // Values up to 5 work reasonably, but side effects are:
     // - read usage is more 'lumpy'
@@ -42,4 +43,4 @@ type DynamoStoreIngester(log, context, ?storeLog) =
     // (Overusage will hasten the Lambda being killed due to excess memory usage)
     let maxCacheMiB = 5
     let cache = Equinox.Cache(nameof DynamoStoreIngester, sizeMb = maxCacheMiB)
-    member val Service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024, ?storeLog = storeLog)
+    member val Service = DynamoStoreIndexer(log, context, cache, epochBytesCutoff = epochCutoffMiB * 1024 * 1024, ?storeLog = storeLog, ?onlyWarnOnGap = onlyWarnOnGap)

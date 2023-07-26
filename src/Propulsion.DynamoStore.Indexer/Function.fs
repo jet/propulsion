@@ -18,6 +18,7 @@ type Configuration(?tryGet) =
     member _.DynamoAccessKey =          get Propulsion.DynamoStore.Lambda.Args.Dynamo.ACCESS_KEY
     member _.DynamoSecretKey =          get Propulsion.DynamoStore.Lambda.Args.Dynamo.SECRET_KEY
     member _.DynamoIndexTable =         get Propulsion.DynamoStore.Lambda.Args.Dynamo.INDEX_TABLE
+    member _.OnlyWarnGap =              tryGet Propulsion.DynamoStore.Lambda.Args.Dynamo.ONLY_WARN_GAP |> Option.map bool.Parse
 
 type Store(connector : DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
     let queryMaxItems = 100
@@ -50,7 +51,7 @@ type Function() =
             .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt, _) = removeMetrics evt })
             .WriteTo.Console(outputTemplate = template)
             .CreateLogger()
-    let ingester = DynamoStoreIngester(log, store.Context)
+    let ingester = DynamoStoreIngester(log, store.Context, ?onlyWarnOnGap = config.OnlyWarnGap)
 
     member _.Handle(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) : System.Threading.Tasks.Task =
         Handler.handle log ingester.Service dynamoEvent
