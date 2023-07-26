@@ -68,7 +68,7 @@ module Fold =
     let private evolve (state : State) = function
         | Events.Ingested e ->  state.With(e)
         | Events.Closed ->      state.WithClosed()
-    let fold : State -> Events.Event seq -> State = Seq.fold evolve
+    let fold = Array.fold evolve
 
 module Ingest =
 
@@ -102,16 +102,16 @@ module Ingest =
         | ({ closed = false; versions = cur } as state : Fold.State) ->
             let closed, ingested, events =
                 match tryToIngested state inputs with
-                | None -> false, Array.empty, []
+                | None -> false, Array.empty, [||]
                 | Some diff ->
                     let closing = shouldClose (diff.app.Length + diff.add.Length + cur.Count)
                     let ingestEvent = Events.Ingested diff
                     let ingested = (seq { for x in diff.add -> x.p }, seq { for x in diff.app -> x.p }) ||> Seq.append |> Array.ofSeq
-                    closing, ingested, [ ingestEvent ; if closing then Events.Closed ]
+                    closing, ingested, [| ingestEvent ; if closing then Events.Closed |]
             let res : ExactlyOnceIngester.IngestResult<_, _> = { accepted = ingested; closed = closed; residual = [||] }
             res, events
         | { closed = true } as state ->
-            { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, []
+            { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, [||]
 
 type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
 
@@ -125,15 +125,15 @@ type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochI
 
 module Config =
 
-    let private createCategory (context, cache) = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
+    let private createCategory (context, cache) = Config.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes : int, maxVersion : int64, maxStreams : int) store =
-        let resolve = createCategory store |> Equinox.Decider.resolve log
+        let resolve = createCategory store |> Equinox.Decider.forStream log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
-        Service(shouldClose, streamId >> resolve Category)
+        Service(shouldClose, streamId >> resolve)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward
 /// In the case where we are polling the tail, this should mean we typically do a single round-trip for a point read of the Tip
@@ -166,8 +166,8 @@ module Reader =
 
     module Config =
 
-        let private createCategory context minIndex = Config.createWithOriginIndex codec initial fold context minIndex
+        let private createCategory context minIndex = Config.createWithOriginIndex Category codec initial fold context minIndex
         let create log context =
-            let resolve minIndex = Equinox.Decider.resolve log (createCategory context minIndex)
-            Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex Category)
+            let resolve minIndex = Equinox.Decider.forStream log (createCategory context minIndex)
+            Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex)
 #endif

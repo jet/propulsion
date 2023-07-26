@@ -16,7 +16,7 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-    <PackageReference Include="Equinox.EventStore" Version="4.0.0-rc.12" />
+    <PackageReference Include="Equinox.EventStore" Version="4.0.0-rc.12.8" />
     <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.10" />
   </ItemGroup>
 
