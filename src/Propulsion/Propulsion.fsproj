@@ -21,7 +21,8 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
-    <PackageReference Include="FSharp.Core" Version="6.0.0" />
+    <!-- Exclude FSharp.Core.xml due to temporarly malformed state -->
+    <PackageReference Include="FSharp.Core" Version="6.0.0" ExcludeAssets="contentfiles" />
 
     <PackageReference Include="FsCodec" Version="3.0.0-rc.10" />
     <PackageReference Include="MathNet.Numerics" Version="4.15.0" />

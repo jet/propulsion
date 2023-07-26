@@ -61,7 +61,7 @@ module Fold =
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
         | Events.Snapshotted runningState -> Running runningState
-    let fold : State -> Events.Event seq -> State = Seq.fold evolve // Leave as Seq cor interop with V3
+    let fold: State -> Events.Event seq -> State = Seq.fold evolve // NOTE Leave as Seq for interop with COSMOSV3
 
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
 
