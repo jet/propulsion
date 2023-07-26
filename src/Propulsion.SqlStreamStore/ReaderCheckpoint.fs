@@ -48,7 +48,7 @@ let tryGetPosition (conn : IDbConnection) (stream : string) (consumerGroup : str
          { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable() })
     return Seq.tryHead res |> Option.bind (fun r -> Option.ofNullable r.Position) }
 
-type Service(connString : string, consumerGroupName, defaultCheckpointFrequency) =
+type Service(connString : string, consumerGroupName) =
 
     let streamName source tranche =
         match SourceId.toString source, TrancheId.toString tranche with
@@ -69,7 +69,7 @@ type Service(connString : string, consumerGroupName, defaultCheckpointFrequency)
                 | Some pos, _ -> task { return Position.parse pos }
                 | None, Some f -> f.Invoke ct
                 | None, None -> task { return Position.initial }
-            return struct (defaultCheckpointFrequency, pos) }
+            return pos }
 
         member _.Commit(source, tranche, pos, _ct) = task {
             use conn = createConnection connString

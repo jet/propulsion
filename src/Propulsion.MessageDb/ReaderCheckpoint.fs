@@ -46,7 +46,7 @@ module internal Impl =
         use! conn = Internal.createConnectionAndOpen connString ct
         return! f conn ct }
 
-type CheckpointStore(connString : string, schema : string, consumerGroupName, defaultCheckpointFrequency : System.TimeSpan) =
+type CheckpointStore(connString : string, schema : string, consumerGroupName) =
 
     let exec f = Impl.exec connString f
     let setPos source tranche pos ct =
@@ -70,7 +70,7 @@ type CheckpointStore(connString : string, schema : string, consumerGroupName, de
                     | ValueSome pos, _ -> task { return Position.parse pos }
                     | ValueNone, Some f -> f.Invoke ct
                     | ValueNone, None -> task { return Position.initial }
-                return struct (defaultCheckpointFrequency, pos) }
+                return pos }
             exec start ct
 
         member _.Commit(source, tranche, pos, ct) =

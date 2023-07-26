@@ -61,7 +61,7 @@ let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, T
                        member _.HandleExn(log, x) = () }
 
 let makeCheckpoints consumerGroup = task {
-    let checkpoints = ReaderCheckpoint.CheckpointStore(CheckpointConnectionString, "public", $"TestGroup{consumerGroup}", TimeSpan.FromSeconds 10)
+    let checkpoints = ReaderCheckpoint.CheckpointStore(CheckpointConnectionString, "public", $"TestGroup{consumerGroup}")
     do! checkpoints.CreateSchemaIfNotExists()
     return checkpoints }
 

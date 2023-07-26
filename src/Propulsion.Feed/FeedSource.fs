@@ -22,9 +22,9 @@ type FeedSourceBase internal
     let pumpPartition (partitionId : int) trancheId struct (ingester : Ingestion.Ingester<_>, reader : FeedReader) ct = task {
         try let log (e : exn) = reader.Log.Warning(e, "Finishing {partition}", partitionId)
             let establishTrancheOrigin (f : Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
-            try let! freq, pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
-                reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos} Checkpoint Event interval {checkpointFreq:n1}m",
-                                       partitionId, sourceId, trancheId, renderPos pos, freq.TotalMinutes)
+            try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
+                reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
+                                       partitionId, sourceId, trancheId, renderPos pos)
                 return! reader.Pump(pos, ct)
             with Exception.Log log () -> ()
         finally ingester.Stop() }
