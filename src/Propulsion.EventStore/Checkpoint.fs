@@ -12,7 +12,6 @@ module CheckpointSeriesId =
     let toString (x : CheckpointSeriesId) = UMX.untag x
 
 let [<Literal>] Category = "Sync"
-let [<Literal>] Category_ = Category
 let streamId = Equinox.StreamId.gen CheckpointSeriesId.toString
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
@@ -47,7 +46,7 @@ module Fold =
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
         | Events.Snapshotted runningState -> Running runningState
-    let fold : State -> Events.Event seq -> State = Seq.fold evolve
+    let fold = Array.fold evolve
 
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
 
@@ -69,7 +68,7 @@ type Command =
     | Override of at : DateTimeOffset * checkpointFreq : TimeSpan * pos : int64
     | Update of at : DateTimeOffset * pos : int64
 
-let interpret command (state: Fold.State): seq<Events.Event> =
+let interpret command (state: Fold.State): Events.Event[] = [|
     let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
     let mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
         let next = at.Add interval
@@ -78,22 +77,21 @@ let interpret command (state: Fold.State): seq<Events.Event> =
     match command, state with
     | Start (at, freq, pos), Fold.NotStarted ->
         let config, checkpoint = mk at freq pos
-        [Events.Started { config = config; origin = checkpoint}]
+        Events.Started { config = config; origin = checkpoint }
     | Override (at, freq, pos), Fold.Running _ ->
         let config, checkpoint = mk at freq pos
-        [Events.Overrode { config = config; pos = checkpoint}]
+        Events.Overrode { config = config; pos = checkpoint}
     | Update (at, pos), Fold.Running state ->
         if at < state.state.nextCheckpointDue then
-            if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
-            else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
-                [Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
+            if pos <> state.state.pos then // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
+                Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }
         else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
             let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
             let config, checkpoint = mk at freq pos
-            [Events.Checkpointed { config = config; pos = checkpoint }]
-    | c, s -> failwithf "Command %A invalid when %A" c s
+            Events.Checkpointed { config = config; pos = checkpoint }
+    | c, s -> failwith $"Command %A{c} invalid when %A{s}" |]
 
-type Service internal (resolve : CheckpointSeriesId -> Equinox.DeciderCore<Events.Event, Fold.State>) =
+type Service internal (resolve: CheckpointSeriesId -> Equinox.DeciderCore<Events.Event, Fold.State>) =
 
     /// Determines the present state of the CheckpointSequence
     member _.Read(series, ct) =
@@ -118,7 +116,7 @@ type Service internal (resolve : CheckpointSeriesId -> Equinox.DeciderCore<Event
         let decider = resolve series
         decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
-let create resolve = Service(streamId >> resolve Category_)
+let create resolve = Service(streamId >> resolve)
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app

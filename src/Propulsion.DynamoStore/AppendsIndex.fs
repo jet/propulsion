@@ -31,10 +31,10 @@ module Fold =
     type State = Map<AppendsPartitionId, AppendsEpochId>
 
     let initial = Map.empty
-    let evolve state = function
+    let private evolve state = function
         | Events.Started e -> state |> Map.add e.partition e.epoch
         | Events.Snapshotted e -> e.active
-    let fold : State -> Events.Event seq -> State = Seq.fold evolve
+    let fold = Array.fold evolve
 
     let isOrigin = function Events.Snapshotted _ -> true | _ -> false
     let toSnapshot s = Events.Snapshotted {| active = s |}
@@ -43,11 +43,11 @@ let readEpochId partitionId (state : Fold.State) =
     state
     |> Map.tryFind partitionId
 
-let interpret (partitionId, epochId) (state : Fold.State) =
-    [if state |> readEpochId partitionId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
-        yield Events.Started { partition = partitionId; epoch = epochId }]
+let interpret (partitionId, epochId) (state : Fold.State) = [|
+    if state |> readEpochId partitionId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
+        Events.Started { partition = partitionId; epoch = epochId } |]
 
-type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
     /// Determines the current active epoch for the specified Partition
     member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
@@ -62,9 +62,9 @@ type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.Stat
 
 module Config =
 
-    let private createCategory store = Config.createSnapshotted Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
-    let resolve log store = createCategory store |> Equinox.Decider.resolve log
-    let create log (context, cache) = Service(streamId >> resolve log (context, Some cache) Category)
+    let private createCategory store = Config.createSnapshotted Category Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
+    let resolve log store = createCategory store |> Equinox.Decider.forStream log
+    let create log (context, cache) = Service(streamId >> resolve log (context, Some cache))
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
@@ -89,5 +89,5 @@ module Reader =
             let decider = resolve ()
             decider.Query(readIngestionEpochId partitionId)
 
-    let create log context = Service(streamId >> Config.resolve log (context, None) Category)
+    let create log context = Service(streamId >> Config.resolve log (context, None))
 #endif

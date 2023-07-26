@@ -76,19 +76,19 @@ module internal Config =
 
     let private defaultCacheDuration = System.TimeSpan.FromMinutes 20.
 
-    let private create codec initial fold accessStrategy (context, cache) =
+    let private create name codec initial fold accessStrategy (context, cache) =
         let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
-        DynamoStoreCategory(context, codec, fold, initial, cs, accessStrategy)
+        DynamoStoreCategory(context, name, codec, fold, initial, accessStrategy, cs)
 
-    let createSnapshotted codec initial fold (isOrigin, toSnapshot) (context, cache) =
+    let createSnapshotted name codec initial fold (isOrigin, toSnapshot) (context, cache) =
         let accessStrategy = AccessStrategy.Snapshot (isOrigin, toSnapshot)
-        create codec initial fold accessStrategy (context, cache)
+        create name codec initial fold accessStrategy (context, cache)
 
-    let createUnoptimized codec initial fold (context, cache) =
+    let createUnoptimized name codec initial fold (context, cache) =
         let accessStrategy = AccessStrategy.Unoptimized
-        create codec initial fold accessStrategy (context, cache)
+        create name codec initial fold accessStrategy (context, cache)
 
-    let createWithOriginIndex codec initial fold context minIndex =
+    let createWithOriginIndex name codec initial fold context minIndex =
         // TOCONSIDER include way to limit item count being read
         // TOCONSIDER implement a loader hint to pass minIndex to the query as an additional filter
         let isOrigin struct (i, _) = i <= minIndex
@@ -96,7 +96,7 @@ module internal Config =
         // Here we trim it for correctness (although Propulsion would technically ignore it)
         let trimPotentialOverstep = Seq.filter (fun struct (i, _e) -> i >= minIndex)
         let accessStrategy = AccessStrategy.MultiSnapshot (isOrigin, fun _ -> failwith "writing not applicable")
-        create codec initial (fun s -> trimPotentialOverstep >> fold s) accessStrategy (context, None)
+        create name codec initial (fun s -> trimPotentialOverstep >> fold s) accessStrategy (context, None)
 
 module internal EventCodec =
 

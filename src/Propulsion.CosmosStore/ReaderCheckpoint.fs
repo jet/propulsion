@@ -61,7 +61,7 @@ module Fold =
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
         | Events.Snapshotted runningState -> Running runningState
-    let fold : State -> Events.Event seq -> State = Seq.fold evolve
+    let fold : State -> Events.Event seq -> State = Seq.fold evolve // Leave as Seq cor interop with V3
 
     let isOrigin _state = true // we can build a state from any of the events and/or an unfold
 
@@ -96,31 +96,40 @@ let decideStart establishOrigin at freq state = async {
     | Fold.NotStarted ->
         let! origin = establishOrigin
         let config, checkpoint = mk at freq origin
-        return checkpoint.pos, [Events.Started { config = config; origin = checkpoint}]
+        return checkpoint.pos, [| Events.Started { config = config; origin = checkpoint } |]
     | Fold.Running s ->
-        return s.state.pos, [] }
+        return s.state.pos, [||] }
 
 let decideOverride at (freq : TimeSpan) pos = function
-    | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> []
+    | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> [||]
     | _ ->
         let config, checkpoint = mk at freq pos
-        [Events.Overrode { config = config; pos = checkpoint}]
+        [| Events.Overrode { config = config; pos = checkpoint } |]
 
 let decideUpdate at pos = function
     | Fold.NotStarted -> failwith "Cannot Commit a checkpoint for a series that has not been Started"
-    | Fold.Running state ->
+    | Fold.Running state -> [|
         if at < state.state.nextCheckpointDue then
-            if pos = state.state.pos then [] // No checkpoint due, pos unchanged => No write
-            else // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
-                [Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }]
+            if pos <> state.state.pos then // No checkpoint due, pos changed => Write, but maintain same nextCheckpointDue
+                Events.Updated { config = state.config; pos = mkCheckpoint at state.state.nextCheckpointDue pos }
         else // Checkpoint due => Force a write every N seconds regardless of whether the position has actually changed
             let freq = TimeSpan.FromSeconds(float state.config.checkpointFreqS)
             let config, checkpoint = mk at freq pos
-            [Events.Checkpointed { config = config; pos = checkpoint }]
+            Events.Checkpointed { config = config; pos = checkpoint } |]
 
-type Decider<'e, 's> = Equinox.Decider<'e, 's>
+#if COSMOSV3
+module Equinox =
+    let AnyCachedValue = ()
+type Equinox.Decider<'e, 's> with
+    member x.TransactAsync(decide, load : unit): Async<'r> =
+        x.TransactAsync(fun s -> async { let! r, es = decide s in return r, Array.toList es })
+    member x.Transact(decide, load : unit): Async<'r> =
+        x.Transact(decide >> function r, es -> r, Array.toList es)
+    member x.Transact(decide, ?load : unit): Async<unit> =
+        x.Transact(decide >> Array.toList)
+#endif
 
-type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
+type Service internal (resolve: SourceId * TrancheId * string -> Equinox.Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
     interface IFeedCheckpointStore with
 
@@ -129,21 +138,14 @@ type Service internal (resolve : SourceId * TrancheId * string -> Decider<Events
         member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
-#if COSMOSV3
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency)
-#else
             decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AnyCachedValue)
-#endif
             |> Async.executeAsTask ct
+
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
-#if COSMOSV3
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos)
-#else
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AnyCachedValue)
-#endif
             |> Async.executeAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters
@@ -157,9 +159,9 @@ module MemoryStore =
     open Equinox.MemoryStore
 
     let create log (consumerGroupName, defaultCheckpointFrequency) context =
-        let cat = MemoryStoreCategory(context, Events.codec, Fold.fold, Fold.initial)
-        let resolve = Equinox.Decider.resolve log cat
-        Service(streamId >> resolve Category, consumerGroupName, defaultCheckpointFrequency)
+        let cat = MemoryStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial)
+        let resolve = Equinox.Decider.forStream log cat
+        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 #if DYNAMOSTORE
 module DynamoStore =
@@ -169,9 +171,9 @@ module DynamoStore =
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let cat = DynamoStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        let resolve = Equinox.Decider.resolve log cat
-        Service(streamId >> resolve Category, consumerGroupName, defaultCheckpointFrequency)
+        let cat = DynamoStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy)
+        let resolve = Equinox.Decider.forStream log cat
+        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 #if !COSMOSV3
 module CosmosStore =
@@ -181,12 +183,12 @@ module CosmosStore =
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
         let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
-        let resolve = Equinox.Decider.resolve log cat
-        Service(streamId >> resolve Category, consumerGroupName, defaultCheckpointFrequency)
+        let cat = CosmosStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy)
+        let resolve = Equinox.Decider.forStream log cat
+        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 let private create log defaultCheckpointFrequency resolveStream =
-    let resolve id = Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
+    let resolve id = Equinox.Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)
     Service(resolve, null, defaultCheckpointFrequency)
 
 #if COSMOSV3
