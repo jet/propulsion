@@ -8,6 +8,7 @@ module Propulsion.DynamoStore.AppendsEpoch
 open Propulsion.Internal
 open System.Collections.Generic
 open System.Collections.Immutable
+open Serilog
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
 let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
@@ -82,12 +83,15 @@ module Ingest =
             | _ -> Discard
 
     /// Takes a set of spans, flattens them and trims them relative to the currently established per-stream high-watermarks
-    let tryToIngested state (inputs : Events.StreamSpan seq) : Events.Ingested option =
+    let tryToIngested (log : ILogger) onlyWarnOnGap state (inputs : Events.StreamSpan seq) : Events.Ingested option =
         let started, appended = ResizeArray<Events.StreamSpan>(), ResizeArray<Events.StreamSpan>()
         for eventSpan in flatten inputs do
-            match state, eventSpan with
+            match (state, eventSpan) with
             | Start es -> started.Add es
             | Append es -> appended.Add es
+            | Gap g when onlyWarnOnGap ->
+                 log.Warning ("Gap of {gap} at {pos} in {stream}, expect stale state.", g, eventSpan.i, eventSpan.p) |> ignore
+                 appended.Add eventSpan
             | Gap g -> invalidOp (sprintf "Invalid gap of %d at %d in '%O'" g eventSpan.i eventSpan.p)
             | Discard -> ()
         match started.ToArray(), appended.ToArray() with
@@ -101,10 +105,10 @@ module Ingest =
             | Append es -> es
             | Gap _ -> eventSpan
             | Discard -> () |]
-    let decide shouldClose (inputs : Events.StreamSpan seq) : _ -> _ * _ = function
+    let decide log onlyWarnOnGap shouldClose (inputs : Events.StreamSpan seq) : _ -> _ * _ = function
         | ({ closed = false; versions = cur } as state : Fold.State) ->
             let closed, ingested, events =
-                match tryToIngested state inputs with
+                match tryToIngested log onlyWarnOnGap state inputs with
                 | None -> false, Array.empty, []
                 | Some diff ->
                     let closing = shouldClose (diff.app.Length + diff.add.Length + cur.Count)
@@ -116,7 +120,7 @@ module Ingest =
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, []
 
-type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>, log, onlyWarnOnGap) =
 
     member _.Ingest(partitionId, epochId, spans : Events.StreamSpan[], ?assumeEmpty) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (partitionId, epochId)
@@ -124,19 +128,19 @@ type Service internal (shouldClose, resolve : AppendsPartitionId * AppendsEpochI
 
         let isSelf p = match IndexStreamId.toStreamName p with FsCodec.StreamName.Category c -> c = Category
         if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
-        decider.TransactEx((fun c -> (Ingest.decide (shouldClose (c.StreamEventBytes, c.Version))) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AnyCachedValue)
+        decider.TransactEx((fun c -> (Ingest.decide log onlyWarnOnGap (shouldClose (c.StreamEventBytes, c.Version))) spans c.State), if assumeEmpty = Some true then Equinox.AssumeEmpty else Equinox.AnyCachedValue)
 
 module Config =
 
     let private createCategory (context, cache) = Config.createUnoptimized Events.codec Fold.initial Fold.fold (context, Some cache)
-    let create log (maxBytes : int, maxVersion : int64, maxStreams : int) store =
+    let create log (maxBytes : int, maxVersion : int64, maxStreams : int, onlyWarnOnGap) store =
         let resolve = createCategory store |> Equinox.Decider.resolve log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
-        Service(shouldClose, streamId >> resolve Category)
+        Service(shouldClose, streamId >> resolve Category, log, onlyWarnOnGap)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward
 /// In the case where we are polling the tail, this should mean we typically do a single round-trip for a point read of the Tip

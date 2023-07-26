@@ -16,3 +16,4 @@ module Dynamo =
     let [<Literal>] SECRET_KEY =                "EQUINOX_DYNAMO_SECRET_ACCESS_KEY"
     let [<Literal>] TABLE =                     "EQUINOX_DYNAMO_TABLE"
     let [<Literal>] INDEX_TABLE =               "EQUINOX_DYNAMO_TABLE_INDEX"
+    let [<Literal>] ONLY_WARN_GAP =             "EQUINOX_ONLY_WARN_GAP"

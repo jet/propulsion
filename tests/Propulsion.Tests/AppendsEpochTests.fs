@@ -2,6 +2,7 @@
 
 open Propulsion.DynamoStore
 open Propulsion.DynamoStore.AppendsEpoch
+open Serilog
 open Swensen.Unquote
 open System
 open Xunit
@@ -9,7 +10,8 @@ open Xunit
 let mkSpan sid index cases: Events.StreamSpan = { p = IndexStreamId.ofP sid; i = index; c = cases }
 let mkSpanA sid index cases = mkSpan sid index cases |> Array.singleton
 let decideIngest' shouldClose spans inputs =
-    let ({ accepted = accepted; residual = residual }: ExactlyOnceIngester.IngestResult<_ ,_>, events) = Ingest.decide shouldClose spans inputs
+    let ({ accepted = accepted; residual = residual }: ExactlyOnceIngester.IngestResult<_ ,_>, events) =
+        Ingest.decide Log.Logger false shouldClose spans inputs
     (accepted, residual), events
 let decideIngest = decideIngest' ((<) 10)
 
