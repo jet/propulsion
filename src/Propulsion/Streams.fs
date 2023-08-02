@@ -924,10 +924,10 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
                         Log.miB okBytes, resultOk, okStreams.Count, okEvents, resultOk)
         okStreams.Clear(); resultOk <- 0; okEvents <- 0; okBytes <- 0L
         if resultExnOther <> 0 then
-            log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
                         Log.miB exnBytes, resultExnOther, failStreams.Count, exnEvents)
             resultExnOther <- 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-            log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
+            log.Warning("  Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
     abstract member Classify : exn -> OutcomeKind

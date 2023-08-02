@@ -9,43 +9,9 @@ open System
 
 module Pruner =
 
-    let (|TimedOutMessage|RateLimitedMessage|Other|) (e : exn) =
-        match e with
-        | :? Microsoft.Azure.Cosmos.CosmosException as ce when ce.StatusCode = System.Net.HttpStatusCode.TooManyRequests -> RateLimitedMessage
-        | e when e.GetType().FullName = "Microsoft.Azure.Documents.RequestTimeoutException" -> TimedOutMessage
-        | _ -> Other
-
     type Outcome =
         | Ok of completed : int * deferred : int
         | Nop of int
-
-    type Stats(log, statsInterval, stateInterval) =
-        inherit Propulsion.Streams.Stats<Outcome>(log, statsInterval, stateInterval)
-
-        let mutable nops, totalRedundant, ops, totalDeletes, totalDeferred = 0, 0, 0, 0, 0
-
-        override _.DumpStats() =
-            log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
-                ops, totalDeletes, totalDeferred, nops, totalRedundant)
-            ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0
-            base.DumpStats()
-            Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
-
-        override _.HandleOk outcome =
-            match outcome with
-            | Nop count ->
-                nops <- nops + 1
-                totalRedundant <- totalRedundant + count
-            | Ok (completed, deferred) ->
-                ops <- ops + 1
-                totalDeletes <- totalDeletes + completed
-                totalDeferred <- totalDeferred + deferred
-        override x.Classify e =
-            match e with
-            | RateLimitedMessage -> OutcomeKind.RateLimited
-            | TimedOutMessage -> OutcomeKind.Timeout
-            | Other -> OutcomeKind.Exception
-        override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
     let handle pruneUntil stream (span: Event[]) ct = task {
@@ -66,17 +32,40 @@ module Pruner =
         let writePos = max trimmedPos (untilIndex + 1L)
         return struct (writePos, res) }
 
+type CosmosStorePrunerStats(log, statsInterval, stateInterval) =
+    inherit Propulsion.Streams.Stats<Pruner.Outcome>(log, statsInterval, stateInterval)
+
+    let mutable nops, totalRedundant, ops, totalDeletes, totalDeferred = 0, 0, 0, 0, 0
+    override _.HandleOk outcome =
+        match outcome with
+        | Pruner.Outcome.Nop count ->
+            nops <- nops + 1
+            totalRedundant <- totalRedundant + count
+        | Pruner.Outcome.Ok (completed, deferred) ->
+            ops <- ops + 1
+            totalDeletes <- totalDeletes + completed
+            totalDeferred <- totalDeferred + deferred
+    override _.DumpStats() =
+        log.Information("Deleted {ops}r {deletedCount}e Deferred {deferred}e Redundant {nops}r {nopCount}e",
+            ops, totalDeletes, totalDeferred, nops, totalRedundant)
+        ops <- 0; totalDeletes <- 0; nops <- 0; totalDeferred <- totalDeferred; totalRedundant <- 0
+        base.DumpStats()
+        Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
+
+    override x.Classify e =
+        match e with
+        | Equinox_CosmosStore_Exceptions.RateLimited -> OutcomeKind.RateLimited
+        | Equinox_CosmosStore_Exceptions.RequestTimeout -> OutcomeKind.Timeout
+        | e -> base.Classify e
+    override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
+
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care
 type CosmosStorePruner =
 
     /// DANGER: this API DELETES events - use with care
     /// Starts a <c>Sink</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
-        (   log : ILogger, maxReadAhead, context, maxConcurrentStreams,
-            // Default 5m
-            ?statsInterval,
-            // Default 5m
-            ?stateInterval,
+        (   log : ILogger, maxReadAhead, context, maxConcurrentStreams, stats: CosmosStorePrunerStats,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)
@@ -87,9 +76,7 @@ type CosmosStorePruner =
                 let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)
             Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ r -> r))
-        let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
-        let stats = Pruner.Stats(log, statsInterval, stateInterval)
         let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)
+        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
