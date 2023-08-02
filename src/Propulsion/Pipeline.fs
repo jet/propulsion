@@ -40,7 +40,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
     static member Prepare(log : ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new CancellationTokenSource()
         let triggerStop disposing =
-            let level = if disposing || cts.IsCancellationRequested then Events.LogEventLevel.Debug else Events.LogEventLevel.Information
+            let level = if disposing || cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
             log.Write(level, "Sink stopping...")
             cts.Cancel()
         let ct = cts.Token
@@ -79,7 +79,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
                 let ts = Stopwatch.timestamp ()
                 let finishedAsRequested = scheduler.Wait(TimeSpan.FromSeconds 2)
                 let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
-                let level = if finishedAsRequested && ms < 200 then Events.LogEventLevel.Information else Events.LogEventLevel.Warning
+                let level = if finishedAsRequested && ms < 200 then LogEventLevel.Information else LogEventLevel.Warning
                 log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)

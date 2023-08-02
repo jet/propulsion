@@ -32,9 +32,8 @@ module Log =
             token : Nullable<Position>; latency : TimeSpan; pages : int; items : int
             ingestLatency : TimeSpan; ingestQueued : int }
 
-    /// Attach a property to the captured event record to hold the metric information
-    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let [<Literal>] PropertyTag = "propulsionFeedEvent"
+    /// Attach a property to the captured event record to hold the metric information
     let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
     let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
         let mutable p = Unchecked.defaultof<_>
@@ -144,7 +143,7 @@ type FeedReader
         stats.RecordBatch(readLatency, batch)
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
-        | c -> if log.IsEnabled(Serilog.Events.LogEventLevel.Debug) then
+        | c -> if log.IsEnabled(LogEventLevel.Debug) then
                    let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)

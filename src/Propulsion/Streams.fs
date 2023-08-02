@@ -50,14 +50,13 @@ module Log =
             newest : float
 
     let [<Literal>] PropertyTag = "propulsionEvent"
-    let [<Literal>] GroupTag = "group"
     /// Attach a property to the captured event record to hold the metric information
-    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let internal withMetric (value : Metric) = Internal.Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent : Serilog.Events.LogEvent) : 't voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(key, &p) |> ignore
         match p with Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
+    let [<Literal>] GroupTag = "group"
     let [<return: Struct>] (|MetricEvent|_|) logEvent =
         match tryGetScalar<Metric> PropertyTag logEvent with
         | ValueSome m -> ValueSome (m, tryGetScalar<string> GroupTag logEvent)

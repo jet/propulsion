@@ -153,7 +153,7 @@ type EventStoreSink =
         let dispatcher = Internal.Dispatcher.Create(log, storeLog, connections, maxConcurrentStreams)
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let scheduler =
-            let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
+            let stats = Internal.Stats(log, statsInterval, stateInterval)
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, ?purgeInterval = purgeInterval, ?idleDelay = idleDelay)
         Projector.Pipeline.Start( log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval)

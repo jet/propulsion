@@ -236,7 +236,7 @@ and FeedMonitor internal (log : Serilog.ILogger, positions : TranchePositions, s
             let isDrainedNow () = positions.Current() |> isDrained
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
-            let ll = if skipLinger then Serilog.Events.LogEventLevel.Information else Serilog.Events.LogEventLevel.Debug
+            let ll = if skipLinger then LogEventLevel.Information else LogEventLevel.Debug
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = positions.Current() |> choose (fun v -> v.completed)

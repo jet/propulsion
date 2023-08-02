@@ -51,7 +51,7 @@ module Internal =
             | stream, Ok (_, Result.PrefixMissing (batch, pos)) ->
                 log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch[0].Index - pos, batch.Length, batch[0].Index)
             | stream, Error (_, exn) ->
-                let level = if malformed then Events.LogEventLevel.Warning else Events.LogEventLevel.Information
+                let level = if malformed then LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
         let write (log : ILogger) (ctx : EventsContext) stream (span : Event[]) ct = task {
@@ -188,7 +188,7 @@ type CosmosStoreSink =
         let statsInterval, stateInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.), defaultArg stateInterval (TimeSpan.FromMinutes 5.)
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
-            let stats = Internal.Stats(log.ForContext<Internal.Stats>(), statsInterval, stateInterval)
+            let stats = Internal.Stats(log, statsInterval, stateInterval)
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, prioritizeStreamsBy = Event.storedSize,
                               ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)

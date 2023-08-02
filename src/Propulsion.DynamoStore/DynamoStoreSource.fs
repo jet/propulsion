@@ -23,13 +23,13 @@ module private Impl =
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
     let logReadFailure (storeLog : Serilog.ILogger) =
-        let force = storeLog.IsEnabled Serilog.Events.LogEventLevel.Verbose
+        let force = storeLog.IsEnabled LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource read failure")
 
     let logCommitFailure (storeLog : Serilog.ILogger) =
-        let force = storeLog.IsEnabled Serilog.Events.LogEventLevel.Verbose
+        let force = storeLog.IsEnabled LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")

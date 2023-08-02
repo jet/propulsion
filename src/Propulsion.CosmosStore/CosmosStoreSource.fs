@@ -20,9 +20,8 @@ module Log =
         | Read of ReadMetric
         | Lag of LagMetric
 
-    /// Attach a property to the captured event record to hold the metric information
-    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
+    /// Attach a property to the captured event record to hold the metric information
     let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
     let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
         let mutable p = Unchecked.defaultof<_>
