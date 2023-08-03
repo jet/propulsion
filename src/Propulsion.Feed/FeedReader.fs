@@ -143,7 +143,7 @@ type FeedReader
         stats.RecordBatch(readLatency, batch)
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
-        | c -> if log.IsEnabled(LogEventLevel.Debug) then
+        | c -> if log.IsEnabled LogEventLevel.Debug then
                    let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)

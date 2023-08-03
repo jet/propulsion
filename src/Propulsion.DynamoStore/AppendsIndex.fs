@@ -31,13 +31,16 @@ module Fold =
     type State = Map<AppendsPartitionId, AppendsEpochId>
 
     let initial = Map.empty
+    module Snapshot =
+
+        let private generate (s: State) = Events.Snapshotted {| active = s |}
+        let private isOrigin = function Events.Snapshotted _ -> true | _ -> false
+        let config = isOrigin, generate
+
     let private evolve state = function
         | Events.Started e -> state |> Map.add e.partition e.epoch
         | Events.Snapshotted e -> e.active
     let fold = Array.fold evolve
-
-    let isOrigin = function Events.Snapshotted _ -> true | _ -> false
-    let toSnapshot s = Events.Snapshotted {| active = s |}
 
 let readEpochId partitionId (state : Fold.State) =
     state
@@ -62,7 +65,7 @@ type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State
 
 module Config =
 
-    let private createCategory store = Config.createSnapshotted Category Events.codec Fold.initial Fold.fold (Fold.isOrigin, Fold.toSnapshot) store
+    let private createCategory store = Config.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
     let resolve log store = createCategory store |> Equinox.Decider.forStream log
     let create log (context, cache) = Service(streamId >> resolve log (context, Some cache))
 

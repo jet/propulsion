@@ -14,7 +14,6 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
     let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
     let monitor = lazy MemoryStoreMonitor(log, positions, sink)
-    let debug, verbose = log.IsEnabled Serilog.Events.LogEventLevel.Debug, log.IsEnabled Serilog.Events.LogEventLevel.Verbose
     // epoch index of most recently prepared submission - conceptually events arrive concurrently though V4 impl makes them serial
     let mutable prepared = -1L
 
@@ -25,10 +24,12 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
     let handleStoreCommitted struct (categoryName, aggregateId, items : Propulsion.Sinks.StreamEvent[]) =
         let epoch = Interlocked.Increment &prepared
         positions.Prepared <- epoch
-        if debug then MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, items |> Array.map ValueTuple.snd)
+        if log.IsEnabled LogEventLevel.Debug then
+            MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, items |> Array.map ValueTuple.snd)
         // Completion notifications are guaranteed to be delivered deterministically, in order of submission
         let markCompleted () =
-            if verbose then MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
+            if log.IsEnabled LogEventLevel.Verbose then
+                MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
             positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
         enqueueSubmission { isTail = true; epoch = epoch; checkpoint = (fun _ -> task { () }); items = items; onCompletion = markCompleted }
