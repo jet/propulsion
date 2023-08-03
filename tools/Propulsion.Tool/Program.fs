@@ -178,10 +178,10 @@ module Checkpoints =
             let cache = Equinox.Cache (appName, sizeMb = 1)
             match a.StoreArgs with
             | Choice1Of3 a ->
-                let! store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
+                let! store = a.CreateCheckpointStore(group, cache, Metrics.log)
                 return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos, ct)
             | Choice2Of3 a ->
-                let store = a.CreateCheckpointStore(group, cache, Log.forMetrics)
+                let store = a.CreateCheckpointStore(group, cache, Metrics.log)
                 return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos, ct)
             | Choice3Of3 a ->
                 let store = a.CreateCheckpointStore(group)
@@ -234,7 +234,7 @@ module Indexer =
                         Log.Warning("Gapped stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}", stream, v.writePos, gap, v.spans[0].c)
                     elif gapped = gapsLimit then
                         Log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
-        let level = if gapped > 0 then Serilog.Events.LogEventLevel.Warning else Serilog.Events.LogEventLevel.Information
+        let level = if gapped > 0 then LogEventLevel.Warning else LogEventLevel.Information
         Log.Write(level, "Index {events:n0} events {streams:n0} streams ({spans:n0} spans) Buffered {buffered} Queueing {queuing} Gapped {gapped:n0}",
                   totalE, totalS, spanCount, buffered, queuing, gapped)
 
@@ -246,7 +246,7 @@ module Indexer =
         | None when (not << List.isEmpty) a.ImportJsonFiles ->
             missingArg "Must specify a trancheId parameter to import into"
         | None ->
-            let index = AppendsIndex.Reader.create Log.forMetrics context
+            let index = AppendsIndex.Reader.create Metrics.log context
             let! state = index.Read()
             Log.Information("Current Partitions / Active Epochs {summary}",
                             seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
@@ -260,7 +260,7 @@ module Indexer =
             Log.Information("Inspect Batches in Epoch {epoch} of Index Partition {partition} 👉 {cmd}",
                             eid, pid, dumpCmd AppendsEpoch.Category (AppendsEpoch.streamId (pid, eid)) "-B ")
         | Some trancheId ->
-            let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Log.forMetrics, context) trancheId a.GapsLimit
+            let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Metrics.log, context) trancheId a.GapsLimit
             let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
             dump 0
 
@@ -271,7 +271,7 @@ module Indexer =
             Log.Information("Ingesting {files}...", files)
 
             let ingest =
-                let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Log.forMetrics)
+                let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Metrics.log)
                 fun batch -> ingester.Service.IngestWithoutConcurrency(trancheId, batch)
             let import = DynamoDbExport.Importer(buffer, ingest, dump)
             for file in files do
@@ -362,11 +362,11 @@ module Project =
                 let (indexStore, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =
                     let cache = Equinox.Cache (appName, sizeMb = 1)
-                    sa.CreateCheckpointStore(group, cache, Log.forMetrics)
+                    sa.CreateCheckpointStore(group, cache, Metrics.log)
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
                     indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
-                    checkpoints, sink, loadMode, startFromTail = startFromTail, storeLog = Log.forMetrics,
+                    checkpoints, sink, loadMode, startFromTail = startFromTail, storeLog = Metrics.log,
                     ?trancheIds = indexFilter
                 ).Start()
             | Choice3Of3 sa ->

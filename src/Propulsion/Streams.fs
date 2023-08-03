@@ -50,14 +50,13 @@ module Log =
             newest : float
 
     let [<Literal>] PropertyTag = "propulsionEvent"
-    let [<Literal>] GroupTag = "group"
     /// Attach a property to the captured event record to hold the metric information
-    // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
     let internal withMetric (value : Metric) = Internal.Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent : Serilog.Events.LogEvent) : 't voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(key, &p) |> ignore
         match p with Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
+    let [<Literal>] GroupTag = "group"
     let [<return: Struct>] (|MetricEvent|_|) logEvent =
         match tryGetScalar<Metric> PropertyTag logEvent with
         | ValueSome m -> ValueSome (m, tryGetScalar<string> GroupTag logEvent)
@@ -925,10 +924,10 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
                         Log.miB okBytes, resultOk, okStreams.Count, okEvents, resultOk)
         okStreams.Clear(); resultOk <- 0; okEvents <- 0; okBytes <- 0L
         if resultExnOther <> 0 then
-            log.Warning("Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
                         Log.miB exnBytes, resultExnOther, failStreams.Count, exnEvents)
             resultExnOther <- 0; failStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-            log.Warning(" Affected cats {@badCats}", badCats.StatsDescending)
+            log.Warning("  Affected cats {@badCats}", badCats.StatsDescending)
             badCats.Clear()
 
     abstract member Classify : exn -> OutcomeKind

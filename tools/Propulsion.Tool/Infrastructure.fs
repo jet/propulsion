@@ -3,11 +3,12 @@ module Propulsion.Tool.Infrastructure
 
 open Serilog
 
-module Log =
+module Metrics =
 
-    let forMetrics = Log.ForContext("isMetric", true)
-
-    let isStoreMetrics x = Serilog.Filters.Matching.WithProperty("isMetric").Invoke x
+    let [<Literal>] PropertyTag = "isMetric"
+    let log = Log.ForContext(PropertyTag, true)
+    /// Allow logging to filter out emission of log messages whose information is also surfaced as metrics
+    let logEventIsMetric e = Serilog.Filters.Matching.WithProperty(PropertyTag).Invoke e
 
 module Sinks =
 
@@ -49,4 +50,4 @@ type Logging() =
 
     [<System.Runtime.CompilerServices.Extension>]
     static member Sinks(configuration : LoggerConfiguration, configureMetricsSinks, verboseStore, verboseConsole) =
-        configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some Log.isStoreMetrics)
+        configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some Metrics.logEventIsMetric)

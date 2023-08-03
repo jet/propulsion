@@ -107,7 +107,7 @@ module Reader =
         return spans, state.closed, sizeB }
 
     let loadIndex (log, storeLog, context) partitionId gapsLimit: Async<struct (Buffer * int64)> = async {
-        let indexEpochs = AppendsEpoch.Reader.Config.create storeLog context
+        let indexEpochs = AppendsEpoch.Reader.Factory.create storeLog context
         let mutable epochId, more, totalB, totalSpans = AppendsEpochId.initial, true, 0L, 0L
         let state = Buffer()
         let mutable invalidSpans = 0

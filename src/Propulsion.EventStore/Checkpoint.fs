@@ -1,8 +1,7 @@
 ﻿module Propulsion.EventStore.Checkpoint
 
 open FSharp.UMX
-open Propulsion.Internal
-open System // must shadow UMX to use DateTimeOffSet
+open System // must shadow UMX to use DateTimeOffset
 open System.Threading.Tasks
 
 type CheckpointSeriesId = string<checkpointSeriesId>
@@ -116,14 +115,11 @@ type Service internal (resolve: CheckpointSeriesId -> Equinox.DeciderCore<Events
         let decider = resolve series
         decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AnyCachedValue, ct = ct)
 
-let create resolve = Service(streamId >> resolve)
-
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
-type CheckpointSeries(groupName, resolve, ?log) =
+type CheckpointSeries(groupName, resolve) =
     let seriesId = CheckpointSeriesId.ofGroupName groupName
-    let log = match log with Some x -> x | None -> Serilog.Log.ForContext<Service>()
-    let inner = create (resolve log)
+    let inner = Service(streamId >> resolve)
 
     member _.Read(ct): Task<Fold.State> = inner.Read(seriesId, ct)
     member _.Start(freq, pos, ct): Task<unit> = inner.Start(seriesId, freq, pos, ct)
