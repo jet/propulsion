@@ -70,14 +70,13 @@ module internal FeedSourceId =
 
     let wellKnownId : Propulsion.Feed.SourceId = UMX.tag "dynamoStore"
 
-module internal Config =
+module internal Dynamo =
 
     open Equinox.DynamoStore
 
     let private defaultCacheDuration = System.TimeSpan.FromMinutes 20.
-
     let private create name codec initial fold accessStrategy (context, cache) =
-        let cs = match cache with None -> CachingStrategy.NoCaching | Some cache -> CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
+        let cs = match cache with None -> Equinox.CachingStrategy.NoCaching | Some cache -> Equinox.CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
         DynamoStoreCategory(context, name, codec, fold, initial, accessStrategy, cs)
 
     let createSnapshotted name codec initial fold (isOrigin, toSnapshot) (context, cache) =

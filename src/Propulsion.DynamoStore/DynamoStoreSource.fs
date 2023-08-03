@@ -18,7 +18,7 @@ module private Impl =
     let readTailPositionForPartition log context (AppendsPartitionId.Parse partitionId) ct = task {
         let index = AppendsIndex.Reader.create log context
         let! epochId = index.ReadIngestionEpochId(partitionId) |> Async.executeAsTask ct
-        let epochs = AppendsEpoch.Reader.Config.create log context
+        let epochs = AppendsEpoch.Reader.Factory.create log context
         let! version = epochs.ReadVersion(partitionId, epochId) |> Async.executeAsTask ct
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
@@ -45,7 +45,7 @@ module private Impl =
     let materializeIndexEpochAsBatchesOfStreamEvents
             (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
             (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = taskSeq {
-        let epochs = AppendsEpoch.Reader.Config.create storeLog context
+        let epochs = AppendsEpoch.Reader.Factory.create storeLog context
         let sw = Stopwatch.start ()
         let! _maybeSize, version, state = epochs.Read(pid, epochId, offset) |> Async.executeAsTask ct
         let totalChanges = state.changes.Length

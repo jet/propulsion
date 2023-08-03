@@ -133,9 +133,9 @@ type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId *
         let decide (c: Equinox.ISyncContext<_>) = Ingest.decide onlyWarnOnGap (shouldClose (c.StreamEventBytes, c.Version)) spans c.State
         decider.TransactEx(decide, Equinox.AnyCachedValue)
 
-module Config =
+module Factory =
 
-    let private createCategory (context, cache) = Config.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
+    let private createCategory (context, cache) = Dynamo.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes: int, maxVersion: int64, maxStreams: int, onlyWarnOnGap) store =
         let resolve = createCategory store |> Equinox.Decider.forStream log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
@@ -174,9 +174,9 @@ module Reader =
             let decider = resolve (partitionId, epochId, System.Int64.MaxValue)
             decider.QueryEx(fun c -> c.Version)
 
-    module Config =
+    module Factory =
 
-        let private createCategory context minIndex = Config.createWithOriginIndex Category codec initial fold context minIndex
+        let private createCategory context minIndex = Dynamo.createWithOriginIndex Category codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.forStream log (createCategory context minIndex)
             Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex)

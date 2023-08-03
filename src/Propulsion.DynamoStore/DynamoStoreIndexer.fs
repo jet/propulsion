@@ -9,8 +9,8 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
     let onlyWarnOnGap = defaultArg onlyWarnOnGap false
 
     let ingester =
-        let epochs = AppendsEpoch.Config.create storeLog (epochBytesCutoff, maxVersion, maxStreams, onlyWarnOnGap) (context, cache)
-        let index = AppendsIndex.Config.create storeLog (context, cache)
+        let epochs = AppendsEpoch.Factory.create storeLog (epochBytesCutoff, maxVersion, maxStreams, onlyWarnOnGap) (context, cache)
+        let index = AppendsIndex.Factory.create storeLog (context, cache)
         let createIngester partitionId =
             let log = log.ForContext("partition", partitionId)
             let readIngestionEpoch () = index.ReadIngestionEpochId partitionId

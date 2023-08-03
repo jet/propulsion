@@ -163,6 +163,12 @@ module MemoryStore =
         let resolve = Equinox.Decider.forStream log cat
         Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
+let private defaultCacheDuration = TimeSpan.FromMinutes 20.
+#if COSMOSV3
+let private cacheStrategy cache = Equinox.CosmosStore.CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
+#else
+let private cacheStrategy cache = Equinox.CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
+#endif
 #if DYNAMOSTORE
 module DynamoStore =
 
@@ -170,8 +176,7 @@ module DynamoStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let cat = DynamoStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy)
+        let cat = DynamoStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
         let resolve = Equinox.Decider.forStream log cat
         Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
@@ -182,8 +187,7 @@ module CosmosStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
-        let cat = CosmosStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy)
+        let cat = CosmosStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
         let resolve = Equinox.Decider.forStream log cat
         Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
@@ -198,7 +202,7 @@ module CosmosStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log defaultCheckpointFrequency (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, TimeSpan.FromMinutes 20.)
+        let cacheStrategy = CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
         let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log defaultCheckpointFrequency resolveStream

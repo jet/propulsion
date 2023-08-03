@@ -63,9 +63,9 @@ type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State
         let decider = resolve ()
         decider.Transact(interpret (partitionId, epochId), Equinox.AnyCachedValue)
 
-module Config =
+module Factory =
 
-    let private createCategory store = Config.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
+    let private createCategory store = Dynamo.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
     let resolve log store = createCategory store |> Equinox.Decider.forStream log
     let create log (context, cache) = Service(streamId >> resolve log (context, Some cache))
 
@@ -92,5 +92,5 @@ module Reader =
             let decider = resolve ()
             decider.Query(readIngestionEpochId partitionId)
 
-    let create log context = Service(streamId >> Config.resolve log (context, None))
+    let create log context = Service(streamId >> Factory.resolve log (context, None))
 #endif
