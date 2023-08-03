@@ -34,8 +34,8 @@ module Events =
         | Ingested of           Ingested
         | Closed
         interface TypeShape.UnionContract.IUnionContract
-    let codec = EventCodec.gen<Event>
-    let isEventTypeClosed (et : string) = et = nameof Closed
+    let codec = Store.Codec.gen<Event>
+    let isEventTypeClosed (et: string) = et = nameof Closed
 #endif
 
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
@@ -135,7 +135,7 @@ type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId *
 
 module Factory =
 
-    let private createCategory (context, cache) = Dynamo.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
+    let private createCategory (context, cache) = Store.Dynamo.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes: int, maxVersion: int64, maxStreams: int, onlyWarnOnGap) store =
         let resolve = createCategory store |> Equinox.Decider.forStream log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
@@ -151,7 +151,7 @@ module Factory =
 module Reader =
 
     type Event = (struct (int64 * Events.Event))
-    let codec : FsCodec.IEventCodec<Event, _, _> = EventCodec.withIndex<Events.Event>
+    let codec : FsCodec.IEventCodec<Event, _, _> = Streams.decWithIndex<Events.Event>
 
     type State = { changes : struct (int * Events.StreamSpan[])[]; closed : bool }
     let initial = { changes = Array.empty; closed = false }
@@ -176,7 +176,7 @@ module Reader =
 
     module Factory =
 
-        let private createCategory context minIndex = Dynamo.createWithOriginIndex Category codec initial fold context minIndex
+        let private createCategory context minIndex = Store.Dynamo.createWithOriginIndex Category codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.forStream log (createCategory context minIndex)
             Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex)

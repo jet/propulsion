@@ -202,8 +202,7 @@ module CosmosStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log defaultCheckpointFrequency (context, cache) =
-        let cacheStrategy = CachingStrategy.SlidingWindow (cache, defaultCacheDuration)
-        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy, accessStrategy)
+        let cat = CosmosStoreCategory(context, Events.codec, Fold.fold, Fold.initial, cacheStrategy cache, accessStrategy)
         let resolveStream opt sn = cat.Resolve(sn, opt)
         create log defaultCheckpointFrequency resolveStream
 #endif

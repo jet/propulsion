@@ -24,13 +24,13 @@ module Events =
         | Started of Started
         | Snapshotted of {| active : Map<AppendsPartitionId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
-    let codec = EventCodec.gen<Event>
+    let codec = Store.Codec.gen<Event>
 
 module Fold =
 
     type State = Map<AppendsPartitionId, AppendsEpochId>
-
     let initial = Map.empty
+
     module Snapshot =
 
         let private generate (s: State) = Events.Snapshotted {| active = s |}
@@ -65,7 +65,7 @@ type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State
 
 module Factory =
 
-    let private createCategory store = Dynamo.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
+    let private createCategory store = Store.Dynamo.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
     let resolve log store = createCategory store |> Equinox.Decider.forStream log
     let create log (context, cache) = Service(streamId >> resolve log (context, Some cache))
 

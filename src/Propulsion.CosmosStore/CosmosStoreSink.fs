@@ -17,6 +17,7 @@ module private Impl =
 
         let private toNativeEventBody (xs : Propulsion.Sinks.EventBody) : byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
+    // Trimmed edition of what V4 exposes
     module internal Equinox =
         module CosmosStore =
             module Exceptions =
@@ -25,8 +26,8 @@ module private Impl =
                 let (|RateLimited|RequestTimeout|CosmosStatusCode|Other|) = function
                     | CosmosStatus System.Net.HttpStatusCode.TooManyRequests ->     RateLimited
                     | CosmosStatus System.Net.HttpStatusCode.RequestTimeout ->      RequestTimeout
-                    | CosmosStatus s -> CosmosStatusCode s
-                    | _ -> Other
+                    | CosmosStatus s ->                                             CosmosStatusCode s
+                    | _ ->                                                          Other
 
 #else
     module StreamSpan =
