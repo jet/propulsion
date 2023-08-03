@@ -98,7 +98,7 @@ module Internal =
     type Dispatcher =
 
         static member Create(log : ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
-            let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (1024 * 1024 - (*fudge*)4096)
+            let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (256 * 1024)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
                 let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
@@ -179,7 +179,7 @@ type CosmosStoreSink =
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,
-            // Default: 1MB (limited by maximum size of a CosmosDB stored procedure invocation)
+            // Default: 256KB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStatsInterval)
         : Sink =
