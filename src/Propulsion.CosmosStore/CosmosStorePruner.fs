@@ -54,9 +54,9 @@ type CosmosStorePrunerStats(log, statsInterval, stateInterval) =
 
     override x.Classify e =
         match e with
-        | Equinox_CosmosStore_Exceptions.RateLimited -> OutcomeKind.RateLimited
-        | Equinox_CosmosStore_Exceptions.RequestTimeout -> OutcomeKind.Timeout
-        | e -> base.Classify e
+        | Equinox.CosmosStore.Exceptions.RateLimited ->     OutcomeKind.RateLimited
+        | Equinox.CosmosStore.Exceptions.RequestTimeout ->  OutcomeKind.Timeout
+        | e ->                                              base.Classify e
     override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
 /// DANGER: <c>CosmosPruner</c> DELETES events - use with care

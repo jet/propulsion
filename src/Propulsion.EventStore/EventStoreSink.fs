@@ -132,7 +132,7 @@ type EventStoreSinkStats(log : ILogger, statsInterval, stateInterval) =
             badCats.Clear(); resultExnOther <- 0; oStreams.Clear()
         Log.InternalMetrics.dump log
 
-    default _.HandleExn(_, _) : unit = ()
+    override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
 type EventStoreSink =
 

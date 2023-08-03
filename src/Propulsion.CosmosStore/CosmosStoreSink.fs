@@ -17,6 +17,17 @@ module private Impl =
 
         let private toNativeEventBody (xs : Propulsion.Sinks.EventBody) : byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
+    module internal Equinox =
+        module CosmosStore =
+            module Exceptions =
+                open Microsoft.Azure.Cosmos
+                let [<return: Struct>] (|CosmosStatus|_|) (x: exn) = match x with :? CosmosException as ce -> ValueSome ce.StatusCode | _ -> ValueNone
+                let (|RateLimited|RequestTimeout|CosmosStatusCode|Other|) = function
+                    | CosmosStatus System.Net.HttpStatusCode.TooManyRequests ->     RateLimited
+                    | CosmosStatus System.Net.HttpStatusCode.RequestTimeout ->      RequestTimeout
+                    | CosmosStatus s -> CosmosStatusCode s
+                    | _ -> Other
+
 #else
     module StreamSpan =
 
@@ -27,16 +38,6 @@ module private Impl =
             else JsonSerializer.Deserialize(x.Span)
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
 #endif
-
-module Equinox_CosmosStore_Exceptions =
-    open Microsoft.Azure.Cosmos
-    let [<return: Struct>] (|CosmosStatus|_|) (x: exn) = match x with :? CosmosException as ce -> ValueSome ce.StatusCode | _ -> ValueNone
-    let (|RateLimited|RequestTimeout|ServiceUnavailable|CosmosStatusCode|Other|) = function
-        | CosmosStatus System.Net.HttpStatusCode.TooManyRequests ->     RateLimited
-        | CosmosStatus System.Net.HttpStatusCode.RequestTimeout ->      RequestTimeout
-        | CosmosStatus System.Net.HttpStatusCode.ServiceUnavailable ->  ServiceUnavailable
-        | CosmosStatus s -> CosmosStatusCode s
-        | _ -> Other
 
 module Internal =
 
@@ -86,14 +87,14 @@ module Internal =
             m.Contains "SyntaxError: JSON.parse Error: Unexpected input at position"
             || m.Contains "SyntaxError: JSON.parse Error: Invalid character at position"
         let classify = function
-            | Equinox_CosmosStore_Exceptions.RateLimited -> ResultKind.RateLimited
-            | Equinox_CosmosStore_Exceptions.RequestTimeout -> ResultKind.TimedOut
-            | Equinox_CosmosStore_Exceptions.CosmosStatusCode System.Net.HttpStatusCode.RequestEntityTooLarge -> ResultKind.TooLarge
-            | e when containsMalformedMessage e -> ResultKind.Malformed
-            | _ -> ResultKind.Other
+            | Equinox.CosmosStore.Exceptions.RateLimited ->                                                      ResultKind.RateLimited
+            | Equinox.CosmosStore.Exceptions.RequestTimeout ->                                                   ResultKind.TimedOut
+            | Equinox.CosmosStore.Exceptions.CosmosStatusCode System.Net.HttpStatusCode.RequestEntityTooLarge -> ResultKind.TooLarge
+            | e when containsMalformedMessage e ->                                                               ResultKind.Malformed
+            | _ ->                                                                                               ResultKind.Other
         let isMalformed = function
             | ResultKind.RateLimited | ResultKind.TimedOut | ResultKind.Other -> false
-            | ResultKind.TooLarge | ResultKind.Malformed -> true
+            | ResultKind.TooLarge    | ResultKind.Malformed -> true
 
     type Dispatcher =
 
@@ -169,7 +170,7 @@ type CosmosStoreSinkStats(log : ILogger, statsInterval, stateInterval) =
             badCats.Clear(); tooLarge <- 0; malformed <- 0;  resultExnOther <- 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
         Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
-    default _.HandleExn(_, _) : unit = ()
+    override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 
 type CosmosStoreSink =
 

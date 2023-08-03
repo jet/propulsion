@@ -72,7 +72,7 @@ let private publishBatch (client : IAmazonSimpleNotificationService) (log : Seri
     if res.HttpStatusCode <> HttpStatusCode.OK || res.Failed.Count <> 0 then
         let fails = [| for x in res.Failed -> struct (x.Code, x.SenderFault, x.Message) |]
         log.Warning("PublishBatchAsync {res}. Fails: {fails}", res.HttpStatusCode, fails)
-        failwithf "PublishBatchAsync result %A %A" res.HttpStatusCode fails }
+        failwithf $"PublishBatchAsync result {res.HttpStatusCode} %A{fails}" }
 
 type SnsClient(topicArn) =
 
