@@ -9,7 +9,11 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="Equinox.MessageDb" Version="4.0.0-rc.11" />
         <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.10" />
+        <PackageReference Include="OpenTelemetry" Version="1.5.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.5.0" />
+        <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.5.0" />
         <PackageReference Include="TypeShape" Version="10.0.0" />
     </ItemGroup>
     <ItemGroup>

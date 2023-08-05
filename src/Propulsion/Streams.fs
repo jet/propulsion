@@ -1,5 +1,6 @@
 ﻿namespace Propulsion.Streams
 
+open System.Diagnostics
 open Propulsion
 open Propulsion.Internal
 open Serilog
@@ -844,6 +845,8 @@ module Dispatcher =
         member _.AwaitCapacity(ct) = inner.AwaitButRelease(ct)
         member _.TryReplenish(pending, markStarted, project) = tryFillDispatcher pending markStarted project
 
+    let private source = new ActivitySource("Propulsion")
+
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type Concurrent<'P, 'R, 'E, 'F> internal
         (   inner : ItemDispatcher<Result<'P, 'E>, 'F>,
@@ -853,9 +856,23 @@ module Dispatcher =
             (   maxDop,
                 project : FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> CancellationToken -> Task<struct (bool * Result<'P, 'E>)>,
                 interpretProgress) =
-            let project struct (startTs, item : Scheduling.Item<'F>) (ct : CancellationToken) = task {
+            let project struct (startTs: int64, item : Scheduling.Item<'F>) (ct : CancellationToken) = task {
+                use act = source.StartActivity("process", ActivityKind.Consumer)
+                if act <> null then
+                    let struct(category, streamId) = FsCodec.StreamName.splitCategoryAndStreamId item.stream
+                    act.DisplayName <- $"{category} process"
+                    act.SetTag("propulsion.stream_name", item.stream)
+                       .SetTag("propulsion.stream_id", streamId)
+                       .SetTag("propulsion.category", category)
+                       .SetTag("propulsion.batch_size", item.span.Length)
+                       .SetTag("propulsion.first_timestamp", item.span[0].Timestamp)
+                    |> ignore
                 let! struct (progressed, res) = project item.stream item.span ct
-                return struct (Stopwatch.elapsed startTs, item.stream, progressed, res) }
+                let elapsed = Stopwatch.elapsed startTs
+                if act <> null then
+                    let oldestItemTs = item.span[0].Timestamp
+                    act.SetTag("propulsion.lead_time_ms", (DateTimeOffset.UtcNow - oldestItemTs).TotalMilliseconds) |> ignore
+                return struct (elapsed, item.stream, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
         static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex : Func<_, 'R, int64>) =
             let project sn span ct = task {
