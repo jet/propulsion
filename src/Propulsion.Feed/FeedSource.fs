@@ -355,7 +355,7 @@ type FeedSource
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
 
     let crawl (readPage: Func<TrancheId,Position,CancellationToken,Task<Page<_>>>) trancheId =
-        let streamName = FsCodec.StreamName.compose "Messages" [SourceId.toString sourceId; TrancheId.toString trancheId]
+        let streamName = FsCodec.StreamName.compose "Messages" [| SourceId.toString sourceId; TrancheId.toString trancheId |]
         fun (wasLast, pos) ct -> taskSeq {
             if wasLast then
                 do! Task.delay tailSleepInterval ct

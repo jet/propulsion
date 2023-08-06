@@ -32,7 +32,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
             | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 match FsCodec.StreamName.parse p with
-                | AppendsEpoch.StreamName (partitionId, epochId) ->
+                | AppendsEpoch.Stream.For (partitionId, epochId) ->
                     // Calf writes won't have an "a" field
                     let appendedLen = match updated.TryGetValue "a" with true, v -> int64 v.N | false, _ -> 0
                     // Tip writes may not actually have added events, if the sync was transmuted to an update of the unfolds only
@@ -48,7 +48,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyVal
                     let checkpoint = Checkpoint.positionOfEpochClosedAndVersion epochId isClosed n
                     updateTails partitionId checkpoint
                 | _ ->
-                    if p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
+                    if p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
             | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
         log.Information("Index {indexCount} Other {otherCount} NoEvents {noEventCount} Tails {tails} {summary:l}",

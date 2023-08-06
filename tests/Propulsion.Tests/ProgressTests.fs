@@ -6,7 +6,7 @@ open Swensen.Unquote
 open System.Collections.Generic
 open Xunit
 
-let sn x = StreamName.create x x
+let sn x = StreamName.compose "test" [| x |]
 let mkDictionary xs = Dictionary<StreamName,int64>(dict xs)
 
 let [<Fact>] ``Empty has zero streams pending or progress to write`` () =

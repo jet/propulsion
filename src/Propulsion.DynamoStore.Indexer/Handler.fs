@@ -19,7 +19,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBE
             | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
-                if p.StartsWith AppendsEpoch.Category || p.StartsWith AppendsIndex.Category then indexStream <- indexStream + 1
+                if p.StartsWith AppendsEpoch.Stream.Category || p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
                 elif p.StartsWith '$' then systemStreams <- systemStreams + 1
                 else
                     // Equinox writes all enter via the Tip. The "a" field of the tip indicates how many events were pushed in this insert/update

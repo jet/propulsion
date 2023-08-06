@@ -10,8 +10,9 @@ module CheckpointSeriesId =
     let ofGroupName (groupName : string) = UMX.tag groupName
     let toString (x : CheckpointSeriesId) = UMX.untag x
 
-let [<Literal>] Category = "Sync"
-let streamId = Equinox.StreamId.gen CheckpointSeriesId.toString
+module Stream =
+    let [<Literal>] Category = "Sync"
+    let id = FsCodec.StreamId.gen CheckpointSeriesId.toString
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
@@ -119,7 +120,7 @@ type Service internal (resolve: CheckpointSeriesId -> Equinox.DeciderCore<Events
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app
 type CheckpointSeries(groupName, resolve) =
     let seriesId = CheckpointSeriesId.ofGroupName groupName
-    let inner = Service(streamId >> resolve)
+    let inner = Service(Stream.id >> resolve)
 
     member _.Read(ct): Task<Fold.State> = inner.Read(seriesId, ct)
     member _.Start(freq, pos, ct): Task<unit> = inner.Start(seriesId, freq, pos, ct)

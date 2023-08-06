@@ -104,7 +104,11 @@ module Internal =
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
                 let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
+#if COSMOSV3
                 try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
+#else
+                try let! res = Writer.write log eventsContext stream span' ct
+#endif
                     return struct (span'.Length > 0, Ok struct (met, res))
                 with e -> return struct (false, Error struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =

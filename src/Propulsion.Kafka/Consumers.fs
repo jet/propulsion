@@ -242,7 +242,7 @@ module Core =
 
     // Maps a (potentially `null`) message key to a valid {Category}-{StreamId} StreamName for routing and/or propagation through StreamsSink
     let parseMessageKey defaultCategory = function
-        | null -> FsCodec.StreamName.create defaultCategory ""
+        | null -> FsCodec.StreamName.create defaultCategory (FsCodec.StreamId.Elements.trust "")
         | key -> StreamName.parseWithDefaultCategory defaultCategory key
     let toTimelineEvent toDataAndContext (result : ConsumeResult<string, string>, index) =
         let data, context = toDataAndContext result

@@ -144,15 +144,15 @@ module internal EventLoadMode =
             true, withData eventsContext categoryFilter, dop
 
 type DynamoStoreSource
-    (   log : Serilog.ILogger, statsInterval,
-        indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
+    (   log: Serilog.ILogger, statsInterval,
+        indexContext: DynamoStoreContext, batchSizeCutoff, tailSleepInterval,
+        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid having to read from the Store Table
-        mode : EventLoadMode,
+        mode: EventLoadMode,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : Func<string, bool>,
+        ?categoryFilter: Func<string, bool>,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
@@ -164,12 +164,12 @@ type DynamoStoreSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             checkpoints,
             (   if startFromTail <> Some true then None
-                else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) (DynamoStoreContext indexClient))),
+                else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) indexContext)),
             sink, Impl.renderPos,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                 (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
-                batchSizeCutoff (DynamoStoreContext indexClient),
+                batchSizeCutoff indexContext,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
@@ -179,9 +179,8 @@ type DynamoStoreSource
         match trancheIds with
         | Some ids -> return ids
         | None ->
-            let context = DynamoStoreContext(indexClient)
             let storeLog = defaultArg storeLog log
-            let! res = Impl.readPartitions storeLog context |> Async.executeAsTask ct
+            let! res = Impl.readPartitions storeLog indexContext |> Async.executeAsTask ct
             let appendsPartitionIds = match res with [||] -> [| AppendsPartitionId.wellKnownId |] | ids -> ids
             return appendsPartitionIds |> Array.map AppendsPartitionId.toTrancheId }
 
