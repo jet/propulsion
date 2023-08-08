@@ -11,13 +11,16 @@ open System.Collections.Immutable
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
 let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
-let [<Literal>] Category = "$AppendsEpoch"
+module Stream =
+    let [<Literal>] Category = "$AppendsEpoch"
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
-let streamId = Equinox.StreamId.gen2 AppendsPartitionId.toString AppendsEpochId.toString
+    let id = FsCodec.StreamId.gen2 AppendsPartitionId.toString AppendsEpochId.toString
+    let name = id >> FsCodec.StreamName.create Category
 #endif
-let [<return: Struct>] (|StreamName|_|) = function
-    | FsCodec.StreamName.CategoryAndIds (Category, [| pid; eid |]) -> ValueSome struct (AppendsPartitionId.parse pid, AppendsEpochId.parse eid)
-    | _ -> ValueNone
+    let private decodeId = FsCodec.StreamId.dec2 AppendsPartitionId.parse AppendsEpochId.parse
+    let private tryDecode = FsCodec.StreamName.tryFind Category >> ValueOption.map decodeId
+    let [<return: Struct>] (|For|_|) = tryDecode
+
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
 module Events =
@@ -128,14 +131,14 @@ type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId *
         let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
-        let isSelf p = match IndexStreamId.toStreamName p with FsCodec.StreamName.Category c -> c = Category
-        if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
+        let isSelf (FsCodec.StreamName.Category cat) = cat = Stream.Category
+        if spans |> Array.exists (function { p = IndexStreamId.StreamName p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         let decide (c: Equinox.ISyncContext<_>) = Ingest.decide onlyWarnOnGap (shouldClose (c.StreamEventBytes, c.Version)) spans c.State
-        decider.TransactEx(decide, Equinox.AnyCachedValue)
+        decider.TransactEx(decide, Equinox.LoadOption.AnyCachedValue)
 
 module Factory =
 
-    let private createCategory (context, cache) = Store.Dynamo.createUnoptimized Category Events.codec Fold.initial Fold.fold (context, Some cache)
+    let private createCategory (context, cache) = Store.Dynamo.createUnoptimized Stream.Category Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes: int, maxVersion: int64, maxStreams: int, onlyWarnOnGap) store =
         let resolve = createCategory store |> Equinox.Decider.forStream log
         let shouldClose (totalBytes : int64 voption, version) totalStreams =
@@ -143,7 +146,7 @@ module Factory =
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
             closing
-        Service((if onlyWarnOnGap then Some log else None), shouldClose, streamId >> resolve)
+        Service((if onlyWarnOnGap then Some log else None), shouldClose, Stream.id >> resolve)
 
 /// Manages the loading of Ingested Span Batches in a given Epoch from a given position forward
 /// In the case where we are polling the tail, this should mean we typically do a single round-trip for a point read of the Tip
@@ -176,8 +179,8 @@ module Reader =
 
     module Factory =
 
-        let private createCategory context minIndex = Store.Dynamo.createWithOriginIndex Category codec initial fold context minIndex
+        let private createCategory context minIndex = Store.Dynamo.createWithOriginIndex Stream.Category codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.forStream log (createCategory context minIndex)
-            Service(fun (pid, eid, minIndex) -> streamId (pid, eid) |> resolve minIndex)
+            Service(fun (pid, eid, minIndex) -> Stream.id (pid, eid) |> resolve minIndex)
 #endif

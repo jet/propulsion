@@ -195,8 +195,8 @@ module Checkpoints =
             Log.Warning("Checkpoint Overriding to {pos}...", pos)
             do! overridePosition pos
         if storeSpecFragment <> null then
-            let sid = Propulsion.Feed.ReaderCheckpoint.streamId (source, tranche, group)
-            let cmd = $"eqx dump '{Propulsion.Feed.ReaderCheckpoint.Category}-{sid}' {storeSpecFragment}"
+            let sn = Propulsion.Feed.ReaderCheckpoint.Stream.name (source, tranche, group)
+            let cmd = $"eqx dump '{sn}' {storeSpecFragment}"
             Log.Information("Inspect via 👉 {cmd}", cmd) }
 
 module Indexer =
@@ -252,13 +252,13 @@ module Indexer =
                             seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
 
             let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
-            let dumpCmd cat sn opts = $"eqx -C dump '{cat}-{sn}' {opts}{storeSpecFragment}"
+            let dumpCmd sn opts = $"eqx -C dump '{sn}' {opts}{storeSpecFragment}"
             Log.Information("Inspect Index Partitions list events 👉 {cmd}",
-                            dumpCmd AppendsIndex.Category (AppendsIndex.streamId ()) "")
+                            dumpCmd (AppendsIndex.Stream.name ()) "")
 
             let pid, eid = AppendsPartitionId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
             Log.Information("Inspect Batches in Epoch {epoch} of Index Partition {partition} 👉 {cmd}",
-                            eid, pid, dumpCmd AppendsEpoch.Category (AppendsEpoch.streamId (pid, eid)) "-B ")
+                            eid, pid, dumpCmd (AppendsEpoch.Stream.name (pid, eid)) "-B ")
         | Some trancheId ->
             let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Metrics.log, context) trancheId a.GapsLimit
             let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
@@ -359,13 +359,13 @@ module Project =
                   ( Log.Logger, monitored, leases, group, observer,
                     startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval)
             | Choice2Of3 sa ->
-                let (indexStore, indexFilter), loadMode = sa.MonitoringParams()
+                let (indexContext, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =
                     let cache = Equinox.Cache (appName, sizeMb = 1)
                     sa.CreateCheckpointStore(group, cache, Metrics.log)
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
-                    indexStore, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
+                    indexContext, defaultArg maxItems 100, TimeSpan.FromSeconds 0.5,
                     checkpoints, sink, loadMode, startFromTail = startFromTail, storeLog = Metrics.log,
                     ?trancheIds = indexFilter
                 ).Start()

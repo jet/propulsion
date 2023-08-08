@@ -5,15 +5,15 @@ module private Impl =
     open EventStore.Client
     open FSharp.Control
 
-    let private toItems categoryFilter (events : EventRecord[]) : Propulsion.Sinks.StreamEvent[] = [|
+    let private toItems categoryFilter (events: EventRecord[]) : Propulsion.Sinks.StreamEvent[] = [|
         for e in events do
-            let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
-            if categoryFilter (FsCodec.StreamName.category sn) then
+            let FsCodec.StreamName.Category cat as sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
+            if categoryFilter cat then
                 yield sn, Equinox.EventStoreDb.ClientCodec.timelineEvent e |]
-    let private checkpointPos (xs : EventRecord[]) =
+    let private checkpointPos (xs: EventRecord[]) =
         match Array.tryLast xs with Some e -> int64 e.Position.CommitPosition | None -> -1L
         |> Propulsion.Feed.Position.parse
-    let readBatch withData batchSize categoryFilter (store : EventStoreClient) pos ct = task {
+    let readBatch withData batchSize categoryFilter (store: EventStoreClient) pos ct = task {
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, withData, cancellationToken = ct)
         let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
@@ -31,13 +31,13 @@ module private Impl =
         return Propulsion.Feed.Position.parse max }
 
 type EventStoreSource
-    (   log : Serilog.ILogger, statsInterval,
-        client : EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
+    (   log: Serilog.ILogger, statsInterval,
+        client: EventStore.Client.EventStoreClient, batchSize, tailSleepInterval,
+        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : System.Func<string, bool>,
+        ?categoryFilter: System.Func<string, bool>,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid shipping them from the Store in the first instance. Default false.
         ?withData,
         // Override default start position to be at the tail of the index. Default: Replay all events.

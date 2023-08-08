@@ -114,8 +114,8 @@ module Reader =
         while more do
             let! spans, closed, streamBytes = loadIndexEpoch log indexEpochs partitionId epochId
             totalB <- totalB + streamBytes
-            for x in spans do
-                let stream = x.p |> IndexStreamId.toStreamName |> FsCodec.StreamName.toString
+            for { p = IndexStreamId.StreamName sn } as x in spans do
+                let stream = FsCodec.StreamName.toString sn
                 if x.c.Length = 0 then log.Warning("Stream {stream} contains zero length span", stream) else
                 let ok, writePos = state.LogIndexed(stream, EventSpan.Create(int x.i, x.c))
                 if not ok then

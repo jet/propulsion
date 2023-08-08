@@ -24,11 +24,12 @@
     <!-- Exclude FSharp.Core.xml due to temporarly malformed state -->
     <PackageReference Include="FSharp.Core" Version="6.0.0" ExcludeAssets="contentfiles" />
 
-    <PackageReference Include="FsCodec" Version="3.0.0-rc.10" />
+    <PackageReference Include="FsCodec" Version="3.0.0-rc.10.1" />
     <PackageReference Include="MathNet.Numerics" Version="4.15.0" />
     <!--    NB TEMP; needs to be shipped out-->
     <PackageReference Include="prometheus-net" Version="3.6.0" />
     <PackageReference Include="Serilog" Version="2.7.1" />
   </ItemGroup>
+
 
 </Project>

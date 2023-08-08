@@ -21,23 +21,22 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>> in let r, w = c.Reader, c.Writer
         Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
-    let handleStoreCommitted struct (categoryName, aggregateId, items : Propulsion.Sinks.StreamEvent[]) =
+    let handleStoreCommitted struct (categoryName, streamId, items : Propulsion.Sinks.StreamEvent[]) =
         let epoch = Interlocked.Increment &prepared
         positions.Prepared <- epoch
         if log.IsEnabled LogEventLevel.Debug then
-            MemoryStoreLogger.renderSubmit log (epoch, categoryName, aggregateId, items |> Array.map ValueTuple.snd)
+            MemoryStoreLogger.renderSubmit log (epoch, categoryName, streamId, items |> Array.map ValueTuple.snd)
         // Completion notifications are guaranteed to be delivered deterministically, in order of submission
         let markCompleted () =
             if log.IsEnabled LogEventLevel.Verbose then
-                MemoryStoreLogger.renderCompleted log (epoch, categoryName, aggregateId)
+                MemoryStoreLogger.renderCompleted log (epoch, categoryName, streamId)
             positions.Completed <- epoch
         // We don't have anything Async to do, so we pass a null checkpointing function
         enqueueSubmission { isTail = true; epoch = epoch; checkpoint = (fun _ -> task { () }); items = items; onCompletion = markCompleted }
 
     let storeCommitsSubscription =
         store.Committed
-        |> Observable.choose (fun struct (sn, es) ->
-            let struct (categoryName, streamId) = FsCodec.StreamName.splitCategoryAndStreamId sn
+        |> Observable.choose (fun struct (FsCodec.StreamName.Split (categoryName, streamId) as sn, es) ->
             if categoryFilter categoryName then
                 let items : Propulsion.Sinks.StreamEvent[] = es |> Array.map (fun e -> sn, mapTimelineEvent.Invoke e)
                 Some (struct (categoryName, streamId, items))
@@ -131,5 +130,5 @@ module TimelineEvent =
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<struct (int * ReadOnlyMemory<byte>)>, categoryFilter, sink) =
     inherit MemoryStoreSource<struct (int * ReadOnlyMemory<byte>)>(log, store, categoryFilter, TimelineEvent.mapEncoded, sink)
-    new (log, store, categories, sink) =
+    new(log, store, categories, sink) =
         MemoryStoreSource(log, store, (fun x -> Array.contains x categories), sink)

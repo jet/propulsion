@@ -3,9 +3,11 @@
 /// As an Epoch is marked `Closed`, `module Index` will mark a new epoch `Started` on this aggregate
 module Propulsion.DynamoStore.AppendsIndex
 
-let [<Literal>] Category = "$AppendsIndex"
+module Stream =
+    let [<Literal>] Category = "$AppendsIndex"
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
-let streamId () = Equinox.StreamId.gen IndexId.toString IndexId.wellKnownId
+    let id () = FsCodec.StreamId.gen IndexId.toString IndexId.wellKnownId
+    let name = id >> FsCodec.StreamName.create Category
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -55,19 +57,19 @@ type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State
     /// Determines the current active epoch for the specified Partition
     member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
         let decider = resolve ()
-        decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.AnyCachedValue)
+        decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.LoadOption.AnyCachedValue)
 
     /// Mark specified `epochId` as live for the purposes of ingesting commits for the specified Partition
     /// Writers are expected to react to having writes to an epoch denied (due to it being Closed) by anointing the successor via this
     member _.MarkIngestionEpochId(partitionId, epochId) : Async<unit> =
         let decider = resolve ()
-        decider.Transact(interpret (partitionId, epochId), Equinox.AnyCachedValue)
+        decider.Transact(interpret (partitionId, epochId), Equinox.LoadOption.AnyCachedValue)
 
 module Factory =
 
-    let private createCategory store = Store.Dynamo.createSnapshotted Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
+    let private createCategory store = Store.Dynamo.createSnapshotted Stream.Category Events.codec Fold.initial Fold.fold Fold.Snapshot.config store
     let resolve log store = createCategory store |> Equinox.Decider.forStream log
-    let create log (context, cache) = Service(streamId >> resolve log (context, Some cache))
+    let create log (context, cache) = Service(Stream.id >> resolve log (context, Some cache))
 
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
@@ -92,5 +94,5 @@ module Reader =
             let decider = resolve ()
             decider.Query(readIngestionEpochId partitionId)
 
-    let create log context = Service(streamId >> Factory.resolve log (context, None))
+    let create log context = Service(Stream.id >> Factory.resolve log (context, None))
 #endif

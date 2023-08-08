@@ -25,7 +25,7 @@ module Pruner =
         // 3. Some deletions deferred
         //    (requested trim point was in the middle of a batch; touching it would put the batch out of order)
         //    in this case, we mark the event as handled and await a successor event triggering another attempt
-        let! deleted, deferred, trimmedPos = pruneUntil (FsCodec.StreamName.toString stream, untilIndex, ct)
+        let! deleted, deferred, trimmedPos = pruneUntil (stream, untilIndex, ct)
         // Categorize the outcome so the stats handler can summarize the work being carried out
         let res = if deleted = 0 && deferred = 0 then Nop span.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
@@ -71,7 +71,11 @@ type CosmosStorePruner =
             ?ingesterStatsInterval)
         : Sink =
         let dispatcher =
-            let inline pruneUntil (stream, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context stream index |> Async.executeAsTask ct
+#if COSMOSV3
+            let inline pruneUntil (sn, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context (FsCodec.StreamName.toString sn) index |> Async.executeAsTask ct
+#else
+            let inline pruneUntil (sn, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context sn index |> Async.executeAsTask ct
+#endif
             let interpret _stream span =
                 let metrics = StreamSpan.metrics Event.storedSize span
                 struct (metrics, span)

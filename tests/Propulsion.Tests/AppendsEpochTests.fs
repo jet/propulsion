@@ -7,8 +7,8 @@ open Swensen.Unquote
 open System
 open Xunit
 
-let mkSpan sid index cases: Events.StreamSpan = { p = IndexStreamId.ofP sid; i = index; c = cases }
-let mkSpanA sid index cases = mkSpan sid index cases |> Array.singleton
+let mkSpan sn index cases: Events.StreamSpan = { p = IndexStreamId.ofP sn; i = index; c = cases }
+let mkSpanA sn index cases = mkSpan sn index cases |> Array.singleton
 let decideIngest' shouldClose spans inputs =
     let ({ accepted = accepted; residual = residual }: ExactlyOnceIngester.IngestResult<_ ,_>, events) =
         Ingest.decide None shouldClose spans inputs
@@ -50,23 +50,23 @@ let ``Already ingested events should be removed by ingestion on closed epoch`` (
 
 [<Fact>]
 let ``Already ingested events are not ingested on open epoch`` () =
-    let streamId = "Cat-Id"
-    let spans1 = mkSpanA streamId 0L [| "a"; "a" |]
-    let spans2 = mkSpanA streamId 1L [| "a"; "b" |]
+    let sn = "Cat-Id"
+    let spans1 = mkSpanA sn 0L [| "a"; "a" |]
+    let spans2 = mkSpanA sn 1L [| "a"; "b" |]
 
     let _, events1 = decideIngest spans1 Fold.initial
     let epoch1Closed = (Fold.fold Fold.initial events1)
 
     let (accepted, _), events = decideIngest spans2 epoch1Closed
 
-    test <@ accepted = [| IndexStreamId.ofP streamId |]
+    test <@ accepted = [| IndexStreamId.ofP sn |]
             && events = [| Events.Ingested { add = [||]; app = mkSpanA "Cat-Id" 2L [| "b" |] } |] @>
 
 [<Fact>]
 let ``Gap within epoch, throw?`` () =
-    let streamId = "Cat-Id"
-    let spans1 = mkSpanA streamId 0L [| "a" |]
-    let spans2 = mkSpanA streamId 2L [| "b" |]
+    let sn = "Cat-Id"
+    let spans1 = mkSpanA sn 0L [| "a" |]
+    let spans2 = mkSpanA sn 2L [| "b" |]
 
     let _, events1 = decideIngest spans1 Fold.initial
     let epoch1Closed = Fold.fold Fold.initial events1

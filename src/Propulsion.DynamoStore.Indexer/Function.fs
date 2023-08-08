@@ -20,21 +20,18 @@ type Configuration(?tryGet) =
     member _.DynamoIndexTable =         get Propulsion.DynamoStore.Lambda.Args.Dynamo.INDEX_TABLE
     member _.OnlyWarnGap =              tryGet Propulsion.DynamoStore.Lambda.Args.Dynamo.ONLY_WARN_GAP |> Option.map bool.Parse
 
-type Store(connector : DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
+type Store(connector: DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
     let queryMaxItems = 100
 
-    let client = connector.CreateClient()
-    let storeClient = DynamoStoreClient(client, table)
-    let context = DynamoStoreContext(storeClient, maxBytes = dynamoItemSizeCutoffBytes, queryMaxItems = queryMaxItems)
+    let storeClient = connector.CreateDynamoDbClient() |> DynamoStoreClient
+    member val Context = DynamoStoreContext(storeClient, table, maxBytes = dynamoItemSizeCutoffBytes, queryMaxItems = queryMaxItems)
 
-    new (c : Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
+    new(c: Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
         let conn =
             match c.DynamoRegion with
             | Some r -> DynamoStoreConnector(r, requestTimeout, retries)
             | None -> DynamoStoreConnector(c.DynamoServiceUrl, c.DynamoAccessKey, c.DynamoSecretKey, requestTimeout, retries)
         Store(conn, c.DynamoIndexTable, dynamoItemSizeCutoffBytes)
-
-    member _.Context = context
 
 type Function() =
 

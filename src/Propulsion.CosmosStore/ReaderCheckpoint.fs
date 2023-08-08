@@ -9,13 +9,15 @@ let streamName (source, tranche, consumerGroupName : string) =
     if consumerGroupName = null then
         let Category = "ReaderCheckpoint"
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
-        FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche]
+        FsCodec.StreamName.compose Category [| SourceId.toString source; TrancheId.toString tranche |]
     else
         let (*[<Literal>]*) Category = "$ReaderCheckpoint"
-        FsCodec.StreamName.compose Category [SourceId.toString source; TrancheId.toString tranche; consumerGroupName]
+        FsCodec.StreamName.compose Category [| SourceId.toString source; TrancheId.toString tranche; consumerGroupName |]
 #else
-let [<Literal>] Category = "$ReaderCheckpoint"
-let streamId = Equinox.StreamId.gen3 SourceId.toString TrancheId.toString (*consumerGroupName*)id
+module Stream =
+    let [<Literal>] Category = "$ReaderCheckpoint"
+    let id = FsCodec.StreamId.gen3 SourceId.toString TrancheId.toString (*consumerGroupName*)id
+    let name = id >> FsCodec.StreamName.create Category
 #endif
 
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
@@ -118,8 +120,7 @@ let decideUpdate at pos = function
             Events.Checkpointed { config = config; pos = checkpoint } |]
 
 #if COSMOSV3
-module Equinox =
-    let AnyCachedValue = ()
+module Equinox = module LoadOption = let AnyCachedValue = ()
 type Equinox.Decider<'e, 's> with
     member x.TransactAsync(decide, load : unit): Async<'r> =
         x.TransactAsync(fun s -> async { let! r, es = decide s in return r, Array.toList es })
@@ -138,14 +139,14 @@ type Service internal (resolve: SourceId * TrancheId * string -> Equinox.Decider
         member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AnyCachedValue)
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AnyCachedValue)
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters
@@ -159,9 +160,9 @@ module MemoryStore =
     open Equinox.MemoryStore
 
     let create log (consumerGroupName, defaultCheckpointFrequency) context =
-        let cat = MemoryStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial)
+        let cat = MemoryStoreCategory(context, Stream.Category, Events.codec, Fold.fold, Fold.initial)
         let resolve = Equinox.Decider.forStream log cat
-        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
+        Service(Stream.id >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 let private defaultCacheDuration = TimeSpan.FromMinutes 20.
 #if COSMOSV3
@@ -176,9 +177,9 @@ module DynamoStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
-        let cat = DynamoStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
+        let cat = DynamoStoreCategory(context, Stream.Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
         let resolve = Equinox.Decider.forStream log cat
-        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
+        Service(Stream.id >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 #if !COSMOSV3
 module CosmosStore =
@@ -187,9 +188,9 @@ module CosmosStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
-        let cat = CosmosStoreCategory(context, Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
+        let cat = CosmosStoreCategory(context, Stream.Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
         let resolve = Equinox.Decider.forStream log cat
-        Service(streamId >> resolve, consumerGroupName, defaultCheckpointFrequency)
+        Service(Stream.id >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else
 let private create log defaultCheckpointFrequency resolveStream =
     let resolve id = Equinox.Decider(log, resolveStream Equinox.AllowStale (streamName id), maxAttempts = 3)

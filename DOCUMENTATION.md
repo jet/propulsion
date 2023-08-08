@@ -50,7 +50,7 @@ There's a [glossary of terms in the Equinox Documentation](https://github.com/je
 | Consumer Group          | Name used to identify a set of checkpoint positions for each Tranche of a Source, aka Subscription
 | Consumer Load Balancing | Built in lease-based allocation of Partitions to distribute load across instances of a Processor based on a common Consumer Group Name e.g. the broker managed system in Kafka, the Change Feed Processor library within the `Microsoft.Azure.Cosmos` Client
 | Batch                   | Group of Events from a Source. Typically includes a Checkpoint callback that's invoked when all events have been handled
-| Category                | Group of Streams for a Source matching `{categooryName}-{streamId}` pattern. MessageDB exposes a Feed per Category
+| Category                | Group of Streams for a Source matching `{category}-{streamId}` pattern. MessageDB exposes a Feed per Category
 | DynamoStore Index       | An `Equinox.DynamoStore` containing a sequence of (Stream,Index,Event Type) entries referencing Events in a Store.<br/>Written by a `Propulsion.DynamoStore.Indexer` Lambda. Can be split into Partitions
 | Event                   | An Event from a Stream, obtained from a 
 | Feed                    | Incrementally readable portion of a Source that affords a way to represent a Position within that as a durable Checkpoint, with Events being appended at the tail<br/>e.g. the EventStoreDb `$all` stream, an ATOM feed over HTTP, the content of a Physical Partition of a CosmosDb Container

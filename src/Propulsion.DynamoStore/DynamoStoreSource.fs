@@ -54,7 +54,7 @@ module private Impl =
             let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
             let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
             let mutable chosenEvents = 0
-            let chooseStream (span : AppendsEpoch.Events.StreamSpan) =
+            let chooseStream (span: AppendsEpoch.Events.StreamSpan) =
                 match maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) with
                 | ValueSome f ->
                     chosenEvents <- chosenEvents + span.c.Length
@@ -127,16 +127,19 @@ type EventLoadMode =
 module internal EventLoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Deflate.EncodedToUtf8)
     let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
-        fun sn (i, cs : string[]) ->
-            if categoryFilter (FsCodec.StreamName.category sn) then
+        fun (FsCodec.StreamName.Category cat as sn) (i, cs : string[]) ->
+            if categoryFilter cat then
                 ValueSome (fun ct -> task {
-                               let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
-                               return events |> Array.map mapTimelineEvent })
+                    let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
+                    return events |> Array.map mapTimelineEvent })
             else ValueNone
     let private withoutData categoryFilter =
-        fun sn (i, cs) ->
-            let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
-            if categoryFilter (FsCodec.StreamName.category sn) then ValueSome (fun _ct -> task { return cs |> Array.mapi renderEvent }) else ValueNone
+        fun (FsCodec.StreamName.Category cat) (i, cs) ->
+            if categoryFilter cat then
+                ValueSome (fun _ct -> task {
+                    let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
+                    return cs |> Array.mapi renderEvent })
+            else ValueNone
     let map categoryFilter storeLog : EventLoadMode -> _ = function
         | IndexOnly -> false, withoutData categoryFilter, 1
         | WithData (dop, storeContext) ->
@@ -144,15 +147,15 @@ module internal EventLoadMode =
             true, withData eventsContext categoryFilter, dop
 
 type DynamoStoreSource
-    (   log : Serilog.ILogger, statsInterval,
-        indexClient : DynamoStoreClient, batchSizeCutoff, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
+    (   log: Serilog.ILogger, statsInterval,
+        indexContext: DynamoStoreContext, batchSizeCutoff, tailSleepInterval,
+        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid having to read from the Store Table
-        mode : EventLoadMode,
+        mode: EventLoadMode,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : Func<string, bool>,
+        ?categoryFilter: Func<string, bool>,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
@@ -164,12 +167,12 @@ type DynamoStoreSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
             checkpoints,
             (   if startFromTail <> Some true then None
-                else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) (DynamoStoreContext indexClient))),
+                else Some (Impl.readTailPositionForPartition (defaultArg storeLog log) indexContext)),
             sink, Impl.renderPos,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
                 (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
-                batchSizeCutoff (DynamoStoreContext indexClient),
+                batchSizeCutoff indexContext,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
@@ -179,9 +182,8 @@ type DynamoStoreSource
         match trancheIds with
         | Some ids -> return ids
         | None ->
-            let context = DynamoStoreContext(indexClient)
             let storeLog = defaultArg storeLog log
-            let! res = Impl.readPartitions storeLog context |> Async.executeAsTask ct
+            let! res = Impl.readPartitions storeLog indexContext |> Async.executeAsTask ct
             let appendsPartitionIds = match res with [||] -> [| AppendsPartitionId.wellKnownId |] | ids -> ids
             return appendsPartitionIds |> Array.map AppendsPartitionId.toTrancheId }
 
