@@ -72,18 +72,16 @@ module Cosmos =
             Log.Information("CosmosDb {role} Database {database} Container {container}",
                             role, databaseId, containerId)
 
-        /// Use sparingly; in general one wants to use CreateAndInitialize to avoid slow first requests
-        member private x.CreateUninitialized(databaseId, containerId) =
-            x.CreateUninitialized().GetDatabase(databaseId).GetContainer(containerId)
-
         /// Creates a CosmosClient suitable for running a CFP via CosmosStoreSource
-        member x.CreateCosmosClient(databaseId, containerId, ?role) =
-            x.LogConfiguration(defaultArg role "Source", databaseId, containerId)
-            x.CreateUninitialized(databaseId, containerId)
+        /// NOTE: Not validated or initialized; this is suboptimal and should only be used in specific situations
+        ///       In general, one should be including these containers in a connector.CreateAndInitialize call
+        member x.CreateCosmosContainer(role, databaseId, containerId) =
+            x.LogConfiguration(role, databaseId, containerId)
+            x.CreateUninitialized().GetDatabase(databaseId).GetContainer(containerId)
 
         /// Connect a CosmosStoreClient, including warming up
         /// Configure with default packing and querying policies. Search for other `module CosmosStoreContext` impls for custom variations
-        member x.ConnectContext(role, databaseId, containerId: string) = async {
+        member x.ConnectStoreContext(role, databaseId, containerId: string) = async {
             let maxEvents = 256
             x.LogConfiguration(role, databaseId, containerId)
             let! storeClient = Equinox.CosmosStore.CosmosStoreClient.Connect(x.CreateAndInitialize, databaseId, containerId)
@@ -122,17 +120,17 @@ module Cosmos =
         let retries =                       p.GetResult(Retries, 1)
         let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
         let connector =                     Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
-        let database =                      p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
+        let databaseId =                    p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
         let checkpointInterval =            TimeSpan.FromHours 1.
         member val ContainerId =            p.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
-        member x.MonitoredContainer() =     connector.CreateCosmosClient(database, x.ContainerId)
+        member x.MonitoredContainer() =     connector.CreateCosmosContainer("Source", databaseId, x.ContainerId)
         member val LeaseContainerId =       p.TryGetResult LeaseContainer
         member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + p.GetResult(Suffix, "-aux")
-        member x.ConnectLeases() =          connector.CreateCosmosClient(database, x.LeasesContainerName, "Leases")
+        member x.ConnectLeases() =          connector.CreateCosmosContainer("Leases", databaseId, x.LeasesContainerName)
         member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
-            let! context = connector.ConnectContext("Checkpoints", database, x.ContainerId)
+            let! context = connector.ConnectStoreContext("Checkpoints", databaseId, x.ContainerId)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
 module Dynamo =
@@ -144,7 +142,7 @@ module Dynamo =
         member private x.LogConfiguration() =
             Log.Information("DynamoStore {endpoint} Timeout {timeoutS}s Retries {retries}",
                             x.Endpoint, (let t = x.Timeout in t.TotalSeconds), x.Retries)
-        member x.CreateClient() =
+        member x.CreateStoreClient() =
             x.LogConfiguration()
             x.CreateDynamoDbClient()
             |> Equinox.DynamoStore.DynamoStoreClient
@@ -204,12 +202,12 @@ module Dynamo =
         let writeConnector =                let timeout = p.GetResult(RetriesTimeoutS, 120.) |> TimeSpan.FromSeconds
                                             let retries = p.GetResult(Retries, 10)
                                             connector timeout retries
-        let writeClient =                   lazy writeConnector.CreateClient() // lazy to trigger logging at the right time
+        let writeClient =                   lazy writeConnector.CreateStoreClient() // lazy to trigger logging at the right time
 
         let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
                                             let retries = p.GetResult(Retries, 1)
                                             connector timeout retries
-        let readClient =                    lazy readConnector.CreateClient() // lazy to trigger logging at the right time
+        let readClient =                    lazy readConnector.CreateStoreClient() // lazy to trigger logging at the right time
         let indexReadContext =              lazy readClient.Value.CreateContext("Index", indexTable)
         let streamsDop =                    p.TryGetResult StreamsDop
 

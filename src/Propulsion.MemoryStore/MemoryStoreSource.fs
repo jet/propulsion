@@ -36,8 +36,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
 
     let storeCommitsSubscription =
         store.Committed
-        |> Observable.choose (fun struct (sn, es) ->
-            let struct (categoryName, streamId) = FsCodec.StreamName.split sn
+        |> Observable.choose (fun struct (FsCodec.StreamName.Split (categoryName, streamId) as sn, es) ->
             if categoryFilter categoryName then
                 let items : Propulsion.Sinks.StreamEvent[] = es |> Array.map (fun e -> sn, mapTimelineEvent.Invoke e)
                 Some (struct (categoryName, streamId, items))

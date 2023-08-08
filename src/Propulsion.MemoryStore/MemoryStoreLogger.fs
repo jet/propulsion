@@ -30,8 +30,7 @@ let renderCompleted (log : Serilog.ILogger) struct (epoch, categoryName, streamI
 /// Wires specified <c>Observable</c> source (e.g. <c>VolatileStore.Committed</c>) to the Logger
 let subscribe log source =
     let mutable epoch = -1L
-    let aux struct (sn, events) =
-        let struct (categoryName, streamId) = FsCodec.StreamName.split sn
+    let aux struct (FsCodec.StreamName.Split (categoryName, streamId), events) =
         let epoch = Interlocked.Increment &epoch
         renderSubmit log (epoch, categoryName, streamId, events)
     if log.IsEnabled Serilog.Events.LogEventLevel.Debug then Observable.subscribe aux source

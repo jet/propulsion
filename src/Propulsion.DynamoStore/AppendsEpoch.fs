@@ -131,7 +131,7 @@ type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId *
         let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
-        let isSelf sn = let (FsCodec.StreamName.Category cat) = sn in cat = Stream.Category
+        let isSelf (FsCodec.StreamName.Category cat) = cat = Stream.Category
         if spans |> Array.exists (function { p = IndexStreamId.StreamName p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         let decide (c: Equinox.ISyncContext<_>) = Ingest.decide onlyWarnOnGap (shouldClose (c.StreamEventBytes, c.Version)) spans c.State
         decider.TransactEx(decide, Equinox.LoadOption.AnyCachedValue)
