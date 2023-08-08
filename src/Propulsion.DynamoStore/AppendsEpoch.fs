@@ -13,13 +13,13 @@ open System.Collections.Immutable
 let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
 module Stream =
     let [<Literal>] Category = "$AppendsEpoch"
-    let private decodeId = FsCodec.StreamId.dec2 AppendsPartitionId.parse AppendsEpochId.parse
-    let private tryDecode = FsCodec.StreamName.tryFind Category >> ValueOption.map decodeId
-    let [<return: Struct>] (|For|_|) = tryDecode
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
     let id = FsCodec.StreamId.gen2 AppendsPartitionId.toString AppendsEpochId.toString
     let name = id >> FsCodec.StreamName.create Category
 #endif
+    let private decodeId = FsCodec.StreamId.dec2 AppendsPartitionId.parse AppendsEpochId.parse
+    let private tryDecode = FsCodec.StreamName.tryFind Category >> ValueOption.map decodeId
+    let [<return: Struct>] (|For|_|) = tryDecode
 
 // NB - these types and the union case names reflect the actual storage formats and hence need to be versioned with care
 [<RequireQualifiedAccess>]
@@ -131,10 +131,10 @@ type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId *
         let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
-        let isSelf p = match IndexStreamId.toStreamName p with FsCodec.StreamName.Category c -> c = Stream.Category
-        if spans |> Array.exists (function { p = p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
+        let isSelf sn = let (FsCodec.StreamName.Category cat) = sn in cat = Stream.Category
+        if spans |> Array.exists (function { p = IndexStreamId.StreamName p } -> isSelf p) then invalidArg (nameof spans) "Writes to indices should be filtered prior to indexing"
         let decide (c: Equinox.ISyncContext<_>) = Ingest.decide onlyWarnOnGap (shouldClose (c.StreamEventBytes, c.Version)) spans c.State
-        decider.TransactEx(decide, Equinox.AnyCachedValue)
+        decider.TransactEx(decide, Equinox.LoadOption.AnyCachedValue)
 
 module Factory =
 

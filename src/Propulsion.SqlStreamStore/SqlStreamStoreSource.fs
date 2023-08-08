@@ -14,9 +14,9 @@ module private Impl =
     let readBatch withData batchSize categoryFilter (store : SqlStreamStore.IStreamStore) pos ct = task {
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, withData, ct)
         let filtered = page.Messages
-                       |> Seq.choose (fun (msg : SqlStreamStore.Streams.StreamMessage) ->
-                           let sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
-                           if categoryFilter (FsCodec.StreamName.category sn) then Some struct (sn, msg) else None)
+                       |> Seq.choose (fun (msg: SqlStreamStore.Streams.StreamMessage) ->
+                           let FsCodec.StreamName.Category cat as sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
+                           if categoryFilter cat then Some struct (sn, msg) else None)
         let! items = if not withData then task { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
                      else filtered |> Seq.map readWithDataAsStreamEvent |> Propulsion.Internal.Task.sequential ct
         return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } : Propulsion.Feed.Core.Batch<_>)  }

@@ -96,25 +96,25 @@ type Service internal (resolve: CheckpointSeriesId -> Equinox.DeciderCore<Events
     /// Determines the present state of the CheckpointSequence
     member _.Read(series, ct) =
         let decider = resolve series
-        decider.Query(id, load = Equinox.AnyCachedValue, ct = ct)
+        decider.Query(id, load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
     member _.Start(series, freq : TimeSpan, pos : int64, ct) : Task<unit> =
         let decider = resolve series
-        decider.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AnyCachedValue, ct = ct)
+        decider.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
     member _.Override(series, freq : TimeSpan, pos : int64, ct) =
         let decider = resolve series
-        decider.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.AnyCachedValue, ct = ct)
+        decider.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
     member _.Commit(series, pos : int64, ct) =
         let decider = resolve series
-        decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.AnyCachedValue, ct = ct)
+        decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
 // General pattern is that an Equinox Service is a singleton and calls pass an identifier for a stream per call
 // This light wrapper means we can adhere to that general pattern yet still end up with legible code while we in practice only maintain a single checkpoint series per running app

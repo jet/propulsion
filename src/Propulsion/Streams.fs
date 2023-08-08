@@ -78,7 +78,7 @@ module StreamName =
     /// Because we coerce all stream names to be well-formed, we can split it too
     /// where there's no category, we use the full streamId instead
     let categorize : FsCodec.StreamName -> string = function
-        | FsCodec.StreamName.Category "" as sid -> (FsCodec.StreamName.toString sid).Substring(1)
+        | FsCodec.StreamName.Category "" as sn -> (FsCodec.StreamName.toString sn).Substring(1)
         | FsCodec.StreamName.Category cat -> cat
 
 /// Manipulates contiguous set of Events from a Ordered stream, as held internally within this module

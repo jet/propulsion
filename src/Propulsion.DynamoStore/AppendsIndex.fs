@@ -57,13 +57,13 @@ type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State
     /// Determines the current active epoch for the specified Partition
     member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
         let decider = resolve ()
-        decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.AnyCachedValue)
+        decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.LoadOption.AnyCachedValue)
 
     /// Mark specified `epochId` as live for the purposes of ingesting commits for the specified Partition
     /// Writers are expected to react to having writes to an epoch denied (due to it being Closed) by anointing the successor via this
     member _.MarkIngestionEpochId(partitionId, epochId) : Async<unit> =
         let decider = resolve ()
-        decider.Transact(interpret (partitionId, epochId), Equinox.AnyCachedValue)
+        decider.Transact(interpret (partitionId, epochId), Equinox.LoadOption.AnyCachedValue)
 
 module Factory =
 

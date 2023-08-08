@@ -120,8 +120,7 @@ let decideUpdate at pos = function
             Events.Checkpointed { config = config; pos = checkpoint } |]
 
 #if COSMOSV3
-module Equinox =
-    let AnyCachedValue = ()
+module Equinox = module LoadOption = let AnyCachedValue = ()
 type Equinox.Decider<'e, 's> with
     member x.TransactAsync(decide, load : unit): Async<'r> =
         x.TransactAsync(fun s -> async { let! r, es = decide s in return r, Array.toList es })
@@ -140,14 +139,14 @@ type Service internal (resolve: SourceId * TrancheId * string -> Equinox.Decider
         member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.AnyCachedValue)
+            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
         member _.Commit(source, tranche, pos : Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
-            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.AnyCachedValue)
+            decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters

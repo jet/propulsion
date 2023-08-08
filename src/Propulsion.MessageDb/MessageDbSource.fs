@@ -82,27 +82,25 @@ module Internal =
         | ValueSome lastEventPos -> return Position.parse (lastEventPos + 1L)
         | ValueNone -> return Position.initial }
 
-type MessageDbSource internal
-    (   log : Serilog.ILogger, statsInterval,
-        client : Internal.MessageDbCategoryClient, batchSize, tailSleepInterval,
-        checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink, tranches,
-        ?startFromTail, ?sourceId) =
+type MessageDbSource =
     inherit Propulsion.Feed.Core.TailingFeedSource
-        (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
-            (match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None), sink, string,
-            Propulsion.Feed.Core.TailingFeedSource.readOne (Internal.readBatch batchSize client))
-    new(    log, statsInterval,
-            connectionString, batchSize, tailSleepInterval,
-            checkpoints, sink, categories,
-            // Override default start position to be at the tail of the index. Default: Replay all events.
-            ?startFromTail, ?sourceId) =
-        MessageDbSource(log, statsInterval,
-                        Internal.MessageDbCategoryClient(connectionString), batchSize, tailSleepInterval,
-                        checkpoints, sink, categories |> Array.map Propulsion.Feed.TrancheId.parse,
-                        ?startFromTail = startFromTail, ?sourceId = sourceId)
+    val tranches: TrancheId[]
+    new(log, statsInterval,
+        connectionString, batchSize, tailSleepInterval,
+        checkpoints, sink, categories,
+        // Override default start position to be at the tail of the index. Default: Replay all events.
+        ?startFromTail, ?sourceId) =
+        let client = Internal.MessageDbCategoryClient(connectionString)
+        // let readStartPosition = match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None
+        let tail = Propulsion.Feed.Core.TailingFeedSource.readOne (Internal.readBatch batchSize client)
+        { inherit Propulsion.Feed.Core.TailingFeedSource(
+            log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
+            (match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None),
+            sink, string, tail);
+            tranches = categories |> Array.map TrancheId.parse }
 
     abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
-    default _.ListTranches(_ct) = task { return tranches }
+    default x.ListTranches(_ct) = task { return x.tranches }
 
     abstract member Pump : CancellationToken -> Task<unit>
     default x.Pump(ct) = base.Pump(x.ListTranches, ct)

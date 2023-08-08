@@ -26,7 +26,7 @@ type Store(connector: DynamoStoreConnector, table, dynamoItemSizeCutoffBytes) =
     let storeClient = connector.CreateDynamoDbClient() |> DynamoStoreClient
     member val Context = DynamoStoreContext(storeClient, table, maxBytes = dynamoItemSizeCutoffBytes, queryMaxItems = queryMaxItems)
 
-    new (c: Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
+    new(c: Configuration, requestTimeout, retries, dynamoItemSizeCutoffBytes) =
         let conn =
             match c.DynamoRegion with
             | Some r -> DynamoStoreConnector(r, requestTimeout, retries)
