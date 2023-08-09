@@ -140,7 +140,7 @@ module CosmosInit =
         match p.GetSubCommand() with
         | InitAuxParameters.Cosmos sa ->
             let mode, a = (CosmosInitArguments p).ProvisioningMode, Args.Cosmos.Arguments(c, sa)
-            let client = a.ConnectLeases()
+            let container = a.CreateLeasesContainer()
             match mode with
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->
                 match throughput with
@@ -158,7 +158,7 @@ module CosmosInit =
             | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
                 let modeStr = "Serverless"
                 Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
-            Equinox.CosmosStore.Core.Initialization.initAux client.Database.Client (client.Database.Id, client.Id) mode
+            Equinox.CosmosStore.Core.Initialization.initAux container.Database.Client (container.Database.Id, container.Id) mode
         | x -> missingArg $"unexpected subcommand %A{x}"
 
 module Checkpoints =
@@ -351,8 +351,7 @@ module Project =
             let nullFilter _ = true
             match storeArgs with
             | Choice1Of3 sa ->
-                let monitored = sa.MonitoredContainer()
-                let leases = sa.ConnectLeases()
+                let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
                 let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents nullFilter
                 let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
                 Propulsion.CosmosStore.CosmosStoreSource.Start

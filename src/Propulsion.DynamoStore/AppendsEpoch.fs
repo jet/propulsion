@@ -158,7 +158,7 @@ module Reader =
 
     type State = { changes : struct (int * Events.StreamSpan[])[]; closed : bool }
     let initial = { changes = Array.empty; closed = false }
-    let fold (state : State) (events : Event seq) =
+    let fold (state: State) (events: Event[]) =
         let mutable closed = state.closed
         let changes = ResizeArray(state.changes)
         for x in events do

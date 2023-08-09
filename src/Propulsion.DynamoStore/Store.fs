@@ -23,9 +23,10 @@ module Dynamo =
         let isOrigin struct (i, _) = i <= minIndex
         // There _should_ always be an event at minIndex - if there isn't for any reason, the load might go back one event too far
         // Here we trim it for correctness (although Propulsion would technically ignore it)
-        let trimPotentialOverstep = Seq.filter (fun struct (i, _e) -> i >= minIndex)
+        let trimPotentialOverstep = Array.filter (fun struct (i, _e) -> i >= minIndex)
         let accessStrategy = AccessStrategy.MultiSnapshot (isOrigin, fun _ -> failwith "writing not applicable")
-        create name codec initial (fun s -> trimPotentialOverstep >> fold s) accessStrategy (context, None)
+        let fold s = trimPotentialOverstep >> fold s
+        create name codec initial fold accessStrategy (context, None)
 
 module internal Codec =
 

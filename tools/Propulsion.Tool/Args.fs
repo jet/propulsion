@@ -62,30 +62,46 @@ module Cosmos =
 
     open Configuration.Cosmos
 
+    type Microsoft.Azure.Cosmos.Container with
+
+        member private x.LogConfiguration(role) =
+            Log.Information("CosmosDb {role} Database {database} Container {container}", role, x.Database.Id, x.Id)
+
+    type Microsoft.Azure.Cosmos.CosmosClient with
+
+        member x.CreateMonitoredAndLeases(databaseId, containerId, auxContainerId) =
+            let db = x.GetDatabase(databaseId)
+            let monitored, leases = db.GetContainer(containerId), db.GetContainer(auxContainerId)
+            monitored.LogConfiguration("Source")
+            leases.LogConfiguration("Leases")
+            monitored, leases
+
     type Equinox.CosmosStore.CosmosStoreConnector with
 
-        member private x.LogConfiguration(role, databaseId, containerId) =
+        member private x.LogConfiguration(role) =
             let o = x.Options
             let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
             Log.Information("CosmosDb {role} {mode} {endpointUri} timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
                             role, o.ConnectionMode, x.Endpoint, timeout.TotalSeconds, retries429, let t = timeout429.Value in t.TotalSeconds)
-            Log.Information("CosmosDb {role} Database {database} Container {container}",
-                            role, databaseId, containerId)
 
-        /// Creates a CosmosClient suitable for running a CFP via CosmosStoreSource
-        /// NOTE: Not validated or initialized; this is suboptimal and should only be used in specific situations
-        ///       In general, one should be including these containers in a connector.CreateAndInitialize call
-        member x.CreateCosmosContainer(role, databaseId, containerId) =
-            x.LogConfiguration(role, databaseId, containerId)
-            x.CreateUninitialized().GetDatabase(databaseId).GetContainer(containerId)
+        // NOTE uses CreateUninitialized as the Database/Container may not actually exist yet
+        member x.CreateLeasesContainer(databaseId, auxContainerId) =
+            x.LogConfiguration("Feed")
+            let leases = x.CreateUninitialized().GetDatabase(databaseId).GetContainer(auxContainerId)
+            leases.LogConfiguration("Leases")
+            leases
+
+        member x.ConnectFeed(databaseId, containerId, auxContainerId) = async {
+            x.LogConfiguration("Feed")
+            let! cosmosClient = x.Connect(databaseId, [| containerId; auxContainerId |])
+            return cosmosClient.CreateMonitoredAndLeases(databaseId, containerId, auxContainerId) }
 
         /// Connect a CosmosStoreClient, including warming up
         /// Configure with default packing and querying policies. Search for other `module CosmosStoreContext` impls for custom variations
-        member x.ConnectStoreContext(role, databaseId, containerId: string) = async {
-            let maxEvents = 256
+        member x.Connect(role, databaseId, containerId: string) =
             x.LogConfiguration(role, databaseId, containerId)
-            let! storeClient = Equinox.CosmosStore.CosmosStoreClient.Connect(x.CreateAndInitialize, databaseId, containerId)
-            return Equinox.CosmosStore.CosmosStoreContext(storeClient, databaseId, containerId, tipMaxEvents = maxEvents) }
+            let maxEvents = 256
+            Equinox.CosmosStore.CosmosStoreContext.Connect(x, databaseId, containerId, tipMaxEvents = maxEvents)
 
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
@@ -123,14 +139,14 @@ module Cosmos =
         let databaseId =                    p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
         let checkpointInterval =            TimeSpan.FromHours 1.
         member val ContainerId =            p.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
-        member x.MonitoredContainer() =     connector.CreateCosmosContainer("Source", databaseId, x.ContainerId)
         member val LeaseContainerId =       p.TryGetResult LeaseContainer
         member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + p.GetResult(Suffix, "-aux")
-        member x.ConnectLeases() =          connector.CreateCosmosContainer("Leases", databaseId, x.LeasesContainerName)
+        member x.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, x.LeasesContainerName)
+        member x.ConnectFeed() =            connector.ConnectFeed(databaseId, x.ContainerId, x.LeasesContainerName)
         member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
-            let! context = connector.ConnectStoreContext("Checkpoints", databaseId, x.ContainerId)
+            let! context = connector.Connect("Checkpoints", databaseId, x.ContainerId)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
 module Dynamo =
@@ -150,8 +166,10 @@ module Dynamo =
     type Equinox.DynamoStore.DynamoStoreClient with
 
         member x.CreateContext(role, table, ?queryMaxItems, ?maxBytes) =
-            Log.Information("DynamoStore {role:l} Table {table}", role, table)
-            Equinox.DynamoStore.DynamoStoreContext(x, table, ?queryMaxItems = queryMaxItems, ?maxBytes = maxBytes)
+            let c = Equinox.DynamoStore.DynamoStoreContext(x, table, ?queryMaxItems = queryMaxItems, ?maxBytes = maxBytes)
+            Log.Information("DynamoStore {role:l} Table {table} QueryMaxItems {queryMaxItems} MaxBytes {maxBytes}",
+                            role, table, c.QueryOptions.MaxItems, c.TipOptions.MaxBytes)
+            c
 
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-sr">]          RegionProfile of string
