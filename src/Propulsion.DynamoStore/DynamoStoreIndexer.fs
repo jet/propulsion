@@ -23,7 +23,7 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
         fun partitionId -> ingesterForPartition.GetOrAdd(partitionId, createIngester)
 
     /// Ingests the spans into the epochs chain for this partition
-    /// NOTE if this is going to be used in an environment where there can be concurrent calls within a single process, an AsyncBatchingGate should be applied
+    /// NOTE if this is going to be used in an environment where there can be concurrent calls within a single process, an Equinox.Core.Batching.Batcher should be applied
     ///      in this instance, the nature of Lambda is such that this is not the case
     /// NOTE regardless of concurrency within a process, it's critical to avoid having >1 writer hitting the same partition as this will result on continual conflicts
     member _.IngestWithoutConcurrency(partitionId, spans) = async {

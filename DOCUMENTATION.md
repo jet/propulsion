@@ -385,19 +385,19 @@ In the long run, getting used to dealing with re-traversal scenarios by building
 
 In short, it's strongly recommended to at least go through the thought exercise of considering how you'd [revise or extend a read model](#parallel-change) in a way that works when you have a terabyte of data or a billion items in your read model every time you do a 'little tweak' in a SQL read model.  
 
-### `AsyncBatchingGate`
+### `Equinox.Core.Batching.Batcher`
 
 Where a Processor's activity can result in multiple concurrent Handler invocations writing or publishing to the same resource, the contention this triggers can reduce throughput and increase resource consumption. The solution lies in grouping concurrent writes/transmissions to a given target, which removes the contention (no lock escalations, no retry cycles induced by conflicting writes), and reduces the per-item resource usage (be that in terms of latency, or RU consumption for a rate limited store).
 
 While it's possible to have the Handler be triggered on a batched basis (using `Dispatcher.Batched` instead of `Dispatcher.Concurrent`), that's not the recommended approach as it adds complexity when compared to writing your high level logic in terms of what needs to be done at the stream level. Another key benefit is that latency and error rate metrics are gathered at the stream level, which keeps understanding operational issues simpler. [For some more detail, including an example, see #107](https://github.com/jet/propulsion/issues/107). 
 
-The key ingredient in achieving efficiency equivalent to that attainable when working with multi stream batches is to use the [`AsyncBatchingGate`](https://github.com/jet/equinox/blob/master/src/Equinox.Core/AsyncBatchingGate.fs) construct to group concurrent requests, and then fulfil them as a set. It provides [the following behaviors](https://github.com/jet/equinox/blob/master/tests/Equinox.MemoryStore.Integration/AsyncBatchingGateTests.fs):
+The key ingredient in achieving efficiency equivalent to that attainable when working with multi stream batches is to use the [`Batcher`](https://github.com/jet/equinox/blob/master/src/Equinox.Core/Batching.fs) construct to group concurrent requests, and then fulfil them as a set. It provides [the following behaviors](https://github.com/jet/equinox/blob/master/tests/Equinox.Core.Tests/BatchingTests.fs):
 - for an individual gate, only a single request is permitted to be in flight at a time
 - while a request is in flight, incoming requests are queued up in a (thread-safe) queue (callers do an Asynchronous wait)
 - when the gate is clear, all waiting requests are dispatched to the gate's handler function (there's an optional linger period which can be used to reduce overall requests where there's a likelihood that other requests will arise within a short time)
 - all callers `await` the same `Task`, sharing the fate of the batch's processing (if there's an exception, each Handler that participated will likely be retried immediately; they may also be joined by other requests that queued while the dailed request was in flight)
 
-NOTE batching should only be used where there is a direct benefit (the batch handler can run every request as part of a single roundtrip). For instance, if the handler needs to do a roundtrip per downstream tenant, it's better to route through a `ConcurrentDictionary<TenantId, AsyncBatchingGate<_>>` than to force them through a single gate.
+NOTE batching should only be used where there is a direct benefit (the batch handler can run every request as part of a single roundtrip). For instance, if the handler needs to do a roundtrip per downstream tenant, it's better to route through a `BatcherDictionary<TenantId, Batcher>` than to force them through a single gate.
 
 ## TODO
 
