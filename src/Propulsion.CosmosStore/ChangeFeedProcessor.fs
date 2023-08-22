@@ -112,7 +112,9 @@ type ChangeFeedProcessor =
                         (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
 #endif
                         (checkpointAsync : CancellationToken -> Task<unit>) ct = task {
-                    let log (e : exn) = log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
+                    let log: exn -> unit = function
+                        | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
+                        | e -> log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
 #if COSMOSV3
