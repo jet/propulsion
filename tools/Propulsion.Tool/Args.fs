@@ -60,21 +60,16 @@ type Configuration(tryGet : string -> string option) =
 
 module Cosmos =
 
-    open Configuration.Cosmos
+    module CosmosStoreConnector =
 
-    type Microsoft.Azure.Cosmos.Container with
+        let logContainer (role: string) (databaseId: string) (containerId: string) =
+            Log.Information("CosmosDb {role} Database {database} Container {container}", role, databaseId, containerId)
 
-        member private x.LogConfiguration(role) =
-            Log.Information("CosmosDb {role} Database {database} Container {container}", role, x.Database.Id, x.Id)
-
-    type Microsoft.Azure.Cosmos.CosmosClient with
-
-        member x.CreateMonitoredAndLeases(databaseId, containerId, auxContainerId) =
-            let db = x.GetDatabase(databaseId)
-            let monitored, leases = db.GetContainer(containerId), db.GetContainer(auxContainerId)
-            monitored.LogConfiguration("Source")
-            leases.LogConfiguration("Leases")
-            monitored, leases
+        let createMonitoredAndLeases (client: Microsoft.Azure.Cosmos.CosmosClient) databaseId containerId auxContainerId =
+            logContainer "Source" databaseId containerId
+            logContainer "Leases" databaseId auxContainerId
+            let db = client.GetDatabase(databaseId)
+            db.GetContainer(containerId), db.GetContainer(auxContainerId)
 
     type Equinox.CosmosStore.CosmosStoreConnector with
 
@@ -87,22 +82,21 @@ module Cosmos =
         // NOTE uses CreateUninitialized as the Database/Container may not actually exist yet
         member x.CreateLeasesContainer(databaseId, auxContainerId) =
             x.LogConfiguration("Feed")
-            let leases = x.CreateUninitialized().GetDatabase(databaseId).GetContainer(auxContainerId)
-            leases.LogConfiguration("Leases")
-            leases
+            CosmosStoreConnector.logContainer "Leases" databaseId auxContainerId
+            x.CreateUninitialized().GetDatabase(databaseId).GetContainer(auxContainerId)
 
         member x.ConnectFeed(databaseId, containerId, auxContainerId) = async {
             x.LogConfiguration("Feed")
             let! cosmosClient = x.Connect(databaseId, [| containerId; auxContainerId |])
-            return cosmosClient.CreateMonitoredAndLeases(databaseId, containerId, auxContainerId) }
+            return CosmosStoreConnector.createMonitoredAndLeases cosmosClient databaseId containerId auxContainerId }
 
-        /// Connect a CosmosStoreClient, including warming up
-        /// Configure with default packing and querying policies. Search for other `module CosmosStoreContext` impls for custom variations
+        /// Connect a CosmosStoreClient Configure with default packing and querying policies, including warming up
         member x.Connect(role, databaseId, containerId: string) =
             x.LogConfiguration(role, databaseId, containerId)
             let maxEvents = 256
             Equinox.CosmosStore.CosmosStoreContext.Connect(x, databaseId, containerId, tipMaxEvents = maxEvents)
 
+    open Configuration.Cosmos
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
         | [<AltCommandLine "-s">]           Connection of string

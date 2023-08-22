@@ -99,8 +99,8 @@ type ChangeFeedProcessor =
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
 
-        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s",
-                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds)
+        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems}",
+                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems)
         let processorName_ = processorName + ":"
         let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
         let processor =
@@ -112,7 +112,9 @@ type ChangeFeedProcessor =
                         (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
 #endif
                         (checkpointAsync : CancellationToken -> Task<unit>) ct = task {
-                    let log (e : exn) = log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
+                    let log: exn -> unit = function
+                        | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
+                        | e -> log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
 #if COSMOSV3

@@ -46,7 +46,7 @@ module StreamResult =
 
     let toIndex<'F> (span : FsCodec.ITimelineEvent<'F>[]) = function
         | NoneProcessed ->              span[0].Index
-        | AllProcessed ->               span[0].Index + span.LongLength
+        | AllProcessed ->               span[0].Index + span.LongLength // all-but equivalent to Events.nextIndex span
         | PartiallyProcessed count ->   span[0].Index + int64 count
         | OverrideNextIndex index ->    index
 
