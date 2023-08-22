@@ -122,7 +122,7 @@ let decideUpdate at pos = function
 #if COSMOSV3
 module Equinox = module LoadOption = let AnyCachedValue = ()
 type Equinox.Decider<'e, 's> with
-    member x.TransactAsync(decide, load : unit): Async<'r> =
+    member x.Transact(decide, load : unit): Async<'r> =
         x.TransactAsync(fun s -> async { let! r, es = decide s in return r, Array.toList es })
     member x.Transact(decide, load : unit): Async<'r> =
         x.Transact(decide >> function r, es -> r, Array.toList es)
@@ -139,7 +139,7 @@ type Service internal (resolve: SourceId * TrancheId * string -> Equinox.Decider
         member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
-            decider.TransactAsync(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.LoadOption.AnyCachedValue)
+            decider.Transact(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct
 
         /// Ingest a position update
