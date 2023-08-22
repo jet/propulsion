@@ -766,14 +766,12 @@ module Scheduling =
                 reportStats false
                 // 3. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                 if idle then
-                    let waitForIncomingBatches = hasCapacity
-                    let waitForDispatcherCapacity = not hasCapacity && not wakeForResults
-                    let sleepTs = Stopwatch.timestamp ()
-                    let startWaits ct = [| if wakeForResults then awaitResults ct :> Task
-                                           elif waitForDispatcherCapacity then dispatcher.AwaitCapacity(ct)
-                                           if waitForIncomingBatches then awaitPending ct
-                                           Task.Delay(sleepIntervalMs, ct) |]
-                    do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct))
+                    let sleepTs = ts ()
+                    do! Task.runWithCancellation ct (fun ct ->
+                            Task.WhenAny[| if hasCapacity then awaitPending ct :> Task
+                                           if wakeForResults then awaitResults ct
+                                           elif not hasCapacity then dispatcher.AwaitCapacity(ct)
+                                           Task.Delay(sleepIntervalMs, ct) |])
                     t.RecordSleep sleepTs
                 // 4. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
                 let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active
@@ -999,7 +997,7 @@ type Concurrent private () =
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval,
-            // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
+            // Request optimal throughput by waking based on handler outcomes even if there is no unused dispatch capacity
             ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
