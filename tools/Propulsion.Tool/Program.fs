@@ -324,8 +324,6 @@ module Project =
             | Choice2Of3 sa -> Choice2Of3 sa, Equinox.DynamoStore.Core.Log.InternalMetrics.dump
             | Choice3Of3 sa -> Choice3Of3 sa, (fun _ -> ())
         let group, startFromTail, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.TryGetResult MaxItems
-        match maxItems with None -> () | Some bs -> Log.Information("ChangeFeed Max items Count {changeFeedMaxItems}", bs)
-        if startFromTail then Log.Warning("ChangeFeed (If new projector group) Skipping projection of all existing events.")
         let producer =
             match p.GetSubCommand() with
             | Kafka a ->

@@ -100,11 +100,12 @@ type CosmosStoreSource =
                                                   processorName, count, total, lagged, synced)
             return! Async.Sleep(TimeSpan.toMs interval) }
         let maybeLogLag = lagReportFreq |> Option.map logLag
+        let startFromTail = defaultArg startFromTail false
         let source =
             ChangeFeedProcessor.Start
               ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
                 ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
-                startFromTail = defaultArg startFromTail false,
+                startFromTail = startFromTail,
                 leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
         source

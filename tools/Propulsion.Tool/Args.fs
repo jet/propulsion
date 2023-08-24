@@ -60,42 +60,6 @@ type Configuration(tryGet : string -> string option) =
 
 module Cosmos =
 
-    module CosmosStoreConnector =
-
-        let logContainer (role: string) (databaseId: string) (containerId: string) =
-            Log.Information("CosmosDb {role} Database {database} Container {container}", role, databaseId, containerId)
-
-        let createMonitoredAndLeases (client: Microsoft.Azure.Cosmos.CosmosClient) databaseId containerId auxContainerId =
-            logContainer "Source" databaseId containerId
-            logContainer "Leases" databaseId auxContainerId
-            let db = client.GetDatabase(databaseId)
-            db.GetContainer(containerId), db.GetContainer(auxContainerId)
-
-    type Equinox.CosmosStore.CosmosStoreConnector with
-
-        member private x.LogConfiguration(role) =
-            let o = x.Options
-            let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
-            Log.Information("CosmosDb {role} {mode} {endpointUri} timeout {timeout}s; Throttling retries {retries}, max wait {maxRetryWaitTime}s",
-                            role, o.ConnectionMode, x.Endpoint, timeout.TotalSeconds, retries429, let t = timeout429.Value in t.TotalSeconds)
-
-        // NOTE uses CreateUninitialized as the Database/Container may not actually exist yet
-        member x.CreateLeasesContainer(databaseId, auxContainerId) =
-            x.LogConfiguration("Feed")
-            CosmosStoreConnector.logContainer "Leases" databaseId auxContainerId
-            x.CreateUninitialized().GetDatabase(databaseId).GetContainer(auxContainerId)
-
-        member x.ConnectFeed(databaseId, containerId, auxContainerId) = async {
-            x.LogConfiguration("Feed")
-            let! cosmosClient = x.Connect(databaseId, [| containerId; auxContainerId |])
-            return CosmosStoreConnector.createMonitoredAndLeases cosmosClient databaseId containerId auxContainerId }
-
-        /// Connect a CosmosStoreClient Configure with default packing and querying policies, including warming up
-        member x.Connect(role, databaseId, containerId: string) =
-            x.LogConfiguration(role, databaseId, containerId)
-            let maxEvents = 256
-            Equinox.CosmosStore.CosmosStoreContext.Connect(x, databaseId, containerId, tipMaxEvents = maxEvents)
-
     open Configuration.Cosmos
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
@@ -140,7 +104,7 @@ module Cosmos =
         member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
 
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
-            let! context = connector.Connect("Checkpoints", databaseId, x.ContainerId)
+            let! context = connector.ConnectContext("Checkpoints", databaseId, x.ContainerId, 256)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
 module Dynamo =
@@ -159,10 +123,10 @@ module Dynamo =
 
     type Equinox.DynamoStore.DynamoStoreClient with
 
-        member x.CreateContext(role, table, ?queryMaxItems, ?maxBytes) =
-            let c = Equinox.DynamoStore.DynamoStoreContext(x, table, ?queryMaxItems = queryMaxItems, ?maxBytes = maxBytes)
-            Log.Information("DynamoStore {role:l} Table {table} QueryMaxItems {queryMaxItems} MaxBytes {maxBytes}",
-                            role, table, c.QueryOptions.MaxItems, c.TipOptions.MaxBytes)
+        member x.CreateContext(role, table, ?queryMaxItems, ?maxBytes, ?archiveTableName: string) =
+            let c = Equinox.DynamoStore.DynamoStoreContext(x, table, ?queryMaxItems = queryMaxItems, ?maxBytes = maxBytes, ?archiveTableName = archiveTableName)
+            Log.Information("DynamoStore {role:l} Table {table} Archive {archive} Tip thresholds: {maxTipBytes}b {maxTipEvents}e Query paging {queryMaxItems} items",
+                            role, table, Option.toObj archiveTableName, c.TipOptions.MaxBytes, Option.toNullable c.TipOptions.MaxEvents, c.QueryOptions.MaxItems)
             c
 
     type [<NoEquality; NoComparison>] Parameters =

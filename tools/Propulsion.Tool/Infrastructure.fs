@@ -51,3 +51,54 @@ type Logging() =
     [<System.Runtime.CompilerServices.Extension>]
     static member Sinks(configuration : LoggerConfiguration, configureMetricsSinks, verboseStore, verboseConsole) =
         configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some Metrics.logEventIsMetric)
+
+    module CosmosStoreConnector =
+
+        let private get (role: string) (client: Microsoft.Azure.Cosmos.CosmosClient) databaseId containerId =
+            Log.Information("CosmosDB {role} Database {database} Container {container}", role, databaseId, containerId)
+            client.GetDatabase(databaseId).GetContainer(containerId)
+        let getSource = get "Source"
+        let getLeases = get "Leases"
+        let createMonitoredAndLeases client databaseId containerId auxContainerId =
+            getSource client databaseId containerId, getLeases client databaseId auxContainerId
+
+    type Equinox.CosmosStore.CosmosStoreContext with
+
+        member x.LogConfiguration(role, databaseId: string, containerId: string) =
+            Log.Information("CosmosStore {role:l} {db}/{container} Tip maxEvents {maxEvents} maxSize {maxJsonLen} Query maxItems {queryMaxItems}",
+                            role, databaseId, containerId, x.TipOptions.MaxEvents, x.TipOptions.MaxJsonLength, x.QueryOptions.MaxItems)
+
+    type Equinox.CosmosStore.CosmosStoreClient with
+
+        member x.CreateContext(role: string, databaseId, containerId, tipMaxEvents, ?queryMaxItems, ?tipMaxJsonLength, ?skipLog) =
+            let c = Equinox.CosmosStore.CosmosStoreContext(x, databaseId, containerId, tipMaxEvents, ?queryMaxItems = queryMaxItems, ?tipMaxJsonLength = tipMaxJsonLength)
+            if skipLog = Some true then () else c.LogConfiguration(role, databaseId, containerId)
+            c
+
+    type Equinox.CosmosStore.CosmosStoreConnector with
+
+        member private x.LogConfiguration(role, databaseId: string, containers: string[]) =
+            let o = x.Options
+            let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
+            Log.Information("CosmosDB {role} {mode} {endpointUri} {db} {containers} timeout {timeout}s Throttling retries {retries}, max wait {maxRetryWaitTime}s",
+                            role, o.ConnectionMode, x.Endpoint, databaseId, containers, timeout.TotalSeconds, retries429, let t = timeout429.Value in t.TotalSeconds)
+        member private x.CreateAndInitialize(role, databaseId, containers) =
+            x.LogConfiguration(role, databaseId, containers)
+            x.CreateAndInitialize(databaseId, containers)
+        member private x.Connect(role, databaseId, containers) =
+            x.LogConfiguration(role, databaseId, containers)
+            x.Connect(databaseId, containers)
+
+        // NOTE uses CreateUninitialized as the Database/Container may not actually exist yet
+        member x.CreateLeasesContainer(databaseId, auxContainerId) =
+            x.LogConfiguration("Feed", databaseId, [| auxContainerId |])
+            let client = x.CreateUninitialized()
+            CosmosStoreConnector.getLeases client databaseId auxContainerId
+
+        member x.ConnectFeed(databaseId, containerId, auxContainerId) = async {
+            let! cosmosClient = x.CreateAndInitialize("Feed", databaseId, [| containerId; auxContainerId |])
+            return CosmosStoreConnector.createMonitoredAndLeases cosmosClient databaseId containerId auxContainerId }
+
+        member x.ConnectContext(role, databaseId, containerId: string, maxEvents) = async {
+            let! client = x.Connect(role, databaseId, [| containerId |])
+            return client.CreateContext(role, databaseId, containerId, tipMaxEvents = maxEvents) }
