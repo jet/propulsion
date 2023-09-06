@@ -7,7 +7,7 @@
 
   <ItemGroup>
     <Compile Include="..\Propulsion.CosmosStore\CosmosStoreParser.fs">
-      <Link>EquinoxCosmosParser.fs</Link>
+      <Link>EquinoxNewtonsoftParser.fs</Link>
     </Compile>
     <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
       <Link>ChangeFeedProcessor.fs</Link>

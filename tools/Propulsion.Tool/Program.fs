@@ -346,11 +346,10 @@ module Project =
                 return Propulsion.Sinks.AllProcessed, () }
             Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, idleDelay = a.IdleDelay)
         let source =
-            let nullFilter _ = true
             match storeArgs with
             | Choice1Of3 sa ->
                 let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
-                let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.enumStreamEvents nullFilter
+                let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
                 let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
                 Propulsion.CosmosStore.CosmosStoreSource.Start
                   ( Log.Logger, monitored, leases, group, observer,
