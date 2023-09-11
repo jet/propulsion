@@ -125,7 +125,7 @@ module Ingest =
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, [||]
 
-type Service internal (onlyWarnOnGap, shouldClose, resolve: AppendsPartitionId * AppendsEpochId -> Equinox.Decider<Events.Event, Fold.State>) =
+type Service internal (onlyWarnOnGap, shouldClose, resolve: struct (AppendsPartitionId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
 
     member _.Ingest(partitionId, epochId, spans: Events.StreamSpan[]) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (partitionId, epochId)
@@ -167,7 +167,7 @@ module Reader =
             | i, Events.Ingested e -> changes.Add(int i, Array.append e.add e.app)
         { changes = changes.ToArray(); closed = closed }
 
-    type Service internal (resolve : AppendsPartitionId * AppendsEpochId * int64 -> Equinox.Decider<Event, State>) =
+    type Service internal (resolve: struct (AppendsPartitionId * AppendsEpochId * int64) -> Equinox.Decider<Event, State>) =
 
         member _.Read(partitionId, epochId, (*inclusive*)minIndex) : Async<int64 voption * int64 * State> =
             let decider = resolve (partitionId, epochId, minIndex)
@@ -182,5 +182,5 @@ module Reader =
         let private createCategory context minIndex = Store.Dynamo.createWithOriginIndex Stream.Category codec initial fold context minIndex
         let create log context =
             let resolve minIndex = Equinox.Decider.forStream log (createCategory context minIndex)
-            Service(fun (pid, eid, minIndex) -> Stream.id (pid, eid) |> resolve minIndex)
+            Service(fun struct (pid, eid, minIndex) -> Stream.id (pid, eid) |> resolve minIndex)
 #endif

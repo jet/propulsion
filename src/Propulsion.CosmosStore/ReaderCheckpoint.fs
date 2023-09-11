@@ -44,7 +44,7 @@ module Events =
     let codec = FsCodec.Box.Codec.Create<Event>()
 #else
 #if DYNAMOSTORE
-    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Deflate.EncodeUncompressed
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Compression.EncodeUncompressed
 #else
 #if !COSMOSV3
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()
@@ -128,9 +128,10 @@ type Equinox.Decider<'e, 's> with
         x.Transact(decide >> function r, es -> r, Array.toList es)
     member x.Transact(decide, ?load : unit): Async<unit> =
         x.Transact(decide >> Array.toList)
+type Service internal (resolve: (SourceId * TrancheId * string) -> Equinox.Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
+#else
+type Service internal (resolve: struct (SourceId * TrancheId * string) -> Equinox.Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 #endif
-
-type Service internal (resolve: SourceId * TrancheId * string -> Equinox.Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 
     interface IFeedCheckpointStore with
 

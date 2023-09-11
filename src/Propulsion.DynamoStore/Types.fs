@@ -75,7 +75,7 @@ module Streams =
 
     let private withUpconverter<'c, 'e when 'c :> TypeShape.UnionContract.IUnionContract> up: FsCodec.IEventCodec<'e, _, _> =
         let down (_: 'e) = failwith "Unexpected"
-        FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Deflate.EncodeTryDeflate
+        FsCodec.SystemTextJson.Codec.Create<'e, 'c, _>(up, down) |> FsCodec.Compression.EncodeTryCompress
     let decWithIndex<'c when 'c :> TypeShape.UnionContract.IUnionContract> : FsCodec.IEventCodec<struct (int64 * 'c), _, _> =
         let up (raw: FsCodec.ITimelineEvent<_>) e = struct (raw.Index, e)
         withUpconverter<'c, struct (int64 * 'c)> up
