@@ -5,7 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="CosmosStoreParser.fs" />
+    <Compile Include="EquinoxSystemTextJsonParser.fs" />
     <Compile Include="ChangeFeedProcessor.fs" />
     <Compile Include="CosmosStoreSource.fs" />
     <Compile Include="CosmosStoreSink.fs" />
