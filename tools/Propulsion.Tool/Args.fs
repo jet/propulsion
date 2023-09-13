@@ -118,8 +118,7 @@ module Dynamo =
                             x.Endpoint, (let t = x.Timeout in t.TotalSeconds), x.Retries)
         member x.CreateStoreClient() =
             x.LogConfiguration()
-            x.CreateDynamoDbClient()
-            |> Equinox.DynamoStore.DynamoStoreClient
+            x.CreateDynamoStoreClient()
 
     type Equinox.DynamoStore.DynamoStoreClient with
 
