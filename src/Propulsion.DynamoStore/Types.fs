@@ -30,12 +30,12 @@ type Checkpoint = int64<checkpoint>
 module Checkpoint =
 
     /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
-    let [<Literal>] MaxItemsPerEpoch = 1_000_000
-    let private maxItemsPerEpoch = int64 MaxItemsPerEpoch
+    let [<Literal>] OffsetMask = 0xFFFFFL
+    let [<Literal>] OffsetBits = 20
     let private ofPosition: Propulsion.Feed.Position -> Checkpoint = Propulsion.Feed.Position.toInt64 >> UMX.tag
 
     let internal positionOfEpochAndOffset (epoch: AppendsEpochId) offset: Propulsion.Feed.Position =
-        int64 (AppendsEpochId.value epoch) * maxItemsPerEpoch + int64 offset |> UMX.tag
+        UMX.tag ((int64 (AppendsEpochId.value epoch) <<< OffsetBits) ||| (int64 offset &&& OffsetMask))
 
     let positionOfEpochClosedAndVersion (epoch: AppendsEpochId) isClosed version: Propulsion.Feed.Position =
         let epoch, offset =
@@ -43,9 +43,12 @@ module Checkpoint =
             else epoch, version
         positionOfEpochAndOffset epoch offset
 
+    let private extract (value: int64) : struct(int * int) =
+        int (value >>> OffsetBits), int (value &&& OffsetMask)
+
     let private toEpochAndOffset (value: Checkpoint): struct (AppendsEpochId * int) =
-        let d, r = System.Math.DivRem(%value, maxItemsPerEpoch)
-        (%int %d : AppendsEpochId), int r
+        let struct(e, o) = extract %value
+        struct (%e, o)
 
     let internal (|Parse|): Propulsion.Feed.Position -> struct (AppendsEpochId * int) = ofPosition >> toEpochAndOffset
 
