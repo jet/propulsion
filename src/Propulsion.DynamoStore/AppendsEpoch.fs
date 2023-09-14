@@ -10,7 +10,7 @@ open System.Collections.Generic
 open System.Collections.Immutable
 
 /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
-let [<Literal>] MaxItemsPerEpoch = Checkpoint.MaxItemsPerEpoch
+let [<Literal>] MaxItemsPerEpoch = Checkpoint.OffsetMask
 module Stream =
     let [<Literal>] Category = "$AppendsEpoch"
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER

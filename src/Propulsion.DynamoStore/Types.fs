@@ -30,7 +30,7 @@ type Checkpoint = int64<checkpoint>
 module Checkpoint =
 
     /// The absolute upper limit of number of streams that can be indexed within a single Epoch (defines how Checkpoints are encoded, so cannot be changed)
-    let [<Literal>] OffsetMask = 0xFFFFFL
+    let [<Literal>] OffsetMask = 0xFFFFF
     let [<Literal>] OffsetBits = 20
     let private ofPosition: Propulsion.Feed.Position -> Checkpoint = Propulsion.Feed.Position.toInt64 >> UMX.tag
 
