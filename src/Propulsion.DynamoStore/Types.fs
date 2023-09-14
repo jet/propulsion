@@ -43,12 +43,8 @@ module Checkpoint =
             else epoch, version
         positionOfEpochAndOffset epoch offset
 
-    let private extract (value: int64) : struct(int * int) =
-        int (value >>> OffsetBits), int (value &&& OffsetMask)
-
     let private toEpochAndOffset (value: Checkpoint): struct (AppendsEpochId * int) =
-        let struct(e, o) = extract %value
-        struct (%e, o)
+        let value = %value in % (int (value >>> OffsetBits)), int (value &&& OffsetMask)
 
     let internal (|Parse|): Propulsion.Feed.Position -> struct (AppendsEpochId * int) = ofPosition >> toEpochAndOffset
 
