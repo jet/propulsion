@@ -154,7 +154,7 @@ type DynamoStoreSource
         mode: EventLoadMode,
         // The whitelist of Categories to use
         ?categories,
-        // Predicate to filter Categories to use
+        // Predicate to filter <c>StreamName</c>'s to use
         ?streamFilter: Func<FsCodec.StreamName, bool>,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,

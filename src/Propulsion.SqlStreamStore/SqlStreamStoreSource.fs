@@ -31,7 +31,7 @@ type SqlStreamStoreSource
         checkpoints : Propulsion.Feed.IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
         // The whitelist of Categories to use
         ?categories,
-        // Predicate to filter Categories to use
+        // Predicate to filter <c>StreamName</c>'s to use
         ?streamFilter: System.Func<FsCodec.StreamName, bool>,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?withData,
