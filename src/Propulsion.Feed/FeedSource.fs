@@ -325,13 +325,20 @@ type SinglePassFeedSource
         base.Start(fun ct -> x.Pump(readTranches, ct))
 
 module Categories =
+    let startsWith (p: string) (s: FsCodec.StreamName) = (FsCodec.StreamName.toString s).StartsWith(p)
 
-    let mapFilters categories categoryFilter =
-        match categories, categoryFilter with
+    let categoryFilter categories =
+        let prefixes = Array.map (fun x -> startsWith $"{x}-") categories
+        fun (x: FsCodec.StreamName) -> Array.exists (fun f -> f x) prefixes
+
+    let mapFilters categories streamFilter =
+        match categories, streamFilter with
         | None, None ->                   fun _ -> true
-        | Some categories, None ->        fun x -> Array.contains x categories
+        | Some categories, None -> categoryFilter categories
         | None, Some (filter : Func<_, bool>) -> filter.Invoke
-        | Some categories, Some filter -> fun x -> Array.contains x categories && filter.Invoke x
+        | Some categories, Some filter ->
+            let categoryFilter = categoryFilter categories
+            fun x -> categoryFilter x  && filter.Invoke x
 
 namespace Propulsion.Feed
 

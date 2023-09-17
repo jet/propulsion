@@ -11,12 +11,12 @@ module private Impl =
     let private readWithDataAsStreamEvent (struct (_sn, msg : SqlStreamStore.Streams.StreamMessage) as m) ct = task {
         let! json = msg.GetJsonData(ct)
         return toStreamEvent json m }
-    let readBatch withData batchSize categoryFilter (store : SqlStreamStore.IStreamStore) pos ct = task {
+    let readBatch withData batchSize streamFilter (store : SqlStreamStore.IStreamStore) pos ct = task {
         let! page = store.ReadAllForwards(Propulsion.Feed.Position.toInt64 pos, batchSize, withData, ct)
         let filtered = page.Messages
                        |> Seq.choose (fun (msg: SqlStreamStore.Streams.StreamMessage) ->
-                           let FsCodec.StreamName.Category cat as sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
-                           if categoryFilter cat then Some struct (sn, msg) else None)
+                           let sn = Propulsion.Streams.StreamName.internalParseSafe msg.StreamId
+                           if streamFilter sn then Some struct (sn, msg) else None)
         let! items = if not withData then task { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
                      else filtered |> Seq.map readWithDataAsStreamEvent |> Propulsion.Internal.Task.sequential ct
         return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd } : Propulsion.Feed.Core.Batch<_>)  }
@@ -32,12 +32,12 @@ type SqlStreamStoreSource
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter : System.Func<string, bool>,
+        ?streamFilter: System.Func<FsCodec.StreamName, bool>,
         // If the Handler does not require the Data/Meta of the events, the query to load the events can be much more efficient. Default: false
         ?withData,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail, ?sourceId) =
     inherit Propulsion.Feed.Core.AllFeedSource
         (   log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval,
-            Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) store, checkpoints, sink,
+            Impl.readBatch (withData = Some true) batchSize (Propulsion.Feed.Core.Categories.mapFilters categories streamFilter) store, checkpoints, sink,
             ?establishOrigin = match startFromTail with Some true -> Some (Impl.readTailPositionForTranche store) | _ -> None)

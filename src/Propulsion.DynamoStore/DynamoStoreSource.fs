@@ -126,25 +126,25 @@ type EventLoadMode =
                   storeContext : DynamoStoreContext
 module internal EventLoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Compression.EncodedToUtf8)
-    let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) categoryFilter =
-        fun (FsCodec.StreamName.Category cat as sn) (i, cs : string[]) ->
-            if categoryFilter cat then
+    let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) streamFilter =
+        fun sn (i, cs : string[]) ->
+            if streamFilter sn then
                 ValueSome (fun ct -> task {
                     let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
                     return events |> Array.map mapTimelineEvent })
             else ValueNone
-    let private withoutData categoryFilter =
-        fun (FsCodec.StreamName.Category cat) (i, cs) ->
-            if categoryFilter cat then
+    let private withoutData streamFilter =
+        fun sn (i, cs) ->
+            if streamFilter sn then
                 ValueSome (fun _ct -> task {
                     let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
                     return cs |> Array.mapi renderEvent })
             else ValueNone
-    let map categoryFilter storeLog : EventLoadMode -> _ = function
-        | IndexOnly -> false, withoutData categoryFilter, 1
+    let map streamFilter storeLog : EventLoadMode -> _ = function
+        | IndexOnly -> false, withoutData streamFilter, 1
         | WithData (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
-            true, withData eventsContext categoryFilter, dop
+            true, withData eventsContext streamFilter, dop
 
 type DynamoStoreSource
     (   log: Serilog.ILogger, statsInterval,
@@ -155,7 +155,7 @@ type DynamoStoreSource
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter Categories to use
-        ?categoryFilter: Func<string, bool>,
+        ?streamFilter: Func<FsCodec.StreamName, bool>,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail,
         // Separated log for DynamoStore calls in order to facilitate filtering and/or gathering metrics
@@ -171,7 +171,7 @@ type DynamoStoreSource
             sink, Impl.renderPos,
             Impl.materializeIndexEpochAsBatchesOfStreamEvents
                 (log, defaultArg sourceId FeedSourceId.wellKnownId, defaultArg storeLog log)
-                (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories categoryFilter) (defaultArg storeLog log) mode)
+                (EventLoadMode.map (Propulsion.Feed.Core.Categories.mapFilters categories streamFilter) (defaultArg storeLog log) mode)
                 batchSizeCutoff indexContext,
             Impl.logReadFailure (defaultArg storeLog log),
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
