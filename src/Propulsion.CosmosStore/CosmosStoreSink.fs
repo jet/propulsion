@@ -109,8 +109,8 @@ module Internal =
 #else
                 try let! res = Writer.write log eventsContext stream span' ct
 #endif
-                    return struct (span'.Length > 0, Ok struct (met, res))
-                with e -> return struct (false, Error struct (met, e)) }
+                    return struct (Events.index span', span'.Length > 0, Ok struct (met, res))
+                with e -> return struct (Events.index span', false, Error struct (met, e)) }
             let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
@@ -127,8 +127,8 @@ module Internal =
 
 type WriterResult = Internal.Writer.Result
 
-type CosmosStoreSinkStats(log : ILogger, statsInterval, stateInterval) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
+type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
     let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Stats.CatStats(), HashSet(), 0, 0, 0, 0
     let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()

@@ -10,8 +10,8 @@ open System.Threading
 open System.Threading.Tasks
 
 [<AbstractClass>]
-type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval) =
-    inherit Scheduling.Stats<struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
+type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
+    inherit Scheduling.Stats<struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let okStreams, failStreams = HashSet(), HashSet()
     let prepareStats = Stats.LatencyStats("prepare")
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -62,8 +62,8 @@ type Factory private () =
             let prepareTs = Stopwatch.timestamp ()
             try let! res, outcome = handle.Invoke(stream, span', ct)
                 let index' = toIndex.Invoke(span', res)
-                return struct (index' > events[0].Index, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
-            with e -> return struct (false, Error struct (met, e)) }
+                return struct (StreamSpan.idx events, index' > StreamSpan.idx events, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
+            with e -> return struct (StreamSpan.idx events, false, Error struct (met, e)) }
 
         let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
             | Ok struct (i', stats, outcome) ->

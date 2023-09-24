@@ -123,15 +123,16 @@ type Ingester<'Items> private
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
         Task.start (fun () -> x.CheckpointPeriodically ct)
-        while not ct.IsCancellationRequested do
+        let mutable exiting = false
+        while not exiting do
+            exiting <- ct.IsCancellationRequested
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
-            if stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
+            if exiting || stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             let startWaits ct = [| awaitIncoming ct :> Task
                                    awaitMessage ct
                                    Task.Delay(stats.Interval.RemainingMs, ct) |]
-            do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct)) }
-
+            if not exiting then do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct)) }
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `maxReadAhead`)

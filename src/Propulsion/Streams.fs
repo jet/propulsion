@@ -341,17 +341,17 @@ module Scheduling =
             let bufferingStats : Log.BufferMetric = { cats = gapCats.Count; streams = gapStreams.Count; events = gapsE; bytes = gapsB }
             let malformedStats : Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
             let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
-            (log |> Log.withMetric m).Information("Streams Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
+            (log |> Log.withMetric m).Information("STATE Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
                                                   synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, gaps, Log.miB gapsB, malformed, Log.miB malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
-            if readyCats.Any then log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
+                                  log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
             if gapStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 gapStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
             gapStreams.Any
 
     [<Struct; NoComparison; NoEquality>]
-    type InternalResult<'R> = { duration : TimeSpan; stream : FsCodec.StreamName; progressed : bool; result : 'R }
+    type InternalResult<'R> = { duration: TimeSpan; stream: FsCodec.StreamName; index: int64; progressed: bool; result: 'R }
 
     type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full
 
@@ -384,6 +384,7 @@ module Scheduling =
                     state.Remove sn |> ignore
                     res.ts
                 member _.State = walkAges state |> renderState
+                member _.Contains sn = state.ContainsKey sn
             /// Represents state of streams where the handler did not make progress on the last execution either intentionally or due to an exception
             type private Repeating() =
                 let state = Dictionary<FsCodec.StreamName, StreamState>()
@@ -393,6 +394,13 @@ module Scheduling =
                          if state.TryGetValue(sn, &v) then v.count <- v.count + 1
                          else state.Add(sn, { ts = startTs; count = 1 })
                 member _.State = walkAges state |> renderState
+                member _.Contains sn = state.ContainsKey sn
+                member _.TryGet sn = match state.TryGetValue sn with true, v -> ValueSome v.count | _ -> ValueNone
+                member x.OldestIsOlderThan threshold =
+                    let _, struct (oldest, _) = x.State
+                    oldest > threshold
+
+            type [<Struct>] State = Running | Failing of c: int | Stuck of c2: int | Waiting
             /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
             type Monitor() =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
@@ -405,6 +413,17 @@ module Scheduling =
                     let startTs = active.TakeFinished(sn)
                     failing.HandleResult(sn, not succeeded, startTs)
                     stuck.HandleResult(sn, succeeded && not progressed, startTs)
+                member _.Classify(sn) =
+                    match failing.TryGet sn with
+                    | ValueSome count -> Failing count
+                    | ValueNone ->
+                        match stuck.TryGet sn with
+                        | ValueSome count -> Stuck count
+                        | ValueNone ->
+                            if active.Contains sn then Running
+                            else Waiting
+                member _.IsFailing(failingThreshold: TimeSpan) =
+                    failing.OldestIsOlderThan failingThreshold || stuck.OldestIsOlderThan TimeSpan.Zero
                 member _.DumpState(log : ILogger) =
                     let dump state struct (streams, attempts) ages =
                         if streams <> 0 then
@@ -459,11 +478,12 @@ module Scheduling =
 
     /// Gathers stats pertaining to the core projection/ingestion activity
     [<AbstractClass>]
-    type Stats<'R, 'E>(log : ILogger, statsInterval : TimeSpan, stateInterval : TimeSpan) =
+    type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan, [<O; D null>] ?failThreshold) =
+        let failThreshold = defaultArg failThreshold stateInterval
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats = Stats.StateStats()
-        let oks, exns, rateLimited, timeouts = Stats.LatencyStats("ok"), Stats.LatencyStats("exceptions"), Stats.LatencyStats("rateLimited"), Stats.LatencyStats("timedOut")
+        let oks, exns, rateLimited, timeouts = Stats.LatencyStats("         ok"), Stats.LatencyStats(" exceptions"), Stats.LatencyStats("rateLimited"), Stats.LatencyStats("   timedOut")
         let mutable cycles, batchesCompleted, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead = 0, 0, 0, 0, 0, 0, 0
 
         member val Log = log
@@ -484,6 +504,9 @@ module Scheduling =
             monitor.DumpState x.Log
             x.DumpStats()
 
+        member _.IsFailing = monitor.IsFailing failThreshold
+        member _.Classify sn = monitor.Classify sn
+
         member _.RecordIngested(streams, events, skippedStreams, skippedEvents) =
             batchesStarted <- batchesStarted + 1
             streamsStarted <- streamsStarted + streams
@@ -502,9 +525,13 @@ module Scheduling =
             stateStats.Ingest(state)
             x.StateInterval.IfDueRestart()
 
-        /// Allows an ingester or projector to wire in custom stats (typically based on data gathered in a `Handle` override)
+        /// Allows an ingester or projector to wire in custom stats since the last interval (typically based on data gathered in a `Handle` override)
         abstract DumpStats : unit -> unit
         default _.DumpStats () = ()
+
+        /// Allows an ingester or projector to trigger dumping of accumulated statistics (less frequent than DumpStats)
+        abstract DumpState : unit -> unit
+        default _.DumpState () = ()
 
         /// Allows serialization of the emission of statistics where multiple Schedulers are active (via an externally managed lock object)
         abstract Serialize : (unit -> unit) -> unit
@@ -567,10 +594,18 @@ module Scheduling =
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
                         x.streamToRequiredIndex.Remove stream |> ignore
 
-            member _.Dump(log : ILogger, force) =
+            member _.Dump(log : ILogger, force, classify: FsCodec.StreamName -> Stats.Busy.State) =
                 if (force || log.IsEnabled LogEventLevel.Debug) && pending.Count <> 0 then
+                    let stuck, failing, running, waiting = ResizeArray(), ResizeArray(), ResizeArray(), ResizeArray()
                     let h = pending.Peek()
-                    log.Write((if force then LogEventLevel.Information else LogEventLevel.Debug), "Active Batch {streams}", h.streamToRequiredIndex)
+                    for x in h.streamToRequiredIndex do
+                        match classify x.Key with
+                        | Stats.Busy.Stuck count -> stuck.Add struct(x.Key, x.Value, count)
+                        | Stats.Busy.Failing count -> failing.Add struct(x.Key, x.Value, count)
+                        | Stats.Busy.Running -> running.Add(ValueTuple.ofKvp x)
+                        | Stats.Busy.Waiting -> waiting.Add(ValueTuple.ofKvp x)
+                    log.Write((if force then LogEventLevel.Warning else LogEventLevel.Debug),
+                              " Active Batch (sn, version[, attempts]) Stuck {stuck} Failing {failing} Running {running} Waiting {waiting}", stuck, failing, running, waiting)
 
         // We potentially traverse the pending streams thousands of times per second so we reuse buffers for better L2 caching properties
         // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
@@ -612,7 +647,7 @@ module Scheduling =
 
     /// Defines interface between Scheduler (which owns the pending work) and the Dispatcher which periodically selects work to commence based on a policy
     type IDispatcher<'P, 'R, 'E, 'F> =
-        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * bool * Result<'P, 'E>)>
+        [<CLIEvent>] abstract member Result : IEvent<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<'P, 'E>)>
         abstract member Pump : CancellationToken -> Task<unit>
         abstract member State : struct (int * int)
         abstract member HasCapacity : bool with get
@@ -682,18 +717,18 @@ module Scheduling =
             dispatcher.TryReplenish(candidateItems, handleStarted)
 
         // Ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
-        let handleResult { duration = duration; stream = stream; progressed = p; result = r } =
+        let handleResult { duration = duration; stream = stream; index = i; progressed = p; result = r } =
             match dispatcher.InterpretProgress(streams, stream, r) with
             | ValueSome index, Ok (r : 'R) ->
                 batches.MarkStreamProgress(stream, index)
                 streams.RecordProgress(stream, index)
-                stats.Handle { duration = duration; stream = stream; progressed = p; result = Ok r }
+                stats.Handle { duration = duration; stream = stream; index = i; progressed = p; result = Ok r }
             | ValueNone, Ok (r : 'R) ->
                 streams.RecordNoProgress(stream)
-                stats.Handle { duration = duration; stream = stream; progressed = p; result = Ok r }
+                stats.Handle { duration = duration; stream = stream; index = i; progressed = p; result = Ok r }
             | _, Error exn ->
                 streams.RecordNoProgress(stream)
-                stats.Handle { duration = duration; stream = stream; progressed = p; result = Error exn }
+                stats.Handle { duration = duration; stream = stream; index = i; progressed = p; result = Error exn }
         let tryHandleResults () = tryApplyResults handleResult
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
@@ -713,26 +748,35 @@ module Scheduling =
             batches.AppendBatch(onCompletion, reqs)
         let ingestBatch () = [| match tryPending () |> ValueOption.bind ingest with ValueSome b -> b | ValueNone -> () |]
 
+        let recordAndPeriodicallyLogStats exiting =
+            if stats.RecordStats() || exiting then
+                stats.Serialize(fun () -> stats.DumpStats(dispatcher.State, batchesWaitingAndRunning ()))
+                stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
+
+        let purgeDue : unit -> bool =
+            match purgeInterval with
+            | Some ts -> IntervalTimer(ts).IfDueRestart
+            | None -> fun () -> false
         let mutable totalPurged = 0
         let purge () =
             let remaining, purged = streams.Purge()
             totalPurged <- totalPurged + purged
             let l = if purged = 0 then LogEventLevel.Debug else LogEventLevel.Information
             Log.Write(l, "PURGED Remaining {buffered:n0} Purged now {count:n0} Purged total {total:n0}", remaining, purged, totalPurged)
-        let purgeDue : unit -> bool =
-            match purgeInterval with
-            | Some ts -> IntervalTimer(ts).IfDueRestart
-            | None -> fun () -> false
-
-        let recordStats force =
-            if stats.RecordStats() || force then
-                stats.Serialize(fun () -> stats.DumpStats(dispatcher.State, batchesWaitingAndRunning ()))
-                stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
+        let recordAndPeriodicallyLogState exiting dispatcherState =
+            if stats.RecordState(dispatcherState) || exiting then
+                let log = stats.Log
+                let dumpStreamStates (eventSize : FsCodec.ITimelineEvent<'F> -> int) =
+                    let hasGaps = streams.Dump(log, totalPurged, eventSize)
+                    batches.Dump(log, exiting || hasGaps || stats.IsFailing, stats.Classify)
+                dumpState dumpStreamStates log
+                stats.DumpState()
+                if not exiting && purgeDue () then purge ()
         let sleepIntervalMs = match idleDelay with Some ts -> TimeSpan.toMs ts | None -> 1000
         let wakeForResults = defaultArg wakeForResults false
 
         member _.Pump(abend, ct : CancellationToken) = task {
-            use _ = dispatcher.Result.Subscribe(fun struct (t, s, pr, r) -> writeResult { duration = t; stream = s; progressed = pr; result = r })
+            use _ = dispatcher.Result.Subscribe(fun struct (t, s, i, pr, r) -> writeResult { duration = t; stream = s; index = i; progressed = pr; result = r })
             Task.start (fun () -> task { try do! dispatcher.Pump ct
                                          with e -> abend (AggregateException e) })
             let inline ts () = Stopwatch.timestamp ()
@@ -742,18 +786,9 @@ module Scheduling =
             let ingestBatches () = let ts, b = ts (), ingestBatch () in t.RecordIngest ts; b
             let ingestStreamsOnly () = let ts = ts () in let r = ingestStreams () in t.RecordDispatchNone ts; r
 
-            let recordState force dispatcherState =
-                if stats.RecordState(dispatcherState) || force then
-                    let log = stats.Log
-                    let dumpStreamStates (eventSize : FsCodec.ITimelineEvent<'F> -> int) =
-                        let hasGaps = streams.Dump(log, totalPurged, eventSize)
-                        batches.Dump(log, hasGaps)
-                    dumpState dumpStreamStates log
-                    true
-                else false
-
-            let reportStats force = let ts = ts () in recordStats force; t.RecordStats ts
-            while not ct.IsCancellationRequested do
+            let mutable exiting = false
+            while not exiting do
+                exiting <- ct.IsCancellationRequested
                 // 1. propagate write write outcomes to buffer (can mark batches completed etc)
                 let processedResults = processResults ()
                 // 2. top up provisioning of writers queue
@@ -762,10 +797,15 @@ module Scheduling =
                 let struct (dispatched, hasCapacity) =
                     if not dispatcher.HasCapacity then struct ((*dispatched*)false, (*hasCapacity*)false)
                     else let ts = ts () in let r = tryDispatch (ingestStreams >> ignore) ingestBatches in t.RecordDispatch ts; r
+                // 3. Report the stats per stats interval
+                let statsTs = ts ()
+                if exiting then
+                    processResults () |> ignore
+                    batches.EnumPending() |> ignore
+                recordAndPeriodicallyLogStats exiting; t.RecordStats statsTs
+                // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                 let idle = not processedResults && not dispatched && not (ingestStreamsOnly ())
-                reportStats false
-                // 3. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
-                if idle then
+                if idle && not exiting then
                     let sleepTs = ts ()
                     do! Task.runWithCancellation ct (fun ct ->
                             Task.WhenAny[| if hasCapacity then awaitPending ct :> Task
@@ -773,14 +813,9 @@ module Scheduling =
                                            elif not hasCapacity then dispatcher.AwaitCapacity(ct)
                                            Task.Delay(sleepIntervalMs, ct) |])
                     t.RecordSleep sleepTs
-                // 4. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
+                // 5. Record completion state once per iteration; dumping streams is expensive so needs to be done infrequently
                 let dispatcherState = if not hasCapacity then Full elif idle then Idle else Active
-                if recordState ct.IsCancellationRequested dispatcherState && purgeDue () then
-                    purge ()
-            // Flush
-            batches.EnumPending() |> ignore
-            processResults () |> ignore
-            reportStats true }
+                recordAndPeriodicallyLogState exiting dispatcherState }
 
         member internal _.SubmitStreams(x : Streams<_>) =
             enqueueStreams x
@@ -820,7 +855,7 @@ module Dispatcher =
 
     /// Kicks off enough work to fill the inner Dispatcher up to capacity
     type internal ItemDispatcher<'R, 'F>(maxDop) =
-        let inner = DopDispatcher<struct (TimeSpan * FsCodec.StreamName * bool * 'R)>(maxDop)
+        let inner = DopDispatcher<struct (TimeSpan * FsCodec.StreamName * int64 * bool * 'R)>(maxDop)
 
         // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
         let tryFillDispatcher (potential : seq<Scheduling.Item<'F>>) markStarted project =
@@ -845,23 +880,23 @@ module Dispatcher =
     /// Implementation of IDispatcher that feeds items to an item dispatcher that maximizes concurrent requests (within a limit)
     type Concurrent<'P, 'R, 'E, 'F> internal
         (   inner : ItemDispatcher<Result<'P, 'E>, 'F>,
-            project : struct (int64 * Scheduling.Item<'F>) -> CancellationToken -> Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<'P, 'E>)>,
+            project : struct (int64 * Scheduling.Item<'F>) -> CancellationToken -> Task<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<'P, 'E>)>,
             interpretProgress : Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Result<'P, 'E> -> struct (int64 voption * Result<'R, 'E>)) =
         static member Create
             (   maxDop,
-                project : FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> CancellationToken -> Task<struct (bool * Result<'P, 'E>)>,
+                project : FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> CancellationToken -> Task<struct (int64 * bool * Result<'P, 'E>)>,
                 interpretProgress) =
             let project struct (startTs, item : Scheduling.Item<'F>) (ct : CancellationToken) = task {
-                let! struct (progressed, res) = project item.stream item.span ct
-                return struct (Stopwatch.elapsed startTs, item.stream, progressed, res) }
+                let! struct (index, progressed, res) = project item.stream item.span ct
+                return struct (Stopwatch.elapsed startTs, item.stream, index, progressed, res) }
             Concurrent<_, _, _, _>(ItemDispatcher(maxDop), project, interpretProgress)
         static member Create(maxDop, prepare : Func<_, _, _>, handle : Func<_, _, CancellationToken, Task<_>>, toIndex : Func<_, 'R, int64>) =
             let project sn span ct = task {
                 let struct (met, span : FsCodec.ITimelineEvent<'F>[]) = prepare.Invoke(sn, span)
                 try let! struct (spanResult, outcome) = handle.Invoke(sn, span, ct)
                     let index' = toIndex.Invoke(span, spanResult)
-                    return struct (index' > span[0].Index, Ok struct (index', met, outcome))
-                with e -> return struct (false, Error struct (met, e)) }
+                    return struct (StreamSpan.idx span, index' > StreamSpan.idx span, Ok struct (index', met, outcome))
+                with e -> return struct (StreamSpan.idx span, false, Error struct (met, e)) }
             let interpretProgress (_streams : Scheduling.StreamStates<'F>) _stream = function
                 | Ok struct (index, met, outcome) -> struct (ValueSome index, Ok struct (met, outcome))
                 | Error struct (stats, exn) -> ValueNone, Error struct (stats, exn)
@@ -879,9 +914,9 @@ module Dispatcher =
     type Batched<'F>
         (   select : Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
             handle : Scheduling.Item<'F>[] -> CancellationToken ->
-                     Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]>) =
+                     Task<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]>) =
         let inner = DopDispatcher 1
-        let result = Event<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)>()
+        let result = Event<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)>()
 
         // On each iteration, we offer the ordered work queue to the selector
         // we propagate the selected streams to the handler
@@ -912,8 +947,8 @@ module Dispatcher =
                 | Error (stats, exn) -> ValueNone, Error (stats, exn)
 
 [<AbstractClass>]
-type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, statesInterval)
+type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] ?failThreshold) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, statesInterval, ?failThreshold = failThreshold)
     let okStreams, failStreams, badCats = HashSet(), HashSet(), Stats.CatStats()
     let mutable resultOk, resultExnOther, okEvents, okBytes, exnEvents, exnBytes = 0, 0, 0, 0L, 0, 0L
 
@@ -942,12 +977,12 @@ type Stats<'Outcome>(log : ILogger, statsInterval, statesInterval) =
             resultOk <- resultOk + 1
             base.RecordOk res
             this.HandleOk outcome
-        | { duration = duration; stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
+        | { duration = duration; stream = stream; index = index; result = Error ((es, bs), Exception.Inner exn) } ->
             addBadStream stream failStreams
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             resultExnOther <- resultExnOther + 1
-            base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es).ForContext("duration", duration), exn)
+            base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("index", index).ForContext("events", es).ForContext("duration", duration), exn)
 
     abstract member HandleOk : outcome : 'Outcome -> unit
 
@@ -1050,7 +1085,7 @@ type Batched private () =
             ?ingesterStatsInterval, ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items : Scheduling.Item<'F>[]) ct
-            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
+            : Task<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
             let sw = Stopwatch.start ()
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
@@ -1063,16 +1098,16 @@ type Batched private () =
                         | item, Ok index' ->
                             let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
                             let metrics = StreamSpan.metrics eventSize used
-                            struct (ae, item.stream, true, Ok struct (index', struct (metrics, ())))
+                            struct (ae, item.stream, StreamSpan.idx item.span, index' > item.span[0].Index, Ok struct (index', struct (metrics, ())))
                         | item, Error exn ->
                             let metrics = StreamSpan.metrics eventSize item.span
-                            ae, item.stream, false, Error struct (metrics, exn) |]
+                            ae, item.stream, StreamSpan.idx item.span, false, Error struct (metrics, exn) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
                         let metrics = StreamSpan.metrics eventSize x.span
-                        ae, x.stream, false, Error struct (metrics, e) |] }
+                        ae, x.stream, StreamSpan.idx x.span, false, Error struct (metrics, e) |] }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,

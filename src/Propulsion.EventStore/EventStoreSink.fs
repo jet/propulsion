@@ -71,8 +71,8 @@ module Internal =
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
-                    return struct (span'.Length > 0, Ok struct (met, res))
-                with e -> return false, Error struct (met, e) }
+                    return struct (Events.index span', span'.Length > 0, Ok struct (met, res))
+                with e -> return Events.index span', false, Error struct (met, e) }
             let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               streams.RecordWriteProgress(stream, pos, null)
@@ -87,8 +87,8 @@ module Internal =
 
 type WriterResult = Internal.Writer.Result
 
-type EventStoreSinkStats(log : ILogger, statsInterval, stateInterval) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval)
+type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
 
     let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), Stats.CatStats(), HashSet(), HashSet(), HashSet()
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther, timedOut = 0, 0, 0, 0, 0, 0

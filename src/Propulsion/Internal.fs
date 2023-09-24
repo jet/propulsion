@@ -242,7 +242,7 @@ module Stats =
             p95 = pc 95
             p99 = pc 99 }
         let stdDev = match l.stddev with None -> Double.NaN | Some d -> d.TotalSeconds
-        log.Information(" {kind} {count} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
+        log.Information(" {kind} {count,4} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
             kind, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
 
     /// Operations on an instance are safe cross-thread
@@ -254,7 +254,7 @@ module Stats =
                 dumpStats kind buffer log
                 buffer.Clear() // yes, there is a race
 
-    /// Should only be used on one thread
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
     type LatencyStats(kind) =
         let buffer = ResizeArray<TimeSpan>()
         member _.Record value = buffer.Add value
@@ -262,6 +262,31 @@ module Stats =
             if buffer.Count <> 0 then
                 dumpStats kind buffer log
                 buffer.Clear()
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
+    type LatencyStatsSet(?totalLabel) =
+        let totalLabel = defaultArg totalLabel "      TOTAL"
+        let groups = Dictionary<string, ResizeArray<TimeSpan>>()
+        member _.Record(kind, value: TimeSpan) =
+            match groups.TryGetValue kind with
+            | false, _ -> let n = ResizeArray() in n.Add value; groups.Add(kind, n)
+            | true, buf -> buf.Add value
+        member _.Dump(log : Serilog.ILogger) =
+            let max = groups.Keys |> Seq.map String.length |> Seq.max
+            for name in Seq.sort groups.Keys do
+                dumpStats (name.PadRight(max)) groups[name] log
+        member _.DumpGrouped(f, log : Serilog.ILogger) =
+            dumpStats totalLabel (groups |> Seq.collect (fun kv -> kv.Value)) log
+            let clusters =
+                groups
+                |> Seq.groupBy (fun kv -> f kv.Key)
+                |> Seq.sortBy fst
+                |> Seq.toArray
+
+            let max = clusters |> Seq.map (fst >> String.length) |> Seq.max
+            for name, items in clusters do
+                let lats = seq { for kv in items -> kv.Value }
+                dumpStats (name.PadRight(max)) (Seq.concat lats) log
+        member _.Clear() = groups.Clear()
 
 type LogEventLevel = Serilog.Events.LogEventLevel
 
