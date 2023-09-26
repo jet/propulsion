@@ -348,7 +348,7 @@ type Factory private () =
             select, handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Result<int64, exn>>>>, stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
         let handle (items : Scheduling.Item<EventBody>[]) ct
-            : Task<struct (TimeSpan * FsCodec.StreamName * int64 * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
+            : Task<Scheduling.Res<Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>>[]> = task {
             let sw = Stopwatch.start ()
             let avgElapsed () =
                 let tot = float sw.ElapsedMilliseconds
@@ -361,16 +361,16 @@ type Factory private () =
                         | item, Ok index' ->
                             let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
                             let metrics = StreamSpan.metrics Event.storedSize used
-                            struct (ae, item.stream, Events.index item.span, true, Ok struct (index', struct (metrics, ())))
-                        | item, Error exn ->
+                            Scheduling.Res.create (ae, item.stream, Events.index item.span, not (Array.isEmpty used), Ok struct (index', struct (metrics, ())))
+                        | item, Error e ->
                             let metrics = StreamSpan.metrics Event.renderedSize item.span
-                            ae, item.stream, Events.index item.span, false, Result.Error struct (metrics, exn) |]
+                            Scheduling.Item.createResE (ae, item, metrics, e) |]
             with e ->
                 let ae = avgElapsed ()
                 return
                     [| for x in items ->
                         let metrics = StreamSpan.metrics Event.renderedSize x.span
-                        ae, x.stream, Events.index x.span, false, Result.Error struct (metrics, e) |] }
+                        Scheduling.Item.createResE (ae, x, metrics, e) |] }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
