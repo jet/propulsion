@@ -126,7 +126,7 @@ module Helpers =
                   for event in stream.span do
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event)
-                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
+                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length)
                 let ts = Stopwatch.elapsed ts
                 return seq { for x in streams -> struct (ts, Ok (Propulsion.Sinks.Events.nextIndex x.span)) } }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
