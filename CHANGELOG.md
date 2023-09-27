@@ -14,6 +14,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Feed`: `Checkpoint` enables committing progress (and obtaining the achieved positions) without stopping the Sink [#162](https://github.com/jet/propulsion/pull/162)
 - `Feed.SinglePassFeedSource`: Coordinates reads of a set of tranches until each reaches its Tail [#179](https://github.com/jet/propulsion/pull/179)
 - `Scheduler`: Split out stats re `rateLimited` and `timedOut` vs `exceptions` [#194](https://github.com/jet/propulsion/pull/194)
+- `Scheduler`: Added `index`, `eventType` to error logging [#233](https://github.com/jet/propulsion/pull/233)
 - `Scheduler`: `purgeInterval` to control memory usage [#97](https://github.com/jet/propulsion/pull/97)
 - `Scheduler`: `wakeForResults` option to maximize throughput (without having to drop sleep interval to zero) [#161](https://github.com/jet/propulsion/pull/161)
 - `Sinks`, `Sinks.Config`: top level APIs for wiring common sink structures [#208](https://github.com/jet/propulsion/pull/208)

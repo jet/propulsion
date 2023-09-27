@@ -71,19 +71,19 @@ module Internal =
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
-                    return struct (Events.index span', span'.Length > 0, Ok struct (met, res))
-                with e -> return Events.index span', false, Error struct (met, e) }
-            let interpretWriteResultProgress (streams : Scheduling.StreamStates<_>) stream res =
+                    return Ok struct (met, res)
+                with e -> return Error struct (met, e) }
+            let interpretProgress (streams : Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               streams.RecordWriteProgress(stream, pos, null)
                     | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null)
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |])
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, Events.index overage, [| overage |])
                     | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |])
                     | Error struct (_stats, _exn) ->                            streams.SetMalformed(stream, false)
                 let ss = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
                 struct (ss.WritePos, res)
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretWriteResultProgress)
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 

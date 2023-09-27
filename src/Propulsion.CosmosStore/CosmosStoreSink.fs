@@ -109,21 +109,21 @@ module Internal =
 #else
                 try let! res = Writer.write log eventsContext stream span' ct
 #endif
-                    return struct (Events.index span', span'.Length > 0, Ok struct (met, res))
-                with e -> return struct (Events.index span', false, Error struct (met, e)) }
-            let interpretWriteResultProgress (streams: Scheduling.StreamStates<_>) stream res =
+                    return Ok struct (met, res)
+                with e -> return Error struct (met, e) }
+            let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
                     | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null), false
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
-                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [|overage|]), false
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, Events.index overage, [| overage |]), false
+                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |]), false
                     | Error struct (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
                         streams.SetMalformed(stream, malformed), malformed
                 let struct (ss, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
                 struct (ss.WritePos, res)
-            Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretWriteResultProgress)
+            Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 

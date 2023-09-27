@@ -11,7 +11,7 @@ open System.Threading.Tasks
 
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let okStreams, failStreams = HashSet(), HashSet()
     let prepareStats = Stats.LatencyStats("prepare")
     let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
@@ -29,7 +29,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] 
     override this.Handle message =
         let inline adds x (set : HashSet<_>) = set.Add x |> ignore
         match message with
-        | { stream = stream; result = Ok (((es, bs), prepareElapsed), outcome) } ->
+        | { stream = stream; result = Ok ((es, bs), prepareElapsed, outcome) } ->
             adds stream okStreams
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -57,27 +57,26 @@ type Factory private () =
 
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
-        let attemptWrite stream (events : FsCodec.ITimelineEvent<'F>[]) ct = task {
+        let attemptWrite stream (events: FsCodec.ITimelineEvent<'F>[]) ct = task {
             let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
             let prepareTs = Stopwatch.timestamp ()
             try let! res, outcome = handle.Invoke(stream, span', ct)
                 let index' = toIndex.Invoke(span', res)
-                return struct (StreamSpan.idx events, index' > StreamSpan.idx events, Ok struct (index', struct (met, Stopwatch.elapsed prepareTs), outcome))
-            with e -> return struct (StreamSpan.idx events, false, Error struct (met, e)) }
+                return Ok struct (index', met, Stopwatch.elapsed prepareTs, outcome)
+            with e -> return Error struct (met, e) }
 
-        let interpretWriteResultProgress _streams (stream : FsCodec.StreamName) = function
-            | Ok struct (i', stats, outcome) ->
-                struct (ValueSome i', Ok struct (stats, outcome))
-            | Error struct (struct (eventCount, bytesCount) as stats, exn : exn) ->
+        let interpretProgress _streams (stream: FsCodec.StreamName) = function
+            | Ok struct (i', met, prep, outcome) -> struct (ValueSome i', Ok struct (met, prep, outcome))
+            | Error struct (struct (eventCount, bytesCount) as met, exn: exn) ->
                 log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
-                ValueNone, Error struct (stats, exn)
+                ValueNone, Error struct (met, exn)
 
-        let dispatcher : Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretWriteResultProgress)
+        let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretProgress)
         let dumpStreams logStreamStates log =
             logStreamStates eventSize
             match dumpExternalStats with Some f -> f log | None -> ()
         let scheduler =
-            Scheduling.Engine<struct (int64 * struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (struct (StreamSpan.Metrics * TimeSpan) * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
+            Scheduling.Engine<_, struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
         Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)

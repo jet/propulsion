@@ -88,14 +88,14 @@ type Factory private () =
     /// Project Events sequentially via a <code>handle</code> function that yields a StreamResult per <c>select</c>ed Item
     static member StartBatchedAsync<'Outcome>
         (   log, maxReadAhead,
-            select : Func<StreamState seq, StreamState[]>,
-            handle : Func<StreamState[], CancellationToken, Task<seq<Result<StreamResult, exn>>>>,
+            select: Func<StreamState seq, StreamState[]>,
+            handle: Func<StreamState[], CancellationToken, Task<seq<struct (TimeSpan * Result<StreamResult, exn>)>>>,
             stats,
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle items ct = task {
             let! res = handle.Invoke(items, ct)
-            return seq { for i, r in Seq.zip items res -> Result.map (StreamResult.toIndex i.span) r } }
+            return seq { for i, (ts, r) in Seq.zip items res -> struct (ts, Result.map (StreamResult.toIndex i.span) r) } }
         Streams.Batched.Start(log, maxReadAhead, select, handle, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
             ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
@@ -143,8 +143,8 @@ type Factory private () =
     /// Per handled stream, the result can be either a StreamResult conveying progress, or an exception
     static member StartBatched<'Outcome>
         (   log, maxReadAhead,
-            select : StreamState seq -> StreamState[],
-            handle : StreamState[] -> Async<seq<Result<StreamResult, exn>>>,
+            select: StreamState seq -> StreamState[],
+            handle: StreamState[] -> Async<seq<struct (TimeSpan * Result<StreamResult, exn>)>>,
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
