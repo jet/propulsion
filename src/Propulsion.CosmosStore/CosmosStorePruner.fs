@@ -32,8 +32,8 @@ module Pruner =
         let writePos = max trimmedPos (untilIndex + 1L)
         return struct (writePos, res) }
 
-type CosmosStorePrunerStats(log, statsInterval, stateInterval) =
-    inherit Propulsion.Streams.Stats<Pruner.Outcome>(log, statsInterval, stateInterval)
+type CosmosStorePrunerStats(log, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
+    inherit Propulsion.Streams.Stats<Pruner.Outcome>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
 
     let mutable nops, totalRedundant, ops, totalDeletes, totalDeferred = 0, 0, 0, 0, 0
     override _.HandleOk outcome =

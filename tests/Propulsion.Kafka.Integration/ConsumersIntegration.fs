@@ -119,14 +119,16 @@ module Helpers =
             // When offered, take whatever is pending
             let select = Array.ofSeq
             // when processing, declare all items processed each time we're invoked
-            let handle (streams : Propulsion.Sinks.StreamState[]) = async {
+            let handle (streams: Propulsion.Sinks.StreamState[]) = async {
+                let ts = Stopwatch.timestamp ()
                 let mutable c = 0
                 for stream in streams do
                   for event in stream.span do
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event)
-                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length )
-                return seq { for x in streams -> Ok (Propulsion.Streams.StreamSpan.ver x.span) } }
+                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length)
+                let ts = Stopwatch.elapsed ts
+                return seq { for x in streams -> struct (ts, Ok (Propulsion.Sinks.Events.nextIndex x.span)) } }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =

@@ -344,33 +344,25 @@ type Factory private () =
             ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
 
     static member StartBatchedAsync<'Info>
-        (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-            select, handle : Func<Scheduling.Item<_>[], CancellationToken, Task<seq<Result<int64, exn>>>>, stats,
+        (   log: ILogger, config: KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
+            select, handle: Func<Scheduling.Item<_>[], CancellationToken, Task<seq<struct (TimeSpan * Result<int64, exn>)>>>, stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
-        let handle (items : Scheduling.Item<EventBody>[]) ct
-            : Task<struct (TimeSpan * FsCodec.StreamName * bool * Result<struct (int64 * struct (StreamSpan.Metrics * unit)), struct (StreamSpan.Metrics * exn)>)[]> = task {
-            let sw = Stopwatch.start ()
-            let avgElapsed () =
-                let tot = float sw.ElapsedMilliseconds
-                TimeSpan.FromMilliseconds(tot / float items.Length)
+        let handle (items: Scheduling.Item<EventBody>[]) ct
+            : Task<Scheduling.InternalRes<Result<struct (StreamSpan.Metrics * int64), struct (StreamSpan.Metrics * exn)>>[]> = task {
+            let start = Stopwatch.timestamp ()
+            let inline err ts e (x: Scheduling.Item<_>) =
+                let met = StreamSpan.metrics Event.renderedSize x.span
+                Scheduling.InternalRes.create (x, ts, Result.Error struct (met, e))
             try let! results = handle.Invoke(items, ct)
-                let ae = avgElapsed ()
-                return
-                    [| for x in Seq.zip items results ->
-                        match x with
-                        | item, Ok index' ->
-                            let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
-                            let metrics = StreamSpan.metrics Event.storedSize used
-                            struct (ae, item.stream, true, Ok struct (index', struct (metrics, ())))
-                        | item, Error exn ->
-                            let metrics = StreamSpan.metrics Event.renderedSize item.span
-                            ae, item.stream, false, Result.Error struct (metrics, exn) |]
+                return Array.ofSeq (Seq.zip items results |> Seq.map(function
+                    | item, (ts, Ok index') ->
+                        let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
+                        let metrics = StreamSpan.metrics Event.storedSize used
+                        Scheduling.InternalRes.create (item, ts, Result.Ok struct (metrics, index'))
+                    | item, (ts, Error e) -> err ts e item))
             with e ->
-                let ae = avgElapsed ()
-                return
-                    [| for x in items ->
-                        let metrics = StreamSpan.metrics Event.renderedSize x.span
-                        ae, x.stream, false, Result.Error struct (metrics, e) |] }
+                let ts = Stopwatch.elapsed start
+                return items |> Array.map (err ts e) }
         let dispatcher = Dispatcher.Batched(select, handle)
         let dumpStreams logStreamStates log =
             logExternalState |> Option.iter (fun f -> f log)
@@ -394,14 +386,14 @@ type Factory private () =
     /// Processor <c>'Outcome<c/>s are passed to be accumulated into the <c>stats</c> for periodic emission.<br/>
     /// Processor will run perpetually in a background until `Stop()` is requested.
     static member StartBatched<'Info>
-        (   log : ILogger, config : KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-            select : StreamState seq -> StreamState[],
+        (   log: ILogger, config: KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
+            select: StreamState seq -> StreamState[],
             // Handler responses:
             // - the result seq is expected to match the ordering of the input <c>Scheduling.Item</c>s
             // - Ok: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Error: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle : StreamState[] -> Async<seq<Result<int64, exn>>>,
+            handle: StreamState[] -> Async<seq<struct (TimeSpan * Result<int64, exn>)>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =

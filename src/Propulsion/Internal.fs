@@ -225,7 +225,7 @@ module Stats =
             stddev : TimeSpan option }
 
     open MathNet.Numerics.Statistics
-    let private dumpStats (kind : string) (xs : TimeSpan seq) (log : Serilog.ILogger) =
+    let private dumpStats (log : Serilog.ILogger) (kind : string) (xs : TimeSpan seq) =
         let sortedLatencies = xs |> Seq.map (fun ts -> ts.TotalSeconds) |> Seq.sort |> Seq.toArray
 
         let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
@@ -242,26 +242,50 @@ module Stats =
             p95 = pc 95
             p99 = pc 99 }
         let stdDev = match l.stddev with None -> Double.NaN | Some d -> d.TotalSeconds
-        log.Information(" {kind} {count} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
+        log.Information(" {kind} {count,4} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
             kind, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
 
     /// Operations on an instance are safe cross-thread
-    type ConcurrentLatencyStats(kind) =
+    type ConcurrentLatencyStats(label) =
         let buffer = System.Collections.Concurrent.ConcurrentStack<TimeSpan>()
         member _.Record value = buffer.Push value
-        member _.Dump(log : Serilog.ILogger) =
+        member _.Dump(log: Serilog.ILogger) =
             if not buffer.IsEmpty then
-                dumpStats kind buffer log
+                dumpStats log label buffer
                 buffer.Clear() // yes, there is a race
 
-    /// Should only be used on one thread
-    type LatencyStats(kind) =
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
+    type LatencyStats(label) =
         let buffer = ResizeArray<TimeSpan>()
         member _.Record value = buffer.Add value
-        member _.Dump(log : Serilog.ILogger) =
+        member _.Dump(log: Serilog.ILogger) =
             if buffer.Count <> 0 then
-                dumpStats kind buffer log
+                dumpStats log label buffer
                 buffer.Clear()
+
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
+    type LatencyStatsSet() =
+        let buckets = Dictionary<string, ResizeArray<TimeSpan>>()
+        let emit log names =
+            let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
+            fun (label: string) -> dumpStats log (label.PadRight maxGroupLen)
+        member _.Record(bucket, value: TimeSpan) =
+            match buckets.TryGetValue bucket with
+            | false, _ -> let n = ResizeArray() in n.Add value; buckets.Add(bucket, n)
+            | true, buf -> buf.Add value
+        member _.Dump(log: Serilog.ILogger, ?labelSortOrder) =
+            if buckets.Count <> 0 then
+                let emit = emit log buckets.Keys
+                for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
+                    emit name buckets[name]
+        member _.DumpGrouped(bucketGroup, log: Serilog.ILogger, ?totalLabel) =
+            if buckets.Count <> 0 then
+                let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
+                let emit = emit log (clusters |> Seq.map fst)
+                totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
+                for name, items in clusters do
+                    emit name (items |> Seq.collect (fun kv -> kv.Value))
+        member _.Clear() = buckets.Clear()
 
 type LogEventLevel = Serilog.Events.LogEventLevel
 

@@ -66,7 +66,7 @@ type internal Stats(partition : int, source : SourceId, tranche : TrancheId, ren
                     elif lastCommittedPosition = batchLastPosition then "COMPLETE"
                     else if finishedReading then "End" else "Tail"
         (Log.withMetric m log).ForContext("tail", lastWasTail).Information(
-            "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} | Wait {pausedS:f1}s Ahead {cur}/{max}",
+            "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} Wait {pausedS:f1}s Ahead {cur}/{max}",
             partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead)
         readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero
         recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
