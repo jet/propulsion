@@ -406,7 +406,7 @@ module Scheduling =
             type Monitor() =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
                 let emit (log: ILogger) level state struct (streams, attempts) struct (oldest: TimeSpan, newest: TimeSpan) =
-                    log.Write(level, " {state,7} {streams,3} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
+                    log.Write(level, " {state,-7} {streams,3} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
                                     state, streams, newest.TotalSeconds, oldest.TotalSeconds, attempts)
                 member _.HandleStarted(sn, ts) =
                     active.HandleStarted(sn, ts)
