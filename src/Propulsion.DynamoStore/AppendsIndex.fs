@@ -14,17 +14,17 @@ module Stream =
 module Events =
 
     [<System.Text.Json.Serialization.JsonConverter(typeof<StartedUpConverter>)>]
-    type Started = { partition : AppendsPartitionId; epoch : AppendsEpochId }
+    type Started = { partition: AppendsPartitionId; epoch: AppendsEpochId }
     /// <= rc.2 used a tranche field. >= rc.3 can accept either a tranche or a partition field in the event body, but will only write a partition
     and StartedUpConverter() =
         inherit FsCodec.SystemTextJson.JsonIsomorphism<Started, StartedBackcompatPreRc2>()
         override _.Pickle e = { partition = Some e.partition; tranche = None; epoch = e.epoch }
         override _.UnPickle e = { partition = (match e.partition with Some p -> p | _ -> e.tranche.Value); epoch = e.epoch }
-    and StartedBackcompatPreRc2 = { partition : AppendsPartitionId option; tranche : AppendsPartitionId option; epoch : AppendsEpochId }
+    and StartedBackcompatPreRc2 = { partition: AppendsPartitionId option; tranche: AppendsPartitionId option; epoch: AppendsEpochId }
 
     type Event =
         | Started of Started
-        | Snapshotted of {| active : Map<AppendsPartitionId, AppendsEpochId> |}
+        | Snapshotted of {| active: Map<AppendsPartitionId, AppendsEpochId> |}
         interface TypeShape.UnionContract.IUnionContract
     let codec = Store.Codec.gen<Event>
 
@@ -44,24 +44,24 @@ module Fold =
         | Events.Snapshotted e -> e.active
     let fold = Array.fold evolve
 
-let readEpochId partitionId (state : Fold.State) =
+let readEpochId partitionId (state: Fold.State) =
     state
     |> Map.tryFind partitionId
 
-let interpret (partitionId, epochId) (state : Fold.State) = [|
+let interpret (partitionId, epochId) (state: Fold.State) = [|
     if state |> readEpochId partitionId |> Option.forall (fun cur -> cur < epochId) && epochId >= AppendsEpochId.initial then
         Events.Started { partition = partitionId; epoch = epochId } |]
 
 type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
     /// Determines the current active epoch for the specified Partition
-    member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
+    member _.ReadIngestionEpochId(partitionId): Async<AppendsEpochId> =
         let decider = resolve ()
         decider.Query(readEpochId partitionId >> Option.defaultValue AppendsEpochId.initial, Equinox.LoadOption.AnyCachedValue)
 
     /// Mark specified `epochId` as live for the purposes of ingesting commits for the specified Partition
     /// Writers are expected to react to having writes to an epoch denied (due to it being Closed) by anointing the successor via this
-    member _.MarkIngestionEpochId(partitionId, epochId) : Async<unit> =
+    member _.MarkIngestionEpochId(partitionId, epochId): Async<unit> =
         let decider = resolve ()
         decider.Transact(interpret (partitionId, epochId), Equinox.LoadOption.AnyCachedValue)
 
@@ -74,23 +74,23 @@ module Factory =
 /// On the Reading Side, there's no advantage to caching (as we have snapshots, and it's Dynamo)
 module Reader =
 
-    let readKnownPartitions (state : Fold.State) : AppendsPartitionId[] =
+    let readKnownPartitions (state: Fold.State): AppendsPartitionId[] =
         state |> Map.toSeq |> Seq.map fst |> Array.ofSeq
 
-    let readIngestionEpochId partitionId (state : Fold.State) =
+    let readIngestionEpochId partitionId (state: Fold.State) =
         state |> Map.tryFind partitionId |> Option.defaultValue AppendsEpochId.initial
 
-    type Service internal (resolve : unit -> Equinox.Decider<Events.Event, Fold.State>) =
+    type Service internal (resolve: unit -> Equinox.Decider<Events.Event, Fold.State>) =
 
-        member _.Read() : Async<Fold.State> =
+        member _.Read(): Async<Fold.State> =
             let decider = resolve ()
             decider.Query(id)
 
-        member _.ReadKnownPartitions() : Async<AppendsPartitionId[]> =
+        member _.ReadKnownPartitions(): Async<AppendsPartitionId[]> =
             let decider = resolve ()
             decider.Query(readKnownPartitions)
 
-        member _.ReadIngestionEpochId(partitionId) : Async<AppendsEpochId> =
+        member _.ReadIngestionEpochId(partitionId): Async<AppendsEpochId> =
             let decider = resolve ()
             decider.Query(readIngestionEpochId partitionId)
 

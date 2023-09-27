@@ -7,24 +7,24 @@ type StartPos = Absolute of int64 | Chunk of int | Percentage of float | TailOrC
 
 type ReaderSpec =
     {   /// Identifier for this projection and it's state
-        groupName : string
+        groupName: string
         /// Indicates user has specified that they wish to restart from the indicated position as opposed to resuming from the checkpoint position
-        forceRestart : bool
+        forceRestart: bool
         /// Start position from which forward reading is to commence // Assuming no stored position
-        start : StartPos
+        start: StartPos
         /// Frequency at which to update the Checkpoint store
-        checkpointInterval : TimeSpan
+        checkpointInterval: TimeSpan
         /// Delay when reading yields an empty batch
-        tailInterval : TimeSpan
+        tailInterval: TimeSpan
         /// Specify initial phase where interleaved reading stripes a 256MB chunk apart attain a balance between good reading speed and not killing the server
-        gorge : int option
+        gorge: int option
         /// Maximum number of striped readers to permit when tailing; this dictates how many stream readers will be used to perform catchup work on streams
         ///   that are missing a prefix (e.g. due to not starting from the start of the $all stream, and/or deleting data from the destination store)
-        streamReaders : int // TODO
+        streamReaders: int // TODO
         /// Initial batch size to use when commencing reading
-        batchSize : int
+        batchSize: int
         /// Smallest batch size to degrade to in the presence of failures
-        minBatchSize : int }
+        minBatchSize: int }
 
 type StartMode = Starting | Resuming | Overridding
 
@@ -35,16 +35,16 @@ module Mapping =
     type RecordedEvent with
         member x.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(x.CreatedEpoch)
 
-    let (|PropulsionTimelineEvent|) (x : RecordedEvent) : Propulsion.Sinks.Event =
-        let inline len0ToNull (x : _[]) = match x with null -> ReadOnlyMemory.Empty | x when x.Length = 0 -> ReadOnlyMemory.Empty | x -> ReadOnlyMemory x
+    let (|PropulsionTimelineEvent|) (x: RecordedEvent): Propulsion.Sinks.Event =
+        let inline len0ToNull (x: _[]) = match x with null -> ReadOnlyMemory.Empty | x when x.Length = 0 -> ReadOnlyMemory.Empty | x -> ReadOnlyMemory x
         FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp)
 
-    let (|PropulsionStreamEvent|) (x : RecordedEvent) : Propulsion.Sinks.StreamEvent =
+    let (|PropulsionStreamEvent|) (x: RecordedEvent): Propulsion.Sinks.StreamEvent =
         Propulsion.Streams.StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x
 
 type EventStoreSource =
     static member Pump
-        (   log : Serilog.ILogger, sink : Propulsion.Sinks.Sink, checkpoints : Checkpoint.CheckpointSeries,
+        (   log: Serilog.ILogger, sink: Propulsion.Sinks.Sink, checkpoints: Checkpoint.CheckpointSeries,
             connect, spec, tryMapEvent,
             maxReadAhead, statsInterval, ct) = task {
         let conn = connect ()

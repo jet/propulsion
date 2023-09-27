@@ -45,7 +45,7 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
             | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
             | Cosmos _ ->                   "Cosmos Connection parameters."
 and CosmosModeType = Container | Db | Serverless
-and CosmosInitArguments(p : ParseResults<InitAuxParameters>) =
+and CosmosInitArguments(p: ParseResults<InitAuxParameters>) =
     let rusOrDefault value = p.GetResult(Rus, value)
     let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000)
                                   else CosmosInit.Throughput.Manual (rusOrDefault 400)
@@ -136,7 +136,7 @@ let [<Literal>] appName = "propulsion-tool"
 
 module CosmosInit =
 
-    let aux (c, p : ParseResults<InitAuxParameters>) =
+    let aux (c, p: ParseResults<InitAuxParameters>) =
         match p.GetSubCommand() with
         | InitAuxParameters.Cosmos sa ->
             let mode, a = (CosmosInitArguments p).ProvisioningMode, Args.Cosmos.Arguments(c, sa)
@@ -163,7 +163,7 @@ module CosmosInit =
 
 module Checkpoints =
 
-    type Arguments(c, p : ParseResults<CheckpointParameters>) =
+    type Arguments(c, p: ParseResults<CheckpointParameters>) =
         member val StoreArgs =
             match p.GetSubCommand() with
             | CheckpointParameters.Cosmos p -> Choice1Of3 (Args.Cosmos.Arguments (c, p))
@@ -171,7 +171,7 @@ module Checkpoints =
             | CheckpointParameters.Pg p ->    Choice3Of3 (Args.Mdb.Arguments (c, p))
             | x -> missingArg $"unexpected subcommand %A{x}"
 
-    let readOrOverride (c, p : ParseResults<CheckpointParameters>, ct) = task {
+    let readOrOverride (c, p: ParseResults<CheckpointParameters>, ct) = task {
         let a = Arguments(c, p)
         let source, tranche, group = p.GetResult Source, p.GetResult Tranche, p.GetResult Group
         let! store, storeSpecFragment, overridePosition = task {
@@ -179,7 +179,7 @@ module Checkpoints =
             match a.StoreArgs with
             | Choice1Of3 a ->
                 let! store = a.CreateCheckpointStore(group, cache, Metrics.log)
-                return (store : Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos, ct)
+                return (store: Propulsion.Feed.IFeedCheckpointStore), "cosmos", fun pos -> store.Override(source, tranche, pos, ct)
             | Choice2Of3 a ->
                 let store = a.CreateCheckpointStore(group, cache, Metrics.log)
                 return store, $"dynamo -t {a.IndexTable}", fun pos -> store.Override(source, tranche, pos, ct)
@@ -203,7 +203,7 @@ module Indexer =
 
     open Propulsion.DynamoStore
 
-    type Arguments(c, p : ParseResults<IndexParameters>) =
+    type Arguments(c, p: ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
         member val TrancheId =              p.TryGetResult IndexParameters.IndexPartitionId |> Option.map (string >> AppendsPartitionId.parse)
@@ -220,7 +220,7 @@ module Indexer =
 
     let dumpSummary gapsLimit streams spanCount =
         let mutable totalS, totalE, queuing, buffered, gapped = 0, 0L, 0, 0, 0
-        for KeyValue (stream, v : DynamoStoreIndex.BufferStreamState) in streams do
+        for KeyValue (stream, v: DynamoStoreIndex.BufferStreamState) in streams do
             totalS <- totalS + 1
             totalE <- totalE + int64 v.writePos
             if v.spans.Length > 0 then
@@ -238,7 +238,7 @@ module Indexer =
         Log.Write(level, "Index {events:n0} events {streams:n0} streams ({spans:n0} spans) Buffered {buffered} Queueing {queuing} Gapped {gapped:n0}",
                   totalE, totalS, spanCount, buffered, queuing, gapped)
 
-    let run (c : Args.Configuration, p : ParseResults<IndexParameters>) = async {
+    let run (c: Args.Configuration, p: ParseResults<IndexParameters>) = async {
         let a = Arguments(c, p)
         let context = a.CreateContext()
 
@@ -282,7 +282,7 @@ module Indexer =
 
 module Project =
 
-    type KafkaArguments(c, p : ParseResults<KafkaParameters>) =
+    type KafkaArguments(c, p: ParseResults<KafkaParameters>) =
         member _.Broker =                   p.TryGetResult Broker |> Option.defaultWith (fun () -> c.KafkaBroker)
         member _.Topic =                    p.TryGetResult Topic |> Option.defaultWith (fun () -> c.KafkaTopic)
         member val StoreArgs =
@@ -292,14 +292,14 @@ module Project =
             | KafkaParameters.Mdb p -> Choice3Of3 (Args.Mdb.Arguments (c, p))
             | x -> missingArg $"unexpected subcommand %A{x}"
 
-    type StatsArguments(c, p : ParseResults<StatsParameters>) =
+    type StatsArguments(c, p: ParseResults<StatsParameters>) =
         member val StoreArgs =
             match p.GetSubCommand() with
             | StatsParameters.Cosmos    p -> Choice1Of3 (Args.Cosmos.Arguments    (c, p))
             | StatsParameters.Dynamo    p -> Choice2Of3 (Args.Dynamo.Arguments    (c, p))
             | StatsParameters.Mdb p -> Choice3Of3 (Args.Mdb.Arguments (c, p))
 
-    type Arguments(c, p : ParseResults<ProjectParameters>) =
+    type Arguments(c, p: ParseResults<ProjectParameters>) =
         member val IdleDelay =              TimeSpan.FromMilliseconds 10.
         member val StoreArgs =
             match p.GetSubCommand() with
@@ -316,7 +316,7 @@ module Project =
             base.DumpStats()
             logExternalStats Log.Logger
 
-    let run (c : Args.Configuration, p : ParseResults<ProjectParameters>) = async {
+    let run (c: Args.Configuration, p: ParseResults<ProjectParameters>) = async {
         let a = Arguments(c, p)
         let storeArgs, dumpStoreStats =
             match a.StoreArgs with
@@ -337,7 +337,7 @@ module Project =
         let stats = Stats(TimeSpan.FromMinutes 1., TimeSpan.FromMinutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
-            let handle (stream : FsCodec.StreamName) (span : Propulsion.Sinks.Event[]) = async {
+            let handle (stream: FsCodec.StreamName) (span: Propulsion.Sinks.Event[]) = async {
                 match producer with
                 | None -> ()
                 | Some producer ->

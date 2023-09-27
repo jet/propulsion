@@ -10,47 +10,47 @@ open System
 [<NoComparison; NoEquality>]
 type DynamoStoreReactorLambdaProps =
     {   /// SNS/SQS FIFO Topic Arn to trigger execution from
-        updatesSource : UpdatesSource
+        updatesSource: UpdatesSource
 
         /// DynamoDB Region
-        regionName : string
+        regionName: string
         /// DynamoDB Store Table Name
-        storeTableName : string
+        storeTableName: string
         /// DynamoDB Index Table Name
-        indexTableName : string
+        indexTableName: string
 
         /// Lambda memory allocation
-        memorySize : int
+        memorySize: int
         /// Lambda max batch size
-        batchSize : int
+        batchSize: int
         /// Lambda execution timeout
-        timeout : TimeSpan
+        timeout: TimeSpan
 
-        lambdaDescription : string
+        lambdaDescription: string
 
         /// Folder path for code output (can also be a link to a .zip file)
-        codePath : string
-        lambdaArchitecture : Architecture
-        lambdaRuntime : Runtime
-        lambdaHandler : string }
+        codePath: string
+        lambdaArchitecture: Architecture
+        lambdaRuntime: Runtime
+        lambdaHandler: string }
 and UpdatesSource =
     /// Attach an SQS FIFO SNS Queue to a nominated FIFO topic
     /// NOTE: this naturally constrains the parallelism of the Lambda to 1 per Tranche and is the recommended configuration
-    | UpdatesTopic of fifoTopicArn : string
+    | UpdatesTopic of fifoTopicArn: string
     /// Attach a non-FIFO SNS Queue to the nominated (non-FIFO) topic,
     /// constraining parallel execution by using ReservedConcurrency for the Labda
-    | UpdatesNonFifoTopic of topicArn : string * reservedConcurrency : int
+    | UpdatesNonFifoTopic of topicArn: string * reservedConcurrency: int
     /// Use an existing queue without applying a ReservedConcurrency configuration for the Lambda
-    | UpdatesQueue of queueArn : string
+    | UpdatesQueue of queueArn: string
 
-type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) as stack =
+type DynamoStoreReactorLambda(scope, id, props: DynamoStoreReactorLambdaProps) as stack =
     inherit Constructs.Construct(scope, id)
 
     let lambdaTimeout, queueVisibilityTimeout =
         let raw = props.timeout.TotalSeconds
         Amazon.CDK.Duration.Seconds raw, Amazon.CDK.Duration.Seconds (raw + 3.)
-    let queue, (reservedConcurrency : Nullable<float>) =
-        let attachQueueToTopic (fifo : bool) (topic : ITopic) =
+    let queue, (reservedConcurrency: Nullable<float>) =
+        let attachQueueToTopic (fifo: bool) (topic: ITopic) =
             let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout, Fifo = fifo))
             topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(
                 RawMessageDelivery = true))) // need MessageAttributes to be included in the delivered message
@@ -78,7 +78,7 @@ type DynamoStoreReactorLambda(scope, id, props : DynamoStoreReactorLambdaProps) 
         grantReadWriteOnTable "storeTable" props.storeTableName
         role
     let code = Code.FromAsset(props.codePath)
-    let fn : Function = Function(stack, "Reactor", FunctionProps(
+    let fn: Function = Function(stack, "Reactor", FunctionProps(
         Role = role, Description = props.lambdaDescription,
         Code = code, Architecture = props.lambdaArchitecture, Runtime = props.lambdaRuntime, Handler = props.lambdaHandler,
         MemorySize = float props.memorySize, Timeout = lambdaTimeout, ReservedConcurrentExecutions = reservedConcurrency,

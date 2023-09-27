@@ -8,33 +8,33 @@ open System
 [<NoComparison; NoEquality>]
 type DynamoStoreNotifierLambdaProps =
     {   /// DynamoDB Streams Source ARN
-        indexStreamArn : string
+        indexStreamArn: string
 
         /// SNS FIFO Topic Arn to publish to (Default: Assign a fresh one)
-        updatesTarget : UpdatesTarget
+        updatesTarget: UpdatesTarget
 
         /// Lambda memory allocation
-        memorySize : int
+        memorySize: int
         /// Lambda max batch size
-        batchSize : int
+        batchSize: int
         /// Lambda execution timeout
-        timeout : TimeSpan
+        timeout: TimeSpan
 
         /// Folder path for linux-arm64 publish output (can also be a link to a .zip file)
-        codePath : string }
+        codePath: string }
 and UpdatesTarget =
     /// Establish a FIFO topic as part of the Stack
     | Default
     /// Target an existing topic - doesn't matter if it's FIFO
-    | ExistingTopic of topicArn : string
+    | ExistingTopic of topicArn: string
     /// Establish a non-FIFO Topic (NOTE you'll want to constrain Reactor Lambdas to max one instance by assigning it Reserved capacity)
     | NonFifoTopic
 
-type DynamoStoreNotifierLambda(scope, id, props : DynamoStoreNotifierLambdaProps) as stack =
+type DynamoStoreNotifierLambda(scope, id, props: DynamoStoreNotifierLambdaProps) as stack =
     inherit Constructs.Construct(scope, id)
 
     let topic =
-        let createTopic (fifo : bool) = Topic(stack, "Updates", TopicProps(
+        let createTopic (fifo: bool) = Topic(stack, "Updates", TopicProps(
             DisplayName = "Tranche Position updates topic",
             TopicName = "Updates",
             Fifo = fifo))
@@ -61,7 +61,7 @@ type DynamoStoreNotifierLambda(scope, id, props : DynamoStoreNotifierLambdaProps
 
     // See dotnet-templates/propulsion-dynamostore-cdk project file for MSBuild logic extracting content from tools folder of the nupkg file
     let code = Code.FromAsset(props.codePath)
-    let fn : Function = Function(stack, "Notifier", FunctionProps(
+    let fn: Function = Function(stack, "Notifier", FunctionProps(
         Role = role, Description = "Propulsion DynamoStore Notifier",
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Notifier::Propulsion.DynamoStore.Notifier.Function::Handle",

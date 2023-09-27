@@ -23,5 +23,5 @@ type Function() =
             .WriteTo.Console(outputTemplate = template)
             .CreateLogger()
 
-    member _.Handle(dynamoEvent : DynamoDBEvent, _context : ILambdaContext) : System.Threading.Tasks.Task =
+    member _.Handle(dynamoEvent: DynamoDBEvent, _context: ILambdaContext): System.Threading.Tasks.Task =
         Handler.handle log snsClient dynamoEvent

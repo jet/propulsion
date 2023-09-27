@@ -11,7 +11,7 @@ let [<Literal>] TableName = "propulsion_checkpoint"
 
 module internal Impl =
 
-    let createIfNotExists (conn : NpgsqlConnection, schema: string) ct =
+    let createIfNotExists (conn: NpgsqlConnection, schema: string) ct =
         let cmd = conn.CreateCommand(CommandText = $"create table if not exists {schema}.{TableName} (
                                                        source text not null,
                                                        tranche text not null,
@@ -20,7 +20,7 @@ module internal Impl =
                                                        primary key (source, tranche, consumer_group));")
         cmd.ExecuteNonQueryAsync(ct)
 
-    let commitPosition (conn : NpgsqlConnection, schema: string) source tranche (consumerGroup : string) (position : int64) ct =
+    let commitPosition (conn: NpgsqlConnection, schema: string) source tranche (consumerGroup: string) (position: int64) ct =
         let cmd = conn.CreateCommand(CommandText = $"insert into {schema}.{TableName}(source, tranche, consumer_group, position)
                                                      values (@Source, @Tranche, @ConsumerGroup, @Position)
                                                      on conflict (source, tranche, consumer_group)
@@ -31,7 +31,7 @@ module internal Impl =
         cmd.Parameters.AddWithValue("Position", NpgsqlDbType.Bigint, position) |> ignore
         cmd.ExecuteNonQueryAsync(ct)
 
-    let tryGetPosition (conn : NpgsqlConnection, schema : string) source tranche (consumerGroup : string) (ct : CancellationToken) = task {
+    let tryGetPosition (conn: NpgsqlConnection, schema: string) source tranche (consumerGroup: string) (ct: CancellationToken) = task {
         let cmd = conn.CreateCommand(CommandText = $"select position from {schema}.{TableName}
                                                       where source = @Source
                                                         and tranche = @Tranche
@@ -46,7 +46,7 @@ module internal Impl =
         use! conn = Internal.createConnectionAndOpen connString ct
         return! f conn ct }
 
-type CheckpointStore(connString : string, schema : string, consumerGroupName) =
+type CheckpointStore(connString: string, schema: string, consumerGroupName) =
 
     let exec f = Impl.exec connString f
     let setPos source tranche pos ct =
@@ -57,7 +57,7 @@ type CheckpointStore(connString : string, schema : string, consumerGroupName) =
         let creat conn = Impl.createIfNotExists (conn, schema)
         exec creat (defaultArg ct CancellationToken.None) |> Task.ignore
 
-    member _.Override(source, tranche, pos : Position, ct) =
+    member _.Override(source, tranche, pos: Position, ct) =
         setPos source tranche pos ct |> Task.ignore
 
     interface IFeedCheckpointStore with

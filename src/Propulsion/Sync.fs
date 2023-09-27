@@ -10,7 +10,7 @@ open System.Threading
 open System.Threading.Tasks
 
 [<AbstractClass>]
-type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
+type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let mutable okStreams, okEvents, okBytes, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), 0, 0L
     let prepareStats = Stats.LatencyStats("prepare")
@@ -21,7 +21,7 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] 
         okStreams.Clear(); okEvents <- 0; okBytes <- 0L; exnStreams.Clear(); exnBytes <- 0; exnEvents <- 0
         prepareStats.Dump log
 
-    abstract member Classify : exn -> OutcomeKind
+    abstract member Classify: exn -> OutcomeKind
     default _.Classify e = OutcomeKind.classify e
 
     override this.Handle message =
@@ -39,16 +39,16 @@ type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] 
             exnBytes <- exnBytes + int64 bs
             base.RecordExn(message, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)
 
-    abstract member HandleOk : outcome : 'Outcome -> unit
+    abstract member HandleOk: outcome: 'Outcome -> unit
 
 [<AbstractClass; Sealed>]
 type Factory private () =
 
     static member StartAsync
-        (   log : ILogger, maxReadAhead, maxConcurrentStreams,
-            handle : Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
-            toIndex : Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
-            stats : Stats<'Outcome>, sliceSize, eventSize,
+        (   log: ILogger, maxReadAhead, maxConcurrentStreams,
+            handle: Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
+            toIndex: Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
+            stats: Stats<'Outcome>, sliceSize, eventSize,
             ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
 

@@ -10,7 +10,7 @@ open System.Collections.Generic
 open System.Net
 open System.Threading
 
-let private parse (log : Serilog.ILogger) (dynamoEvent : DynamoDBEvent) : KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
+let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
     let tails = Dictionary()
     let updateTails partitionId checkpoint =
         match tails.TryGetValue partitionId with
@@ -67,7 +67,7 @@ let private mkRequest topicArn messages =
         req.PublishBatchRequestEntries.Add(e))
     req
 
-let private publishBatch (client : IAmazonSimpleNotificationService) (log : Serilog.ILogger) ct (req : PublishBatchRequest) = task {
+let private publishBatch (client: IAmazonSimpleNotificationService) (log: Serilog.ILogger) ct (req: PublishBatchRequest) = task {
     let! res = client.PublishBatchAsync(req, ct)
     if res.HttpStatusCode <> HttpStatusCode.OK || res.Failed.Count <> 0 then
         let fails = [| for x in res.Failed -> struct (x.Code, x.SenderFault, x.Message) |]
@@ -76,13 +76,13 @@ let private publishBatch (client : IAmazonSimpleNotificationService) (log : Seri
 
 type SnsClient(topicArn) =
 
-    let client : IAmazonSimpleNotificationService = new AmazonSimpleNotificationServiceClient()
+    let client: IAmazonSimpleNotificationService = new AmazonSimpleNotificationServiceClient()
 
-    member _.Publish(log : Serilog.ILogger, messageGroupsAndMessages) = task {
+    member _.Publish(log: Serilog.ILogger, messageGroupsAndMessages) = task {
         for b in messageGroupsAndMessages |> Seq.chunkBySize 10 |> Seq.map (mkRequest topicArn) do
            do! publishBatch client log CancellationToken.None b }
 
-let handle log (client : SnsClient) dynamoEvent = task {
+let handle log (client: SnsClient) dynamoEvent = task {
     match parse log dynamoEvent with
     | [||] -> ()
     | spans -> do! client.Publish(log, seq { for m in spans -> AppendsPartitionId.toString m.Key, Propulsion.Feed.Position.toString m.Value }) }

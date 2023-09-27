@@ -8,7 +8,7 @@ open System.Threading.Tasks
 
 /// Represents a running Pipeline as triggered by a `Start` method , until `Stop()` is requested or the pipeline becomes Faulted for any reason
 /// Conclusion of processing can be awaited by via `Await`/`Wait` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
-type Pipeline(task : Task<unit>, triggerStop) =
+type Pipeline(task: Task<unit>, triggerStop) =
 
     interface IDisposable with member x.Dispose() = triggerStop true
 
@@ -25,10 +25,10 @@ type Pipeline(task : Task<unit>, triggerStop) =
     member _.Stop() = triggerStop false
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
-    member _.Wait() : Task<unit> = task
+    member _.Wait(): Task<unit> = task
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
-    member _.Await() : Async<unit> = task |> Async.ofTask
+    member _.Await(): Async<unit> = task |> Async.ofTask
 
     /// Asynchronously awaits until this pipeline stops or is faulted.<br/>
     /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>Await</c> if such semantics are not desired.
@@ -37,7 +37,7 @@ type Pipeline(task : Task<unit>, triggerStop) =
         use _ = ct.Register(fun () -> x.Stop())
         return! x.Await() }
 
-    static member Prepare(log : ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
+    static member Prepare(log: ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new CancellationTokenSource()
         let triggerStop disposing =
             let level = if disposing || cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
@@ -47,13 +47,13 @@ type Pipeline(task : Task<unit>, triggerStop) =
 
         let tcs = TaskCompletionSource<unit>()
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
-        let abend (exns : AggregateException) =
+        let abend (exns: AggregateException) =
             if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
             else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 
-        let run (name : string) (f : CancellationToken -> Task<unit>) =
+        let run (name: string) (f: CancellationToken -> Task<unit>) =
             let wrap () = task {
                 try do! f ct
                     log.Information("... {name} stopped", name)
@@ -85,16 +85,16 @@ type Pipeline(task : Task<unit>, triggerStop) =
         let task = Task.Run<unit>(supervise)
         task, triggerStop
 
-type SourcePipeline<'M>(task, triggerStop, monitor : Lazy<'M>) =
+type SourcePipeline<'M>(task, triggerStop, monitor: Lazy<'M>) =
     inherit Pipeline(task, triggerStop)
 
     member _.Monitor = monitor.Value
 
-type Sink<'Ingester> private (task : Task<unit>, triggerStop, startIngester) =
+type Sink<'Ingester> private (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
-    member _.StartIngester(rangeLog : ILogger, partitionId : int) : 'Ingester = startIngester (rangeLog, partitionId)
+    member _.StartIngester(rangeLog: ILogger, partitionId: int): 'Ingester = startIngester (rangeLog, partitionId)
 
-    static member Start(log : ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
+    static member Start(log: ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
         let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
         new Sink<'Ingester>(task, triggerStop, startIngester)

@@ -4,7 +4,7 @@ open Propulsion.Internal
 
 /// Represents a (potentially coalesced) span of events as loaded from either the Index or a DynamoDB Export
 type [<Struct>] EventSpan =
-    { i : int; c : string[] }
+    { i: int; c: string[] }
     static member Create(index, eventTypes) = { i = index; c = eventTypes }
     member x.Index = x.i
     member x.Length = x.c.Length
@@ -13,14 +13,14 @@ type [<Struct>] EventSpan =
 module StreamQueue =
 
     /// Given a span of events, select portion that's not already ingested (i.e. falls beyond our write Position)
-    let inline internal chooseUnwritten writePos (x : EventSpan) =
+    let inline internal chooseUnwritten writePos (x: EventSpan) =
         if writePos <= x.Index then ValueSome x
         elif writePos >= x.Version then ValueNone
         else ValueSome { i = writePos; c = Array.skip (writePos - x.Index) x.c }
 
     /// Responsible for coalescing overlapping and/or adjacent spans
     /// Requires, and ensures, that queue is ordered correctly before and afterwards
-    let insert (y : EventSpan) (xs : EventSpan[]) =
+    let insert (y: EventSpan) (xs: EventSpan[]) =
         if y.Length = 0 then invalidArg (nameof y) "Can't be zero length"
         if xs = null then nullArg (nameof xs)
         if Array.isEmpty xs then Array.singleton y else
@@ -49,7 +49,7 @@ module StreamQueue =
         elif acc = null then Array.singleton y
         else acc.Add y; acc.ToArray()
 
-type [<Struct>] BufferStreamState = { writePos : int; spans : EventSpan[] }
+type [<Struct>] BufferStreamState = { writePos: int; spans: EventSpan[] }
 
 type Buffer() =
 
@@ -89,12 +89,12 @@ type Buffer() =
         let _ok, u = add false stream span
         u.spans |> Array.tryHead |> Option.filter (fun h -> h.Index = u.writePos)
 
-    member val Items : System.Collections.Generic.IReadOnlyDictionary<_, _> = streams
+    member val Items: System.Collections.Generic.IReadOnlyDictionary<_, _> = streams
 
 module Reader =
 
     // Returns flattened list of all spans, and flag indicating whether tail reached
-    let private loadIndexEpoch (log : Serilog.ILogger) (epochs : AppendsEpoch.Reader.Service) partitionId epochId
+    let private loadIndexEpoch (log: Serilog.ILogger) (epochs: AppendsEpoch.Reader.Service) partitionId epochId
         : Async<AppendsEpoch.Events.StreamSpan[] * bool * int64> = async {
         let ts = Stopwatch.timestamp ()
         let! maybeStreamBytes, _version, state = epochs.Read(partitionId, epochId, 0)

@@ -5,7 +5,7 @@ open System
 open System.Threading.Tasks
 
 #if COSMOSV3
-let streamName (source, tranche, consumerGroupName : string) =
+let streamName (source, tranche, consumerGroupName: string) =
     if consumerGroupName = null then
         let Category = "ReaderCheckpoint"
         // This form is only used for interop with the V3 Propulsion.Feed.FeedSource - anyone starting with V4 should only ever encounter tripartite names
@@ -23,12 +23,12 @@ module Stream =
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
 
-    type Config =       { checkpointFreqS : int }
-    type Checkpoint =   { at : DateTimeOffset; nextCheckpointDue : DateTimeOffset; pos : Position }
+    type Config =       { checkpointFreqS: int }
+    type Checkpoint =   { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: Position }
 
-    type Started =      { config : Config; origin : Checkpoint }
-    type Updated =      { config : Config; pos : Checkpoint }
-    type Snapshotted =  { config : Config; state : Checkpoint }
+    type Started =      { config: Config; origin: Checkpoint }
+    type Updated =      { config: Config; pos: Checkpoint }
+    type Snapshotted =  { config: Config; state: Checkpoint }
 
     type Event =
         | Started       of Started
@@ -58,7 +58,7 @@ module Fold =
 
     type State = NotStarted | Running of Events.Snapshotted
 
-    let initial : State = NotStarted
+    let initial: State = NotStarted
     let private evolve _state = function
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
@@ -76,21 +76,21 @@ module Fold =
     /// So, we post-process the events to remove `Updated` events (as opposed to `Checkpointed` ones),
     /// knowing that the state already has that Updated event folded into it when we snapshot
 #if COSMOSV3
-    let transmute events state : Events.Event list * Events.Event list =
+    let transmute events state: Events.Event list * Events.Event list =
         match events, state with
         | [Events.Updated _], state -> [], [toSnapshot state]
         | xs, state ->                 xs, [toSnapshot state]
 #else
-    let transmute events state : Events.Event[] * Events.Event[] =
+    let transmute events state: Events.Event[] * Events.Event[] =
         match events, state with
         | [| Events.Updated _ |], state -> [||], [| toSnapshot state |]
         | xs, state ->                     xs, [| toSnapshot state |]
 #endif
-let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
-let private mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
+let private mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos }: Events.Checkpoint
+let private mk (at: DateTimeOffset) (interval: TimeSpan) pos: Events.Config * Events.Checkpoint =
     let next = at.Add interval
     { checkpointFreqS = int interval.TotalSeconds }, mkCheckpoint at next pos
-let private configFreq (config : Events.Config) =
+let private configFreq (config: Events.Config) =
     config.checkpointFreqS |> float |> TimeSpan.FromSeconds
 
 let decideStart establishOrigin at freq state = async {
@@ -102,7 +102,7 @@ let decideStart establishOrigin at freq state = async {
     | Fold.Running s ->
         return s.state.pos, [||] }
 
-let decideOverride at (freq : TimeSpan) pos = function
+let decideOverride at (freq: TimeSpan) pos = function
     | Fold.Running s when s.state.pos = pos && s.config.checkpointFreqS = int freq.TotalSeconds -> [||]
     | _ ->
         let config, checkpoint = mk at freq pos
@@ -122,11 +122,11 @@ let decideUpdate at pos = function
 #if COSMOSV3
 module Equinox = module LoadOption = let AnyCachedValue = ()
 type Equinox.Decider<'e, 's> with
-    member x.Transact(decide, load : unit): Async<'r> =
+    member x.Transact(decide, load: unit): Async<'r> =
         x.TransactAsync(fun s -> async { let! r, es = decide s in return r, Array.toList es })
-    member x.Transact(decide, load : unit): Async<'r> =
+    member x.Transact(decide, load: unit): Async<'r> =
         x.Transact(decide >> function r, es -> r, Array.toList es)
-    member x.Transact(decide, ?load : unit): Async<unit> =
+    member x.Transact(decide, ?load: unit): Async<unit> =
         x.Transact(decide >> Array.toList)
 type Service internal (resolve: (SourceId * TrancheId * string) -> Equinox.Decider<Events.Event, Fold.State>, consumerGroupName, defaultCheckpointFrequency) =
 #else
@@ -137,7 +137,7 @@ type Service internal (resolve: struct (SourceId * TrancheId * string) -> Equino
 
         /// Start a checkpointing series with the supplied parameters
         /// Yields the checkpoint interval and the starting position
-        member _.Start(source, tranche, establishOrigin, ct) : Task<Position> =
+        member _.Start(source, tranche, establishOrigin, ct): Task<Position> =
             let decider = resolve (source, tranche, consumerGroupName)
             let establishOrigin = match establishOrigin with None -> async { return Position.initial } | Some f -> Async.call f.Invoke
             decider.Transact(decideStart establishOrigin DateTimeOffset.UtcNow defaultCheckpointFrequency, load = Equinox.LoadOption.AnyCachedValue)
@@ -145,13 +145,13 @@ type Service internal (resolve: struct (SourceId * TrancheId * string) -> Equino
 
         /// Ingest a position update
         /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-        member _.Commit(source, tranche, pos : Position, ct) =
+        member _.Commit(source, tranche, pos: Position, ct) =
             let decider = resolve (source, tranche, consumerGroupName)
             decider.Transact(decideUpdate DateTimeOffset.UtcNow pos, load = Equinox.LoadOption.AnyCachedValue)
             |> Async.executeAsTask ct :> _
 
     /// Override a checkpointing series with the supplied parameters
-    member _.Override(source, tranche, pos : Position, ct): Task<unit> =
+    member _.Override(source, tranche, pos: Position, ct): Task<unit> =
         let decider = resolve (source, tranche, consumerGroupName)
         decider.Transact(decideOverride DateTimeOffset.UtcNow defaultCheckpointFrequency pos) |> Async.executeAsTask ct
 

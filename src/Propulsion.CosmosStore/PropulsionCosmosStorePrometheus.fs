@@ -18,7 +18,7 @@ module private Impl =
 
 module private Gauge =
 
-    let private make (config : Prometheus.GaugeConfiguration) name desc =
+    let private make (config: Prometheus.GaugeConfiguration) name desc =
         let gauge = Prometheus.Metrics.CreateGauge(name, desc, config)
         fun tagValues (db, con, group, range) value ->
             let labelValues = append tagValues [| db; con; group; range |]
@@ -30,7 +30,7 @@ module private Gauge =
 
 module private Counter =
 
-    let private make (config : Prometheus.CounterConfiguration) name desc =
+    let private make (config: Prometheus.CounterConfiguration) name desc =
         let ctr = Prometheus.Metrics.CreateCounter(name, desc, config)
         fun tagValues (db, con, group, range) value ->
             let labelValues = append tagValues [| db; con; group; range |]
@@ -42,7 +42,7 @@ module private Counter =
 
 module private Summary =
 
-    let private create (config : Prometheus.SummaryConfiguration) name desc =
+    let private create (config: Prometheus.SummaryConfiguration) name desc =
         let summary = Prometheus.Metrics.CreateSummary(name, desc, config)
         fun tagValues (db, con, group) value ->
             let labelValues = append tagValues [| db; con; group; |]
@@ -67,7 +67,7 @@ module private Summary =
 
 module private Histogram =
 
-    let private create (config : Prometheus.HistogramConfiguration) name desc =
+    let private create (config: Prometheus.HistogramConfiguration) name desc =
         let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
         fun tagValues (db, con, group) value ->
             let labelValues = append tagValues [| db; con; group; |]
@@ -109,7 +109,7 @@ type LogSink(customTags: seq<string * string>) =
     let observeRangeDocCount =  Counter.create      tags "documents_total" "Observed document count" // read
     let observeRangeRu =        Counter.create      tags "ru_total"        "Observed batch read Request Charges" // read
 
-    let observeRead (m : ReadMetric) =
+    let observeRead (m: ReadMetric) =
         let range = m.database, m.container, m.group, string m.rangeId
         let ageS, latS, readDocs, token = m.age.TotalSeconds, m.latency.TotalSeconds, float m.docs, float m.token
         observeRangeToken range token
@@ -126,7 +126,7 @@ type LogSink(customTags: seq<string * string>) =
         observeIngestLatSum group ingestLatS
         observeIngestQueue range ingestQueueLen
 
-    let observeLag (m : LagMetric) =
+    let observeLag (m: LagMetric) =
         for rangeId, lag in m.rangeLags do
             let range = m.database, m.container, m.group, string rangeId
             observeRangeLag range (float lag)

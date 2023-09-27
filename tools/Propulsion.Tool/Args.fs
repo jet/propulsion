@@ -5,7 +5,7 @@ open Propulsion.Internal
 open Serilog
 open System
 
-exception MissingArg of message : string with override this.Message = this.message
+exception MissingArg of message: string with override this.Message = this.message
 let missingArg msg = raise (MissingArg msg)
 
 module Configuration =
@@ -34,7 +34,7 @@ module Configuration =
         let [<Literal>] CONNECTION_STRING =         "MDB_CONNECTION_STRING"
         let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
 
-type Configuration(tryGet : string -> string option) =
+type Configuration(tryGet: string -> string option) =
 
     member val tryGet =                             tryGet
     member _.get key =                              match tryGet key with
@@ -86,7 +86,7 @@ module Cosmos =
                 | Suffix _ ->               "Specify Container Name suffix (default: `-aux`, if LeaseContainer not specified)."
                 | LagFreqM _ ->             "Specify frequency to dump lag stats. Default: off"
 
-    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+    type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let connection =                    p.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
         let discovery =                     Equinox.CosmosStore.Discovery.ConnectionString connection
         let mode =                          p.TryGetResult ConnectionMode
@@ -157,7 +157,7 @@ module Dynamo =
                 | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
                 | IndexPartition _ ->       "Constrain Index Partitions to load. Default: Load all indexed partitions"
 
-    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+    type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let conn =                          match p.TryGetResult RegionProfile |> Option.orElseWith (fun () -> c.DynamoRegion) with
                                             | Some systemName ->
                                                 Choice1Of2 systemName
@@ -234,7 +234,7 @@ module Mdb =
                 | CheckpointSchema _ ->     $"Schema that should contain the checkpoints table Optional if environment variable {SCHEMA} is defined"
                 | Category _ ->             "The message-db category to load (must specify >1 when projecting)"
 
-    type Arguments(c : Configuration, p : ParseResults<Parameters>) =
+    type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let conn () = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
         let checkpointConn () = p.TryGetResult CheckpointConnectionString |> Option.defaultWith conn
         let schema = p.TryGetResult CheckpointSchema |> Option.defaultWith (fun () -> c.MdbSchema)

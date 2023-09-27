@@ -26,13 +26,13 @@ module Stream =
 module Events =
 
 #if PROPULSION_DYNAMOSTORE_NOTIFIER
-    let isEventTypeClosed (et : string) = et = "Closed"
+    let isEventTypeClosed (et: string) = et = "Closed"
 #else
     // NOTE while the `i` values in `app` could be inferred, we redundantly store them to enable optimal tailing
     //      without having to read and/or process/cache all preceding events
-    type Ingested =             { add : StreamSpan[]; app : StreamSpan[] }
+    type Ingested =             { add: StreamSpan[]; app: StreamSpan[] }
                                 // Structure mapped from DynamoStore.Batch.Schema: p: stream, i: index, c: array of event types
-     and [<Struct>] StreamSpan = { p : IndexStreamId; i : int64; c : string[] }
+     and [<Struct>] StreamSpan = { p: IndexStreamId; i: int64; c: string[] }
     type Event =
         | Ingested of           Ingested
         | Closed
@@ -42,9 +42,9 @@ module Events =
 #endif
 
 #if !PROPULSION_DYNAMOSTORE_NOTIFIER
-let next (x : Events.StreamSpan) = int x.i + x.c.Length
+let next (x: Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
-let flatten : Events.StreamSpan seq -> Events.StreamSpan seq =
+let flatten: Events.StreamSpan seq -> Events.StreamSpan seq =
     Seq.groupBy (fun x -> x.p)
     >> Seq.map (fun (p, xs) ->
         let mutable i = -1L
@@ -61,27 +61,27 @@ module Fold =
 
     [<NoComparison; NoEquality>]
     type State =
-        { versions : ImmutableDictionary<IndexStreamId, int>; closed : bool }
-        member state.With(e : Events.Ingested) =
+        { versions: ImmutableDictionary<IndexStreamId, int>; closed: bool }
+        member state.With(e: Events.Ingested) =
             let news = seq { for x in e.add -> KeyValuePair(x.p, next x) }
             let updates = seq { for x in e.app -> KeyValuePair(x.p, next x) }
             { state with versions = state.versions.AddRange(news).SetItems(updates)  }
         member state.WithClosed() = { state with closed = true }
     let initial = { versions = ImmutableDictionary.Create(); closed = false }
-    let private evolve (state : State) = function
+    let private evolve (state: State) = function
         | Events.Ingested e ->  state.With(e)
         | Events.Closed ->      state.WithClosed()
     let fold = Array.fold evolve
 
 module Ingest =
 
-    let (|Start|Append|Discard|Gap|) ({ versions = cur } : Fold.State, eventSpan : Events.StreamSpan) =
+    let (|Start|Append|Discard|Gap|) ({ versions = cur }: Fold.State, eventSpan: Events.StreamSpan) =
         match cur.TryGetValue eventSpan.p with
         | false, _ -> Start eventSpan
         | true, curNext ->
             match next eventSpan - curNext with
             | appendLen when appendLen > eventSpan.c.Length -> Gap (appendLen - eventSpan.c.Length)
-            | appendLen when appendLen > 0 -> Append ({ p = eventSpan.p; i = curNext; c = Array.skip (eventSpan.c.Length - appendLen) eventSpan.c } : Events.StreamSpan)
+            | appendLen when appendLen > 0 -> Append ({ p = eventSpan.p; i = curNext; c = Array.skip (eventSpan.c.Length - appendLen) eventSpan.c }: Events.StreamSpan)
             | _ -> Discard
 
     /// Takes a set of spans, flattens them and trims them relative to the currently established per-stream high-watermarks
@@ -103,15 +103,15 @@ module Ingest =
         | [||], [||] -> None
         | s, a -> Some { add = s; app = a }
     /// Trims the supplied inputs, removing items that overlap with this Epoch's per-stream max index
-    let removeDuplicates state inputs : Events.StreamSpan[] =
+    let removeDuplicates state inputs: Events.StreamSpan[] =
         [| for eventSpan in flatten inputs do
             match state, eventSpan with
             | Start es
             | Append es -> es
             | Gap _ -> eventSpan
             | Discard -> () |]
-    let decide onlyWarnOnGap shouldClose (inputs : Events.StreamSpan seq) : _ -> _ * _ = function
-        | ({ closed = false; versions = cur } as state : Fold.State) ->
+    let decide onlyWarnOnGap shouldClose (inputs: Events.StreamSpan seq): _ -> _ * _ = function
+        | ({ closed = false; versions = cur } as state: Fold.State) ->
             let closed, ingested, events =
                 match tryToIngested onlyWarnOnGap state inputs with
                 | None -> false, Array.empty, [||]
@@ -120,14 +120,14 @@ module Ingest =
                     let ingestEvent = Events.Ingested diff
                     let ingested = (seq { for x in diff.add -> x.p }, seq { for x in diff.app -> x.p }) ||> Seq.append |> Array.ofSeq
                     closing, ingested, [| ingestEvent ; if closing then Events.Closed |]
-            let res : ExactlyOnceIngester.IngestResult<_, _> = { accepted = ingested; closed = closed; residual = [||] }
+            let res: ExactlyOnceIngester.IngestResult<_, _> = { accepted = ingested; closed = closed; residual = [||] }
             res, events
         | { closed = true } as state ->
             { accepted = [||]; closed = true; residual = removeDuplicates state inputs }, [||]
 
 type Service internal (onlyWarnOnGap, shouldClose, resolve: struct (AppendsPartitionId * AppendsEpochId) -> Equinox.Decider<Events.Event, Fold.State>) =
 
-    member _.Ingest(partitionId, epochId, spans: Events.StreamSpan[]) : Async<ExactlyOnceIngester.IngestResult<_, _>> =
+    member _.Ingest(partitionId, epochId, spans: Events.StreamSpan[]): Async<ExactlyOnceIngester.IngestResult<_, _>> =
         let decider = resolve (partitionId, epochId)
         if Array.isEmpty spans then async { return { accepted = [||]; closed = false; residual = [||] } } else // special-case null round-trips
 
@@ -141,7 +141,7 @@ module Factory =
     let private createCategory (context, cache) = Store.Dynamo.createUnoptimized Stream.Category Events.codec Fold.initial Fold.fold (context, Some cache)
     let create log (maxBytes: int, maxVersion: int64, maxStreams: int, onlyWarnOnGap) store =
         let resolve = createCategory store |> Equinox.Decider.forStream log
-        let shouldClose (totalBytes : int64 voption, version) totalStreams =
+        let shouldClose (totalBytes: int64 voption, version) totalStreams =
             let closing = totalBytes.Value > maxBytes || version >= maxVersion || totalStreams >= maxStreams
             if closing then log.Information("Epoch Closing v{version}/{maxVersion} {streams}/{maxStreams} streams {kib:f0}/{maxKib:f0} KiB",
                                             version, maxVersion, totalStreams, maxStreams, float totalBytes.Value / 1024., float maxBytes / 1024.)
@@ -154,9 +154,9 @@ module Factory =
 module Reader =
 
     type Event = (struct (int64 * Events.Event))
-    let codec : FsCodec.IEventCodec<Event, _, _> = Streams.decWithIndex<Events.Event>
+    let codec: FsCodec.IEventCodec<Event, _, _> = Streams.decWithIndex<Events.Event>
 
-    type State = { changes : struct (int * Events.StreamSpan[])[]; closed : bool }
+    type State = { changes: struct (int * Events.StreamSpan[])[]; closed: bool }
     let initial = { changes = Array.empty; closed = false }
     let fold (state: State) (events: Event[]) =
         let mutable closed = state.closed
@@ -169,11 +169,11 @@ module Reader =
 
     type Service internal (resolve: struct (AppendsPartitionId * AppendsEpochId * int64) -> Equinox.Decider<Event, State>) =
 
-        member _.Read(partitionId, epochId, (*inclusive*)minIndex) : Async<int64 voption * int64 * State> =
+        member _.Read(partitionId, epochId, (*inclusive*)minIndex): Async<int64 voption * int64 * State> =
             let decider = resolve (partitionId, epochId, minIndex)
             decider.QueryEx(fun c -> c.StreamEventBytes, c.Version, c.State)
 
-        member _.ReadVersion(partitionId, epochId) : Async<int64> =
+        member _.ReadVersion(partitionId, epochId): Async<int64> =
             let decider = resolve (partitionId, epochId, System.Int64.MaxValue)
             decider.QueryEx(fun c -> c.Version)
 

@@ -18,7 +18,7 @@ module private Impl =
 
 module private Gauge =
 
-    let private make (config : Prometheus.GaugeConfiguration) name desc =
+    let private make (config: Prometheus.GaugeConfiguration) name desc =
         let gauge = Prometheus.Metrics.CreateGauge(name, desc, config)
         fun tagValues group state value ->
             let labelValues = append tagValues [| group; state |]
@@ -33,7 +33,7 @@ module private Gauge =
 
 module private Counter =
 
-    let private make (config : Prometheus.CounterConfiguration) name desc =
+    let private make (config: Prometheus.CounterConfiguration) name desc =
         let counter = Prometheus.Metrics.CreateCounter(name, desc, config)
         fun tagValues group activity value ->
             let labelValues = append tagValues [| group; activity |]
@@ -45,7 +45,7 @@ module private Counter =
 
 module private Summary =
 
-    let private create (config : Prometheus.SummaryConfiguration) name desc  =
+    let private create (config: Prometheus.SummaryConfiguration) name desc  =
         let summary = Prometheus.Metrics.CreateSummary(name, desc, config)
         fun tagValues (group, kind) value ->
             let labelValues = append tagValues [| group; kind |]
@@ -66,7 +66,7 @@ module private Summary =
 
 module private Histogram =
 
-    let private create (config : Prometheus.HistogramConfiguration) name desc =
+    let private create (config: Prometheus.HistogramConfiguration) name desc =
         let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
         fun tagValues (group, kind) value ->
             let labelValues = append tagValues [| group; kind |]
@@ -107,7 +107,7 @@ type LogSink(customTags: seq<string * string>, ?defaultGroup: string) =
     let observeLatSum =  Summary.latency   tags "handler_summary" "Handler action"
     let observeLatHis =  Histogram.latency tags "handler"         "Handler action"
 
-    let observeState group state (m : BufferMetric) =
+    let observeState group state (m: BufferMetric) =
         observeCats group state (float m.cats)
         observeStreams group state (float m.streams)
         observeEvents group state (float m.events)

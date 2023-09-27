@@ -26,7 +26,7 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let ``TailingFeedSource Stop / AwaitCompletion semantics`` () = task {
-        let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
+        let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> }: Core.Batch<_>))
         let source = Propulsion.Feed.Core.TailingFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", TimeSpan.FromMinutes 1,
                                                             checkpoints, (*establishOrigin*)None, sink, string, crawl)
         use src = source.Start(fun ct -> source.Pump((fun _ -> task { return [| TrancheId.parse "tid" |] }), ct))
@@ -42,7 +42,7 @@ type Scenario(testOutput) =
 
     [<Theory; InlineData true; InlineData false>]
     let SinglePassFeedSource withWait = async {
-        let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> } : Core.Batch<_>))
+        let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> }: Core.Batch<_>))
         let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
         use src = source.Start(fun _ct -> task { return [| TrancheId.parse "tid" |] })
         // SinglePassFeedSource completion includes Waiting for Completion of all Batches on all Tranches and Flushing of Checkpoints

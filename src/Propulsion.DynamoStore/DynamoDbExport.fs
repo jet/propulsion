@@ -6,13 +6,13 @@ open System.Text.Json
 
 module DynamoDbJsonParser =
 
-    type [<Struct>] Line =  { Item : Item }
-     and [<Struct>] Item = { p : StringVal; n : NumVal; c : ListVal<StringVal> }
-     and [<Struct>] StringVal = { S : string }
-     and [<Struct>] NumVal = { N : string }
-     and ListVal<'t> = { L : 't[] }
+    type [<Struct>] Line = { Item: Item }
+     and [<Struct>] Item = { p: StringVal; n: NumVal; c: ListVal<StringVal> }
+     and [<Struct>] StringVal = { S: string }
+     and [<Struct>] NumVal = { N: string }
+     and ListVal<'t> = { L: 't[] }
 
-    let read (path : string) : seq<struct (string * DynamoStoreIndex.EventSpan)> = seq {
+    let read (path: string): seq<struct (string * DynamoStoreIndex.EventSpan)> = seq {
         use r = new StreamReader(path)
         let mutable more = true
         while more do
@@ -25,7 +25,7 @@ module DynamoDbJsonParser =
             more <- not r.EndOfStream }
 
 /// Manages import of DynamoDB JSON files (extracted from data/*.json.gz in a DynamoDB S3 export)
-type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
+type Importer(buffer: DynamoStoreIndex.Buffer, emit, dump) =
 
     let pending = Dictionary<string, DynamoStoreIndex.EventSpan>()
 
@@ -34,11 +34,11 @@ type Importer(buffer : DynamoStoreIndex.Buffer, emit, dump) =
 
     let flush eventsToWriteLimit = async {
         let batch =
-            let gen : seq<AppendsEpoch.Events.StreamSpan> = seq {
+            let gen: seq<AppendsEpoch.Events.StreamSpan> = seq {
                 for KeyValue (stream, span) in pending ->
                     { p = IndexStreamId.ofP stream; i = span.Index; c = span.c }  }
             let mutable t = 0
-            let fits (x : AppendsEpoch.Events.StreamSpan) =
+            let fits (x: AppendsEpoch.Events.StreamSpan) =
                 t <- t + x.c.Length
                 t <= eventsToWriteLimit
             gen |> Seq.takeWhile fits |> Seq.toArray

@@ -6,7 +6,7 @@ open Xunit
 // Fixed in 6.0.5-beta.22329.3 and 6.0.6 (we explicitly target 6.0.7 in this test suite)
 // 6.0.5 is built from a 6.0.4 tag so does not include the fix (but it would win over the beta version in semver)
 let [<Fact>] ``Async.Parallel blows stack when cancelling many <= in FSharp.Core 6.0.5`` () =
-    let gen (i : int) = async {
+    let gen (i: int) = async {
         if i = 0 then
             do! Async.Sleep 1000
             return failwith (string i)

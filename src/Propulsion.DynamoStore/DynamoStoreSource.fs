@@ -22,28 +22,28 @@ module private Impl =
         let! version = epochs.ReadVersion(partitionId, epochId) |> Async.executeAsTask ct
         return Checkpoint.positionOfEpochAndOffset epochId version }
 
-    let logReadFailure (storeLog : Serilog.ILogger) =
+    let logReadFailure (storeLog: Serilog.ILogger) =
         let force = storeLog.IsEnabled LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource read failure")
 
-    let logCommitFailure (storeLog : Serilog.ILogger) =
+    let logCommitFailure (storeLog: Serilog.ILogger) =
         let force = storeLog.IsEnabled LogEventLevel.Verbose
         function
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch position isTail items : Propulsion.Feed.Core.Batch<Propulsion.Sinks.EventBody> =
+    let mkBatch position isTail items: Propulsion.Feed.Core.Batch<Propulsion.Sinks.EventBody> =
         { items = items; checkpoint = position; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.positionOfEpochAndOffset epochId offset) false items
-    let finalBatch epochId (version, state : AppendsEpoch.Reader.State) items =
+    let finalBatch epochId (version, state: AppendsEpoch.Reader.State) items =
         mkBatch (Checkpoint.positionOfEpochClosedAndVersion epochId state.closed version) (not state.closed) items
 
     // Includes optional hydrating of events with event bodies and/or metadata (controlled via hydrating/maybeLoad args)
     let materializeIndexEpochAsBatchesOfStreamEvents
-            (log : Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad : _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context : DynamoStoreContext)
+            (log: Serilog.ILogger, sourceId, storeLog) (hydrating, maybeLoad: _  -> _ -> (CancellationToken -> Task<_>) voption, loadDop) batchCutoff (context: DynamoStoreContext)
             (AppendsPartitionId.Parse pid) (Checkpoint.Parse (epochId, offset)) ct = taskSeq {
         let epochs = AppendsEpoch.Reader.Factory.create storeLog context
         let sw = Stopwatch.start ()
@@ -83,14 +83,14 @@ module private Impl =
                 for span in buffer do
                     match cache.TryGetValue span.p with
                     | false, _ -> ()
-                    | true, (items : FsCodec.ITimelineEvent<_>[]) ->
+                    | true, (items: FsCodec.ITimelineEvent<_>[]) ->
                         // NOTE this could throw if a span has been indexed, but the stream read is from a replica that does not yet have it
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
                         // TOCONSIDER revise logic to share session key etc to rule this out
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
                         for e in events -> struct (IndexStreamId.toStreamName span.p, e) |] }
         let mutable prevLoaded, batchIndex = 0L, 0
-        let report (i : int option) len =
+        let report (i: int option) len =
             if largeEnoughToLog && hydrating then
                 match cache.Count with
                 | loadedNow when prevLoaded <> loadedNow ->
@@ -101,7 +101,7 @@ module private Impl =
                 | _ -> ()
             batchIndex <- batchIndex + 1
         for i, spans in state.changes do
-            let pending = spans |> Array.filter (fun (span : AppendsEpoch.Events.StreamSpan) -> streamEvents.ContainsKey(span.p))
+            let pending = spans |> Array.filter (fun (span: AppendsEpoch.Events.StreamSpan) -> streamEvents.ContainsKey(span.p))
             if buffer.Count <> 0 && buffer.Count + pending.Length > batchCutoff then
                 let! hydrated = materializeSpans ct
                 report (Some i) hydrated.Length
@@ -121,13 +121,13 @@ type EventLoadMode =
     /// Populates the Data/Meta fields for events matching the categories and/or categoryFilter
     /// Requires a roundtrip per stream to the Store Table (constrained by streamParallelismLimit)
     | WithData of /// Maximum concurrency for stream reads from the Store Table
-                  streamParallelismLimit : int
+                  streamParallelismLimit: int
                   * /// Defines the Context to use when loading the Event Data/Meta
-                  storeContext : DynamoStoreContext
+                  storeContext: DynamoStoreContext
 module internal EventLoadMode =
     let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Compression.EncodedToUtf8)
-    let private withData (eventsContext : Equinox.DynamoStore.Core.EventsContext) streamFilter =
-        fun sn (i, cs : string[]) ->
+    let private withData (eventsContext: Equinox.DynamoStore.Core.EventsContext) streamFilter =
+        fun sn (i, cs: string[]) ->
             if streamFilter sn then
                 ValueSome (fun ct -> task {
                     let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
@@ -140,7 +140,7 @@ module internal EventLoadMode =
                     let renderEvent offset c = FsCodec.Core.TimelineEvent.Create(i + int64 offset, eventType = c, data = Unchecked.defaultof<_>)
                     return cs |> Array.mapi renderEvent })
             else ValueNone
-    let map streamFilter storeLog : EventLoadMode -> _ = function
+    let map streamFilter storeLog: EventLoadMode -> _ = function
         | IndexOnly -> false, withoutData streamFilter, 1
         | WithData (dop, storeContext) ->
             let eventsContext = Equinox.DynamoStore.Core.EventsContext(storeContext, storeLog)
@@ -177,7 +177,7 @@ type DynamoStoreSource
             defaultArg readFailureSleepInterval (tailSleepInterval * 2.),
             Impl.logCommitFailure (defaultArg storeLog log))
 
-    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
+    abstract member ListTranches: ct: CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default _.ListTranches(ct) = task {
         match trancheIds with
         | Some ids -> return ids
@@ -187,14 +187,14 @@ type DynamoStoreSource
             let appendsPartitionIds = match res with [||] -> [| AppendsPartitionId.wellKnownId |] | ids -> ids
             return appendsPartitionIds |> Array.map AppendsPartitionId.toTrancheId }
 
-    abstract member Pump : ct : CancellationToken -> Task<unit>
+    abstract member Pump: ct: CancellationToken -> Task<unit>
     default x.Pump(ct) = base.Pump(x.ListTranches, ct)
 
-    abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    abstract member Start: unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump)
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
-    member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
+    member x.RunUntilCaughtUp(timeout: TimeSpan, statsInterval: IntervalTimer) = task {
         let sw = Stopwatch.start ()
         // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
         use pipeline = x.Start()

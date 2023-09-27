@@ -15,7 +15,7 @@ module private Impl =
     type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let private toNativeEventBody (xs : Propulsion.Sinks.EventBody) : byte[] = xs.ToArray()
+        let private toNativeEventBody (xs: Propulsion.Sinks.EventBody): byte[] = xs.ToArray()
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
     // Trimmed edition of what V4 exposes
     module internal Equinox =
@@ -34,7 +34,7 @@ module private Impl =
 
         // v4 and later use JsonElement, but Propulsion is using ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies
         open System.Text.Json
-        let private toNativeEventBody (x : EventBody) : JsonElement =
+        let private toNativeEventBody (x: EventBody): JsonElement =
             if x.IsEmpty then JsonElement()
             else JsonSerializer.Deserialize(x.Span)
         let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
@@ -47,11 +47,11 @@ module Internal =
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | RateLimited | TooLarge | Malformed | Other
 
         type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
-            | Ok of updatedPos : int64
-            | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : Event[]
-            | PrefixMissing of batch : Event[] * writePos : int64
-        let logTo (log : ILogger) malformed (res : StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+            | Ok of updatedPos: int64
+            | Duplicate of updatedPos: int64
+            | PartialDuplicate of overage: Event[]
+            | PrefixMissing of batch: Event[] * writePos: int64
+        let logTo (log: ILogger) malformed (res: StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Ok (_, Result.Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -65,7 +65,7 @@ module Internal =
                 let level = if malformed then LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (ctx : EventsContext) stream (span : Event[]) ct = task {
+        let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if COSMOSV3
             let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
@@ -99,7 +99,7 @@ module Internal =
 
     type Dispatcher =
 
-        static member Create(log : ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
+        static member Create(log: ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (256 * 1024)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
@@ -178,7 +178,7 @@ type CosmosStoreSink =
 
     /// Starts a <c>Sink</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
-        (   log : ILogger, maxReadAhead, eventsContext, maxConcurrentStreams, stats: CosmosStoreSinkStats,
+        (   log: ILogger, maxReadAhead, eventsContext, maxConcurrentStreams, stats: CosmosStoreSinkStats,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Default: 16384
             ?maxEvents,

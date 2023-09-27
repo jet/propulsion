@@ -11,16 +11,16 @@ open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
 type Batch<'F> =
-    {   items : Propulsion.Streams.StreamEvent<'F>[]
+    {   items: Propulsion.Streams.StreamEvent<'F>[]
         /// Next computed read position (inclusive). Checkpoint stores treat absence of a value as `Position.initial` (= `0`)
-        checkpoint : Position
+        checkpoint: Position
         /// Indicates whether the end of a feed has been reached (a batch being empty does not necessarily imply that)
         /// Implies tail sleep delay. May trigger completion of `Monitor.AwaitCompletion`
-        isTail : bool }
+        isTail: bool }
 
 module internal TimelineEvent =
 
-    let toCheckpointPosition (x : FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
+    let toCheckpointPosition (x: FsCodec.ITimelineEvent<'t>) = x.Index + 1L |> Position.parse
 
 module Log =
 
@@ -28,19 +28,19 @@ module Log =
     type Metric =
         | Read of ReadMetric
      and [<NoEquality; NoComparison>] ReadMetric =
-        {   source : SourceId; tranche : TrancheId
-            token : Nullable<Position>; latency : TimeSpan; pages : int; items : int
-            ingestLatency : TimeSpan; ingestQueued : int }
+        {   source: SourceId; tranche: TrancheId
+            token: Nullable<Position>; latency: TimeSpan; pages: int; items: int
+            ingestLatency: TimeSpan; ingestQueued: int }
 
     let [<Literal>] PropertyTag = "propulsionFeedEvent"
     /// Attach a property to the captured event record to hold the metric information
-    let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
-    let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
+    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
+    let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
-type internal Stats(partition : int, source : SourceId, tranche : TrancheId, renderPos : Position -> string) =
+type internal Stats(partition: int, source: SourceId, tranche: TrancheId, renderPos: Position -> string) =
 
     let mutable batchLastPosition = Position.parse -1L
     let mutable closed, lastWasTail, finishedReading = false, false, false
@@ -52,7 +52,7 @@ type internal Stats(partition : int, source : SourceId, tranche : TrancheId, ren
 
     let mutable lastCommittedPosition = Position.parse -1L
 
-    member _.Dump(log : ILogger) =
+    member _.Dump(log: ILogger) =
         if closed then () else
 
         let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
@@ -96,12 +96,12 @@ type internal Stats(partition : int, source : SourceId, tranche : TrancheId, ren
         closed <- false // Any straggler reads (and/or bugs!) trigger logging
 
 type FeedReader
-    (   log : ILogger, partition, source, tranche,
+    (   log: ILogger, partition, source, tranche,
         // Walk all content in the source. Responsible for managing exceptions, retries and backoff.
         // Implementation is expected to inject an appropriate sleep based on the supplied `Position`
         // Processing loop will abort if an exception is yielded
         crawl :
-            bool // lastWasTail : may be used to induce a suitable backoff when repeatedly reading from tail
+            bool // lastWasTail: may be used to induce a suitable backoff when repeatedly reading from tail
             * Position // checkpointPosition
             -> CancellationToken
             -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>,
@@ -110,7 +110,7 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch : Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Task<struct (int * int)>,
+        submitBatch: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Task<struct (int * int)>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -128,8 +128,8 @@ type FeedReader
 
     let stats = Stats(partition, source, tranche, renderPos)
 
-    let commit (position : Position) ct = task {
-        let logExn (e : exn) =
+    let commit (position: Position) ct = task {
+        let logExn (e: exn) =
             match logCommitFailure with
             | None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position)
             | Some l -> l e
@@ -139,7 +139,7 @@ type FeedReader
             log.Debug("Committed checkpoint {position}", position)
         with Exception.Log logExn () -> () }
 
-    let submitPage (readLatency, batch : Batch<_>) = task {
+    let submitPage (readLatency, batch: Batch<_>) = task {
         stats.RecordBatch(readLatency, batch)
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
@@ -147,7 +147,7 @@ type FeedReader
                    let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
-        let epoch, streamEvents : int64 * Propulsion.Sinks.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items
+        let epoch, streamEvents: int64 * Propulsion.Sinks.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items
         let ingestTimer = Stopwatch.start ()
         let! struct (cur, max) = submitBatch { isTail = batch.isTail; epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateIngesterState(ingestTimer.Elapsed, cur, max) }
@@ -155,7 +155,7 @@ type FeedReader
     member _.Log = log
     member _.DumpStats() = stats.Dump(log)
 
-    member _.Pump(initialPosition : Position, ct : CancellationToken) = task {
+    member _.Pump(initialPosition: Position, ct: CancellationToken) = task {
         log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false

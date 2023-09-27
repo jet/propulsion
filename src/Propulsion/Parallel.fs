@@ -21,7 +21,7 @@ module Scheduling =
             w.TryWrite, Channel.awaitRead r, Channel.apply r
         let dop = Sem maxDop
 
-        let wrap (ct : CancellationToken) computation () = task {
+        let wrap (ct: CancellationToken) computation () = task {
             try do! computation ct
             // Release the capacity on conclusion of the processing (exceptions should not pass to this level but the correctness here is critical)
             finally dop.Release() }
@@ -31,26 +31,26 @@ module Scheduling =
             dop.TryTake() && tryWrite computation
 
         /// Loop that continuously drains the work queue
-        member _.Pump(ct : CancellationToken) = task {
+        member _.Pump(ct: CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 do! wait ct :> Task
                 apply (wrap ct >> Task.start) |> ignore }
 
     /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
     [<NoComparison; NoEquality>]
-    type Batch<'P, 'M> = { partitionId : 'P; messages: 'M []; onCompletion: unit -> unit }
+    type Batch<'P, 'M> = { partitionId: 'P; messages: 'M []; onCompletion: unit -> unit }
 
     /// Thread-safe/lock-free batch-level processing state
     /// - referenced [indirectly, see `mkDispatcher`] among all task invocations for a given batch
     /// - scheduler loop continuously inspects oldest active instance per partition in order to infer attainment of terminal (completed or faulted) state
     [<NoComparison; NoEquality>]
     type WipBatch<'S, 'M> =
-        {   mutable elapsedMs : int64 // accumulated processing time for stats
-            mutable remaining : int // number of outstanding completions; 0 => batch is eligible for completion
-            mutable faults : ConcurrentStack<exn> // exceptions, order is not relevant and use is infrequent hence ConcurrentStack
+        {   mutable elapsedMs: int64 // accumulated processing time for stats
+            mutable remaining: int // number of outstanding completions; 0 => batch is eligible for completion
+            mutable faults: ConcurrentStack<exn> // exceptions, order is not relevant and use is infrequent hence ConcurrentStack
             batch: Batch<'S, 'M> }
 
-        member private x.RecordOk(duration : TimeSpan) =
+        member private x.RecordOk(duration: TimeSpan) =
             // need to record stats first as remaining = 0 is used as completion gate
             Interlocked.Add(&x.elapsedMs, int64 duration.TotalMilliseconds + 1L) |> ignore
             Interlocked.Decrement(&x.remaining) |> ignore
@@ -58,7 +58,7 @@ module Scheduling =
             x.faults.Push exn
 
         /// Prepares an initial set of shared state for a batch of tasks, together with the Async<unit> computations that will feed their results into it
-        static member Create(batch : Batch<'S, 'M>, handle : Func<_, CancellationToken, Task<Result<unit, exn>>>) : WipBatch<'S, 'M> * seq<CancellationToken -> Task<unit>> =
+        static member Create(batch: Batch<'S, 'M>, handle: Func<_, CancellationToken, Task<Result<unit, exn>>>): WipBatch<'S, 'M> * seq<CancellationToken -> Task<unit>> =
             let x = { elapsedMs = 0L; remaining = batch.messages.Length; faults = ConcurrentStack(); batch = batch }
             x, seq {
                 for item in batch.messages -> fun ct -> task {
@@ -79,7 +79,7 @@ module Scheduling =
     /// - replenishing the Dispatcher
     /// - determining when WipBatches attain terminal state in order to triggering completion callbacks at the earliest possible opportunity
     /// - triggering abend of the processing should any dispatched tasks start to fault
-    type PartitionedSchedulingEngine<'P, 'M when 'P : equality>(log : ILogger, handle, tryDispatch : (CancellationToken -> Task<unit>) -> bool, statsInterval, ?logExternalStats) =
+    type PartitionedSchedulingEngine<'P, 'M when 'P: equality>(log: ILogger, handle, tryDispatch: (CancellationToken -> Task<unit>) -> bool, statsInterval, ?logExternalStats) =
         // Submitters dictate batch commencement order by supply batches in a fair order; should never be empty if there is work in the system
         let incoming = ConcurrentQueue<Batch<'P, 'M>>()
         // Prepared work items ready to feed to Dispatcher (only created on demand in order to ensure we maximize overall progress and fairness)
@@ -94,7 +94,7 @@ module Scheduling =
         let dumpStats () =
             let startedB, completedB = Array.ofSeq startedBatches.StatsDescending, Array.ofSeq completedBatches.StatsDescending
             let startedI, completedI = Array.ofSeq startedItems.StatsDescending, Array.ofSeq completedItems.StatsDescending
-            let statsTotal (xs : struct (_ * int64)[]) = xs |> Array.sumBy ValueTuple.snd
+            let statsTotal (xs: struct (_ * int64)[]) = xs |> Array.sumBy ValueTuple.snd
             let totalItemsCompleted = statsTotal completedI
             let latencyMs = match totalItemsCompleted with 0L -> null | cnt -> box (processingDuration.TotalMilliseconds / float cnt)
             log.Information("Scheduler {cycles} cycles Started {startedBatches}b {startedItems}i Completed {completedBatches}b {completedItems}i latency {completedLatency:f1}ms Ready {readyitems} Waiting {waitingBatches}b",
@@ -108,7 +108,7 @@ module Scheduling =
             cycles <- 0; processingDuration <- TimeSpan.Zero; startedBatches.Clear(); completedBatches.Clear(); startedItems.Clear(); completedItems.Clear()
             logExternalStats |> Option.iter (fun f -> f log) // doing this in here allows stats intervals to be aligned with that of the scheduler engine
 
-        let maybeLogStats : unit -> bool =
+        let maybeLogStats: unit -> bool =
             let timer = IntervalTimer statsInterval
             fun () ->
                 cycles <- cycles + 1
@@ -167,7 +167,7 @@ module Scheduling =
             worked
 
         /// Main pumping loop; `abend` is a callback triggered by a faulted task which the outer controller can use to shut down the processing
-        member _.Pump(abend, ct : CancellationToken) = task {
+        member _.Pump(abend, ct: CancellationToken) = task {
             while not ct.IsCancellationRequested do
                 let hadResults = drainCompleted abend
                 let queuedWork = reprovisionDispatcher ()
@@ -176,15 +176,15 @@ module Scheduling =
                     do! Task.Delay(1, ct) }
 
         /// Feeds a batch of work into the queue; the caller is expected to ensure submissions are timely to avoid starvation, but throttled to ensure fair ordering
-        member _.Submit(batches : Batch<'P, 'M>) =
+        member _.Submit(batches: Batch<'P, 'M>) =
             incoming.Enqueue batches
 
 type ParallelIngester<'Item> =
 
     static member Start(log, partitionId, maxRead, submit, statsInterval) =
-        let submitBatch (items : 'Item seq, onCompletion) =
+        let submitBatch (items: 'Item seq, onCompletion) =
             let items = Array.ofSeq items
-            let batch : Submission.Batch<_, 'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
+            let batch: Submission.Batch<_, 'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
             submit batch
             struct (items.Length, items.Length)
         Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
@@ -193,7 +193,7 @@ type ParallelIngester<'Item> =
 type Factory private () =
 
     static member Start
-            (    log : ILogger, maxReadAhead, maxDop, handle,
+            (    log: ILogger, maxReadAhead, maxDop, handle,
                  statsInterval,
                  ?logExternalStats,
                  ?ingesterStatsInterval)
@@ -203,11 +203,11 @@ type Factory private () =
         let dispatcher = Scheduling.Dispatcher maxDop
         let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
 
-        let mapBatch onCompletion (x : Submission.Batch<_, 'Item>) : struct (unit * Scheduling.Batch<_, 'Item>) =
+        let mapBatch onCompletion (x: Submission.Batch<_, 'Item>): struct (unit * Scheduling.Batch<_, 'Item>) =
             let onCompletion () = x.onCompletion(); onCompletion()
             (), { partitionId = x.partitionId; onCompletion = onCompletion; messages = x.messages}
         let alwaysReady _  = Task.CompletedTask
-        let submitBatch (x : Scheduling.Batch<_, 'Item>) : int voption =
+        let submitBatch (x: Scheduling.Batch<_, 'Item>): int voption =
             scheduler.Submit x
             ValueSome 0
 

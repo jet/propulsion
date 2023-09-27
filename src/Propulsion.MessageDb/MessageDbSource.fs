@@ -56,7 +56,7 @@ module Internal =
             let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
-        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct) : Task<Core.Batch<_>> = task {
+        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Core.Batch<_>> = task {
             use! conn = connect ct
             use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
@@ -64,20 +64,20 @@ module Internal =
             let events = [| while reader.Read() do parseRow reader |]
 
             let checkpoint = match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> fromPositionInclusive
-            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 } : Core.Batch<_>) }
+            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 }: Core.Batch<_>) }
 
-        member _.TryReadCategoryLastVersion(category: TrancheId, ct) : Task<int64 voption> = task {
+        member _.TryReadCategoryLastVersion(category: TrancheId, ct): Task<int64 voption> = task {
             use! conn = connect ct
             use command = GetLastPosition.prepareCommand conn category
 
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-    let internal readBatch batchSize (store : MessageDbCategoryClient) struct (category, pos, ct) : Task<Core.Batch<_>> =
+    let internal readBatch batchSize (store: MessageDbCategoryClient) struct (category, pos, ct): Task<Core.Batch<_>> =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
-    let internal readTailPositionForTranche (store : MessageDbCategoryClient) trancheId ct : Task<Position> = task {
+    let internal readTailPositionForTranche (store: MessageDbCategoryClient) trancheId ct: Task<Position> = task {
         match! store.TryReadCategoryLastVersion(trancheId, ct) with
         | ValueSome lastEventPos -> return Position.parse (lastEventPos + 1L)
         | ValueNone -> return Position.initial }
@@ -99,17 +99,17 @@ type MessageDbSource =
             sink, string, tail);
             tranches = categories |> Array.map TrancheId.parse }
 
-    abstract member ListTranches : ct : CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
+    abstract member ListTranches: ct: CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default x.ListTranches(_ct) = task { return x.tranches }
 
-    abstract member Pump : CancellationToken -> Task<unit>
+    abstract member Pump: CancellationToken -> Task<unit>
     default x.Pump(ct) = base.Pump(x.ListTranches, ct)
 
-    abstract member Start : unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    abstract member Start: unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.Start() = base.Start(x.Pump)
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
-    member x.RunUntilCaughtUp(timeout : TimeSpan, statsInterval : IntervalTimer) = task {
+    member x.RunUntilCaughtUp(timeout: TimeSpan, statsInterval: IntervalTimer) = task {
         let sw = Stopwatch.start ()
         use pipeline = x.Start()
 

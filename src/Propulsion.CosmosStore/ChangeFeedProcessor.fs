@@ -10,7 +10,7 @@ open System.Threading
 open System.Threading.Tasks
 
 [<NoComparison>]
-type ChangeFeedObserverContext = { source : Container; group : string; epoch : int64; timestamp : DateTime; rangeId : int; requestCharge : float }
+type ChangeFeedObserverContext = { source: Container; group: string; epoch: int64; timestamp: DateTime; rangeId: int; requestCharge: float }
 
 type IChangeFeedObserver =
     inherit IDisposable
@@ -21,14 +21,14 @@ type IChangeFeedObserver =
     /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
 #if COSMOSV3
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> * CancellationToken -> Task<unit>
+    abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> * CancellationToken -> Task<unit>
 #else
-    abstract member Ingest: context : ChangeFeedObserverContext * tryCheckpointAsync : (CancellationToken -> Task<unit>) * docs : IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
+    abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
 #endif
 
 type internal SourcePipeline =
 
-    static member Start(log : ILogger, start, maybeStartChild, stop, observer : IDisposable) =
+    static member Start(log: ILogger, start, maybeStartChild, stop, observer: IDisposable) =
         let cts = new CancellationTokenSource()
         let triggerStop _disposing =
             let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
@@ -60,37 +60,37 @@ type internal SourcePipeline =
 type ChangeFeedProcessor =
 
     static member Start
-        (   log : ILogger, monitored : Container,
+        (   log: ILogger, monitored: Container,
             // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
             // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
             // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
-            leases : Container,
+            leases: Container,
             // Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
-            processorName : string,
+            processorName: string,
             // Observers to forward documents to (Disposal is tied to stopping of the Source)
-            observer : IChangeFeedObserver,
-            ?leaseOwnerId : string,
+            observer: IChangeFeedObserver,
+            ?leaseOwnerId: string,
             // (NB Only applies if this is the first time this leasePrefix is presented)
             // Specify `true` to request starting of projection from the present write position.
             // Default: false (projecting all events from start beforehand)
-            ?startFromTail : bool,
+            ?startFromTail: bool,
             // Frequency to check for partitions without a processor. Default 1s
-            ?leaseAcquireInterval : TimeSpan,
+            ?leaseAcquireInterval: TimeSpan,
             // Frequency to renew leases held by processors under our control. Default 3s
-            ?leaseRenewInterval : TimeSpan,
+            ?leaseRenewInterval: TimeSpan,
             // Duration to take lease when acquired/renewed. Default 10s
-            ?leaseTtl : TimeSpan,
+            ?leaseTtl: TimeSpan,
             // Delay before re-polling a partition after backlog has been drained
-            ?feedPollDelay : TimeSpan,
+            ?feedPollDelay: TimeSpan,
             // Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
-            ?maxItems : int,
+            ?maxItems: int,
             // Continuously fed per-partition lag information until parent Async completes
             // callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation,
             // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
-            ?notifyError : int -> exn -> unit,
+            ?notifyError: int -> exn -> unit,
             // Admits customizations in the ChangeFeedProcessorBuilder chain
             ?customize) =
         let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
@@ -102,16 +102,16 @@ type ChangeFeedProcessor =
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
                         processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, defaultArg startFromTail false)
         let processorName_ = processorName + ":"
-        let leaseTokenToPartitionId (leaseToken : string) = int (leaseToken.Trim[|'"'|])
+        let leaseTokenToPartitionId (leaseToken: string) = int (leaseToken.Trim[|'"'|])
         let processor =
             let handler =
-                let aux (context : ChangeFeedProcessorContext)
+                let aux (context: ChangeFeedProcessorContext)
 #if COSMOSV3
-                        (changes : IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
+                        (changes: IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
 #else
-                        (changes : IReadOnlyCollection<System.Text.Json.JsonDocument>)
+                        (changes: IReadOnlyCollection<System.Text.Json.JsonDocument>)
 #endif
-                        (checkpointAsync : CancellationToken -> Task<unit>) ct = task {
+                        (checkpointAsync: CancellationToken -> Task<unit>) ct = task {
                     let log: exn -> unit = function
                         | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
                         | e -> log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
@@ -126,7 +126,7 @@ type ChangeFeedProcessor =
                                     requestCharge = context.Headers.RequestCharge }
                         return! observer.Ingest(ctx, checkpointAsync, changes, ct)
                     with Exception.Log log () -> () }
-                fun ctx chg (chk : Func<Task>) ct ->
+                fun ctx chg (chk: Func<Task>) ct ->
                     let chk' _ct = task { do! chk.Invoke() }
                     aux ctx chg chk' ct :> Task
             let acquireAsync leaseToken = log.Information("Reader {partition} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
@@ -152,9 +152,9 @@ type ChangeFeedProcessor =
             reportLagAndAwaitNextEstimation
             |> Option.map (fun lagMonitorCallback ->
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-                let emitLagMetrics (ct : CancellationToken) = task {
+                let emitLagMetrics (ct: CancellationToken) = task {
                     while not ct.IsCancellationRequested do
-                        let feedIteratorMap (map : ChangeFeedProcessorState -> 'u) : Task<'u seq> = task {
+                        let feedIteratorMap (map: ChangeFeedProcessorState -> 'u): Task<'u seq> = task {
                             // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
                             use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
                             let result = ResizeArray()
@@ -165,7 +165,7 @@ type ChangeFeedProcessor =
                         let! leasesState = feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
                         do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
                 emitLagMetrics)
-        let wrap (f : unit -> Task) () = task { return! f () }
+        let wrap (f: unit -> Task) () = task { return! f () }
         SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.

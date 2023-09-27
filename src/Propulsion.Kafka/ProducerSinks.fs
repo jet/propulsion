@@ -11,7 +11,7 @@ open System.Threading.Tasks
 
 type ParallelProducerSink =
 
-    static member Start(maxReadAhead, maxDop, render : Func<'F, struct(string * string)>, producer : Producer, ?statsInterval)
+    static member Start(maxReadAhead, maxDop, render: Func<'F, struct(string * string)>, producer: Producer, ?statsInterval)
         : Sink<Ingestion.Ingester<'F seq>> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item ct = task {
@@ -23,10 +23,10 @@ type ParallelProducerSink =
 type StreamsProducerSink =
 
     static member StartAsync
-        (   log : ILogger, maxReadAhead,
-            maxConcurrentStreams, prepare : Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
-            producer : Producer,
-            stats : Sync.Stats<'Outcome>,
+        (   log: ILogger, maxReadAhead,
+            maxConcurrentStreams, prepare: Func<StreamName, Event[], CancellationToken, Task<struct (struct (string * string) voption * 'Outcome)>>,
+            producer: Producer,
+            stats: Sync.Stats<'Outcome>,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -38,10 +38,10 @@ type StreamsProducerSink =
             ?maxEvents)
         : Sink =
             let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
-            let handle (stream : StreamName) span ct = task {
-                let! (maybeMsg, outcome : 'Outcome) = prepare.Invoke(stream, span, ct)
+            let handle (stream: StreamName) span ct = task {
+                let! (maybeMsg, outcome: 'Outcome) = prepare.Invoke(stream, span, ct)
                 match maybeMsg with
-                | ValueSome (key : string, message : string) ->
+                | ValueSome (key: string, message: string) ->
                     match message.Length with
                     | x when x > maxBytes -> log.Warning("Message on {stream} had String.Length {length} Queue length {queueLen}", stream, x, span.Length)
                     | _ -> ()
@@ -57,7 +57,7 @@ type StreamsProducerSink =
 
     static member Start
         (   log, maxReadAhead,
-            maxConcurrentStreams, prepare : StreamName -> Event[] -> Async<(string * string) option * 'Outcome>,
+            maxConcurrentStreams, prepare: StreamName -> Event[] -> Async<(string * string) option * 'Outcome>,
             producer,
             stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
@@ -71,9 +71,9 @@ type StreamsProducerSink =
             ?purgeInterval = purgeInterval, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents)
 
     static member StartAsync
-        (   log : ILogger, maxReadAhead,
-            maxConcurrentStreams, prepare : Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
-            producer : Producer, stats : Sync.Stats<unit>,
+        (   log: ILogger, maxReadAhead,
+            maxConcurrentStreams, prepare: Func<StreamName, Event[], CancellationToken, Task<struct (string * string)>>,
+            producer: Producer, stats: Sync.Stats<unit>,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,
@@ -95,7 +95,7 @@ type StreamsProducerSink =
 
     static member Start
         (   log, maxReadAhead,
-            maxConcurrentStreams, prepare : StreamName -> Event[] -> Async<string * string>,
+            maxConcurrentStreams, prepare: StreamName -> Event[] -> Async<string * string>,
             producer,
             stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)

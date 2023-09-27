@@ -28,20 +28,20 @@ module Helpers =
     let newId () = let g = Guid.NewGuid() in g.ToString("N")
 
     type ConsumerPipeline with
-        member c.StopAfter(delay : TimeSpan) =
-            Task.Delay(delay).ContinueWith(fun (_ : Task) -> c.Stop()) |> ignore
+        member c.StopAfter(delay: TimeSpan) =
+            Task.Delay(delay).ContinueWith(fun (_: Task) -> c.Stop()) |> ignore
 
     let serdes = NewtonsoftJson.Serdes.Default
-    type TestMeta = { key : string; value : string; partition : int; offset : int64 }
-    let mapParallelConsumeResultToKeyValuePair (x : ConsumeResult<_, _>) : KeyValuePair<string, string> =
+    type TestMeta = { key: string; value: string; partition: int; offset: int64 }
+    let mapParallelConsumeResultToKeyValuePair (x: ConsumeResult<_, _>): KeyValuePair<string, string> =
         let m = Binding.message x
         KeyValuePair(m.Key, serdes.Serialize { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = Binding.offsetValue x.Offset })
-    type TestMessage = { producerId : int ; messageId : int }
-    type ConsumedTestMessage = { consumerId : int ; meta : TestMeta; payload : TestMessage }
+    type TestMessage = { producerId: int ; messageId: int }
+    type ConsumedTestMessage = { consumerId: int ; meta: TestMeta; payload: TestMessage }
     type ConsumerCallback = ConsumerPipeline -> ConsumedTestMessage -> Async<unit>
 
-    let runProducers log bootstrapServers (topic : string) (numProducers : int) (messagesPerProducer : int) = async {
-        let runProducer (producerId : int) = async {
+    let runProducers log bootstrapServers (topic: string) (numProducers: int) (messagesPerProducer: int) = async {
+        let runProducer (producerId: int) = async {
             let cfg = KafkaProducerConfig.Create("panther", bootstrapServers, Acks.Leader, FsKafka.Batching.Custom (TimeSpan.FromMilliseconds 100., 10000))
             use producer = BatchedProducer.Create(log, cfg, topic)
 
@@ -67,8 +67,8 @@ module Helpers =
         override x.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
         override x.Timeout = 60 * 15 * 1000
 
-    let runConsumersParallel log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
-        let mkConsumer (consumerId : int) = async {
+    let runConsumersParallel log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {
+        let mkConsumer (consumerId: int) = async {
 
             // need to pass the consumer instance to the handler callback
             // do a bit of cyclic dependency fixups
@@ -79,7 +79,7 @@ module Helpers =
                 | None -> Thread.SpinWait 20; getConsumer()
                 | Some c -> c
 
-            let deserialize consumerId (KeyValue (_k, v : string)) : ConsumedTestMessage =
+            let deserialize consumerId (KeyValue (_k, v: string)): ConsumedTestMessage =
                 let d = serdes.Deserialize<TestMeta>(v)
                 let v = serdes.Deserialize<TestMessage>(d.value)
                 { consumerId = consumerId; meta = d; payload = v }
@@ -96,7 +96,7 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let deserialize consumerId (e : ITimelineEvent<Propulsion.Sinks.EventBody>) : ConsumedTestMessage =
+    let deserialize consumerId (e: ITimelineEvent<Propulsion.Sinks.EventBody>): ConsumedTestMessage =
         { consumerId = consumerId; meta = serdes.Deserialize(e.Data); payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
@@ -105,8 +105,8 @@ module Helpers =
         override _.HandleOk(()) = ()
         override _.HandleExn(log, exn) = log.Information(exn, "Unhandled")
 
-    let runConsumersBatch log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
-        let mkConsumer (consumerId : int) = async {
+    let runConsumersBatch log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {
+        let mkConsumer (consumerId: int) = async {
             // need to pass the consumer instance to the handler callback
             // do a bit of cyclic dependency fixups
             let consumerCell = ref None
@@ -126,7 +126,7 @@ module Helpers =
                   for event in stream.span do
                       c <- c + 1
                       do! handler (getConsumer()) (deserialize consumerId event)
-                (log : ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length)
+                (log: ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length)
                 let ts = Stopwatch.elapsed ts
                 return seq { for x in streams -> struct (ts, Ok (Propulsion.Sinks.Events.nextIndex x.span)) } }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
@@ -146,13 +146,13 @@ module Helpers =
         do! Async.Parallel [for i in 1 .. numConsumers -> mkConsumer i] |> Async.Ignore
     }
 
-    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>) : Propulsion.Sinks.EventBody * obj =
+    let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>): Propulsion.Sinks.EventBody * obj =
         let m = Binding.message x
         System.Text.Encoding.UTF8.GetBytes(m.Value) |> ReadOnlyMemory,
         box { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value }
 
-    let runConsumersStream log (config : KafkaConsumerConfig) (numConsumers : int) (timeout : TimeSpan option) (handler : ConsumerCallback) = async {
-        let mkConsumer (consumerId : int) = async {
+    let runConsumersStream log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {
+        let mkConsumer (consumerId: int) = async {
             // need to pass the consumer instance to the handler callback
             // do a bit of cyclic dependency fixups
             let consumerCell = ref None
@@ -163,7 +163,7 @@ module Helpers =
                 | Some c -> c
 
             // when processing, declare all items processed each time we're invoked
-            let handle _ (span : Propulsion.Sinks.Event[]) = async {
+            let handle _ (span: Propulsion.Sinks.Event[]) = async {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event)
                 return Propulsion.Sinks.StreamResult.AllProcessed, () }
@@ -187,13 +187,13 @@ module Helpers =
 type BatchesConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, false)
 
-    override x.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+    override x.RunConsumers(log, config, numConsumers, consumerCallback, timeout): Async<unit> =
         runConsumersBatch log config numConsumers timeout consumerCallback
 
 and StreamsConsumer(testOutputHelper) =
     inherit ConsumerIntegration(testOutputHelper, true)
 
-    override _.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+    override _.RunConsumers(log, config, numConsumers, consumerCallback, timeout): Async<unit> =
         runConsumersStream log config numConsumers timeout consumerCallback
 
 and ParallelConsumer(testOutputHelper) =
@@ -201,7 +201,7 @@ and ParallelConsumer(testOutputHelper) =
 
     let log, bootstrapServers = TestOutputLogger.forTestOutput testOutputHelper, getTestBroker ()
 
-    override _.RunConsumers(log, config, numConsumers, consumerCallback, timeout) : Async<unit> =
+    override _.RunConsumers(log, config, numConsumers, consumerCallback, timeout): Async<unit> =
         runConsumersParallel log config numConsumers timeout consumerCallback
 
     [<FactIfBroker>]
@@ -222,7 +222,7 @@ and ParallelConsumer(testOutputHelper) =
 and [<AbstractClass>] ConsumerIntegration(testOutputHelper, expectConcurrentScheduling) =
     let log, bootstrapServers = TestOutputLogger.forTestOutput testOutputHelper, getTestBroker ()
 
-    member _.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer) : Async<unit> =
+    member _.RunProducers(log, bootstrapServers, topic, numProducers, messagesPerProducer): Async<unit> =
         runProducers log bootstrapServers topic numProducers messagesPerProducer |> Async.Ignore
     abstract RunConsumers: ILogger * KafkaConsumerConfig *  int * ConsumerCallback * TimeSpan option -> Async<unit>
     member x.RunConsumers(log,config,count,cb) = x.RunConsumers(log,config,count,cb,None)

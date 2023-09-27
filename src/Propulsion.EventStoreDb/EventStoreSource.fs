@@ -5,7 +5,7 @@ module private Impl =
     open EventStore.Client
     open FSharp.Control
 
-    let private toItems streamFilter (events: EventRecord[]) : Propulsion.Sinks.StreamEvent[] = [|
+    let private toItems streamFilter (events: EventRecord[]): Propulsion.Sinks.StreamEvent[] = [|
         for e in events do
             let sn = Propulsion.Streams.StreamName.internalParseSafe e.EventStreamId
             if streamFilter sn then
@@ -17,12 +17,12 @@ module private Impl =
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, withData, cancellationToken = ct)
         let! batch = res |> TaskSeq.map (fun e -> e.Event) |> TaskSeq.toArrayAsync
-        return ({ checkpoint = checkpointPos batch; items = toItems streamFilter batch; isTail = batch.LongLength <> batchSize } : Propulsion.Feed.Core.Batch<_>) }
+        return ({ checkpoint = checkpointPos batch; items = toItems streamFilter batch; isTail = batch.LongLength <> batchSize }: Propulsion.Feed.Core.Batch<_>) }
 
     // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk
-    let private chunk (pos : Position) = uint64 pos.CommitPosition >>> 28
+    let private chunk (pos: Position) = uint64 pos.CommitPosition >>> 28
 
-    let readTailPositionForTranche (log : Serilog.ILogger) (client : EventStoreClient) _trancheId ct = task {
+    let readTailPositionForTranche (log: Serilog.ILogger) (client: EventStoreClient) _trancheId ct = task {
         let lastItemBatch = client.ReadAllAsync(Direction.Backwards, Position.End, maxCount = 1, cancellationToken = ct)
         let! lastItem = TaskSeq.exactlyOne lastItemBatch
         let pos = lastItem.Event.Position

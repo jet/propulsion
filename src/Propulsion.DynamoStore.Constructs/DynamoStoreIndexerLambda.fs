@@ -7,24 +7,24 @@ open System
 [<NoComparison; NoEquality>]
 type DynamoStoreIndexerLambdaProps =
     {   /// DynamoDB Streams Source ARN
-        storeStreamArn : string
+        storeStreamArn: string
 
         /// DynamoDB Region for Index Table
-        regionName : string
+        regionName: string
         /// DynamoDB Index Table Name
-        indexTableName : string
+        indexTableName: string
 
         /// Lambda memory allocation
-        memorySize : int
+        memorySize: int
         /// Lambda max batch size
-        batchSize : int
+        batchSize: int
         /// Lambda execution timeout
-        timeout : TimeSpan
+        timeout: TimeSpan
 
         /// Folder path for linux-arm64 publish output (can also be a link to a .zip file)
-        codePath : string }
+        codePath: string }
 
-type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) as stack =
+type DynamoStoreIndexerLambda(scope, id, props: DynamoStoreIndexerLambdaProps) as stack =
     inherit Constructs.Construct(scope, id)
 
     let role =
@@ -49,7 +49,7 @@ type DynamoStoreIndexerLambda(scope, id, props : DynamoStoreIndexerLambdaProps) 
 
     // See dotnet-templates/propulsion-dynamostore-cdk project file for MSBuild logic extracting content from tools folder of the nupkg file
     let code = Code.FromAsset(props.codePath)
-    let fn : Function = Function(stack, "Indexer", FunctionProps(
+    let fn: Function = Function(stack, "Indexer", FunctionProps(
         Role = role, Description = "Propulsion DynamoStore Indexer",
         Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
         Handler = "Propulsion.DynamoStore.Indexer::Propulsion.DynamoStore.Indexer.Function::Handle",

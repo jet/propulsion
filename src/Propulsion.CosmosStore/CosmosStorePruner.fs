@@ -5,12 +5,11 @@ open Propulsion.Internal
 open Propulsion.Sinks
 open Propulsion.Streams
 open Serilog
-open System
 
 module Pruner =
 
     type Outcome =
-        | Ok of completed : int * deferred : int
+        | Ok of completed: int * deferred: int
         | Nop of int
 
     // Per set of accumulated events per stream (selected via `selectExpired`), attempt to prune up to the high water mark
@@ -65,7 +64,7 @@ type CosmosStorePruner =
     /// DANGER: this API DELETES events - use with care
     /// Starts a <c>Sink</c> that prunes _all submitted events from the supplied <c>context</c>_
     static member Start
-        (   log : ILogger, maxReadAhead, context, maxConcurrentStreams, stats: CosmosStorePrunerStats,
+        (   log: ILogger, maxReadAhead, context, maxConcurrentStreams, stats: CosmosStorePrunerStats,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to statsInterval
             ?ingesterStatsInterval)

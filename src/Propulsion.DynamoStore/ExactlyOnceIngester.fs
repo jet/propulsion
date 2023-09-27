@@ -2,27 +2,27 @@ module Propulsion.DynamoStore.ExactlyOnceIngester
 
 open FSharp.UMX // %
 
-type IngestResult<'req, 'res> = { accepted : 'res[]; closed : bool; residual : 'req[] }
+type IngestResult<'req, 'res> = { accepted: 'res[]; closed: bool; residual: 'req[] }
 
 module Internal =
 
     let unknown<[<Measure>]'m> = UMX.tag -1
-    let next<[<Measure>]'m> (value : int<'m>) = UMX.tag<'m>(UMX.untag value + 1)
+    let next<[<Measure>]'m> (value: int<'m>) = UMX.tag<'m>(UMX.untag value + 1)
 
 type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
-    (   log : Serilog.ILogger,
-        readActiveEpoch : unit -> Async<int<'id>>,
-        markActiveEpoch : int<'id> -> Async<unit>,
-        ingest : int<'id> * 'req[] -> Async<IngestResult<'req, 'res>>,
-        mapResults : 'res[] -> 'outcome seq) =
+    (   log: Serilog.ILogger,
+        readActiveEpoch: unit -> Async<int<'id>>,
+        markActiveEpoch: int<'id> -> Async<unit>,
+        ingest: int<'id> * 'req[] -> Async<IngestResult<'req, 'res>>,
+        mapResults: 'res[] -> 'outcome seq) =
 
-    let uninitializedSentinel : int = %Internal.unknown
+    let uninitializedSentinel: int = %Internal.unknown
     let mutable currentEpochId_ = uninitializedSentinel
     let currentEpochId () = if currentEpochId_ <> uninitializedSentinel then Some %currentEpochId_ else None
 
-    let rec walk ingestedItems (items : (int<'id> * 'req)[]) = async {
+    let rec walk ingestedItems (items: (int<'id> * 'req)[]) = async {
         let epochId = items |> Seq.map fst |> Seq.min
-        let epochItems, futureEpochItems = items |> Array.partition (fun (e, _ : 'req) -> e = epochId)
+        let epochItems, futureEpochItems = items |> Array.partition (fun (e, _: 'req) -> e = epochId)
         let! res = ingest (epochId, Array.map snd epochItems)
         let ingestedItemIds = Array.append ingestedItems res.accepted
         let any x = not (Array.isEmpty x)
@@ -46,7 +46,7 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
 
     /// Run the requests over a chain of epochs.
     /// Returns the subset that actually got handled this time around (exclusive of items that did not trigger events per idempotency rules).
-    member _.IngestMany(originEpoch, reqs) : Async<'outcome seq> = async {
+    member _.IngestMany(originEpoch, reqs): Async<'outcome seq> = async {
         if Array.isEmpty reqs then return Seq.empty else
 
         let! results = walk [| for x in reqs -> originEpoch, x |]
@@ -57,7 +57,7 @@ type Service<[<Measure>]'id, 'req, 'res, 'outcome> internal
     /// The fact that any Ingest call for a given item (or set of items) always commences from the same origin is key to exactly once insertion guarantee.
     /// Caller should first store this alongside the item in order to deterministically be able to start from the same origin in idempotent retry cases.
     /// Uses cached values as epoch transitions are rare, and caller needs to deal with the inherent race condition in any case
-    member _.ActiveIngestionEpochId() : Async<int<'id>> =
+    member _.ActiveIngestionEpochId(): Async<int<'id>> =
         match currentEpochId () with
         | Some currentEpochId -> async { return currentEpochId }
         | None -> readActiveEpoch()

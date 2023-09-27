@@ -8,12 +8,12 @@ open System
 open System.Data
 
 [<Struct; NoComparison; CLIMutable>]
-type CheckpointEntry = { Stream : string; ConsumerGroup : string; Position : Nullable<int64> }
+type CheckpointEntry = { Stream: string; ConsumerGroup: string; Position: Nullable<int64> }
 
 let createConnection connString =
     new SqlConnection(connString)
 
-let createIfNotExists (conn : IDbConnection) =
+let createIfNotExists (conn: IDbConnection) =
     conn.ExecuteAsync(
         """IF NOT (EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Checkpoints'))
            BEGIN
@@ -30,7 +30,7 @@ let createIfNotExists (conn : IDbConnection) =
            END""")
     |> Task.ignore<int>
 
-let commitPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) (position : int64) =
+let commitPosition (conn: IDbConnection) (stream: string) (consumerGroup: string) (position: int64) =
      conn.ExecuteAsync(
          """UPDATE Checkpoints
             SET Position = @Position
@@ -42,13 +42,13 @@ let commitPosition (conn : IDbConnection) (stream : string) (consumerGroup : str
             """, { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable(position) })
      |> Task.ignore<int>
 
-let tryGetPosition (conn : IDbConnection) (stream : string) (consumerGroup : string) = task {
+let tryGetPosition (conn: IDbConnection) (stream: string) (consumerGroup: string) = task {
     let! res = conn.QueryAsync<CheckpointEntry>(
          """SELECT * FROM Checkpoints WHERE Stream = @Stream AND ConsumerGroup = @ConsumerGroup""",
          { Stream = stream; ConsumerGroup = consumerGroup; Position = Nullable() })
     return Seq.tryHead res |> Option.bind (fun r -> Option.ofNullable r.Position) }
 
-type Service(connString : string, consumerGroupName) =
+type Service(connString: string, consumerGroupName) =
 
     let streamName source tranche =
         match SourceId.toString source, TrancheId.toString tranche with

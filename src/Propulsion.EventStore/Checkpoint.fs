@@ -7,8 +7,8 @@ open System.Threading.Tasks
 type CheckpointSeriesId = string<checkpointSeriesId>
 and [<Measure>] checkpointSeriesId
 module CheckpointSeriesId =
-    let ofGroupName (groupName : string) = UMX.tag groupName
-    let toString (x : CheckpointSeriesId) = UMX.untag x
+    let ofGroupName (groupName: string) = UMX.tag groupName
+    let toString (x: CheckpointSeriesId) = UMX.untag x
 
 module Stream =
     let [<Literal>] Category = "Sync"
@@ -17,11 +17,11 @@ module Stream =
 // NB - these schemas reflect the actual storage formats and hence need to be versioned with care
 module Events =
 
-    type Checkpoint = { at : DateTimeOffset; nextCheckpointDue : DateTimeOffset; pos : int64 }
-    type Config = { checkpointFreqS : int }
-    type Started = { config : Config; origin : Checkpoint }
-    type Pos = { config : Config; pos : Checkpoint }
-    type Snapshotted = { config : Config; state : Checkpoint }
+    type Checkpoint = { at: DateTimeOffset; nextCheckpointDue: DateTimeOffset; pos: int64 }
+    type Config = { checkpointFreqS: int }
+    type Started = { config: Config; origin: Checkpoint }
+    type Pos = { config: Config; pos: Checkpoint }
+    type Snapshotted = { config: Config; state: Checkpoint }
 
     type Event =
         | Started of Started
@@ -41,7 +41,7 @@ module Fold =
 
     type State = NotStarted | Running of Events.Snapshotted
 
-    let initial : State = NotStarted
+    let initial: State = NotStarted
     let private evolve _state = function
         | Events.Started { config = cfg; origin=originState } -> Running { config = cfg; state = originState }
         | Events.Updated e | Events.Checkpointed e | Events.Overrode e -> Running { config = e.config; state = e.pos }
@@ -58,19 +58,19 @@ module Fold =
     /// We only want to generate a first class event every N minutes, while efficiently writing contingent on the current etag value
     /// So, we post-process the events to remove `Updated` events (as opposed to `Checkpointed` ones),
     /// knowing that the state already has that updated folded into it when we snapshot from it
-    let transmute events state : Events.Event list * Events.Event list =
+    let transmute events state: Events.Event list * Events.Event list =
         match events, state with
         | [Events.Updated _], state -> [], [snapshot state]
         | xs, state ->                 xs, [snapshot state]
 
 type Command =
-    | Start of at : DateTimeOffset * checkpointFreq : TimeSpan * pos : int64
-    | Override of at : DateTimeOffset * checkpointFreq : TimeSpan * pos : int64
-    | Update of at : DateTimeOffset * pos : int64
+    | Start of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
+    | Override of at: DateTimeOffset * checkpointFreq: TimeSpan * pos: int64
+    | Update of at: DateTimeOffset * pos: int64
 
 let interpret command (state: Fold.State): Events.Event[] = [|
-    let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos } : Events.Checkpoint
-    let mk (at : DateTimeOffset) (interval : TimeSpan) pos : Events.Config * Events.Checkpoint =
+    let mkCheckpoint at next pos = { at = at; nextCheckpointDue = next; pos = pos }: Events.Checkpoint
+    let mk (at: DateTimeOffset) (interval: TimeSpan) pos: Events.Config * Events.Checkpoint =
         let next = at.Add interval
         { checkpointFreqS = int interval.TotalSeconds }, mkCheckpoint at next pos
 
@@ -100,19 +100,19 @@ type Service internal (resolve: CheckpointSeriesId -> Equinox.DeciderCore<Events
 
     /// Start a checkpointing series with the supplied parameters
     /// NB will fail if already existing; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Start(series, freq : TimeSpan, pos : int64, ct) : Task<unit> =
+    member _.Start(series, freq: TimeSpan, pos: int64, ct): Task<unit> =
         let decider = resolve series
         decider.Transact(interpret (Command.Start(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
     /// Override a checkpointing series with the supplied parameters
     /// NB fails if not already initialized; caller should select to `Start` or `Override` based on whether Read indicates state is Running Or NotStarted
-    member _.Override(series, freq : TimeSpan, pos : int64, ct) =
+    member _.Override(series, freq: TimeSpan, pos: int64, ct) =
         let decider = resolve series
         decider.Transact(interpret (Command.Override(DateTimeOffset.UtcNow, freq, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 
     /// Ingest a position update
     /// NB fails if not already initialized; caller should ensure correct initialization has taken place via Read -> Start
-    member _.Commit(series, pos : int64, ct) =
+    member _.Commit(series, pos: int64, ct) =
         let decider = resolve series
         decider.Transact(interpret (Command.Update(DateTimeOffset.UtcNow, pos)), load = Equinox.LoadOption.AnyCachedValue, ct = ct)
 

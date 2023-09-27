@@ -10,22 +10,22 @@ open System.Threading
 open System.Threading.Tasks
 
 type [<NoComparison; NoEquality>] Message =
-    | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : StreamEvent seq
-    | CloseSeries of seriesIndex : int
+    | Batch of seriesIndex: int * epoch: int64 * checkpoint: (CancellationToken -> Task<unit>) * items: StreamEvent seq
+    | CloseSeries of seriesIndex: int
 
 module StripedIngesterImpl =
 
-    type Stats(log : ILogger, statsInterval) =
+    type Stats(log: ILogger, statsInterval) =
         let interval = IntervalTimer statsInterval
         let mutable cycles, ingested = 0, 0
         let dumpStats activeSeries (readingAhead, ready) struct (currentBuffer, maxBuffer) =
             let mutable buffered = 0
-            let count (xs : IDictionary<int, ResizeArray<_>>) = seq { for x in xs do buffered <- buffered + x.Value.Count; yield x.Key, x.Value.Count } |> Seq.sortBy fst |> Seq.toArray
+            let count (xs: IDictionary<int, ResizeArray<_>>) = seq { for x in xs do buffered <- buffered + x.Value.Count; yield x.Key, x.Value.Count } |> Seq.sortBy fst |> Seq.toArray
             let ahead, ready = count readingAhead, count ready
             log.Information("Read {ingested} Cycles {cycles} Series {series} Holding {buffered} Reading {@reading} Ready {@ready} Active {currentBuffer}/{maxBuffer}",
                 ingested, cycles, activeSeries, buffered, ahead, ready, currentBuffer, maxBuffer)
             ingested <- 0; cycles <- 0
-        member _.Handle : InternalMessage -> unit = function
+        member _.Handle: InternalMessage -> unit = function
             | Batch _ -> ingested <- ingested + 1
             | ActivateSeries _ | CloseSeries _ -> ()
         member _.TryDump(activeSeries, readingAhead, ready, readMaxState) =
@@ -33,11 +33,11 @@ module StripedIngesterImpl =
             if interval.IfDueRestart() then dumpStats activeSeries (readingAhead, ready) readMaxState
 
     and [<NoComparison; NoEquality>] InternalMessage =
-        | Batch of seriesIndex : int * epoch : int64 * checkpoint : (CancellationToken -> Task<unit>) * items : StreamEvent seq
-        | CloseSeries of seriesIndex : int
-        | ActivateSeries of seriesIndex : int
+        | Batch of seriesIndex: int * epoch: int64 * checkpoint: (CancellationToken -> Task<unit>) * items: StreamEvent seq
+        | CloseSeries of seriesIndex: int
+        | ActivateSeries of seriesIndex: int
 
-    let tryTake key (dict : Dictionary<_, _>) =
+    let tryTake key (dict: Dictionary<_, _>) =
         match dict.TryGetValue key with
         | true, value ->
             dict.Remove key |> ignore
@@ -48,8 +48,8 @@ open StripedIngesterImpl
 
 /// Holds batches away from Core processing to limit in-flight processing
 type StripedIngester
-    (   log : ILogger, inner : Propulsion.Ingestion.Ingester<StreamEvent seq>,
-        maxInFlightBatches, initialSeriesIndex : int, statsInterval : TimeSpan, ?pumpInterval) =
+    (   log: ILogger, inner: Propulsion.Ingestion.Ingester<StreamEvent seq>,
+        maxInFlightBatches, initialSeriesIndex: int, statsInterval: TimeSpan, ?pumpInterval) =
     let cts = new CancellationTokenSource()
     let pumpIntervalMs = pumpInterval |> Option.map TimeSpan.toMs |> Option.defaultValue 5
     let work = ConcurrentQueue<InternalMessage>() // Queue as need ordering semantically
@@ -76,7 +76,7 @@ type StripedIngester
                         //   any ones we hold and forward through `readingAhead` are processed)
                         // - yield a null function as the onCompleted callback to be triggered when the batch's processing has concluded
                         id
-            let batchInfo : Propulsion.Ingestion.Batch<_ seq> =
+            let batchInfo: Propulsion.Ingestion.Batch<_ seq> =
                 { isTail = false; epoch = epoch; items = Array.ofSeq items; checkpoint = checkpoint; onCompletion = onCompletion }
 
             if isForActiveStripe then
@@ -130,7 +130,7 @@ type StripedIngester
 
     /// Yields (used, maximum) of in-flight batches limit
     /// return can be delayed where we're over the limit until such time as the background processing ingests the batch
-    member _.Submit(content : Message) = async {
+    member _.Submit(content: Message) = async {
         match content with
         | Message.Batch (seriesId, epoch, checkpoint, events) ->
             work.Enqueue <| Batch (seriesId, epoch, checkpoint, events)

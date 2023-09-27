@@ -1,6 +1,6 @@
 namespace Propulsion.DynamoStore
 
-type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff, ?maxItemsPerEpoch, ?maxVersion, ?storeLog, ?onlyWarnOnGap) =
+type DynamoStoreIndexer(log: Serilog.ILogger, context, cache, epochBytesCutoff, ?maxItemsPerEpoch, ?maxVersion, ?storeLog, ?onlyWarnOnGap) =
     let maxVersion = defaultArg maxVersion 5_000
     let maxStreams = defaultArg maxItemsPerEpoch 100_000
     do if maxStreams > AppendsEpoch.MaxItemsPerEpoch then invalidArg (nameof maxStreams) "Cannot exceed AppendsEpoch.MaxItemsPerEpoch"
@@ -31,7 +31,7 @@ type DynamoStoreIndexer(log : Serilog.ILogger, context, cache, epochBytesCutoff,
         let! originEpoch = ingester.ActiveIngestionEpochId()
         return! ingester.IngestMany(originEpoch, spans) |> Async.Ignore }
 
-type DynamoStoreIngester(log, context, ?storeLog, ?onlyWarnOnGap : bool) =
+type DynamoStoreIngester(log, context, ?storeLog, ?onlyWarnOnGap: bool) =
 
     // Values up to 5 work reasonably, but side effects are:
     // - read usage is more 'lumpy'

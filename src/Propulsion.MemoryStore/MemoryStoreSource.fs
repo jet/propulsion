@@ -8,10 +8,10 @@ open System.Threading.Tasks
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
-                           mapTimelineEvent : Func<FsCodec.ITimelineEvent<'F>, FsCodec.ITimelineEvent<Sinks.EventBody>>,
-                           sink : Propulsion.Sinks.Sink) =
-    let ingester : Ingestion.Ingester<_> = sink.StartIngester(log, 0)
+type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
+                           mapTimelineEvent: Func<FsCodec.ITimelineEvent<'F>, FsCodec.ITimelineEvent<Sinks.EventBody>>,
+                           sink: Propulsion.Sinks.Sink) =
+    let ingester: Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
     let monitor = lazy MemoryStoreMonitor(log, positions, sink)
     // epoch index of most recently prepared submission - conceptually events arrive concurrently though V4 impl makes them serial
@@ -21,7 +21,7 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
         let c = Channel.unboundedSr<Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>> in let r, w = c.Reader, c.Writer
         Channel.write w, Channel.awaitRead r, Channel.tryRead r
 
-    let handleStoreCommitted struct (categoryName, streamId, items : Propulsion.Sinks.StreamEvent[]) =
+    let handleStoreCommitted struct (categoryName, streamId, items: Propulsion.Sinks.StreamEvent[]) =
         let epoch = Interlocked.Increment &prepared
         positions.Prepared <- epoch
         if log.IsEnabled LogEventLevel.Debug then
@@ -38,12 +38,12 @@ type MemoryStoreSource<'F>(log, store : Equinox.MemoryStore.VolatileStore<'F>, c
         store.Committed
         |> Observable.choose (fun struct (FsCodec.StreamName.Split (categoryName, streamId) as sn, es) ->
             if categoryFilter categoryName then
-                let items : Propulsion.Sinks.StreamEvent[] = es |> Array.map (fun e -> sn, mapTimelineEvent.Invoke e)
+                let items: Propulsion.Sinks.StreamEvent[] = es |> Array.map (fun e -> sn, mapTimelineEvent.Invoke e)
                 Some (struct (categoryName, streamId, items))
             else None)
         |> Observable.subscribe handleStoreCommitted
 
-    member private _.Pump(ct : CancellationToken) = task {
+    member private _.Pump(ct: CancellationToken) = task {
         while not ct.IsCancellationRequested do
             let mutable more = true
             while more do
@@ -79,11 +79,11 @@ and internal TranchePositions() =
 
     let mutable completed = -1L
     member val CompletedMonitor = obj ()
-    member val Prepared : int64 = -1L with get, set
+    member val Prepared: int64 = -1L with get, set
     member x.Completed with get () = completed
                        and set value = lock x.CompletedMonitor (fun () -> completed <- value; Monitor.Pulse x.CompletedMonitor)
 
-and MemoryStoreMonitor internal (log : Serilog.ILogger, positions : TranchePositions, sink : Propulsion.Sinks.Sink) =
+and MemoryStoreMonitor internal (log: Serilog.ILogger, positions: TranchePositions, sink: Propulsion.Sinks.Sink) =
 
     /// Deterministically waits until all <c>Submit</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us
@@ -128,7 +128,7 @@ module TimelineEvent =
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource(log, store : Equinox.MemoryStore.VolatileStore<FsCodec.EncodedBody>, categoryFilter, sink) =
+type MemoryStoreSource(log, store: Equinox.MemoryStore.VolatileStore<FsCodec.EncodedBody>, categoryFilter, sink) =
     inherit MemoryStoreSource<FsCodec.EncodedBody>(log, store, categoryFilter, TimelineEvent.mapEncoded, sink)
     new(log, store, categories, sink) =
         MemoryStoreSource(log, store, (fun x -> Array.contains x categories), sink)

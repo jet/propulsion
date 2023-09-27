@@ -4,7 +4,7 @@ open Serilog
 
 // Derived from https://github.com/damianh/CapturingLogOutputWithXunit2AndParallelTests
 // NB VS does not surface these atm, but other test runners / test reports do
-type TestOutputLogger(testOutput : Xunit.Abstractions.ITestOutputHelper) =
+type TestOutputLogger(testOutput: Xunit.Abstractions.ITestOutputHelper) =
     let t = "[{Timestamp:HH:mm:ss} {Level:u1}] {Message:lj} {Properties:j}{NewLine}{Exception}"
     let formatter = Serilog.Formatting.Display.MessageTemplateTextFormatter(t, null);
     let writeSerilogEvent logEvent =

@@ -12,7 +12,7 @@ open System.Threading.Tasks
 open Xunit
 
 module Simple =
-    type Hello = { name : string}
+    type Hello = { name: string}
     type Event =
         | Hello of Hello
         interface TypeShape.UnionContract.IUnionContract

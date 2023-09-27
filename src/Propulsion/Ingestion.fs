@@ -9,7 +9,7 @@ open System.Threading.Tasks
 /// Manages writing of progress
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)
 /// - a failed commit will be retried on the next CommitIfDirty (unless a new checkpoint has been posted that supersedes it)
-type ProgressWriter<'Res when 'Res : equality>() =
+type ProgressWriter<'Res when 'Res: equality>() =
     let mutable committedEpoch = None
     let mutable validatedPos = None
     let result = Event<Result<'Res, exn>>()
@@ -36,16 +36,16 @@ type ProgressWriter<'Res when 'Res : equality>() =
 [<NoComparison; NoEquality>]
 type private InternalMessage =
     /// Confirmed completion of a batch
-    | Validated of epoch : int64
+    | Validated of epoch: int64
     /// Result from updating of Progress to backing store - processed up to nominated `epoch` or threw `exn`
     | ProgressResult of Result<int64, exn>
     /// Internal message for stats purposes
-    | Added of epoch : int64 * streams : int * events : int
+    | Added of epoch: int64 * streams: int * events: int
 
 [<Struct; NoComparison; NoEquality>]
-type Batch<'Items> = { epoch : int64; items : 'Items; onCompletion : unit -> unit; checkpoint : CancellationToken -> Task<unit>; isTail : bool }
+type Batch<'Items> = { epoch: int64; items: 'Items; onCompletion: unit -> unit; checkpoint: CancellationToken -> Task<unit>; isTail: bool }
 
-type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
+type private Stats(log: ILogger, partitionId, statsInterval: TimeSpan) =
     let mutable readEpoch, validatedEpoch, committedEpoch = None, None, None
     let mutable commitFails, commits = 0, 0
     let mutable cycles, batchesPended, streamsPended, eventsPended = 0, 0, 0, 0
@@ -58,13 +58,13 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
         if commitFails <> 0 && commits = 0 then log.Error("Ingester {partition} Commits failing: {failures} failures", partitionId, commitFails)
         commits <- 0; commitFails <- 0
 
-    member _.Handle : InternalMessage -> unit = function
+    member _.Handle: InternalMessage -> unit = function
         | Validated epoch ->
             validatedEpoch <- Some epoch
         | ProgressResult (Ok epoch) ->
             commits <- commits + 1
             committedEpoch <- Some epoch
-        | ProgressResult (Error (_exn : exn)) ->
+        | ProgressResult (Error (_exn: exn)) ->
             commitFails <- commitFails + 1
         | Added (epoch, streams, events) ->
             readEpoch <- Some epoch
@@ -78,10 +78,10 @@ type private Stats(log : ILogger, partitionId, statsInterval : TimeSpan) =
 /// Buffers items read from a range, unpacking them out of band from the reading so that can overlap
 /// On completion of the unpacking, they get submitted onward to the Submitter which will buffer them for us
 type Ingester<'Items> private
-    (   stats : Stats, maxReadAhead,
+    (   stats: Stats, maxReadAhead,
         // forwards a set of items and the completion callback, yielding streams count * event count
-        submitBatch : 'Items * (unit -> unit) -> struct (int * int),
-        cts : CancellationTokenSource,
+        submitBatch: 'Items * (unit -> unit) -> struct (int * int),
+        cts: CancellationTokenSource,
         ?commitInterval) =
 
     let maxRead = Sem maxReadAhead
@@ -95,7 +95,7 @@ type Ingester<'Items> private
     let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
     let progressWriter = ProgressWriter<_>()
 
-    let handleIncoming (batch : Batch<'Items>) =
+    let handleIncoming (batch: Batch<'Items>) =
         let markCompleted () =
             enqueueMessage <| Validated batch.epoch
             // Need to report progress before the Release or batch.OnCompletion, in order for AwaitCheckpointed to be correct
@@ -115,7 +115,7 @@ type Ingester<'Items> private
             while progressWriter.IsDirty do
                 do! Task.delay (commitInterval / 2.) ct }
 
-    member private x.CheckpointPeriodically(ct : CancellationToken) = task {
+    member private x.CheckpointPeriodically(ct: CancellationToken) = task {
         while not ct.IsCancellationRequested do
             do! x.FlushProgress ct
             do! Task.delay commitInterval ct }
@@ -148,7 +148,7 @@ type Ingester<'Items> private
 
     /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
     /// Returns (reads in flight, maximum reads in flight)
-    member _.Ingest(batch : Batch<'Items>) = task {
+    member _.Ingest(batch: Batch<'Items>) = task {
         // It's been read... feed it into the queue for unpacking
         enqueueIncoming batch
         // ... but we might hold off on yielding if we're at capacity

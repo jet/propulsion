@@ -6,7 +6,7 @@ open System
 module Async =
 
     /// Wraps a computation, cancelling (and triggering a timeout exception) if it doesn't complete within the specified timeout
-    let timeoutAfter (timeout : TimeSpan) (c : Async<'a>) = async {
+    let timeoutAfter (timeout: TimeSpan) (c: Async<'a>) = async {
         let! r = Async.StartChild(c, millisecondsTimeout = int timeout.TotalMilliseconds)
         return! r }
 

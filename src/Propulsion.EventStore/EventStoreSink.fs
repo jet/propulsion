@@ -19,12 +19,12 @@ module Internal =
     [<AutoOpen>]
     module Writer =
         type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
-            | Ok of updatedPos : int64
-            | Duplicate of updatedPos : int64
-            | PartialDuplicate of overage : Event[]
-            | PrefixMissing of batch : Event[] * writePos : int64
+            | Ok of updatedPos: int64
+            | Duplicate of updatedPos: int64
+            | PartialDuplicate of overage: Event[]
+            | PrefixMissing of batch: Event[] * writePos: int64
 
-        let logTo (log : ILogger) (res : FsCodec.StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+        let logTo (log: ILogger) (res: FsCodec.StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
             match res with
             | stream, Ok (_, Result.Ok pos) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
@@ -38,7 +38,7 @@ module Internal =
             | stream, Error (_, exn) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
-        let write (log : ILogger) (context : EventStoreContext) stream (span : Event[]) ct = task {
+        let write (log: ILogger) (context: EventStoreContext) stream (span: Event[]) ct = task {
             log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
 #if EVENTSTORE_LEGACY
             let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
@@ -61,7 +61,7 @@ module Internal =
 
     type Dispatcher =
 
-        static member Create(log : ILogger, storeLog, connections : _[], maxDop) =
+        static member Create(log: ILogger, storeLog, connections: _[], maxDop) =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
@@ -73,7 +73,7 @@ module Internal =
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
                     return Ok struct (met, res)
                 with e -> return Error struct (met, e) }
-            let interpretProgress (streams : Scheduling.StreamStates<_>) stream res =
+            let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               streams.RecordWriteProgress(stream, pos, null)
                     | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null)
@@ -130,7 +130,7 @@ type EventStoreSink =
 
     /// Starts a <c>Sink</c> that ingests all submitted events into the supplied <c>connections</c>
     static member Start
-        (   log : ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams, stats: EventStoreSinkStats,
+        (   log: ILogger, storeLog, maxReadAhead, connections, maxConcurrentStreams, stats: EventStoreSinkStats,
             // Frequency with which to jettison Write Position information for inactive streams in order to limit memory consumption
             // NOTE: Can impair performance and/or increase costs of writes as it inhibits the ability of the ingester to discard redundant inputs
             ?purgeInterval,

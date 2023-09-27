@@ -19,9 +19,9 @@ type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
 module Events =
 
     /// The Index of the next event ordinarily expected on the next handler invocation (assuming this invocation handles all successfully)
-    let nextIndex : Event[] -> int64 = Streams.StreamSpan.ver
+    let nextIndex: Event[] -> int64 = Streams.StreamSpan.ver
     /// The Index of the first event as supplied to this handler
-    let index : Event[] -> int64 = Streams.StreamSpan.idx
+    let index: Event[] -> int64 = Streams.StreamSpan.idx
 
 /// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.
@@ -36,15 +36,15 @@ type StreamResult =
    | AllProcessed
    /// Indicates only a subset of the presented events have been processed;
    /// Write Position should remove <c>count</c> items from the <c>Event</c>s supplied.
-   | PartiallyProcessed of count : int
+   | PartiallyProcessed of count: int
    /// Apply an externally observed Version determined by the handler during processing.
    /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
    /// events that have already been handled be dropped from the scheduler's buffers and/or as they arrive.
-   | OverrideNextIndex of version : int64
+   | OverrideNextIndex of version: int64
 
 module StreamResult =
 
-    let toIndex<'F> (span : FsCodec.ITimelineEvent<'F>[]) = function
+    let toIndex<'F> (span: FsCodec.ITimelineEvent<'F>[]) = function
         | NoneProcessed ->              span[0].Index
         | AllProcessed ->               span[0].Index + span.LongLength // all-but equivalent to Events.nextIndex span
         | PartiallyProcessed count ->   span[0].Index + int64 count
@@ -53,8 +53,8 @@ module StreamResult =
 /// Internal helpers used to compute buffer sizes for stats
 module Event =
 
-    let storedSize (x : Event) = x.Size
-    let renderedSize (x : Event) = storedSize x + 80
+    let storedSize (x: Event) = x.Size
+    let renderedSize (x: Event) = storedSize x + 80
 
 /// Canonical Sink type that the bulk of Sources are configured to feed into
 type Sink = Propulsion.Sink<Ingestion.Ingester<StreamEvent seq>>
@@ -70,7 +70,7 @@ type Factory private () =
     /// Project Events using up to <c>maxConcurrentStreams</c> <code>handle</code> functions that yield a StreamResult and an Outcome to be fed to the Stats
     static member StartConcurrentAsync<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle : Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
+            maxConcurrentStreams, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
             stats,
             [<O; D null>] ?pendingBufferSize,
             [<O; D null>] ?purgeInterval,
@@ -104,7 +104,7 @@ type Factory private () =
     /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
     static member StartConcurrent<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle : FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
@@ -121,8 +121,8 @@ type Factory private () =
     /// Like StartConcurrent, but the events supplied to the Handler are constrained by <c>maxBytes</c> and <c>maxEvents</c>
     static member StartConcurrentChunked<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle : FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
-            stats : Sync.Stats<'Outcome>,
+            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            stats: Sync.Stats<'Outcome>,
             // Default 1 ms
             ?idleDelay,
             // Default 1 MiB

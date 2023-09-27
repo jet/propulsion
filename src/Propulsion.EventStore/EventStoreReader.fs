@@ -8,13 +8,13 @@ open System
 open System.Collections.Generic
 open System.Threading
 
-let inline arrayBytes (x : byte[]) = match x with null -> 0 | x -> x.Length
-let inline recPayloadBytes (x : RecordedEvent) = arrayBytes x.Data + arrayBytes x.Metadata
-let inline payloadBytes (x : ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * sizeof<char>
+let inline arrayBytes (x: byte[]) = match x with null -> 0 | x -> x.Length
+let inline recPayloadBytes (x: RecordedEvent) = arrayBytes x.Data + arrayBytes x.Metadata
+let inline payloadBytes (x: ResolvedEvent) = recPayloadBytes x.Event + x.OriginalStreamId.Length * sizeof<char>
 let private dash = [|'-'|]
 
 // Bespoke algorithm suited to grouping streams as observed in EventStore, where {category}-{streamId} is expected, but definitely not guaranteed
-let private categorizeEventStoreStreamId (eventStoreStreamId : string) =
+let private categorizeEventStoreStreamId (eventStoreStreamId: string) =
     eventStoreStreamId.Split(dash, 2, StringSplitOptions.RemoveEmptyEntries).[0]
 
 /// Maintains ingestion stats (thread safe via lock free data structures so it can be used across multiple overlapping readers)
@@ -41,7 +41,7 @@ type SliceStatsBuffer(?interval) =
     let interval = IntervalTimer(defaultArg interval (TimeSpan.FromMinutes 5.))
     let recentCats = Dictionary<string, int * int>()
 
-    member x.Ingest(slice : AllEventsSlice) =
+    member x.Ingest(slice: AllEventsSlice) =
         lock recentCats <| fun () ->
             let mutable batchBytes = 0
             for x in slice.Events do
@@ -71,10 +71,10 @@ type SliceStatsBuffer(?interval) =
                 recentCats.Clear()
 
 /// Defines a tranche of a traversal of a stream (or the store as a whole)
-type Range(start, sliceEnd : Position option, ?max : Position) =
+type Range(start, sliceEnd: Position option, ?max: Position) =
     member val Current = start with get, set
 
-    member x.TryNext(pos : Position) =
+    member x.TryNext(pos: Position) =
         x.Current <- pos
         x.IsCompleted
 
@@ -95,26 +95,26 @@ type Range(start, sliceEnd : Position option, ?max : Position) =
    to be able to address an arbitrary position as a percentage, we need to consider this aspect as only a valid Position can be supplied to the read call *)
 
 // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk
-let chunk (pos : Position) = uint64 pos.CommitPosition >>> 28
-let posFromChunk (chunk : int) =
+let chunk (pos: Position) = uint64 pos.CommitPosition >>> 28
+let posFromChunk (chunk: int) =
     let chunkBase = int64 chunk * 1024L * 1024L * 256L
     Position(chunkBase, 0L)
-let posFromChunkAfter (pos : Position) =
+let posFromChunkAfter (pos: Position) =
     let nextChunk = 1 + int (chunk pos)
     posFromChunk nextChunk
-let posFromPercentage (pct, max : Position) =
+let posFromPercentage (pct, max: Position) =
     let rawPos = Position(float max.CommitPosition * pct / 100. |> int64, 0L)
     let chunk = int (chunk rawPos) in posFromChunk chunk // &&& 0xFFFFFFFFE0000000L // rawPos / 256L / 1024L / 1024L * 1024L * 1024L * 256L
 
 /// Read the current tail position; used to be able to compute and log progress of ingestion
-let fetchMax (conn : IEventStoreConnection) = task {
+let fetchMax (conn: IEventStoreConnection) = task {
     let! lastItemBatch = conn.ReadAllEventsBackwardAsync(Position.End, 1, resolveLinkTos=false)
     let max = lastItemBatch.FromPosition
     Log.Information("EventStore Tail Position: @ {pos} ({chunks} chunks, ~{gb:n1}GB)", max.CommitPosition, chunk max, Log.miB max.CommitPosition/1024.)
     return max }
 
 /// `fetchMax` wrapped in a retry loop; Sync process is heavily reliant on establishing the max in order to be able to show progress % so we have a crude retry loop
-let establishMax (conn : IEventStoreConnection) = task {
+let establishMax (conn: IEventStoreConnection) = task {
     let mutable max = None
     while Option.isNone max do
         try let! currentMax = fetchMax conn
@@ -126,7 +126,7 @@ let establishMax (conn : IEventStoreConnection) = task {
 
 /// Walks a stream within the specified constraints; used to grab data when writing to a stream for which a prefix is missing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
-let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : int option) mapEvent (postBatch : string * Event[] -> Async<unit>) =
+let pullStream (conn: IEventStoreConnection, batchSize) (stream, pos, limit: int option) mapEvent (postBatch: string * Event[] -> Async<unit>) =
     let rec fetchFrom pos limit = async {
         let reqLen = match limit with Some limit -> min limit batchSize | None -> batchSize
         let! currentSlice = conn.ReadStreamEventsForwardAsync(stream, pos, reqLen, resolveLinkTos=true) |> Async.ofTask
@@ -142,8 +142,8 @@ let pullStream (conn : IEventStoreConnection, batchSize) (stream, pos, limit : i
 /// Walks the $all stream, yielding batches together with the associated Position info for the purposes of checkpointing
 /// Can throw (in which case the caller is in charge of retrying, possibly with a smaller batch size)
 type [<NoComparison>] PullResult = Exn of exn: exn | Eof | EndOfTranche
-let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn : IEventStoreConnection, batchSize)
-        (range:Range, once) (tryMapEvent : ResolvedEvent -> StreamEvent option) (postBatch : Position -> StreamEvent[] -> Async<struct (int * int)>) =
+let pullAll (slicesStats: SliceStatsBuffer, overallStats: OverallStats) (conn: IEventStoreConnection, batchSize)
+        (range:Range, once) (tryMapEvent: ResolvedEvent -> StreamEvent option) (postBatch: Position -> StreamEvent[] -> Async<struct (int * int)>) =
     let sw = Stopwatch.start () // we'll report the warmup/connect time on the first batch
     let streams, cats = HashSet(), HashSet()
     let rec aux () = async {
@@ -175,27 +175,27 @@ let pullAll (slicesStats : SliceStatsBuffer, overallStats : OverallStats) (conn 
 type Req =
     | EofDetected
     /// Tail from a given start position, at intervals of the specified timespan (no waiting if catching up)
-    | Tail of seriesId : int * startPos : Position * max : Position * interval : TimeSpan * batchSize : int
+    | Tail of seriesId: int * startPos: Position * max: Position * interval: TimeSpan * batchSize: int
     // Read a given segment of a stream (used when a stream needs to be rolled forward to lay down an event for which the preceding events are missing)
     //| StreamPrefix of name: string * pos: int64 * len: int * batchSize: int
     // Read the entirety of a stream in blocks of the specified batchSize (TODO wire to commandline request)
     //| Stream of name: string * batchSize: int
     /// Read a specific chunk (min-max range), posting batches tagged with that chunk number
-    | Chunk of seriesId : int * range: Range * batchSize : int
+    | Chunk of seriesId: int * range: Range * batchSize: int
 
 /// Data with context resulting from a reader thread
 [<NoComparison; NoEquality; RequireQualifiedAccess>]
 type Res =
     /// A batch read from a Chunk
-    | Batch of seriesId : int * pos : Position * items : StreamEvent seq
+    | Batch of seriesId: int * pos: Position * items: StreamEvent seq
     /// Ingestion buffer requires an explicit end of chunk message before next chunk can commence processing
-    | EndOfChunk of seriesId : int
+    | EndOfChunk of seriesId: int
     // A Batch read from a Stream or StreamPrefix
     //| StreamSpan of span: State.StreamSpan
 
 /// Holds work queue, together with stats relating to the amount and/or categories of data being traversed
 /// Processing is driven by external callers running multiple concurrent invocations of `Process`
-type EventStoreReader(connections : _[], defaultBatchSize, minBatchSize, tryMapEvent, post : Res -> Async<struct (int * int)>, tailInterval, dop, ?statsInterval) =
+type EventStoreReader(connections: _[], defaultBatchSize, minBatchSize, tryMapEvent, post: Res -> Async<struct (int * int)>, tailInterval, dop, ?statsInterval) =
     let work = System.Collections.Concurrent.ConcurrentQueue()
     let sleepIntervalMs = 100
     let overallStats = OverallStats(?statsInterval=statsInterval)

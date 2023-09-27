@@ -4,7 +4,7 @@ open System
 
 module TimeSpan =
 
-    let toMs (ts : TimeSpan) : int = ts.TotalMilliseconds |> int
+    let toMs (ts: TimeSpan): int = ts.TotalMilliseconds |> int
 
 module Stopwatch =
 
@@ -13,9 +13,9 @@ module Stopwatch =
     let inline ticksToSeconds ticks = double ticks / double System.Diagnostics.Stopwatch.Frequency
     let inline ticksToTimeSpan ticks = ticksToSeconds ticks |> TimeSpan.FromSeconds
 
-    let inline elapsedTicks (ts : int64) = timestamp () - ts
-    let inline elapsedSeconds (ts : int64) = elapsedTicks ts |> ticksToSeconds
-    let inline elapsed (ts : int64) = elapsedTicks ts |> ticksToTimeSpan // equivalent to .NET 7 System.Diagnostics.Stopwatch.GetElapsedTime()
+    let inline elapsedTicks (ts: int64) = timestamp () - ts
+    let inline elapsedSeconds (ts: int64) = elapsedTicks ts |> ticksToSeconds
+    let inline elapsed (ts: int64) = elapsedTicks ts |> ticksToTimeSpan // equivalent to .NET 7 System.Diagnostics.Stopwatch.GetElapsedTime()
 
 type System.Diagnostics.Stopwatch with
 
@@ -23,7 +23,7 @@ type System.Diagnostics.Stopwatch with
     member x.ElapsedMinutes = x.ElapsedSeconds / 60.
 
 /// Manages a time cycle defined by `period`. Can be explicitly Trigger()ed prematurely
-type IntervalTimer(period : TimeSpan) =
+type IntervalTimer(period: TimeSpan) =
 
     let sw = Stopwatch.start ()
     let mutable force = false
@@ -57,12 +57,12 @@ type IntervalTimer(period : TimeSpan) =
 
 module Exception =
 
-    let rec inner (e : exn) =
+    let rec inner (e: exn) =
         match e with
         | :? AggregateException as ae when ae.InnerExceptions.Count = 1 -> inner ae.InnerException
         | e -> e
     let (|Inner|) = inner
-    let [<return: Struct>] (|Log|_|) log (e : exn) = log e; ValueNone
+    let [<return: Struct>] (|Log|_|) log (e: exn) = log e; ValueNone
 
 open System.Threading
 open System.Threading.Tasks
@@ -75,29 +75,29 @@ module Channel =
     let unboundedSw<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true))
     let unboundedSwSr<'t> = Channel.CreateUnbounded<'t>(UnboundedChannelOptions(SingleWriter = true, SingleReader = true))
     let boundedSw<'t> c = Channel.CreateBounded<'t>(BoundedChannelOptions(c, SingleWriter = true))
-    let waitToWrite (w : ChannelWriter<_>) ct = let vt = w.WaitToWriteAsync(ct) in vt.AsTask() :> Task
-    let tryWrite (w : ChannelWriter<_>) = w.TryWrite
-    let write (w : ChannelWriter<_>) = w.TryWrite >> ignore
-    let inline awaitRead (r : ChannelReader<_>) ct = let vt = r.WaitToReadAsync(ct) in vt.AsTask()
-    let inline tryRead (r : ChannelReader<_>) () =
+    let waitToWrite (w: ChannelWriter<_>) ct = let vt = w.WaitToWriteAsync(ct) in vt.AsTask() :> Task
+    let tryWrite (w: ChannelWriter<_>) = w.TryWrite
+    let write (w: ChannelWriter<_>) = w.TryWrite >> ignore
+    let inline awaitRead (r: ChannelReader<_>) ct = let vt = r.WaitToReadAsync(ct) in vt.AsTask()
+    let inline tryRead (r: ChannelReader<_>) () =
         let mutable msg = Unchecked.defaultof<_>
         if r.TryRead(&msg) then ValueSome msg else ValueNone
-    let inline apply (r : ChannelReader<_>) f =
+    let inline apply (r: ChannelReader<_>) f =
         let mutable worked = false
         let mutable msg = Unchecked.defaultof<_>
         while r.TryRead(&msg) do
             worked <- true
             f msg
         worked
-    let inline readAll (r : ChannelReader<_>) () = seq {
+    let inline readAll (r: ChannelReader<_>) () = seq {
         let mutable msg = Unchecked.defaultof<_>
         while r.TryRead(&msg) do
             yield msg }
 
 module Async =
 
-    let ofUnitTask (t : Task) = Async.AwaitTaskCorrect t
-    let ofTask (t : Task<'t>) = Async.AwaitTaskCorrect t
+    let ofUnitTask (t: Task) = Async.AwaitTaskCorrect t
+    let ofTask (t: Task<'t>) = Async.AwaitTaskCorrect t
 
     let inline call (start: CancellationToken -> Task<'T>): Async<'T> = async {
         let! ct = Async.CancellationToken
@@ -107,27 +107,27 @@ module Async =
         return! start ct |> ofUnitTask }
 
     let inline startImmediateAsTask (computation: Async<'T>) ct: Task<'T> = Async.StartImmediateAsTask(computation, ct)
-    let inline executeAsTask ct (computation: Async<'T>) : Task<'T> = startImmediateAsTask computation ct
+    let inline executeAsTask ct (computation: Async<'T>): Task<'T> = startImmediateAsTask computation ct
     let parallelLimit maxDop xs: Async<'t []> = Async.Parallel(xs, maxDegreeOfParallelism = maxDop)
 
 module Task =
 
     let inline run create = Task.Run<unit>(Func<Task<unit>> create)
     let inline start create = run create |> ignore<Task>
-    let inline delay (ts : TimeSpan) ct = Task.Delay(ts, ct)
-    let inline Catch (t : Task<'t>) = task { try let! r = t in return Ok r with e -> return Error e }
-    let private parallel_ maxDop ct (xs: seq<CancellationToken -> Task<'t>>) : Task<'t []> =
+    let inline delay (ts: TimeSpan) ct = Task.Delay(ts, ct)
+    let inline Catch (t: Task<'t>) = task { try let! r = t in return Ok r with e -> return Error e }
+    let private parallel_ maxDop ct (xs: seq<CancellationToken -> Task<'t>>): Task<'t []> =
         Async.Parallel(xs |> Seq.map Async.call, ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.executeAsTask ct
     /// Runs an inner task with a dedicated Linked Token Source. Cancels via the ct upon completion, before Disposing the LCTS
     let inline runWithCancellation (ct: CancellationToken) ([<InlineIfLambda>]f: CancellationToken -> Task) = task {
         use cts = CancellationTokenSource.CreateLinkedTokenSource(ct) // https://stackoverflow.com/questions/6960520/when-to-dispose-cancellationtokensource
         try do! f cts.Token
         finally cts.Cancel() }
-    let parallelLimit maxDop ct xs : Task<'t []> =
+    let parallelLimit maxDop ct xs: Task<'t []> =
         parallel_ maxDop ct xs
-    let sequential ct xs : Task<'t []> =
+    let sequential ct xs: Task<'t []> =
         parallel_ 1 ct xs
-    let parallelUnlimited ct xs : Task<'t []> =
+    let parallelUnlimited ct xs: Task<'t []> =
         parallel_ 0 ct xs
     let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
@@ -139,13 +139,13 @@ type Sem(max) =
     member _.State = struct(max - inner.CurrentCount, max)
     member _.TryTake() = inner.Wait 0
     member _.Release() = inner.Release() |> ignore
-    member _.Wait(ct : CancellationToken) = inner.WaitAsync(ct)
+    member _.Wait(ct: CancellationToken) = inner.WaitAsync(ct)
     member x.WaitButRelease(ct: CancellationToken) = // see https://stackoverflow.com/questions/31621644/task-whenany-and-semaphoreslim-class/73197290?noredirect=1#comment129334330_73197290
         if x.TryTake() then x.Release(); Task.CompletedTask
         else let tco = TaskContinuationOptions.OnlyOnRanToCompletion ||| TaskContinuationOptions.ExecuteSynchronously
              x.Wait(ct).ContinueWith((fun _ -> x.Release()), ct, tco, TaskScheduler.Default)
     /// Manage a controlled shutdown by accumulating reservations of the full capacity.
-    member x.WaitForCompleted(ct : CancellationToken) = task {
+    member x.WaitForCompleted(ct: CancellationToken) = task {
         for _ in 1..max do do! x.Wait(ct)
         return struct (0, max) }
 
@@ -159,7 +159,7 @@ type Async with
         let tcs = TaskCompletionSource()
         use _ = ct.Register(fun () ->
             tcs.TrySetCanceled() |> ignore)
-        use _ = Console.CancelKeyPress.Subscribe(fun (a : ConsoleCancelEventArgs) ->
+        use _ = Console.CancelKeyPress.Subscribe(fun (a: ConsoleCancelEventArgs) ->
             a.Cancel <- true // We're using this exception to drive a controlled shutdown so inhibit the standard behavior
             tcs.TrySetException(TaskCanceledException "Execution cancelled via Ctrl-C/Break; exiting...") |> ignore)
         return! tcs.Task |> Async.ofUnitTask }
@@ -171,7 +171,7 @@ module ValueTuple =
 
     let inline fst struct (f, _s) = f
     let inline snd struct (_f, s) = s
-    let inline ofKvp (x : System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
+    let inline ofKvp (x: System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
 
 module ValueOption =
 
@@ -198,7 +198,7 @@ module Stats =
 
     open System.Collections.Generic
 
-    let statsDescending (xs : Dictionary<_, _>) = xs |> Seq.map ValueTuple.ofKvp |> Seq.sortByDescending ValueTuple.snd
+    let statsDescending (xs: Dictionary<_, _>) = xs |> Seq.map ValueTuple.ofKvp |> Seq.sortByDescending ValueTuple.snd
 
     /// Gathers stats relating to how many items of a given category have been observed
     type CatStats() =
@@ -225,7 +225,7 @@ module Stats =
             stddev : TimeSpan option }
 
     open MathNet.Numerics.Statistics
-    let private dumpStats (log : Serilog.ILogger) (kind : string) (xs : TimeSpan seq) =
+    let private dumpStats (log: Serilog.ILogger) (label: string) (xs: TimeSpan seq) =
         let sortedLatencies = xs |> Seq.map (fun ts -> ts.TotalSeconds) |> Seq.sort |> Seq.toArray
 
         let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
@@ -243,7 +243,7 @@ module Stats =
             p99 = pc 99 }
         let stdDev = match l.stddev with None -> Double.NaN | Some d -> d.TotalSeconds
         log.Information(" {kind} {count,4} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
-            kind, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
+            label, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
 
     /// Operations on an instance are safe cross-thread
     type ConcurrentLatencyStats(label) =
@@ -295,10 +295,10 @@ module Log =
 
     /// Attach a property to the captured event record to hold the metric information
     // Sidestep Log.ForContext converting to a string; see https://github.com/serilog/serilog/issues/1124
-    let withScalarProperty (key: string) (value : 'T) (log : Serilog.ILogger) =
-        let enrich (e : Serilog.Events.LogEvent) =
+    let withScalarProperty (key: string) (value: 'T) (log: Serilog.ILogger) =
+        let enrich (e: Serilog.Events.LogEvent) =
             e.AddPropertyIfAbsent(Serilog.Events.LogEventProperty(key, Serilog.Events.ScalarValue(value)))
         log.ForContext({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt,_) = enrich evt })
-    let [<return: Struct>] (|ScalarValue|_|) : Serilog.Events.LogEventPropertyValue -> obj voption = function
+    let [<return: Struct>] (|ScalarValue|_|): Serilog.Events.LogEventPropertyValue -> obj voption = function
         | :? Serilog.Events.ScalarValue as x -> ValueSome x.Value
         | _ -> ValueNone

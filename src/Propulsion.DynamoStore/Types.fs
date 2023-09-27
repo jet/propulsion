@@ -45,7 +45,7 @@ module Checkpoint =
 
     let private toEpochAndOffset (value: Checkpoint): struct (AppendsEpochId * int) =
         let d, r = System.Math.DivRem(%value, maxItemsPerEpoch)
-        (%int %d : AppendsEpochId), int r
+        (%int %d: AppendsEpochId), int r
 
     let internal (|Parse|): Propulsion.Feed.Position -> struct (AppendsEpochId * int) = ofPosition >> toEpochAndOffset
 

@@ -16,17 +16,17 @@ open System.Threading.Tasks
 module private DateTimeOffsetPosition =
 
     let factor = 1_000_000_000L
-    let getDateTimeOffset (x : Position) =
+    let getDateTimeOffset (x: Position) =
         let datepart = Position.toInt64 x / factor
         DateTimeOffset.FromUnixTimeSeconds datepart
-    let ofDateTimeOffset (x : DateTimeOffset) =
+    let ofDateTimeOffset (x: DateTimeOffset) =
         let epochTime = x.ToUnixTimeSeconds()
         epochTime * factor |> Position.parse
-    let private toEpochAndOffset (value : Position) : DateTimeOffset * int =
+    let private toEpochAndOffset (value: Position): DateTimeOffset * int =
         let d, r = Math.DivRem(Position.toInt64 value, factor)
         DateTimeOffset.FromUnixTimeSeconds d, int r
 
-    let (|Initial|EpochAndOffset|) (pos : Propulsion.Feed.Position) =
+    let (|Initial|EpochAndOffset|) (pos: Propulsion.Feed.Position) =
         if pos = Position.initial then Initial
         else EpochAndOffset (toEpochAndOffset pos)
     let render = function
@@ -35,28 +35,28 @@ module private DateTimeOffsetPosition =
 
 module private TimelineEvent =
 
-    let ofBasePositionIndexAndEventData<'t> (basePosition : Position) =
+    let ofBasePositionIndexAndEventData<'t> (basePosition: Position) =
         let baseIndex = Position.toInt64 basePosition
-        fun (i, x : FsCodec.IEventData<_>, context : obj) ->
+        fun (i, x: FsCodec.IEventData<_>, context: obj) ->
             if i > DateTimeOffsetPosition.factor then invalidArg "i" (sprintf "Index may not exceed %d" DateTimeOffsetPosition.factor)
             FsCodec.Core.TimelineEvent.Create(
                 baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 
 [<Struct; NoComparison; NoEquality>]
-type SourceItem<'F> = { streamName : FsCodec.StreamName; eventData : FsCodec.IEventData<'F>; context : obj }
+type SourceItem<'F> = { streamName: FsCodec.StreamName; eventData: FsCodec.IEventData<'F>; context: obj }
 
 /// Drives reading and checkpointing for a custom source which does not have a way to incrementally query the data within as a change feed. <br/>
 /// Reads the supplied `source` at `pollInterval` intervals, offsetting the `Index` of the events read based on the start time of the traversal
 ///   in order to ensure that the Index of each event propagated to the Sink is monotonically increasing as required. <br/>
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
-    (   log : Serilog.ILogger, statsInterval : TimeSpan, sourceId, refreshInterval : TimeSpan,
-        checkpoints : IFeedCheckpointStore, sink : Propulsion.Sinks.Sink,
+    (   log: Serilog.ILogger, statsInterval: TimeSpan, sourceId, refreshInterval: TimeSpan,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawlInternal (read : Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct : IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
+    let crawlInternal (read: Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct: IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -72,7 +72,7 @@ type PeriodicSource
         let mutable elapsed = TimeSpan.Zero
         for ts, xs in read.Invoke trancheId do
             elapsed <- elapsed + ts
-            let streamEvents : Propulsion.Sinks.StreamEvent seq = seq {
+            let streamEvents: Propulsion.Sinks.StreamEvent seq = seq {
                 for si in xs ->
                     let i = index
                     index <- index + 1L
@@ -84,14 +84,14 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield struct (elapsed, ({ items = items; checkpoint = position; isTail = false } : Core.Batch<_>))
+                yield struct (elapsed, ({ items = items; checkpoint = position; isTail = false }: Core.Batch<_>))
                 elapsed <- TimeSpan.Zero
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
             | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Core.TimelineEvent.toCheckpointPosition
-        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true } : Core.Batch<_>) }
+        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true }: Core.Batch<_>) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                            // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>
@@ -104,12 +104,12 @@ type PeriodicSource
     /// The <c>readTranches</c> and <c>crawl</c> functions are expected to manage their own resilience strategies (retries etc). <br/>
     /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
     abstract member StartAsync: crawl: Func<TrancheId, IAsyncEnumerable<struct (TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>>
-                                * ?readTranches : Func<CancellationToken, Task<TrancheId[]>>
+                                * ?readTranches: Func<CancellationToken, Task<TrancheId[]>>
                                  -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.StartAsync(crawl, ?readTranches) =
         let readTranches = match readTranches with Some f -> f.Invoke | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
         base.Start(fun ct -> x.Pump(readTranches, crawl, ct))
 
-    member x.Start(crawl : TrancheId -> IAsyncEnumerable<struct(TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>, ?readTranches) =
+    member x.Start(crawl: TrancheId -> IAsyncEnumerable<struct(TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>, ?readTranches) =
         let readTranches = readTranches |> Option.map (fun f -> Func<_, _>(Async.startImmediateAsTask f))
         x.StartAsync(crawl, ?readTranches = readTranches)

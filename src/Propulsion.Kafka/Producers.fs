@@ -9,7 +9,7 @@ open System.Threading.Tasks
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer
-    (   log : ILogger, clientId, bootstrapServers, acks, topic,
+    (   log: ILogger, clientId, bootstrapServers, acks, topic,
         // Linger period (larger values improve compression value and throughput, lower values improve best case latency). Default 5ms (librdkafka < 1.5 default: 0.5ms, librdkafka >= 1.5 default: 5ms)
         ?linger,
         // Default: LZ4
@@ -38,7 +38,7 @@ type Producer
 
     /// Execute a producer operation, including recording of the latency statistics for the operation
     /// NOTE: the `execute` function is expected to throw in the event of a failure to produce (this is the standard semantic for all Confluent.Kafka ProduceAsync APIs)
-    member _.Produce(execute : FsKafka.KafkaProducer -> CancellationToken -> Task<'r>, ct) : Task<'r> = task {
+    member _.Produce(execute: FsKafka.KafkaProducer -> CancellationToken -> Task<'r>, ct): Task<'r> = task {
         let producer = producers[Interlocked.Increment(&robin) % producers.Length]
         let sw = Stopwatch.start ()
         let! res = execute producer ct

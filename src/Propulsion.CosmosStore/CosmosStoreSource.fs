@@ -9,12 +9,12 @@ open System.Collections.Generic
 module Log =
 
     type ReadMetric =
-        {   database : string ; container : string; group : string; rangeId : int
-            token : int64; latency : TimeSpan; rc : float; age : TimeSpan; docs : int
-            ingestLatency : TimeSpan; ingestQueued : int }
+        {   database: string; container: string; group: string; rangeId: int
+            token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int
+            ingestLatency: TimeSpan; ingestQueued: int }
     type LagMetric =
-        {   database : string ; container : string; group : string
-            rangeLags : (int * int64) [] }
+        {   database: string; container: string; group: string
+            rangeLags: (int * int64)[] }
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Metric =
         | Read of ReadMetric
@@ -22,8 +22,8 @@ module Log =
 
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
     /// Attach a property to the captured event record to hold the metric information
-    let internal withMetric (value : Metric) = Log.withScalarProperty PropertyTag value
-    let [<return: Struct>] (|MetricEvent|_|) (logEvent : Serilog.Events.LogEvent) : Metric voption =
+    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
+    let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
@@ -31,12 +31,12 @@ module Log =
 type CosmosStoreSource =
 
     static member private CreateTrancheObserver<'Items>
-        (   log : ILogger,
-            trancheIngester : Propulsion.Ingestion.Ingester<'Items>,
-            mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
+        (   log: ILogger,
+            trancheIngester: Propulsion.Ingestion.Ingester<'Items>,
+            mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
 
         let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx : ChangeFeedObserverContext) (checkpoint, docs : IReadOnlyCollection<_>, _ct) = task {
+        let ingest (ctx: ChangeFeedObserverContext) (checkpoint, docs: IReadOnlyCollection<_>, _ct) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
             let pt = Stopwatch.start ()
@@ -60,9 +60,9 @@ type CosmosStoreSource =
             member _.Dispose() = trancheIngester.Stop() }
 
     static member CreateObserver<'Items>
-        (   log : ILogger,
-            startIngester : ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
-            mapContent : IReadOnlyCollection<_> -> 'Items) : IChangeFeedObserver =
+        (   log: ILogger,
+            startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
+            mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
 
         // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
         // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
@@ -80,16 +80,16 @@ type CosmosStoreSource =
             member _.Dispose() = dispose () }
 
     static member Start
-        (   log : ILogger,
-            monitored : Container, leases : Container, processorName, observer,
+        (   log: ILogger,
+            monitored: Container, leases: Container, processorName, observer,
             [<O; D null>] ?maxItems,
             [<O; D null>] ?tailSleepInterval,
             [<O; D null>] ?startFromTail,
-            [<O; D null>] ?lagReportFreq : TimeSpan,
+            [<O; D null>] ?lagReportFreq: TimeSpan,
             [<O; D null>] ?notifyError,
             [<O; D null>] ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
-        let logLag (interval : TimeSpan) (remainingWork : (int*int64) list) = task {
+        let logLag (interval: TimeSpan) (remainingWork: (int*int64) list) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
             for partitionId, gap as partitionAndGap in remainingWork do
                 total <- total + gap

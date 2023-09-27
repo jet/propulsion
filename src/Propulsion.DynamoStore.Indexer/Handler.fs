@@ -3,7 +3,7 @@ module Propulsion.DynamoStore.Indexer.Handler
 open Amazon.DynamoDBv2
 open Propulsion.DynamoStore
 
-let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBEvents.DynamoDBEvent) : AppendsEpoch.Events.StreamSpan[] =
+let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEvents.DynamoDBEvent): AppendsEpoch.Events.StreamSpan[] =
     let spans, summary = ResizeArray(), System.Text.StringBuilder()
     let mutable indexStream, systemStreams, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do
@@ -34,7 +34,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBE
                     | [||] -> ()
                     | appendedEts ->
                         let i = n - appendedEts.LongLength
-                        spans.Add({ p = sn; i = i; c = appendedEts } : AppendsEpoch.Events.StreamSpan)
+                        spans.Add({ p = sn; i = i; c = appendedEts }: AppendsEpoch.Events.StreamSpan)
                         let et =
                             match appendedEts with
                             | [| et |] -> ":" + et
@@ -49,7 +49,7 @@ let private parse (log : Serilog.ILogger) (dynamoEvent : Amazon.Lambda.DynamoDBE
         log.Warning(e, "Failed {summary}", summary)
         reraise ()
 
-let handle log (service : DynamoStoreIndexer) dynamoEvent = task {
+let handle log (service: DynamoStoreIndexer) dynamoEvent = task {
     match parse log dynamoEvent with
     | [||] -> ()
     // TOCONSIDER if there are multiple shards, they should map to individual TrancheIds in order to avoid continual concurrency violations from competing writers

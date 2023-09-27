@@ -28,7 +28,7 @@ let startConsumer log broker topic groupId handler =
     startConsumerFromConfig log config handler
 let mkMonitor log = KafkaMonitor(log, TimeSpan.FromSeconds 3., windowSize=5)
 
-let producerOnePerSecondLoop (producer : KafkaProducer) =
+let producerOnePerSecondLoop (producer: KafkaProducer) =
     let rec loop () = async {
         let! _ = producer.ProduceAsync("a","1")
         do! Async.Sleep 1000
@@ -37,7 +37,7 @@ let producerOnePerSecondLoop (producer : KafkaProducer) =
 
 let onlyConsumeFirstBatchHandler =
     let observedPartitions = System.Collections.Concurrent.ConcurrentDictionary()
-    fun (item : ConsumeResult<string,string>) -> task {
+    fun (item: ConsumeResult<string,string>) -> task {
         // make first handle succeed to ensure consumer has offsets
         let partitionId = Binding.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }
@@ -59,7 +59,7 @@ type T1(testOutputHelper) =
         let! _producerActivity = Async.StartChild <| producerOnePerSecondLoop producer
 
         let mutable errorObserved = false
-        let observeErrorsMonitorHandler(_topic,states : (int * PartitionResult) list) =
+        let observeErrorsMonitorHandler(_topic,states: (int * PartitionResult) list) =
             errorObserved <- errorObserved
                 || states |> List.exists (function _,PartitionResult.ErrorPartitionStalled _ -> true | _ -> false)
 
@@ -80,7 +80,7 @@ type T2(testOutputHelper) =
         let producer = mkProducer log broker topic
         let mutable progressChecked, numPartitions = false, 0
 
-        let partitionsObserver(_topic, errors : (int * PartitionResult) list) =
+        let partitionsObserver(_topic, errors: (int * PartitionResult) list) =
             progressChecked <- true
             numPartitions <- errors.Length
 

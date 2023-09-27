@@ -14,7 +14,7 @@ module private Impl =
 
 module private Gauge =
 
-    let private make (config : Prometheus.GaugeConfiguration) name desc =
+    let private make (config: Prometheus.GaugeConfiguration) name desc =
         let gauge = Prometheus.Metrics.CreateGauge(name, desc, config)
         fun tagValues (source, tranche) value ->
             let labelValues = Array.append tagValues [| SourceId.toString source; TrancheId.toString tranche |]
@@ -26,7 +26,7 @@ module private Gauge =
 
 module private Counter =
 
-    let private make (config : Prometheus.CounterConfiguration) name desc =
+    let private make (config: Prometheus.CounterConfiguration) name desc =
         let ctr = Prometheus.Metrics.CreateCounter(name, desc, config)
         fun tagValues (source, tranche) value ->
             let labelValues = Array.append tagValues [| SourceId.toString source; TrancheId.toString tranche |]
@@ -38,7 +38,7 @@ module private Counter =
 
 module private Summary =
 
-    let private create (config : Prometheus.SummaryConfiguration) name desc =
+    let private create (config: Prometheus.SummaryConfiguration) name desc =
         let summary = Prometheus.Metrics.CreateSummary(name, desc, config)
         fun tagValues (source, tranche) value ->
             let labelValues = Array.append tagValues [| SourceId.toString source; TrancheId.toString tranche |]
@@ -61,7 +61,7 @@ module private Summary =
 
 module private Histogram =
 
-    let private create (config : Prometheus.HistogramConfiguration) name desc =
+    let private create (config: Prometheus.HistogramConfiguration) name desc =
         let histogram = Prometheus.Metrics.CreateHistogram(name, desc, config)
         fun tagValues (source, tranche) value ->
             let labelValues = Array.append tagValues [| SourceId.toString source; TrancheId.toString tranche |]
@@ -91,7 +91,7 @@ type LogSink(customTags: seq<string * string>) =
     let observePageCount =      Counter.create      tags "pages_total"      "Observed page count"
     let observeItemCount =      Counter.create      tags "items_total"      "Observed item count"
 
-    let observeRead (m : ReadMetric) =
+    let observeRead (m: ReadMetric) =
         let group = m.source, m.tranche
         let latS, readPages, readItems = m.latency.TotalSeconds, float m.pages, float m.items
         if m.token.HasValue then observeToken group (float m.token.Value)
