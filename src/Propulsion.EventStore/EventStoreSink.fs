@@ -77,7 +77,7 @@ module Internal =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               streams.RecordWriteProgress(stream, pos, null)
                     | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null)
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, Events.index overage, [| overage |])
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |])
                     | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |])
                     | Error struct (_stats, _exn) ->                            streams.SetMalformed(stream, false)
                 let ss = applyResultToStreamState res
@@ -89,16 +89,12 @@ type WriterResult = Internal.Writer.Result
 
 type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
-
-    let mutable okStreams, badCats, failStreams, toStreams, oStreams = HashSet(), Stats.CatStats(), HashSet(), HashSet(), HashSet()
-    let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther, timedOut = 0, 0, 0, 0, 0, 0
-    let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
+    let mutable okStreams, okEvents, okBytes, exnCats, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, Stats.CatStats(), HashSet(), 0 , 0L
+    let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
-        let inline adds x (set : HashSet<_>) = set.Add x |> ignore
-        let inline bads streamName (set : HashSet<_>) = badCats.Ingest(StreamName.categorize streamName); adds streamName set
         match message with
         | { stream = stream; result = Ok ((es, bs), res) } ->
-            adds stream okStreams
+            okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             match res with
@@ -108,28 +104,24 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
             base.RecordOk(message)
         | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
-            adds stream failStreams
+            exnCats.Ingest(StreamName.categorize stream)
+            exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
-            let kind = OutcomeKind.classify exn
-            match kind with
-            | OutcomeKind.Timeout -> adds stream toStreams; timedOut <- timedOut + 1
-            | _ ->                   bads stream oStreams;  resultExnOther <- resultExnOther + 1
-            base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es), exn)
+            resultExn <- resultExn + 1
+            base.RecordExn(message, OutcomeKind.classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)
     override _.DumpStats() =
         let results = resultOk + resultDup + resultPartialDup + resultPrefix
         log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
             Log.miB okBytes, results, okStreams.Count, okEvents, resultOk, resultDup, resultPartialDup, resultPrefix)
         okStreams.Clear(); resultOk <- 0; resultDup <- 0; resultPartialDup <- 0; resultPrefix <- 0; okEvents <- 0; okBytes <- 0L
-        if timedOut <> 0 || badCats.Any then
-            let fails = timedOut + resultExnOther
-            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e Timed out {toCount:n0}r {toStreams:n0}s",
-                Log.miB exnBytes, fails, failStreams.Count, exnEvents, timedOut, toStreams.Count)
-            timedOut <- 0; resultExnOther <- 0; failStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-        if badCats.Any then
-            log.Warning("  Affected cats {@badCats} Other {other:n0}r {@oStreams}",
-                badCats.StatsDescending |> Seq.truncate 50, resultExnOther, oStreams |> Seq.truncate 100)
-            badCats.Clear(); resultExnOther <- 0; oStreams.Clear()
+        if exnCats.Any then
+            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+                Log.miB exnBytes, resultExn, exnStreams.Count, exnEvents)
+            resultExn <- 0; exnBytes <- 0L; exnEvents <- 0
+            log.Warning("  Affected cats {@exnCats} Streams {@exnStreams}",
+                exnCats.StatsDescending |> Seq.truncate 50, exnStreams |> Seq.truncate 100)
+            exnCats.Clear(); exnStreams.Clear()
         Log.InternalMetrics.dump log
 
     override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")

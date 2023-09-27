@@ -12,32 +12,29 @@ open System.Threading.Tasks
 [<AbstractClass>]
 type Stats<'Outcome>(log : ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
-    let okStreams, failStreams = HashSet(), HashSet()
+    let mutable okStreams, okEvents, okBytes, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), 0, 0L
     let prepareStats = Stats.LatencyStats("prepare")
-    let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
-
     override _.DumpStats() =
-        if okStreams.Count <> 0 && failStreams.Count <> 0 then
+        if okStreams.Count <> 0 && exnStreams.Count <> 0 then
             log.Information("Completed {okMb:n0}MB {okStreams:n0}s {okEvents:n0}e Exceptions {exnMb:n0}MB {exnStreams:n0}s {exnEvents:n0}e",
-                            Log.miB okBytes, okStreams.Count, okEvents, Log.miB exnBytes, failStreams.Count, exnEvents)
-        okStreams.Clear(); okEvents <- 0; okBytes <- 0L; failStreams.Clear(); exnBytes <- 0; exnEvents <- 0
+                            Log.miB okBytes, okStreams.Count, okEvents, Log.miB exnBytes, exnStreams.Count, exnEvents)
+        okStreams.Clear(); okEvents <- 0; okBytes <- 0L; exnStreams.Clear(); exnBytes <- 0; exnEvents <- 0
         prepareStats.Dump log
 
     abstract member Classify : exn -> OutcomeKind
     default _.Classify e = OutcomeKind.classify e
 
     override this.Handle message =
-        let inline adds x (set : HashSet<_>) = set.Add x |> ignore
         match message with
         | { stream = stream; result = Ok ((es, bs), prepareElapsed, outcome) } ->
-            adds stream okStreams
+            okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             prepareStats.Record prepareElapsed
             base.RecordOk message
             this.HandleOk outcome
         | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
-            adds stream failStreams
+            exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             base.RecordExn(message, this.Classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)

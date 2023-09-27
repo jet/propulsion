@@ -115,7 +115,7 @@ module Internal =
                 let applyResultToStreamState = function
                     | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
                     | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null), false
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, Events.index overage, [| overage |]), false
+                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
                     | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |]), false
                     | Error struct (_stats, exn) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
@@ -129,16 +129,13 @@ type WriterResult = Internal.Writer.Result
 
 type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
-    let mutable okStreams, resultOk, resultDup, resultPartialDup, resultPrefix, resultExnOther = HashSet(), 0, 0, 0, 0, 0
-    let mutable badCats, failStreams, rateLimited, timedOut, tooLarge, malformed = Stats.CatStats(), HashSet(), 0, 0, 0, 0
-    let rlStreams, toStreams, tlStreams, mfStreams, oStreams = HashSet(), HashSet(), HashSet(), HashSet(), HashSet()
-    let mutable okEvents, okBytes, exnEvents, exnBytes = 0, 0L, 0, 0L
+    let mutable okStreams, okEvents, okBytes = HashSet(), 0, 0L
+    let mutable exnCats, exnStreams, exnEvents, exnBytes = Stats.CatStats(), HashSet(), 0, 0L
+    let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
-        let inline adds x (set:HashSet<_>) = set.Add x |> ignore
-        let inline bads x (set:HashSet<_>) = badCats.Ingest(StreamName.categorize x); adds x set
         match message with
         | { stream = stream; result = Ok ((es, bs), res) } ->
-            adds stream okStreams
+            okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             match res with
@@ -148,31 +145,31 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
             base.RecordOk(message)
         | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
-            adds stream failStreams
+            exnCats.Ingest(StreamName.categorize stream)
+            exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
+            resultExn <- resultExn + 1
             let kind =
                 match Internal.Writer.classify exn with
-                | Internal.Writer.ResultKind.RateLimited -> adds stream rlStreams; rateLimited <- rateLimited + 1; OutcomeKind.RateLimited
-                | Internal.Writer.ResultKind.TimedOut ->    adds stream toStreams; timedOut <- timedOut + 1;       OutcomeKind.Timeout
-                | Internal.Writer.ResultKind.TooLarge ->    bads stream tlStreams; tooLarge <- tooLarge + 1;       OutcomeKind.Failed
-                | Internal.Writer.ResultKind.Malformed ->   bads stream mfStreams; malformed <- malformed + 1;     OutcomeKind.Failed
-                | Internal.Writer.ResultKind.Other ->       adds stream toStreams; timedOut <- timedOut + 1;       OutcomeKind.Exception
+                | Internal.Writer.ResultKind.RateLimited -> OutcomeKind.RateLimited
+                | Internal.Writer.ResultKind.TimedOut ->    OutcomeKind.Timeout
+                | Internal.Writer.ResultKind.TooLarge ->    OutcomeKind.Tagged "tooLarge"
+                | Internal.Writer.ResultKind.Malformed ->   OutcomeKind.Tagged "malformed"
+                | Internal.Writer.ResultKind.Other ->       OutcomeKind.Exn
             base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es), exn)
     override _.DumpStats() =
         let results = resultOk + resultDup + resultPartialDup + resultPrefix
         log.Information("Completed {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e ({ok:n0} ok {dup:n0} redundant {partial:n0} partial {prefix:n0} waiting)",
             Log.miB okBytes, results, okStreams.Count, okEvents, resultOk, resultDup, resultPartialDup, resultPrefix)
         okStreams.Clear(); resultOk <- 0; resultDup <- 0; resultPartialDup <- 0; resultPrefix <- 0; okEvents <- 0; okBytes <- 0L
-        if rateLimited <> 0 || timedOut <> 0 || tooLarge <> 0 || malformed <> 0 || badCats.Any then
-            let fails = rateLimited + timedOut + tooLarge + malformed + resultExnOther
-            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e Rate-limited {rateLimited:n0}r {rlStreams:n0}s Timed out {toCount:n0}r {toStreams:n0}s",
-                Log.miB exnBytes, fails, failStreams.Count, exnEvents, rateLimited, rlStreams.Count, timedOut, toStreams.Count)
-            rateLimited <- 0; timedOut <- 0; resultExnOther <- 0; failStreams.Clear(); rlStreams.Clear(); toStreams.Clear(); exnBytes <- 0L; exnEvents <- 0
-        if badCats.Any then
-            log.Warning("  Affected cats {@badCats} Too large {tooLarge:n0}r {@tlStreams} Malformed {malformed:n0}r {@mfStreams} Other {other:n0}r {@oStreams}",
-                badCats.StatsDescending |> Seq.truncate 50, tooLarge, tlStreams |> Seq.truncate 100, malformed, mfStreams |> Seq.truncate 100, resultExnOther, oStreams |> Seq.truncate 100)
-            badCats.Clear(); tooLarge <- 0; malformed <- 0;  resultExnOther <- 0; tlStreams.Clear(); mfStreams.Clear(); oStreams.Clear()
+        if exnCats.Any then
+            log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e",
+                Log.miB exnBytes, resultExn, exnStreams.Count, exnEvents)
+            resultExn <- 0; exnBytes <- 0L; exnEvents <- 0
+            log.Warning("  Affected cats {@exnCats} Streams {@exnStreams}",
+                exnCats.StatsDescending |> Seq.truncate 50, exnStreams |> Seq.truncate 100)
+            exnCats.Clear(); exnStreams.Clear()
         Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
     override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
