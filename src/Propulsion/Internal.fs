@@ -267,22 +267,24 @@ module Stats =
     type LatencyStatsSet() =
         let buckets = Dictionary<string, ResizeArray<TimeSpan>>()
         let emit log names =
-            let maxGroupLen = names |> Seq.map String.length |> Seq.max
+            let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
             fun (label: string) -> dumpStats log (label.PadRight maxGroupLen)
         member _.Record(bucket, value: TimeSpan) =
             match buckets.TryGetValue bucket with
             | false, _ -> let n = ResizeArray() in n.Add value; buckets.Add(bucket, n)
             | true, buf -> buf.Add value
         member _.Dump(log: Serilog.ILogger, ?labelSortOrder) =
-            let emit = emit log buckets.Keys
-            for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
-                emit name buckets[name]
+            if buckets.Count <> 0 then
+                let emit = emit log buckets.Keys
+                for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
+                    emit name buckets[name]
         member _.DumpGrouped(bucketGroup, log: Serilog.ILogger, ?totalLabel) =
-            let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
-            let emit = emit log (clusters |> Seq.map fst)
-            totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
-            for name, items in clusters do
-                emit name (items |> Seq.collect (fun kv -> kv.Value))
+            if buckets.Count <> 0 then
+                let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
+                let emit = emit log (clusters |> Seq.map fst)
+                totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
+                for name, items in clusters do
+                    emit name (items |> Seq.collect (fun kv -> kv.Value))
         member _.Clear() = buckets.Clear()
 
 type LogEventLevel = Serilog.Events.LogEventLevel

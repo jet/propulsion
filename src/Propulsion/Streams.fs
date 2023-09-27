@@ -226,7 +226,7 @@ module Buffer =
 
 type [<RequireQualifiedAccess; Struct; NoEquality; NoComparison>] OutcomeKind = Ok | Tagged of string | Exn
 module OutcomeKind =
-    let [<Literal>] OkTag = "STREAMS"
+    let [<Literal>] OkTag = "ok"
     let [<Literal>] ExnTag = "exception"
     let Timeout = OutcomeKind.Tagged "timeout"
     let RateLimited = OutcomeKind.Tagged "rateLimited"
@@ -405,8 +405,8 @@ module Scheduling =
             /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
             type Monitor() =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
-                let emit (log : ILogger) state struct (streams, attempts) struct (oldest : TimeSpan, newest : TimeSpan) =
-                    log.Information(" {state} {streams} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
+                let emit (log: ILogger) level state struct (streams, attempts) struct (oldest: TimeSpan, newest: TimeSpan) =
+                    log.Write(level, " {state,7} {streams,3} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
                                     state, streams, newest.TotalSeconds, oldest.TotalSeconds, attempts)
                 member _.HandleStarted(sn, ts) =
                     active.HandleStarted(sn, ts)
@@ -426,19 +426,19 @@ module Scheduling =
                 member _.IsFailing(failingThreshold: TimeSpan) =
                     failing.OldestIsOlderThan failingThreshold || stuck.OldestIsOlderThan TimeSpan.Zero
                 member _.DumpState(log : ILogger) =
-                    let dump state struct (streams, attempts) ages =
+                    let dump level state struct (streams, attempts) ages =
                         if streams <> 0 then
-                            emit log state (streams, attempts) ages
-                    active.State ||> dump "active"
-                    failing.State ||> dump "failing"
-                    stuck.State ||> dump "stalled"
+                            emit log level state (streams, attempts) ages
+                    stuck.State ||> dump LogEventLevel.Error "stalled"
+                    failing.State ||> dump LogEventLevel.Warning "failing"
+                    active.State ||> dump LogEventLevel.Information "active"
                 member _.EmitMetrics(log : ILogger) =
                     let report state struct (streams, attempts) struct (oldest : TimeSpan, newest : TimeSpan) =
                         let m = Log.Metric.StreamsBusy (state, streams, oldest.TotalSeconds, newest.TotalSeconds)
-                        emit (log |> Log.withMetric m) state (streams, attempts) (oldest, newest)
-                    active.State ||> report "active"
-                    failing.State ||> report "failing"
+                        emit (log |> Log.withMetric m) LogEventLevel.Information state (streams, attempts) (oldest, newest)
                     stuck.State ||> report "stalled"
+                    failing.State ||> report "failing"
+                    active.State ||> report "active"
 
         type [<NoComparison; NoEquality>] Timers() =
             let mutable results, dispatch, merge, ingest, stats, sleep = 0L, 0L, 0L, 0L, 0L, 0L
@@ -499,6 +499,7 @@ module Scheduling =
             log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
                 cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; stateStats.Clear()
+            monitor.DumpState x.Log
             lats.Dump(log, function OutcomeKind.OkTag -> String.Empty | x -> x)
             lats.Clear()
             let batchesCompleted = Interlocked.Exchange(&batchesCompleted, 0)
@@ -506,7 +507,6 @@ module Scheduling =
                             batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
             batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
             x.Timers.Dump log
-            monitor.DumpState x.Log
             x.DumpStats()
 
         member _.IsFailing = monitor.IsFailing failThreshold
@@ -548,7 +548,7 @@ module Scheduling =
         abstract member Handle : Res<Result<'R, 'E>> -> unit
 
         member private _.RecordOutcomeKind(r, k) =
-            let progressed = r.index = r.index'
+            let progressed = r.index' > r.index
             let inline updateMonitor succeeded = monitor.HandleResult(r.stream, succeeded = succeeded, progressed = progressed)
             let kindTag =
                 match k with
