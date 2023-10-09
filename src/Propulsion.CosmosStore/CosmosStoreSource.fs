@@ -47,8 +47,7 @@ type CosmosStoreSource =
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
             (log |> Log.withMetric m).Information("Reader {partition} {token,9} age {age:dddd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
                                                   ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, pt.ElapsedSeconds, cur, max)
-            sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
-        }
+            sw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor
 
         { new IChangeFeedObserver with
 #if COSMOSV3
@@ -89,13 +88,13 @@ type CosmosStoreSource =
             [<O; D null>] ?notifyError,
             [<O; D null>] ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
-        let logLag (interval: TimeSpan) (remainingWork: (int*int64) list) = task {
+        let logLag (interval: TimeSpan) (remainingWork: (int * int64)[]) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
             for partitionId, gap as partitionAndGap in remainingWork do
                 total <- total + gap
                 count <- count + 1
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
-            let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
+            let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork }
             (log |> Log.withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
                                                   processorName, count, total, lagged, synced)
             return! Async.Sleep(TimeSpan.toMs interval) }

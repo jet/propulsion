@@ -1,6 +1,5 @@
 namespace Propulsion.CosmosStore
 
-open FSharp.Control
 open Microsoft.Azure.Cosmos
 open Propulsion.Internal
 open Serilog
@@ -90,10 +89,10 @@ type ChangeFeedProcessor =
             // callback should Async.Sleep until next update is desired
             ?reportLagAndAwaitNextEstimation,
             // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
-            ?notifyError: int -> exn -> unit,
+            ?notifyError: Action<int, exn>,
             // Admits customizations in the ChangeFeedProcessorBuilder chain
             ?customize) =
-        let leaseOwnerId = defaultArg leaseOwnerId (ChangeFeedProcessor.mkLeaseOwnerIdForProcess())
+        let leaseOwnerId = leaseOwnerId |> Option.defaultWith ChangeFeedProcessor.mkLeaseOwnerIdForProcess
         let feedPollDelay = defaultArg feedPollDelay (TimeSpan.FromSeconds 1.)
         let leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.FromSeconds 1.)
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
@@ -129,21 +128,19 @@ type ChangeFeedProcessor =
                 fun ctx chg (chk: Func<Task>) ct ->
                     let chk' _ct = task { do! chk.Invoke() }
                     aux ctx chg chk' ct :> Task
-            let acquireAsync leaseToken = log.Information("Reader {partition} Assigned", leaseTokenToPartitionId leaseToken); Task.CompletedTask
-            let releaseAsync leaseToken = log.Information("Reader {partition} Revoked", leaseTokenToPartitionId leaseToken); Task.CompletedTask
+            let logStateChange state leaseToken = log.Information("Reader {partition} {state}", leaseTokenToPartitionId leaseToken, state); Task.CompletedTask
             let notifyError =
-                notifyError
-                |> Option.defaultValue (fun i ex -> log.Error(ex, "Reader {partition} error", i))
-                |> fun f -> fun leaseToken ex -> f (leaseTokenToPartitionId leaseToken) ex; Task.CompletedTask
+                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> log.Error(ex, "Reader {partition} error", i))
+                fun leaseToken ex -> log.Invoke(leaseTokenToPartitionId leaseToken, ex); Task.CompletedTask
             monitored
-                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, Container.ChangeFeedHandlerWithManualCheckpoint handler)
+                .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, handler)
                 .WithLeaseContainer(leases)
                 .WithPollInterval(feedPollDelay)
                 .WithLeaseConfiguration(acquireInterval = leaseAcquireInterval, expirationInterval = leaseTtl, renewInterval = leaseRenewInterval)
                 .WithInstanceName(leaseOwnerId)
-                .WithLeaseAcquireNotification(Container.ChangeFeedMonitorLeaseAcquireDelegate acquireAsync)
-                .WithLeaseReleaseNotification(Container.ChangeFeedMonitorLeaseReleaseDelegate releaseAsync)
-                .WithErrorNotification(Container.ChangeFeedMonitorErrorDelegate notifyError)
+                .WithLeaseAcquireNotification(logStateChange "Acquire")
+                .WithLeaseReleaseNotification(logStateChange "Release")
+                .WithErrorNotification(notifyError)
                 |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
@@ -152,19 +149,18 @@ type ChangeFeedProcessor =
             reportLagAndAwaitNextEstimation
             |> Option.map (fun lagMonitorCallback ->
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-                let emitLagMetrics (ct: CancellationToken) = task {
+                let fetchEstimatorStates (map: ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
+                    use query = estimator.GetCurrentStateIterator()
+                    let result = ResizeArray()
+                    while query.HasMoreResults do
+                        let! res = query.ReadNextAsync(ct)
+                        for x in res do result.Add(map x)
+                    return result.ToArray() }
+                fun (ct: CancellationToken) -> task {
                     while not ct.IsCancellationRequested do
-                        let feedIteratorMap (map: ChangeFeedProcessorState -> 'u): Task<'u seq> = task {
-                            // earlier versions, such as 3.9.0, do not implement IDisposable; see linked issue for detail on when SDK team added it
-                            use query = estimator.GetCurrentStateIterator() // see https://github.com/jet/equinox/issues/225 - in the Cosmos V4 SDK, all this is managed IAsyncEnumerable
-                            let result = ResizeArray()
-                            while query.HasMoreResults do
-                                let! res = query.ReadNextAsync(ct)
-                                for x in res do result.Add(map x)
-                            return result :> 'u seq }
-                        let! leasesState = feedIteratorMap (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)
-                        do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
-                emitLagMetrics)
+                        let! leasesState = fetchEstimatorStates (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag) ct
+                        Array.sortInPlaceBy fst leasesState
+                        do! lagMonitorCallback leasesState } )
         let wrap (f: unit -> Task) () = task { return! f () }
         SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
@@ -172,7 +168,4 @@ type ChangeFeedProcessor =
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.
         // Including the processId should eliminate the possibility that a broken process manager causes k>1 scenario to happen.
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
-        let processName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
-        let processId = System.Diagnostics.Process.GetCurrentProcess().Id
-        let hostName = Environment.MachineName
-        sprintf "%s-%s-%d" hostName processName processId
+        $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
