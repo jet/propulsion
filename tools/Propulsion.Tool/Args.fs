@@ -167,22 +167,22 @@ module Dynamo =
                                                 let accessKey =    p.GetResult(AccessKey,  fun () -> c.DynamoAccessKey)
                                                 let secretKey =    p.GetResult(SecretKey,  fun () -> c.DynamoSecretKey)
                                                 Choice2Of2 (serviceUrl, accessKey, secretKey)
-        let connector timeout retries =     match conn with
+        let mkConnector timeout retries =   match conn with
                                             | Choice1Of2 systemName -> Equinox.DynamoStore.DynamoStoreConnector(systemName, timeout, retries)
                                             | Choice2Of2 (serviceUrl, accessKey, secretKey) -> Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
-        let connector (defTimeout: int) (defRetries: int) = connector (p.GetResult(RetriesTimeoutS, defTimeout) |> TimeSpan.FromSeconds) (p.GetResult(Retries, defRetries))
-        let writeConnector =                connector 120 10
-        let writeClient =                   lazy writeConnector.CreateStoreClient() // lazy to trigger logging at the right time
-        let readConnector =                 connector 10 1
-        let readClient =                    lazy readConnector.CreateStoreClient() // lazy to trigger logging at the right time
+        let connector (defTimeout: int) (defRetries: int) =
+                                            let c = mkConnector (p.GetResult(RetriesTimeoutS, defTimeout) |> TimeSpan.FromSeconds) (p.GetResult(Retries, defRetries))
+                                            lazy c.CreateDynamoStoreClient() // lazy to trigger logging exactly once at the right time
+        let readClient =                    connector 10 1
+        let indexPartitions =               p.GetResults IndexPartition
+        let writeClient =                   connector 120 10
         let tableNameWithIndexSuffix () =   c.DynamoTable + p.GetResult(IndexSuffix, "-index")
         let indexTable =                    p.GetResult(IndexTable, fun () -> c.DynamoIndexTable |> Option.defaultWith tableNameWithIndexSuffix)
         let indexReadContext =              lazy readClient.Value.CreateContext("Index", indexTable)
-        let indexPartitions =               p.GetResults IndexPartition
         let streamsDop =                    p.TryGetResult StreamsDop
         let checkpointInterval =            TimeSpan.FromHours 1.
         member val IndexTable =             indexTable
-        member _.MonitoringParams() =
+        member x.MonitoringParams() =
             let indexProps =
                 let c = indexReadContext.Value
                 match List.toArray indexPartitions with
@@ -208,8 +208,7 @@ module Dynamo =
             let client = writeClient.Value
             Log.Information("DynamoStore QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
             client.CreateContext("Index", indexTable, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
-
-        member x.CreateCheckpointStore(group, cache, storeLog) =
+        member _.CreateCheckpointStore(group, cache, storeLog) =
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (indexReadContext.Value, cache)
 
 module Mdb =
