@@ -34,7 +34,7 @@ type Pipeline(task: Task<unit>, triggerStop) =
     /// Reacts to cancellation by aborting the processing via <c>Stop()</c>; see <c>Await</c> if such semantics are not desired.
     member x.AwaitWithStopOnCancellation() = async {
         let! ct = Async.CancellationToken
-        use _ = ct.Register(fun () -> x.Stop())
+        use _ = ct.Register(Action x.Stop)
         return! x.Await() }
 
     static member Prepare(log: ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =

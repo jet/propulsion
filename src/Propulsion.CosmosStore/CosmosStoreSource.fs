@@ -14,7 +14,7 @@ module Log =
             ingestLatency: TimeSpan; ingestQueued: int }
     type LagMetric =
         {   database: string; container: string; group: string
-            rangeLags: (int * int64)[] }
+            rangeLags: struct (int * int64)[] }
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Metric =
         | Read of ReadMetric
@@ -88,7 +88,7 @@ type CosmosStoreSource =
             [<O; D null>] ?notifyError,
             [<O; D null>] ?customize) =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
-        let logLag (interval: TimeSpan) (remainingWork: (int * int64)[]) = task {
+        let logLag (interval: TimeSpan) (remainingWork: struct (int * int64)[]) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
             for partitionId, gap as partitionAndGap in remainingWork do
                 total <- total + gap
@@ -102,7 +102,7 @@ type CosmosStoreSource =
         let startFromTail = defaultArg startFromTail false
         let source =
             ChangeFeedProcessor.Start
-              ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
+              ( log, monitored, leases, processorName, observer, ?notifyError = notifyError, ?customize = customize,
                 ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
                 startFromTail = startFromTail,
                 leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)

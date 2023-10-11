@@ -158,9 +158,9 @@ type ChangeFeedProcessor =
                     return result.ToArray() }
                 fun (ct: CancellationToken) -> task {
                     while not ct.IsCancellationRequested do
-                        let! leasesState = fetchEstimatorStates (fun s -> leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag) ct
-                        Array.sortInPlaceBy fst leasesState
-                        do! lagMonitorCallback leasesState } )
+                        let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
+                        Array.sortInPlaceBy ValueTuple.fst leasesStates
+                        do! lagMonitorCallback leasesStates } )
         let wrap (f: unit -> Task) () = task { return! f () }
         SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
