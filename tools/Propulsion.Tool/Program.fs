@@ -46,7 +46,7 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
             | Cosmos _ ->                   "Cosmos Connection parameters."
 and CosmosModeType = Container | Db | Serverless
 and CosmosInitArguments(p: ParseResults<InitAuxParameters>) =
-    let rusOrDefault value = p.GetResult(Rus, value)
+    let rusOrDefault (value: int) = p.GetResult(Rus, value)
     let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000)
                                   else CosmosInit.Throughput.Manual (rusOrDefault 400)
     member val ProvisioningMode =
@@ -283,8 +283,8 @@ module Indexer =
 module Project =
 
     type KafkaArguments(c, p: ParseResults<KafkaParameters>) =
-        member _.Broker =                   p.TryGetResult Broker |> Option.defaultWith (fun () -> c.KafkaBroker)
-        member _.Topic =                    p.TryGetResult Topic |> Option.defaultWith (fun () -> c.KafkaTopic)
+        member _.Broker =                   p.GetResult(Broker, fun () -> c.KafkaBroker)
+        member _.Topic =                    p.GetResult(Topic, fun () -> c.KafkaTopic)
         member val StoreArgs =
             match p.GetSubCommand() with
             | KafkaParameters.Cosmos    p -> Choice1Of3 (Args.Cosmos.Arguments    (c, p))

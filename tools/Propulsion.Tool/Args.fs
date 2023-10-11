@@ -8,6 +8,9 @@ open System
 exception MissingArg of message: string with override this.Message = this.message
 let missingArg msg = raise (MissingArg msg)
 
+type ParseResults<'T when 'T :> IArgParserTemplate> with
+    member x.GetResult([<ReflectedDefinition>] e: Quotations.Expr<'Fields -> 'T>, f: unit -> 'Fields) = x.TryGetResult e |> Option.defaultWith f
+
 module Configuration =
 
     module Cosmos =
@@ -87,24 +90,22 @@ module Cosmos =
                 | LagFreqM _ ->             "Specify frequency to dump lag stats. Default: off"
 
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
-        let connection =                    p.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
-        let discovery =                     Equinox.CosmosStore.Discovery.ConnectionString connection
-        let mode =                          p.TryGetResult ConnectionMode
-        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
-        let retries =                       p.GetResult(Retries, 1)
-        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
-        let connector =                     Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
-        let databaseId =                    p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
+        let connector =
+            let discovery =                 p.GetResult(Connection, fun () -> c.CosmosConnection) |> Equinox.CosmosStore.Discovery.ConnectionString
+            let timeout =                   p.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
+            let retries =                   p.GetResult(Retries, 1)
+            let maxRetryWaitTime =          p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
+            let mode =                      p.TryGetResult ConnectionMode
+            Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
+        let databaseId =                    p.GetResult(Database, fun () -> c.CosmosDatabase)
+        let containerId =                   p.GetResult(Container, fun () -> c.CosmosContainer)
+        let leasesContainerName =           p.GetResult(LeaseContainer, fun () -> containerId + p.GetResult(Suffix, "-aux"))
         let checkpointInterval =            TimeSpan.FromHours 1.
-        member val ContainerId =            p.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
-        member val LeaseContainerId =       p.TryGetResult LeaseContainer
-        member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + p.GetResult(Suffix, "-aux")
-        member x.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, x.LeasesContainerName)
-        member x.ConnectFeed() =            connector.ConnectFeed(databaseId, x.ContainerId, x.LeasesContainerName)
-        member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
-
+        member val MaybeLogLagInterval =    p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
+        member _.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, leasesContainerName)
+        member _.ConnectFeed() =            connector.ConnectFeed(databaseId, containerId, leasesContainerName)
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
-            let! context = connector.ConnectContext("Checkpoints", databaseId, x.ContainerId, 256)
+            let! context = connector.ConnectContext("Checkpoints", databaseId, containerId, 256)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
 module Dynamo =
@@ -162,32 +163,24 @@ module Dynamo =
                                             | Some systemName ->
                                                 Choice1Of2 systemName
                                             | None ->
-                                                let serviceUrl =   p.TryGetResult ServiceUrl |> Option.defaultWith (fun () -> c.DynamoServiceUrl)
-                                                let accessKey =    p.TryGetResult AccessKey  |> Option.defaultWith (fun () -> c.DynamoAccessKey)
-                                                let secretKey =    p.TryGetResult SecretKey  |> Option.defaultWith (fun () -> c.DynamoSecretKey)
+                                                let serviceUrl =   p.GetResult(ServiceUrl, fun () -> c.DynamoServiceUrl)
+                                                let accessKey =    p.GetResult(AccessKey,  fun () -> c.DynamoAccessKey)
+                                                let secretKey =    p.GetResult(SecretKey,  fun () -> c.DynamoSecretKey)
                                                 Choice2Of2 (serviceUrl, accessKey, secretKey)
         let connector timeout retries =     match conn with
                                             | Choice1Of2 systemName -> Equinox.DynamoStore.DynamoStoreConnector(systemName, timeout, retries)
                                             | Choice2Of2 (serviceUrl, accessKey, secretKey) -> Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
-        let indexSuffix =                   p.GetResult(IndexSuffix, "-index")
-        let indexTable =                    p.TryGetResult IndexTable
-                                            |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
-                                            |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
-
-        let writeConnector =                let timeout = p.GetResult(RetriesTimeoutS, 120.) |> TimeSpan.FromSeconds
-                                            let retries = p.GetResult(Retries, 10)
-                                            connector timeout retries
+        let connector (defTimeout: int) (defRetries: int) = connector (p.GetResult(RetriesTimeoutS, defTimeout) |> TimeSpan.FromSeconds) (p.GetResult(Retries, defRetries))
+        let writeConnector =                connector 120 10
         let writeClient =                   lazy writeConnector.CreateStoreClient() // lazy to trigger logging at the right time
-
-        let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
-                                            let retries = p.GetResult(Retries, 1)
-                                            connector timeout retries
+        let readConnector =                 connector 10 1
         let readClient =                    lazy readConnector.CreateStoreClient() // lazy to trigger logging at the right time
+        let tableNameWithIndexSuffix () =   c.DynamoTable + p.GetResult(IndexSuffix, "-index")
+        let indexTable =                    p.GetResult(IndexTable, fun () -> c.DynamoIndexTable |> Option.defaultWith tableNameWithIndexSuffix)
         let indexReadContext =              lazy readClient.Value.CreateContext("Index", indexTable)
-        let streamsDop =                    p.TryGetResult StreamsDop
-
-        let checkpointInterval =            TimeSpan.FromHours 1.
         let indexPartitions =               p.GetResults IndexPartition
+        let streamsDop =                    p.TryGetResult StreamsDop
+        let checkpointInterval =            TimeSpan.FromHours 1.
         member val IndexTable =             indexTable
         member _.MonitoringParams() =
             let indexProps =
@@ -206,7 +199,7 @@ module Dynamo =
                     Propulsion.DynamoStore.EventLoadMode.IndexOnly
                 | Some streamsDop ->
                     Log.Information("DynamoStoreSource WithData, parallelism limit {streamsDop}", streamsDop)
-                    let table = p.TryGetResult Table |> Option.defaultWith (fun () -> c.DynamoTable)
+                    let table = p.GetResult(Table, fun () -> c.DynamoTable)
                     let context = readClient.Value.CreateContext("Store", table)
                     Propulsion.DynamoStore.EventLoadMode.WithData (streamsDop, context)
             indexProps, loadMode
@@ -235,18 +228,18 @@ module Mdb =
                 | Category _ ->             "The message-db category to load (must specify >1 when projecting)"
 
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
-        let conn () = p.TryGetResult ConnectionString |> Option.defaultWith (fun () -> c.MdbConnectionString)
-        let checkpointConn () = p.TryGetResult CheckpointConnectionString |> Option.defaultWith conn
-        let schema = p.TryGetResult CheckpointSchema |> Option.defaultWith (fun () -> c.MdbSchema)
+        let connectionString () = p.GetResult(ConnectionString, fun () -> c.MdbConnectionString)
+        let checkpointConnectionString () = p.GetResult(CheckpointConnectionString, connectionString)
+        let schema = p.GetResult(CheckpointSchema, fun () -> c.MdbSchema)
 
         member x.CreateClient() =
-            Array.ofList (p.GetResults Category), conn ()
+            Array.ofList (p.GetResults Category), connectionString ()
 
         member x.CreateCheckpointStore(group) =
-            Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConn (), schema, group)
+            Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConnectionString (), schema, group)
 
         member x.CreateCheckpointStoreTable([<O; D null>] ?ct) = task {
-            let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConn (), Password = null)
+            let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConnectionString (), Password = null)
             Log.Information("Authenticating with postgres using {connectionString}", connStringWithoutPassword.ToString())
             Log.Information("Creating checkpoints table as {table}", $"{schema}.{Propulsion.MessageDb.ReaderCheckpoint.TableName}")
             let checkpointStore = x.CreateCheckpointStore("nil")
