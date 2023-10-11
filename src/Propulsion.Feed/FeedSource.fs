@@ -7,8 +7,6 @@ open Propulsion.Feed
 open Propulsion.Internal
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
@@ -30,7 +28,7 @@ type FeedSourceBase internal
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
     let dumpStats () = for _i, r in partitions do r.DumpStats()
-    let rec pumpStats ct: Task = task {
+    let rec pumpStats ct: System.Threading.Tasks.Task = task {
         try do! Task.delay statsInterval ct
         finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the sleep
         return! pumpStats ct }
@@ -68,7 +66,7 @@ type FeedSourceBase internal
 
     member x.Start(pump) =
         let ct, stop =
-            let cts = new CancellationTokenSource()
+            let cts = new System.Threading.CancellationTokenSource()
             let stop disposing =
                 if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
                 cts.Cancel()
@@ -256,6 +254,31 @@ and FeedMonitor internal (log: Serilog.ILogger, positions: TranchePositions, sin
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.Wait() }
 
+module FeedMonitor =
+    /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
+    let runUntilCaughtUp
+            (start: unit -> SourcePipeline<FeedMonitor>)
+            (checkpoint: CancellationToken -> Task<'R>)
+            (timeout: TimeSpan, statsInterval: IntervalTimer) = task {
+        let sw = Stopwatch.start ()
+        // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
+        use pipeline = start ()
+
+        try // In the case of sustained activity and/or catch-up scenarios, proactively trigger an orderly shutdown of the Source
+            // in advance of the Lambda being killed (no point starting new work or incurring DynamoDB CU consumption that won't finish)
+            Task.Delay(timeout).ContinueWith(fun _ -> pipeline.Stop()) |> ignore
+
+            // If for some reason we're not provisioned well enough to read something within 1m, no point for paying for a full lambda timeout
+            let initialReaderTimeout = TimeSpan.FromMinutes 1.
+            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)
+            // Shut down all processing (we create a fresh Source per Lambda invocation)
+            pipeline.Stop()
+
+            if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
+            // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
+            return! checkpoint CancellationToken.None
+        finally statsInterval.SleepUntilTriggerCleared() }
+
 /// Drives reading and checkpointing from a source that contains data from multiple streams
 type TailingFeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
@@ -342,11 +365,9 @@ module Categories =
 
 namespace Propulsion.Feed
 
-open FSharp.Control
+open FSharp.Control // taskSeq
 open Propulsion.Internal
 open System
-open System.Threading
-open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
 type Page<'F> = { items: FsCodec.ITimelineEvent<'F>[]; checkpoint: Position; isTail: bool }
