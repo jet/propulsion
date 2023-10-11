@@ -1,7 +1,6 @@
 namespace Propulsion.Feed.Core
 
 open FSharp.Control
-open Microsoft.FSharp.Core
 open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
@@ -28,7 +27,7 @@ type FeedSourceBase internal
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
     let dumpStats () = for _i, r in partitions do r.DumpStats()
-    let rec pumpStats ct: System.Threading.Tasks.Task = task {
+    let rec pumpStats ct: Task = task {
         try do! Task.delay statsInterval ct
         finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the sleep
         return! pumpStats ct }

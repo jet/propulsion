@@ -69,6 +69,7 @@ module Exception =
     let [<return: Struct>] (|Log|_|) log (e: exn) = log e; ValueNone
 
 type CancellationToken = System.Threading.CancellationToken
+type Task = System.Threading.Tasks.Task
 type Task<'T> = System.Threading.Tasks.Task<'T>
 open System.Threading.Tasks
 

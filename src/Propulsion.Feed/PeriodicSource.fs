@@ -8,8 +8,6 @@ open FSharp.Control
 open Propulsion.Internal
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 /// Int64.MaxValue = 9223372036854775807
 /// ([datetimeoffset]::FromUnixTimeSeconds(9223372036854775807 / 1000000000)) is in 2262
