@@ -88,11 +88,11 @@ type MessageDbSource =
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail, ?sourceId) =
         let client = Internal.MessageDbCategoryClient(connectionString)
-        // let readStartPosition = match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None
+        let readStartPosition = match startFromTail with Some true -> Some (Func<_,_,_>(Internal.readTailPositionForTranche client)) | _ -> None
         let tail = Propulsion.Feed.Core.TailingFeedSource.readOne (Internal.readBatch batchSize client)
         { inherit Propulsion.Feed.Core.TailingFeedSource(
             log, statsInterval, defaultArg sourceId FeedSourceId.wellKnownId, tailSleepInterval, checkpoints,
-            (match startFromTail with Some true -> Some (Internal.readTailPositionForTranche client) | _ -> None),
+            readStartPosition,
             sink, string, tail);
             tranches = categories |> Array.map TrancheId.parse }
 
