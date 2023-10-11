@@ -3,13 +3,6 @@ module Propulsion.Tool.Args
 open Argu
 open Propulsion.Internal
 open Serilog
-open System
-
-exception MissingArg of message: string with override this.Message = this.message
-let missingArg msg = raise (MissingArg msg)
-
-type ParseResults<'T when 'T :> IArgParserTemplate> with
-    member x.GetResult([<ReflectedDefinition>] e: Quotations.Expr<'Fields -> 'T>, f: unit -> 'Fields) = x.TryGetResult e |> Option.defaultWith f
 
 module Configuration =
 
@@ -37,29 +30,23 @@ module Configuration =
         let [<Literal>] CONNECTION_STRING =         "MDB_CONNECTION_STRING"
         let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
 
-type Configuration(tryGet: string -> string option) =
-
-    member val tryGet =                             tryGet
-    member _.get key =                              match tryGet key with
-                                                    | Some value -> value
-                                                    | None -> missingArg $"Missing Argument/Environment Variable %s{key}"
-
-    member x.CosmosConnection =                     x.get Configuration.Cosmos.CONNECTION
-    member x.CosmosDatabase =                       x.get Configuration.Cosmos.DATABASE
-    member x.CosmosContainer =                      x.get Configuration.Cosmos.CONTAINER
+type Configuration(tryGet: string -> string option, get: string -> string) =
+    member x.CosmosConnection =                     get Configuration.Cosmos.CONNECTION
+    member x.CosmosDatabase =                       get Configuration.Cosmos.DATABASE
+    member x.CosmosContainer =                      get Configuration.Cosmos.CONTAINER
 
     member x.DynamoRegion =                         tryGet Configuration.Dynamo.REGION
-    member x.DynamoServiceUrl =                     x.get Configuration.Dynamo.SERVICE_URL
-    member x.DynamoAccessKey =                      x.get Configuration.Dynamo.ACCESS_KEY
-    member x.DynamoSecretKey =                      x.get Configuration.Dynamo.SECRET_KEY
-    member x.DynamoTable =                          x.get Configuration.Dynamo.TABLE
+    member x.DynamoServiceUrl =                     get Configuration.Dynamo.SERVICE_URL
+    member x.DynamoAccessKey =                      get Configuration.Dynamo.ACCESS_KEY
+    member x.DynamoSecretKey =                      get Configuration.Dynamo.SECRET_KEY
+    member x.DynamoTable =                          get Configuration.Dynamo.TABLE
     member x.DynamoIndexTable =                     tryGet Configuration.Dynamo.INDEX_TABLE
 
-    member x.KafkaBroker =                          x.get Configuration.Kafka.BROKER
-    member x.KafkaTopic =                           x.get Configuration.Kafka.TOPIC
+    member x.KafkaBroker =                          get Configuration.Kafka.BROKER
+    member x.KafkaTopic =                           get Configuration.Kafka.TOPIC
 
-    member x.MdbConnectionString =                  x.get Configuration.Mdb.CONNECTION_STRING
-    member x.MdbSchema =                            x.get Configuration.Mdb.SCHEMA
+    member x.MdbConnectionString =                  get Configuration.Mdb.CONNECTION_STRING
+    member x.MdbSchema =                            get Configuration.Mdb.SCHEMA
 
 module Cosmos =
 
@@ -92,16 +79,16 @@ module Cosmos =
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let connector =
             let discovery =                 p.GetResult(Connection, fun () -> c.CosmosConnection) |> Equinox.CosmosStore.Discovery.ConnectionString
-            let timeout =                   p.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
+            let timeout =                   p.GetResult(Timeout, 5.) |> TimeSpan.seconds
             let retries =                   p.GetResult(Retries, 1)
-            let maxRetryWaitTime =          p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
+            let maxRetryWaitTime =          p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
             let mode =                      p.TryGetResult ConnectionMode
             Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
         let databaseId =                    p.GetResult(Database, fun () -> c.CosmosDatabase)
         let containerId =                   p.GetResult(Container, fun () -> c.CosmosContainer)
         let leasesContainerName =           p.GetResult(LeaseContainer, fun () -> containerId + p.GetResult(Suffix, "-aux"))
-        let checkpointInterval =            TimeSpan.FromHours 1.
-        member val MaybeLogLagInterval =    p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
+        let checkpointInterval =            TimeSpan.hours 1.
+        member val MaybeLogLagInterval =    p.TryGetResult LagFreqM |> Option.map TimeSpan.minutes
         member _.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, leasesContainerName)
         member _.ConnectFeed() =            connector.ConnectFeed(databaseId, containerId, leasesContainerName)
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
@@ -171,7 +158,7 @@ module Dynamo =
                                             | Choice1Of2 systemName -> Equinox.DynamoStore.DynamoStoreConnector(systemName, timeout, retries)
                                             | Choice2Of2 (serviceUrl, accessKey, secretKey) -> Equinox.DynamoStore.DynamoStoreConnector(serviceUrl, accessKey, secretKey, timeout, retries)
         let connector (defTimeout: int) (defRetries: int) =
-                                            let c = mkConnector (p.GetResult(RetriesTimeoutS, defTimeout) |> TimeSpan.FromSeconds) (p.GetResult(Retries, defRetries))
+                                            let c = mkConnector (p.GetResult(RetriesTimeoutS, defTimeout) |> TimeSpan.seconds) (p.GetResult(Retries, defRetries))
                                             lazy c.CreateDynamoStoreClient() // lazy to trigger logging exactly once at the right time
         let readClient =                    connector 10 1
         let indexPartitions =               p.GetResults IndexPartition
@@ -180,7 +167,7 @@ module Dynamo =
         let indexTable =                    p.GetResult(IndexTable, fun () -> c.DynamoIndexTable |> Option.defaultWith tableNameWithIndexSuffix)
         let indexReadContext =              lazy readClient.Value.CreateContext("Index", indexTable)
         let streamsDop =                    p.TryGetResult StreamsDop
-        let checkpointInterval =            TimeSpan.FromHours 1.
+        let checkpointInterval =            TimeSpan.hours 1.
         member val IndexTable =             indexTable
         member x.MonitoringParams() =
             let indexProps =
