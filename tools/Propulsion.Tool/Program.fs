@@ -127,7 +127,7 @@ and [<NoComparison; NoEquality>] StatsParameters =
             | Dynamo _ ->                   "Specify DynamoDB parameters."
             | Mdb _ ->                      "Specify MessageDb parameters."
 
-let [<Literal>] appName = "propulsion-tool"
+let [<Literal>] AppName = "propulsion-tool"
 
 module CosmosInit =
 
@@ -170,7 +170,7 @@ module Checkpoints =
         let a = Arguments(c, p)
         let source, tranche, group = p.GetResult Source, p.GetResult Tranche, p.GetResult Group
         let! store, storeSpecFragment, overridePosition = task {
-            let cache = Equinox.Cache (appName, sizeMb = 1)
+            let cache = Equinox.Cache (AppName, sizeMb = 1)
             match a.StoreArgs with
             | Choice1Of3 a ->
                 let! store = a.CreateCheckpointStore(group, cache, Metrics.log)
@@ -324,7 +324,7 @@ module Project =
             | Kafka a ->
                 let a = KafkaArguments(c, a)
                 let linger = FsKafka.Batching.BestEffortSerial (TimeSpan.ms 100.)
-                let cfg = FsKafka.KafkaProducerConfig.Create(appName, a.Broker, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
+                let cfg = FsKafka.KafkaProducerConfig.Create(AppName, a.Broker, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
                 let p = FsKafka.KafkaProducer.Create(Log.Logger, cfg, a.Topic)
                 Some p
             | Stats _ -> None
@@ -352,7 +352,7 @@ module Project =
             | Choice2Of3 sa ->
                 let (indexContext, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =
-                    let cache = Equinox.Cache (appName, sizeMb = 1)
+                    let cache = Equinox.Cache (AppName, sizeMb = 1)
                     sa.CreateCheckpointStore(group, cache, Metrics.log)
                 Propulsion.DynamoStore.DynamoStoreSource(
                     Log.Logger, stats.StatsInterval,
@@ -378,10 +378,6 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
     member val Verbose = p.Contains Verbose
     member val VerboseConsole = p.Contains VerboseConsole
     member val VerboseStore = p.Contains VerboseStore
-    member _.NotShutdownSignal: exn -> _ = function
-        | :? ArguParseException -> false
-        | :? System.Threading.Tasks.TaskCanceledException -> false
-        | _ -> true
     member _.ExecuteSubCommand() =
         match p.GetSubCommand() with
         | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
@@ -397,12 +393,17 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
         let parseResults = parser.ParseCommandLine argv
         ToolArguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
 
+let isExpectedShutdownSignalException: exn -> bool = function
+    | :? ArguParseException -> false // Via Arguments.Parse and/or Configuration.tryGet
+    | :? System.Threading.Tasks.TaskCanceledException -> false // via AwaitKeyboardInterruptAsTaskCanceledException
+    | _ -> true
+
 [<EntryPoint>]
 let main argv =
     try let a = ToolArguments.Parse argv
         try Log.Logger <- LoggerConfiguration().Configure(a.Verbose).Sinks(Sinks.equinoxMetricsOnly, a.VerboseConsole, a.VerboseStore).CreateLogger()
             try a.ExecuteSubCommand(); 0
-            with e when a.NotShutdownSignal e -> Log.Fatal(e, "Exiting"); 2
+            with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
     with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1
