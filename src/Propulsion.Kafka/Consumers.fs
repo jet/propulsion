@@ -11,8 +11,6 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<AutoOpen>]
 module private Impl =

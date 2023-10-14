@@ -6,7 +6,6 @@ open Serilog
 open System
 open System.Collections.Generic
 open System.Threading
-open System.Threading.Tasks
 
 module Log =
 

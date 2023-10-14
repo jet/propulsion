@@ -7,7 +7,6 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Threading
-open System.Threading.Tasks
 
 /// Deals with dispatch and result handling, triggering completion callbacks as batches reach completed state
 module Scheduling =

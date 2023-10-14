@@ -4,7 +4,6 @@ open Propulsion
 open Propulsion.Internal
 open System
 open System.Threading
-open System.Threading.Tasks
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time

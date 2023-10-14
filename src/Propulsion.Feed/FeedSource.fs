@@ -63,7 +63,7 @@ type FeedSourceBase internal
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
 
-    /// Would be protected if it existed
+    /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump) =
         let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)

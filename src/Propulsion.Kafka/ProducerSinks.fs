@@ -6,8 +6,6 @@ open Propulsion.Internal
 open Propulsion.Sinks
 open Serilog
 open System
-open System.Threading
-open System.Threading.Tasks
 
 type ParallelProducerSink =
 

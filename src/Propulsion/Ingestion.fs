@@ -4,7 +4,6 @@ open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
-open System.Threading.Tasks
 
 /// Manages writing of progress
 /// - Each write attempt is always of the newest token (each update is assumed to also count for all preceding ones)

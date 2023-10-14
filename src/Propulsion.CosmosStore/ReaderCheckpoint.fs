@@ -2,7 +2,6 @@ module Propulsion.Feed.ReaderCheckpoint
 
 open Propulsion.Internal
 open System
-open System.Threading.Tasks
 
 #if COSMOSV3
 let streamName (source, tranche, consumerGroupName: string) =

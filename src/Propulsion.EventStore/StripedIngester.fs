@@ -7,7 +7,6 @@ open System
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Threading
-open System.Threading.Tasks
 
 type [<NoComparison; NoEquality>] Message =
     | Batch of seriesIndex: int * epoch: int64 * checkpoint: (CancellationToken -> Task<unit>) * items: StreamEvent seq

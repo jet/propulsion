@@ -3,8 +3,6 @@ namespace Propulsion.Sinks
 open Propulsion
 open Propulsion.Internal
 open System
-open System.Threading
-open System.Threading.Tasks
 
 /// Canonical Data/Meta type supplied by the majority of Sources
 type EventBody = ReadOnlyMemory<byte>

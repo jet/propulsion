@@ -8,7 +8,6 @@ open Swensen.Unquote
 open System
 open System.Collections.Generic
 open System.Diagnostics
-open System.Threading.Tasks
 open Xunit
 
 module Simple =

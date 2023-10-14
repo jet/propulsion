@@ -6,8 +6,6 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
