@@ -345,10 +345,10 @@ module Project =
             | Choice1Of3 sa ->
                 let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
                 let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
-                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
-                Propulsion.CosmosStore.CosmosStoreSource.Start
-                  ( Log.Logger, monitored, leases, group, observer,
-                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval)
+                Propulsion.CosmosStore.CosmosStoreSource(
+                    Log.Logger, monitored, leases, group, parseFeedDoc, sink,
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval
+                ).Start()
             | Choice2Of3 sa ->
                 let (indexContext, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =

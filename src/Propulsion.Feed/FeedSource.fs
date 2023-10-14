@@ -63,41 +63,11 @@ type FeedSourceBase internal
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
 
+    /// Would be protected if it existed
     member x.Start(pump) =
-        let ct, stop =
-            let cts = new System.Threading.CancellationTokenSource()
-            let stop disposing =
-                if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
-                cts.Cancel()
-            cts.Token, stop
-
-        let supervise, markCompleted, outcomeTask =
-            let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            let markCompleted () = tcs.TrySetResult () |> ignore
-            let recordExn (e: exn) = tcs.TrySetException e |> ignore
-            // first exception from a supervised task becomes the outcome if that happens
-            let supervise inner () = task {
-                try do! inner ct
-                    // If the source completes all reading cleanly, declare completion
-                    log.Information "Source drained..."
-                    markCompleted ()
-                with e ->
-                    log.Warning(e, "Exception encountered while running source, exiting loop")
-                    recordExn e }
-            supervise, markCompleted, tcs.Task
-
-        let supervise () = task {
-            // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
-            use _ = ct.Register(fun _t -> markCompleted ())
-
-            // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
-            Task.start(supervise pump)
-
-            try return! outcomeTask
-            finally log.Information "... source completed" }
-
+        let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
-        new SourcePipeline<_>(Task.run supervise, stop, monitor)
+        new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
 /// Intercepts receipt and completion of batches, recording the read and completion positions
 and internal TranchePositions() =

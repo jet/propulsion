@@ -2,11 +2,8 @@ namespace Propulsion.CosmosStore
 
 open Microsoft.Azure.Cosmos
 open Propulsion.Internal
-open Serilog
 open System
-open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
+type IReadOnlyCollection<'T> = System.Collections.Generic.IReadOnlyCollection<'T>
 
 [<NoComparison>]
 type ChangeFeedObserverContext = { source: Container; group: string; epoch: int64; timestamp: DateTime; rangeId: int; requestCharge: float }
@@ -27,39 +24,15 @@ type IChangeFeedObserver =
 
 type internal SourcePipeline =
 
-    static member Start(log: ILogger, start, maybeStartChild, stop, observer: IDisposable) =
-        let cts = new CancellationTokenSource()
-        let triggerStop _disposing =
-            let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
-            log.Write(level, "Source stopping...")
-            observer.Dispose()
-            cts.Cancel()
-        let ct = cts.Token
-
-        let tcs = TaskCompletionSource<unit>()
-
-        let machine () = task {
-            do! start ()
-            // external cancellation should yield a success result
-            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-
-            match maybeStartChild with
-            | None -> ()
-            | Some child -> Task.start (fun () -> child ct)
-
-            try do! tcs.Task
-                do! stop ()
-            finally log.Information("... source stopped") }
-
-        let task = Task.run machine
-
-        new Propulsion.Pipeline(task, triggerStop)
+    static member Start(log: Serilog.ILogger, start, maybeStartChild, stop) =
+        let machine, triggerStop = Propulsion.PipelineFactory.PrepareSource2(log, start, maybeStartChild, stop)
+        new Propulsion.Pipeline(Task.run machine, triggerStop)
 
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
 
     static member Start
-        (   log: ILogger, monitored: Container,
+        (   log: Serilog.ILogger, monitored: Container,
             // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
             // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
@@ -161,8 +134,7 @@ type ChangeFeedProcessor =
                         let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
                         Array.sortInPlaceBy ValueTuple.fst leasesStates
                         do! lagMonitorCallback leasesStates } )
-        let wrap (f: unit -> Task) () = task { return! f () }
-        SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
+        SourcePipeline.Start(log, Task.ofUnitTask << processor.StartAsync, maybePumpMetrics, Task.ofUnitTask << processor.StopAsync)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.

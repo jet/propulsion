@@ -28,9 +28,9 @@ module Log =
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
-type CosmosStoreSource =
+module internal CosmosStoreSource =
 
-    static member private CreateTrancheObserver<'Items>
+    let createTrancheObserver<'Items>
         (   log: ILogger,
             trancheIngester: Propulsion.Ingestion.Ingester<'Items>,
             mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
@@ -58,35 +58,38 @@ type CosmosStoreSource =
           interface IDisposable with
             member _.Dispose() = trancheIngester.Stop() }
 
-    static member CreateObserver<'Items>
-        (   log: ILogger,
-            startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
-            mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
+type internal CosmosStoreObserver<'Items>
+    (   log: ILogger,
+        startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
+        mapContent: IReadOnlyCollection<_> -> 'Items) =
 
-        // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
-        // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
-        let forTranche = System.Collections.Concurrent.ConcurrentDictionary<int, Lazy<IChangeFeedObserver>>()
-        let dispose () = for x in forTranche.Values do x.Value.Dispose()
-        let build trancheId = lazy CosmosStoreSource.CreateTrancheObserver(log, startIngester (log, trancheId), mapContent)
-        let forTranche trancheId = forTranche.GetOrAdd(trancheId, build).Value
-        let ingest context (checkpoint, docs, ct) =
-            let trancheObserver = forTranche context.rangeId
-            trancheObserver.Ingest(context, checkpoint, docs, ct)
+    // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
+    // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
+    let forTranche = System.Collections.Concurrent.ConcurrentDictionary<int, Lazy<IChangeFeedObserver>>()
+    let dispose () = for x in forTranche.Values do x.Value.Dispose()
+    let build trancheId = lazy CosmosStoreSource.createTrancheObserver (log, startIngester (log, trancheId), mapContent)
+    let forTranche trancheId = forTranche.GetOrAdd(trancheId, build).Value
+    let ingest context (checkpoint, docs, ct) =
+        let trancheObserver = forTranche context.rangeId
+        trancheObserver.Ingest(context, checkpoint, docs, ct)
 
-        { new IChangeFeedObserver with
-            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
-          interface IDisposable with
-            member _.Dispose() = dispose () }
+    interface IChangeFeedObserver with
+        member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
+    interface IDisposable with
+        member _.Dispose() = dispose ()
 
-    static member Start
-        (   log: ILogger,
-            monitored: Container, leases: Container, processorName, observer,
-            [<O; D null>] ?maxItems,
-            [<O; D null>] ?tailSleepInterval,
-            [<O; D null>] ?startFromTail,
-            [<O; D null>] ?lagReportFreq: TimeSpan,
-            [<O; D null>] ?notifyError,
-            [<O; D null>] ?customize) =
+type CosmosStoreSource
+    (   log: ILogger,
+        monitored: Container, leases: Container, processorName, parseFeedDoc, sink: Propulsion.Sinks.Sink,
+        [<O; D null>] ?maxItems,
+        [<O; D null>] ?tailSleepInterval,
+        [<O; D null>] ?startFromTail,
+        [<O; D null>] ?lagReportFreq: TimeSpan,
+        [<O; D null>] ?notifyError,
+        [<O; D null>] ?customize) =
+    let observer = new CosmosStoreObserver<_>(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
+    member _.Flush() = (observer: IDisposable).Dispose()
+    member _.Start() =
         let databaseId, containerId = monitored.Database.Id, monitored.Id
         let logLag (interval: TimeSpan) (remainingWork: struct (int * int64)[]) = task {
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
@@ -99,12 +102,11 @@ type CosmosStoreSource =
                                                   processorName, count, total, lagged, synced)
             return! Async.Sleep(TimeSpan.toMs interval) }
         let maybeLogLag = lagReportFreq |> Option.map logLag
-        let startFromTail = defaultArg startFromTail false
-        let source =
+        let pipeline =
             ChangeFeedProcessor.Start
               ( log, monitored, leases, processorName, observer, ?notifyError = notifyError, ?customize = customize,
                 ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
-                startFromTail = startFromTail,
+                startFromTail = defaultArg startFromTail false,
                 leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
         lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
-        source
+        pipeline

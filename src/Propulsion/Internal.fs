@@ -138,6 +138,7 @@ module Task =
     let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
         return () }
+    let ofUnitTask (x: Task): Task<unit> = task { return! x }
 
 type Sem(max) =
     let inner = new System.Threading.SemaphoreSlim(max)

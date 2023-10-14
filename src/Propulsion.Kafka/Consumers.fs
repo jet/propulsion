@@ -139,7 +139,7 @@ type ConsumerPipeline private (inner: IConsumer<string, string>, task: Task<unit
 
     static member Start(log, pumpScheduler, pumpSubmitter, config, consumeResultToInfo, submit, statsInterval, ?pumpDispatcher) =
         let consumer, ingester = Consumer.start (log, config, consumeResultToInfo, submit, statsInterval)
-        let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
+        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
         new ConsumerPipeline(consumer, task, triggerStop)
 
 [<AbstractClass; Sealed>]
