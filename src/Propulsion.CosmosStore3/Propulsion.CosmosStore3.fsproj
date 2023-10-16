@@ -9,8 +9,8 @@
     <Compile Include="..\Propulsion.CosmosStore\EquinoxSystemTextJsonParser.fs">
       <Link>EquinoxNewtonsoftParser.fs</Link>
     </Compile>
-    <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
-      <Link>ChangeFeedProcessor.fs</Link>
+    <Compile Include="..\Propulsion.CosmosStore\FeedObserver.fs">
+      <Link>FeedObserver.fs</Link>
     </Compile>
     <Compile Include="..\Propulsion.CosmosStore\CosmosStoreSource.fs">
       <Link>CosmosStoreSource.fs</Link>
