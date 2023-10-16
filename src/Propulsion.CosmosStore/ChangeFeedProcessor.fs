@@ -3,10 +3,18 @@ namespace Propulsion.CosmosStore
 open Microsoft.Azure.Cosmos
 open Propulsion.Internal
 open System
-type IReadOnlyCollection<'T> = System.Collections.Generic.IReadOnlyCollection<'T>
 
 [<NoComparison>]
 type ChangeFeedObserverContext = { source: Container; group: string; epoch: int64; timestamp: DateTime; rangeId: int; requestCharge: float }
+
+#if COSMOSV3
+type ChangeFeedItem = Newtonsoft.Json.Linq.JObject
+module ChangeFeedItem = let timestamp = EquinoxNewtonsoftParser.timestamp
+#else
+type ChangeFeedItem = System.Text.Json.JsonDocument
+module ChangeFeedItem = let timestamp = EquinoxSystemTextJsonParser.timestamp
+#endif
+type ChangeFeedItems = System.Collections.Generic.IReadOnlyCollection<ChangeFeedItem>
 
 type IChangeFeedObserver =
     inherit IDisposable
@@ -16,11 +24,7 @@ type IChangeFeedObserver =
     /// - ceding control as soon as commencement of the next batch retrieval is desired
     /// - triggering marking of progress via an invocation of `ctx.Checkpoint()` (can be immediate, but can also be deferred and performed asynchronously)
     /// NB emitting an exception will not trigger a retry, and no progress writing will take place without explicit calls to `ctx.Checkpoint`
-#if COSMOSV3
-    abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: IReadOnlyCollection<Newtonsoft.Json.Linq.JObject> * CancellationToken -> Task<unit>
-#else
-    abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
-#endif
+    abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: ChangeFeedItems * CancellationToken -> Task<unit>
 
 type internal SourcePipeline =
 
@@ -101,7 +105,7 @@ type ChangeFeedProcessor =
             // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
             // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
-            // failover we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
+            // fail over we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
             leases: Container,
             // Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
             processorName: string,
@@ -141,22 +145,14 @@ type ChangeFeedProcessor =
         let processor =
             let handler =
                 let aux (context: ChangeFeedProcessorContext)
-#if COSMOSV3
-                        (changes: IReadOnlyCollection<Newtonsoft.Json.Linq.JObject>)
-#else
-                        (changes: IReadOnlyCollection<System.Text.Json.JsonDocument>)
-#endif
+                        (changes: ChangeFeedItems)
                         (checkpointAsync: CancellationToken -> Task<unit>) ct = task {
                     let log: exn -> unit = function
                         | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
                         | e -> stats.LogHandlerExn(leaseTokenToPartitionId context.LeaseToken, e)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
-#if COSMOSV3
-                                    timestamp = changes |> Seq.last |> EquinoxNewtonsoftParser.timestamp
-#else
-                                    timestamp = changes |> Seq.last |> EquinoxSystemTextJsonParser.timestamp
-#endif
+                                    timestamp = changes |> Seq.last |> ChangeFeedItem.timestamp
                                     rangeId = leaseTokenToPartitionId context.LeaseToken
                                     requestCharge = context.Headers.RequestCharge }
                         return! observer.Ingest(ctx, checkpointAsync, changes, ct)

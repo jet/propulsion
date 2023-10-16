@@ -1,17 +1,16 @@
 ﻿namespace Propulsion.CosmosStore
 
-open Microsoft.Azure.Cosmos
 open Propulsion.Internal
 open Serilog
 open System
 
-type internal TrancheChangeFeedObserver<'Items>(stats: Log.Stats, trancheIngester: Propulsion.Ingestion.Ingester<'Items>, mapContent: IReadOnlyCollection<_> -> 'Items) =
+type internal TrancheChangeFeedObserver<'Items>(stats: Log.Stats, trancheIngester: Propulsion.Ingestion.Ingester<'Items>, mapContent: ChangeFeedItems -> 'Items) =
 
     let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
     let lastWait = System.Diagnostics.Stopwatch()
 
     interface IChangeFeedObserver with
-        member _.Ingest(ctx: ChangeFeedObserverContext, checkpoint, docs: IReadOnlyCollection<_>, _ct) = task {
+        member _.Ingest(ctx: ChangeFeedObserverContext, checkpoint, docs: ChangeFeedItems, _ct) = task {
             sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
             let batch: Propulsion.Ingestion.Batch<_> = { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore; isTail = false }
             let struct (cur, max) = trancheIngester.Ingest batch
@@ -25,7 +24,7 @@ type internal TrancheChangeFeedObserver<'Items>(stats: Log.Stats, trancheIngeste
         member _.Dispose() =
             trancheIngester.Stop()
 
-type internal ChangeFeedObservers<'Items>(stats, startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>, mapContent: IReadOnlyCollection<_> -> 'Items) =
+type internal ChangeFeedObservers<'Items>(stats, startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>, mapContent: ChangeFeedItems -> 'Items) =
 
     // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
     // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
@@ -44,7 +43,7 @@ type internal ChangeFeedObservers<'Items>(stats, startIngester: ILogger * int ->
 
 type CosmosStoreSource
     (   log: ILogger,
-        monitored: Container, leases: Container, processorName, parseFeedDoc, sink: Propulsion.Sinks.Sink,
+        monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName, parseFeedDoc, sink: Propulsion.Sinks.Sink,
         [<O; D null>] ?maxItems,
         [<O; D null>] ?tailSleepInterval,
         [<O; D null>] ?startFromTail,
