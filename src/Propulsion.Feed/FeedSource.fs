@@ -16,14 +16,12 @@ type FeedSourceBase internal
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
     let positions = TranchePositions()
-    let pumpPartition (partitionId: int) trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
-        try let log (e: exn) = reader.Log.Warning(e, "Finishing {partition}", partitionId)
-            let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
+    let pumpPartition trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
+        try let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
             try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
-                reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
-                                       partitionId, sourceId, trancheId, renderPos pos)
+                reader.LogStarting(pos)
                 return! reader.Pump(pos, ct)
-            with Exception.Log log () -> ()
+            with Exception.Log reader.LogFinishing () -> ()
         finally ingester.Stop() }
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
     let dumpStats () = for _i, r in partitions do r.DumpStats()
@@ -55,16 +53,16 @@ type FeedSourceBase internal
             let ingester = sink.StartIngester(log, partitionId)
             let ingest = positions.Intercept(trancheId) >> ingester.Ingest
             let awaitIngester = if defaultArg readersStopAtTail false then Some ingester.Wait else None
-            let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, checkpoints.Commit, renderPos,
+            let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, ingester.AwaitCapacity, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
         pumpStats ct |> ignore // loops in background until overall pumping is cancelled
-        let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
+        let trancheWorkflows = (tranches, partitions) ||> Seq.map2 pumpPartition
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
-    member x.Start(pump) =
+    member _.Start(pump) =
         let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)

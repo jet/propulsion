@@ -145,12 +145,16 @@ type Ingester<'Items> private
         Task.start startPump
         instance
 
-    /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
+    /// Submits a batch for unpacking and submission
     /// Returns (reads in flight, maximum reads in flight)
-    member _.Ingest(batch: Batch<'Items>) = task {
-        // It's been read... feed it into the queue for unpacking
+    /// NOTE Caller should AwaitCapacity before calling again
+    member _.Ingest(batch: Batch<'Items>) =
         enqueueIncoming batch
-        // ... but we might hold off on yielding if we're at capacity
+        maxRead.State
+
+    /// If at/over limit, wait for the in-flight reads to drop below the limit
+    /// Returns (reads in flight, maximum reads in flight)
+    member _.AwaitCapacity() = task {
         do! maxRead.Wait(cts.Token)
         return maxRead.State }
 

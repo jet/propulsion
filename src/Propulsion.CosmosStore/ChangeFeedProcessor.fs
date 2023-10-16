@@ -30,16 +30,14 @@ type internal SourcePipeline =
 
 module Log =
 
-    type ReadMetric =
-        {   database: string; container: string; group: string; rangeId: int
-            token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int
-            ingestLatency: TimeSpan; ingestQueued: int }
-    type LagMetric =
-        {   database: string; container: string; group: string
-            rangeLags: struct (int * int64)[] }
+    type [<Struct>] MetricContext = { database: string; container: string; group: string }
+    type ReadMetric =       { context: MetricContext; rangeId: int; token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int }
+    type IngestMetric =     { context: MetricContext; rangeId: int; ingestLatency: TimeSpan; ingestQueued: int }
+    type LagMetric =        { context: MetricContext; rangeLags: struct (int * int64)[] }
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Metric =
         | Read of ReadMetric
+        | Wait of IngestMetric
         | Lag of LagMetric
 
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
@@ -51,6 +49,29 @@ module Log =
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
     type Stats(log: Serilog.ILogger, databaseId, containerId, processorName: string, ?lagReportFreq: TimeSpan) =
+        let context = { database = databaseId; container = containerId; group = processorName }
+        let metricsLog = log.ForContext("isMetric", true)
+        member val Log = log
+        member _.LogStateChange(rangeId: int, state: string) =
+            log.Information("Reader {partition} {state}", rangeId, state)
+        member _.LogExn(rangeId: int, ex: exn) =
+            log.Error(ex, "Reader {partition} error", rangeId)
+        member _.LogHandlerExn(rangeId: int, ex: exn) =
+            log.Error(ex, "Reader {processorName}/{partition} Handler Threw", processorName, rangeId)
+        member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollDelay: TimeSpan, startFromTail: bool, ?maxItems) =
+            log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
+                            processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, startFromTail)
+
+        member _.ReportRead(rangeId: int, lastWait: TimeSpan, epoch, requestCharge, batchTimestamp, latency, itemCount, batchesInFlight, maxReadAhead) =
+            let age = DateTime.UtcNow - batchTimestamp
+            let m = Metric.Read { context = context; rangeId = rangeId; token = epoch; latency = latency; rc = requestCharge; age = age; docs = itemCount }
+            (log |> withMetric m).Information("Reader {partition} {token,9} age {age:dddd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
+                                              rangeId, epoch, age, itemCount, requestCharge, latency, batchesInFlight, maxReadAhead, lastWait.TotalSeconds, batchesInFlight, maxReadAhead)
+        member _.ReportWait(rangeId: int, waitElapsed, batchesInFlight, maxReadAhead) =
+            if metricsLog.IsEnabled LogEventLevel.Information then
+                let m = Metric.Wait { context = context; rangeId = rangeId; ingestLatency = waitElapsed; ingestQueued = batchesInFlight }
+                // NOTE: Write to metrics log (App wiring has logic to also emit it to Console when in verboseStore mode, but main purpose is to feed to Prometheus ASAP)
+                (metricsLog |> withMetric m).Information("Reader {partition} Wait {pausedS:f3}s Ahead {cur}/{max}", rangeId, waitElapsed.TotalSeconds, batchesInFlight, maxReadAhead)
 
         member _.ReportEstimation(remainingWork: struct (int * int64)[]) =
             let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
@@ -58,7 +79,7 @@ module Log =
                 total <- total + gap
                 count <- count + 1
                 if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
-            let m = Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork }
+            let m = Metric.Lag { context = context; rangeLags = remainingWork }
             (log |> withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
                 processorName, count, total, lagged, synced)
 
@@ -76,7 +97,7 @@ module Log =
 type ChangeFeedProcessor =
 
     static member Start
-        (   log: Serilog.ILogger, monitored: Container,
+        (   monitored: Container,
             // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
             // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
             // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
@@ -103,9 +124,6 @@ type ChangeFeedProcessor =
             // Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
             // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
             ?maxItems: int,
-            // Continuously fed per-partition lag information until parent Async completes
-            // callback should Async.Sleep until next update is desired
-            ?reportLagAndAwaitNextEstimation,
             // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
             ?notifyError: Action<int, exn>,
             // Admits customizations in the ChangeFeedProcessorBuilder chain
@@ -115,9 +133,9 @@ type ChangeFeedProcessor =
         let leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.FromSeconds 1.)
         let leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.FromSeconds 3.)
         let leaseTtl = defaultArg leaseTtl (TimeSpan.FromSeconds 10.)
+        let startFromTail = defaultArg startFromTail false
 
-        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
-                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, defaultArg startFromTail false)
+        stats.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollDelay, startFromTail, ?maxItems = maxItems)
         let processorName_ = processorName + ":"
         let leaseTokenToPartitionId (leaseToken: string) = int (leaseToken.Trim[|'"'|])
         let processor =
@@ -131,7 +149,7 @@ type ChangeFeedProcessor =
                         (checkpointAsync: CancellationToken -> Task<unit>) ct = task {
                     let log: exn -> unit = function
                         | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
-                        | e -> log.Error(e, "Reader {processorName}/{partition} Handler Threw", processorName, context.LeaseToken)
+                        | e -> stats.LogHandlerExn(leaseTokenToPartitionId context.LeaseToken, e)
                     try let ctx = { source = monitored; group = processorName
                                     epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
 #if COSMOSV3
@@ -146,9 +164,9 @@ type ChangeFeedProcessor =
                 fun ctx chg (chk: Func<Task>) ct ->
                     let chk' _ct = task { do! chk.Invoke() }
                     aux ctx chg chk' ct :> Task
-            let logStateChange state leaseToken = log.Information("Reader {partition} {state}", leaseTokenToPartitionId leaseToken, state); Task.CompletedTask
+            let logStateChange state leaseToken = stats.LogStateChange(leaseTokenToPartitionId leaseToken, state); Task.CompletedTask
             let notifyError =
-                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> log.Error(ex, "Reader {partition} error", i))
+                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> stats.LogExn(i, ex))
                 fun leaseToken ex -> log.Invoke(leaseTokenToPartitionId leaseToken, ex); Task.CompletedTask
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, handler)
@@ -159,7 +177,7 @@ type ChangeFeedProcessor =
                 .WithLeaseAcquireNotification(logStateChange "Acquire")
                 .WithLeaseReleaseNotification(logStateChange "Release")
                 .WithErrorNotification(notifyError)
-                |> fun b -> if startFromTail = Some true then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
+                |> fun b -> if startFromTail then b else let minTime = DateTime.MinValue in b.WithStartTime(minTime.ToUniversalTime()) // fka StartFromBeginning
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
@@ -179,7 +197,7 @@ type ChangeFeedProcessor =
                         let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
                         Array.sortInPlaceBy ValueTuple.fst leasesStates
                         do! lagMonitorCallback leasesStates ct } )
-        SourcePipeline.Start(log, Task.ofUnitTask << processor.StartAsync, maybePumpMetrics, Task.ofUnitTask << processor.StopAsync)
+        SourcePipeline.Start(stats.Log, Task.ofUnitTask << processor.StartAsync, maybePumpMetrics, Task.ofUnitTask << processor.StopAsync)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.

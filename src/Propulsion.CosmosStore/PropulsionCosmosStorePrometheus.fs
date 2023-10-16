@@ -109,31 +109,36 @@ type LogSink(customTags: seq<string * string>) =
     let observeRangeDocCount =  Counter.create      tags "documents_total" "Observed document count" // read
     let observeRangeRu =        Counter.create      tags "ru_total"        "Observed batch read Request Charges" // read
 
+    let group c = c.database, c.container, c.group
+    let range c (rangeId: string) = c.database, c.container, c.group, rangeId
     let observeRead (m: ReadMetric) =
-        let range = m.database, m.container, m.group, string m.rangeId
+        let range = range m.context (string m.rangeId)
         let ageS, latS, readDocs, token = m.age.TotalSeconds, m.latency.TotalSeconds, float m.docs, float m.token
         observeRangeToken range token
         observeRangeAge range ageS
         observeRangeDocCount range readDocs
         observeRangeRu range m.rc
-        let group = m.database, m.container, m.group
+        let group = group m.context
         observeReadLatencyHis group latS
         observeReadLatencySum group latS
         observeReadChargeHis group m.rc
         observeReadChargeSum group m.rc
+    let observeWait (m: IngestMetric) =
         let ingestLatS, ingestQueueLen = m.ingestLatency.TotalSeconds, float m.ingestQueued
+        let group = group m.context
         observeIngestLatHis group ingestLatS
         observeIngestLatSum group ingestLatS
+        let range = range m.context (string m.rangeId)
         observeIngestQueue range ingestQueueLen
 
     let observeLag (m: LagMetric) =
         for rangeId, lag in m.rangeLags do
-            let range = m.database, m.container, m.group, string rangeId
-            observeRangeLag range (float lag)
+            observeRangeLag (range m.context (string rangeId)) (float lag)
 
     interface Serilog.Core.ILogEventSink with
         member _.Emit logEvent = logEvent |> function
             | MetricEvent cm -> cm |> function
                 | Metric.Read m -> observeRead m
+                | Metric.Wait m -> observeWait m
                 | Metric.Lag m -> observeLag m
             | _ -> ()
