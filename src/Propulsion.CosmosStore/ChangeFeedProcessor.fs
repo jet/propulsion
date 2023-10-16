@@ -28,6 +28,50 @@ type internal SourcePipeline =
         let machine, triggerStop = Propulsion.PipelineFactory.PrepareSource2(log, start, maybeStartChild, stop)
         new Propulsion.Pipeline(Task.run machine, triggerStop)
 
+module Log =
+
+    type ReadMetric =
+        {   database: string; container: string; group: string; rangeId: int
+            token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int
+            ingestLatency: TimeSpan; ingestQueued: int }
+    type LagMetric =
+        {   database: string; container: string; group: string
+            rangeLags: struct (int * int64)[] }
+    [<RequireQualifiedAccess; NoEquality; NoComparison>]
+    type Metric =
+        | Read of ReadMetric
+        | Lag of LagMetric
+
+    let [<Literal>] PropertyTag = "propulsionCosmosEvent"
+    /// Attach a property to the captured event record to hold the metric information
+    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
+    let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
+        let mutable p = Unchecked.defaultof<_>
+        logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
+        match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
+
+    type Stats(log: Serilog.ILogger, databaseId, containerId, processorName: string, ?lagReportFreq: TimeSpan) =
+
+        member _.ReportEstimation(remainingWork: struct (int * int64)[]) =
+            let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
+            for partitionId, gap as partitionAndGap in remainingWork do
+                total <- total + gap
+                count <- count + 1
+                if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
+            let m = Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork }
+            (log |> withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
+                processorName, count, total, lagged, synced)
+
+        member x.EstimationReportLoop() =
+            match lagReportFreq with
+            | None -> None
+            | Some interval ->
+                log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, interval.TotalSeconds)
+                let logAndWait (remainingWork: struct (int * int64)[]) ct = task {
+                    x.ReportEstimation(remainingWork)
+                    return! Task.Delay(TimeSpan.toMs interval, ct) }
+                Some logAndWait
+
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
 
@@ -42,6 +86,7 @@ type ChangeFeedProcessor =
             processorName: string,
             // Observers to forward documents to (Disposal is tied to stopping of the Source)
             observer: IChangeFeedObserver,
+            stats: Log.Stats,
             ?leaseOwnerId: string,
             // (NB Only applies if this is the first time this leasePrefix is presented)
             // Specify `true` to request starting of projection from the present write position.
@@ -119,7 +164,7 @@ type ChangeFeedProcessor =
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
         let maybePumpMetrics =
-            reportLagAndAwaitNextEstimation
+            stats.EstimationReportLoop()
             |> Option.map (fun lagMonitorCallback ->
                 let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
                 let fetchEstimatorStates (map: ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
@@ -133,7 +178,7 @@ type ChangeFeedProcessor =
                     while not ct.IsCancellationRequested do
                         let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
                         Array.sortInPlaceBy ValueTuple.fst leasesStates
-                        do! lagMonitorCallback leasesStates } )
+                        do! lagMonitorCallback leasesStates ct } )
         SourcePipeline.Start(log, Task.ofUnitTask << processor.StartAsync, maybePumpMetrics, Task.ofUnitTask << processor.StopAsync)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.

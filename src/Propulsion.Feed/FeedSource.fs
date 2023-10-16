@@ -244,7 +244,7 @@ module FeedMonitor =
             pipeline.Stop()
 
             if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
-            // force a final attempt to flush anything not already checkpointed (normally checkpointing is at 5s intervals)
+            // force a final attempt to flush (normally checkpointing is at 5s intervals)
             return! checkpoint CancellationToken.None
         finally statsInterval.SleepUntilTriggerCleared() }
 

@@ -4,29 +4,6 @@ open Microsoft.Azure.Cosmos
 open Propulsion.Internal
 open Serilog
 open System
-open System.Collections.Generic
-
-module Log =
-
-    type ReadMetric =
-        {   database: string; container: string; group: string; rangeId: int
-            token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int
-            ingestLatency: TimeSpan; ingestQueued: int }
-    type LagMetric =
-        {   database: string; container: string; group: string
-            rangeLags: struct (int * int64)[] }
-    [<RequireQualifiedAccess; NoEquality; NoComparison>]
-    type Metric =
-        | Read of ReadMetric
-        | Lag of LagMetric
-
-    let [<Literal>] PropertyTag = "propulsionCosmosEvent"
-    /// Attach a property to the captured event record to hold the metric information
-    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
-    let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
-        let mutable p = Unchecked.defaultof<_>
-        logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
-        match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
 module internal CosmosStoreSource =
 
@@ -47,7 +24,7 @@ module internal CosmosStoreSource =
                 ingestLatency = pt.Elapsed; ingestQueued = cur }
             (log |> Log.withMetric m).Information("Reader {partition} {token,9} age {age:dddd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
                                                   ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, pt.ElapsedSeconds, cur, max)
-            sw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor
+            sw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor to fetch and pass that back to us
 
         { new IChangeFeedObserver with
 #if COSMOSV3
@@ -90,23 +67,9 @@ type CosmosStoreSource
     let observer = new CosmosStoreObserver<_>(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
     member _.Flush() = (observer: IDisposable).Dispose()
     member _.Start() =
-        let databaseId, containerId = monitored.Database.Id, monitored.Id
-        let logLag (interval: TimeSpan) (remainingWork: struct (int * int64)[]) = task {
-            let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
-            for partitionId, gap as partitionAndGap in remainingWork do
-                total <- total + gap
-                count <- count + 1
-                if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
-            let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork }
-            (log |> Log.withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-                                                  processorName, count, total, lagged, synced)
-            return! Async.Sleep(TimeSpan.toMs interval) }
-        let maybeLogLag = lagReportFreq |> Option.map logLag
-        let pipeline =
-            ChangeFeedProcessor.Start
-              ( log, monitored, leases, processorName, observer, ?notifyError = notifyError, ?customize = customize,
-                ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
-                startFromTail = defaultArg startFromTail false,
-                leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
-        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
-        pipeline
+        let stats = Log.Stats(log, monitored.Database.Id, monitored.Id, processorName, ?lagReportFreq = lagReportFreq)
+        ChangeFeedProcessor.Start(
+            log, monitored, leases, processorName, observer, stats, ?notifyError = notifyError, ?customize = customize,
+            ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval,
+            startFromTail = defaultArg startFromTail false,
+            leaseAcquireInterval = TimeSpan.seconds 5., leaseRenewInterval = TimeSpan.seconds 5., leaseTtl = TimeSpan.seconds 10.)
