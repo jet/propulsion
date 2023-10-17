@@ -12,6 +12,9 @@
     <Compile Include="..\Propulsion.CosmosStore\FeedObserver.fs">
       <Link>FeedObserver.fs</Link>
     </Compile>
+    <Compile Include="..\Propulsion.CosmosStore\ChangeFeedProcessor.fs">
+      <Link>ChangeFeedProcessor.fs</Link>
+    </Compile>
     <Compile Include="..\Propulsion.CosmosStore\CosmosStoreSource.fs">
       <Link>CosmosStoreSource.fs</Link>
     </Compile>
