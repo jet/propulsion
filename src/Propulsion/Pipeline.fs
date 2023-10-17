@@ -105,7 +105,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
                 | None -> ()
                 | Some child -> Task.start (fun () -> child ct)
                 do! outcomeTask
-            with _ -> // TODO: F# 7 supports do! in a finally, this catch-swallow-then is a very poor persons subtitute
+            with _ -> // TODO: F# 7 supports do! in a finally, this catch-swallow-then is a very poor persons substitute
                 () // For now just ignore
                 // NOTE None of our work should actually trigger exceptions (we don't call tcs.TrySetException)
                 //      so this catch is really just for completeness
