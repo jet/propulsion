@@ -111,10 +111,10 @@ type FeedReader
             * Position // checkpointPosition
             -> CancellationToken
             -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>,
-        // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
+        // Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
-        //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
+        //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
         // Yields (current batches pending,max readAhead) for logging purposes
         submitBatch: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> struct (int * int),
         awaitCapacity: unit -> Task<struct (int * int)>,

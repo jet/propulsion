@@ -360,7 +360,7 @@ type FeedSource
             yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail }: Core.Batch<_>)) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
-                  readPage: Func<TrancheId, Position, CancellationToken, Task<Page<Propulsion.Sinks.EventBody>>>, ct): Task<unit> =
+                           readPage: Func<TrancheId, Position, CancellationToken, Task<Page<Propulsion.Sinks.EventBody>>>, ct): Task<unit> =
         base.Pump(readTranches.Invoke, crawl readPage, ct)
 
     /// Drives the continual loop of reading and checkpointing each tranche until a fault occurs. <br/>

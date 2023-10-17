@@ -85,7 +85,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "... source completed" }
         machine, outcomeTask, triggerStop
 
-    static member PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, maybeStartChild, stop: unit -> Task<unit>) =
+    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, maybeStartChild, stop: unit -> Task<unit>) =
         let ct, triggerStop =
             let cts = new System.Threading.CancellationTokenSource()
             let triggerStop _disposing =
@@ -118,6 +118,10 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             try return! outcomeTask
             finally log.Information "... source completed" }
         machine, triggerStop
+
+    static member Start(log: Serilog.ILogger, start, maybeStartChild, stop) =
+        let machine, triggerStop = PipelineFactory.PrepareSource2(log, start, maybeStartChild, stop)
+        new Pipeline(Task.run machine, triggerStop)
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new System.Threading.CancellationTokenSource()
