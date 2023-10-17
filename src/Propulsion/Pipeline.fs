@@ -84,7 +84,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "... source completed" }
         machine, outcomeTask, triggerStop
 
-    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, maybeStartChild, stop: unit -> Task<unit>) =
+    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, children, stop: unit -> Task<unit>) =
         let ct, triggerStop =
             let cts = new System.Threading.CancellationTokenSource()
             let triggerStop _disposing =
@@ -100,9 +100,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let inner () = task {
             do! start ()
-            try match maybeStartChild with
-                | None -> ()
-                | Some child -> Task.start (fun () -> child ct)
+            try for startChild in children do Task.start (fun () -> startChild ct)
                 do! outcomeTask
             with _ -> // TODO: F# 7 supports do! in a finally, this catch-swallow-then is a very poor persons substitute
                 () // For now just ignore
@@ -118,8 +116,8 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "... source completed" }
         machine, triggerStop
 
-    static member Start(log: Serilog.ILogger, start, maybeStartChild, stop) =
-        let machine, triggerStop = PipelineFactory.PrepareSource2(log, start, maybeStartChild, stop)
+    static member Start(log: Serilog.ILogger, start, children, stop) =
+        let machine, triggerStop = PipelineFactory.PrepareSource2(log, start, children, stop)
         new Pipeline(Task.run machine, triggerStop)
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =

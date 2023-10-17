@@ -346,7 +346,7 @@ module Project =
                 let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
                 let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
                 Propulsion.CosmosStore.CosmosStoreSource(
-                    Log.Logger, monitored, leases, group, parseFeedDoc, sink,
+                    Log.Logger, stats.StatsInterval, monitored, leases, group, parseFeedDoc, sink,
                     startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval
                 ).Start()
             | Choice2Of3 sa ->

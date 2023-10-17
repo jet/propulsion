@@ -23,30 +23,40 @@ module Log =
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
-type internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName: string) =
+type internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName: string, interval: TimeSpan) =
     let context: Log.MetricContext = { database = databaseId; container = containerId; group = processorName }
     let metricsLog = log.ForContext("isMetric", true)
-    member val Log = log
-    member _.LogStateChange(rangeId: int, state: string) =
-        log.Information("Reader {partition} {state}", rangeId, state)
-    member _.LogExn(rangeId: int, ex: exn) =
-        log.Error(ex, "Reader {partition} error", rangeId)
-    member _.LogHandlerExn(rangeId: int, ex: exn) =
-        log.Error(ex, "Reader {processorName}/{partition} Handler Threw", processorName, rangeId)
-    member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollDelay: TimeSpan, startFromTail: bool, ?maxItems) =
-        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
-                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, startFromTail)
-
-    member _.ReportRead(rangeId: int, lastWait: TimeSpan, epoch, requestCharge, batchTimestamp, latency, itemCount, batchesInFlight, maxReadAhead) =
+    member _.DumpStats _ct =
+        Task.CompletedTask
+    member x.PumpStats(ct) = Task.periodically x.DumpStats interval ct
+    member _.RecordRead(rangeId: int, lastWait: TimeSpan, epoch, requestCharge, batchTimestamp, latency, itemCount, batchesInFlight, maxReadAhead) =
         let age = DateTime.UtcNow - batchTimestamp
         let m = Log.Metric.Read { context = context; rangeId = rangeId; token = epoch; latency = latency; rc = requestCharge; age = age; docs = itemCount }
         (log |> Log.withMetric m).Information("Reader {partition} {token,9} age {age:dddd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
                                               rangeId, epoch, age, itemCount, requestCharge, latency, batchesInFlight, maxReadAhead, lastWait.TotalSeconds, batchesInFlight, maxReadAhead)
-    member _.ReportWait(rangeId: int, waitElapsed, batchesInFlight, maxReadAhead) =
+    member _.RecordWait(rangeId: int, waitElapsed, batchesInFlight, maxReadAhead) =
         if metricsLog.IsEnabled LogEventLevel.Information then
             let m = Log.Metric.Wait { context = context; rangeId = rangeId; ingestLatency = waitElapsed; ingestQueued = batchesInFlight }
             // NOTE: Write to metrics log (App wiring has logic to also emit it to Console when in verboseStore mode, but main purpose is to feed to Prometheus ASAP)
             (metricsLog |> Log.withMetric m).Information("Reader {partition} Wait {pausedS:f3}s Ahead {cur}/{max}", rangeId, waitElapsed.TotalSeconds, batchesInFlight, maxReadAhead)
+
+    (* Generic/ingester messages etc *)
+
+    member val Log = log
+
+    (* Change Feed Processor Source-level messages *)
+
+    member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollDelay: TimeSpan, startFromTail: bool, ?maxItems) =
+        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
+                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, startFromTail)
+    member _.LogStateChange(rangeId: int, state: string) =
+        log.Information("ChangeFeed {processorName}/{partition} {state}", processorName, rangeId, state)
+    member _.LogExn(rangeId: int, ex: exn) =
+        log.Error(ex, "ChangeFeed {processorName}/{partition} error", processorName, rangeId)
+    member _.LogHandlerExn(rangeId: int, ex: exn) =
+        log.Error(ex, "ChangeFeed {processorName}/{partition} Handler Threw", processorName, rangeId)
+
+    (* Change Feed Estimator messages *)
 
     member _.ReportEstimationInterval(interval: TimeSpan) =
         log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, interval.TotalSeconds)
@@ -82,11 +92,11 @@ type internal Observer<'Items>(stats: Stats, trancheIngester: Propulsion.Ingesti
         let checkpoint _ct = task { do! checkpoint.Invoke () }
         let batch: Propulsion.Ingestion.Batch<_> = { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore; isTail = false }
         let struct (cur, max) = trancheIngester.Ingest batch
-        stats.ReportRead(int ctx.rangeId, lastWait.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, sw.Elapsed, docs.Count, cur, max)
+        stats.RecordRead(int ctx.rangeId, lastWait.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, sw.Elapsed, docs.Count, cur, max)
         lastWait.Restart()
         let! struct (cur, max) = trancheIngester.AwaitCapacity()
         lastWait.Stop()
-        stats.ReportWait(int ctx.rangeId, lastWait.Elapsed, cur, max)
+        stats.RecordWait(int ctx.rangeId, lastWait.Elapsed, cur, max)
         sw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor to fetch and pass that back to us
 
     interface IDisposable with

@@ -161,10 +161,11 @@ type FeedReader
         let! cur, max = awaitCapacity ()
         stats.RecordWaitForCapacity(Stopwatch.elapsed waitTimer, cur, max) }
 
-    member _.LogStarting(pos: Position) =
+    member _.LogStartingPartition(pos: Position) =
         log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
                         partition, source, tranche, renderPos pos)
-    member _.LogFinishing(ex: exn) = log.Warning(ex, "Finishing {partition}", partition)
+    member _.LogFinishingPartition(ex: exn) =
+        log.Warning(ex, "Finishing {partition}", partition)
 
     member _.DumpStats() = stats.Dump(log)
 

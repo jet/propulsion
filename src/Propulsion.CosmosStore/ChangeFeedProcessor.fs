@@ -39,24 +39,23 @@ type internal ChangeFeedProcessor =
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
-        let maybePumpMetrics =
-            lagReportFrequency
-            |> Option.map (fun interval ->
-                let lagMonitorCallback (remainingWork: struct (int * int64)[]) ct = task {
-                    stats.ReportEstimation(remainingWork)
-                    return! Task.Delay(TimeSpan.toMs interval, ct) }
-                let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-                let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
-                    use query = estimator.GetCurrentStateIterator()
-                    let result = ResizeArray()
-                    while query.HasMoreResults do
-                        let! res = query.ReadNextAsync(ct)
-                        for x in res do result.Add(map x)
-                    return result.ToArray() }
-                fun (ct: CancellationToken) -> task {
-                    stats.ReportEstimationInterval(interval)
-                    while not ct.IsCancellationRequested do
-                        let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
-                        Array.sortInPlaceBy ValueTuple.fst leasesStates
-                        do! lagMonitorCallback leasesStates ct } )
-        Propulsion.PipelineFactory.Start(stats.Log, Task.ofUnitTask << processor.StartAsync, maybePumpMetrics, Task.ofUnitTask << processor.StopAsync)
+        let pumpEstimation interval =
+            let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
+            let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
+                use query = estimator.GetCurrentStateIterator()
+                let result = ResizeArray()
+                while query.HasMoreResults do
+                    let! res = query.ReadNextAsync(ct)
+                    for x in res do result.Add(map x)
+                return result.ToArray() }
+            let report ct: Task = task {
+                let! leasesStates = fetchEstimatorStates (fun s -> struct (leaseTokenToPartitionId s.LeaseToken, s.EstimatedLag)) ct
+                Array.sortInPlaceBy ValueTuple.fst leasesStates
+                stats.ReportEstimation leasesStates }
+            fun ct ->
+                stats.ReportEstimationInterval(interval)
+                Task.periodically report interval ct
+        let children = seq {
+            match lagReportFrequency with None -> () | Some interval -> pumpEstimation interval
+            stats.PumpStats }
+        Propulsion.PipelineFactory.Start(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)

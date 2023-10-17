@@ -7,7 +7,7 @@ open System
 /// Wraps the Microsoft.Azure.Cosmos ChangeFeedProcessor and ChangeFeedProcessorEstimator
 /// See https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator
 type CosmosStoreSource
-    (   log: ILogger,
+    (   log: ILogger, statsInterval,
         monitored: Microsoft.Azure.Cosmos.Container,
         // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
         // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
@@ -42,7 +42,7 @@ type CosmosStoreSource
         // Including the processId should eliminate the possibility that a broken process manager causes k>1 scenario to happen.
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
-    let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName)
+    let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName, statsInterval)
     let observer = new Observers<_>(stats, sink.StartIngester, Seq.collect parseFeedDoc)
     member _.Flush() = (observer: IDisposable).Dispose()
     member _.Start() =
