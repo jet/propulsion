@@ -2,7 +2,6 @@
 
 open Propulsion.Internal
 open System
-open System.Threading.Tasks
 
 /// Represents a running Pipeline as triggered by a `Start` method , until `Stop()` is requested or the pipeline becomes Faulted for any reason
 /// Conclusion of processing can be awaited by via `Await`/`Wait` or `AwaitWithStopOnCancellation` (or synchronously via IsCompleted)
@@ -17,7 +16,7 @@ type Pipeline(task: Task<unit>, triggerStop) =
     member _.IsCompleted = task.IsCompleted
 
     /// After Await/Wait (or IsCompleted returns true), can be used to infer whether exit was clean (via Stop) or due to a Pipeline Fault (which ca be observed via Await/Wait)
-    member _.RanToCompletion = task.Status = TaskStatus.RanToCompletion
+    member _.RanToCompletion = task.Status = System.Threading.Tasks.TaskStatus.RanToCompletion
 
     /// Request completion of processing and shutdown of the Pipeline
     member _.Stop() = triggerStop false
@@ -131,7 +130,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             cts.Cancel()
         let ct = cts.Token
 
-        let tcs = TaskCompletionSource<unit>()
+        let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns: AggregateException) =
             if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
