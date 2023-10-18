@@ -1012,11 +1012,11 @@ type SinkPipeline private () =
             else ValueNone
         Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
 
-    static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStatsInterval) =
+    static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStateInterval) =
         let mapBatch onCompletion (x: Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
             Buffer.Batch.Create(onCompletion, x.messages)
-        let submitter = SinkPipeline.CreateSubmitter (log, mapBatch, streamsScheduler, ingesterStatsInterval)
-        let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester (rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
+        let submitter = SinkPipeline.CreateSubmitter (log, mapBatch, streamsScheduler, ingesterStateInterval)
+        let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester (rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
         Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
 [<AbstractClass; Sealed>]
@@ -1039,14 +1039,14 @@ type Concurrent private () =
             ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
-            ?ingesterStatsInterval, ?requireCompleteStreams)
+            ?ingesterStateInterval, ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period)
 
     /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F, 'R>
@@ -1063,7 +1063,7 @@ type Concurrent private () =
             [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval,
+            [<O; D null>] ?ingesterStateInterval,
             [<O; D null>] ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let prepare _streamName span =
@@ -1072,7 +1072,7 @@ type Concurrent private () =
         Concurrent.StartEx<'R, 'Outcome, 'F, 'R>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, eventSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+            ?ingesterStateInterval = ingesterStateInterval, ?requireCompleteStreams = requireCompleteStreams)
 
 [<AbstractClass; Sealed>]
 type Batched private () =
@@ -1086,7 +1086,7 @@ type Batched private () =
             eventSize, stats: Scheduling.Stats<_, _>,
             ?pendingBufferSize,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
-            ?ingesterStatsInterval, ?requireCompleteStreams)
+            ?ingesterStateInterval, ?requireCompleteStreams)
         : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items: Scheduling.Item<'F>[]) ct
             : Task<Scheduling.InternalRes<Result<struct (StreamSpan.Metrics * int64), struct (StreamSpan.Metrics * exn)>>[]> = task {
@@ -1109,4 +1109,4 @@ type Batched private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period)

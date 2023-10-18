@@ -1,6 +1,5 @@
 namespace Propulsion.CosmosStore
 
-open Microsoft.Azure.Cosmos.Spatial
 open Propulsion.Feed
 open Propulsion.Internal
 open System
@@ -43,8 +42,10 @@ type TrancheStats() =
         let state = if not tail then "Busy" elif finishedReading then "End" else "Tail"
         let recentAge = recentBatchTimestamp |> Option.map (fun lbt -> DateTime.UtcNow - lbt) |> Option.toNullable
         let log = if Option.isNone readPos then log else log.ForContext("tail", tail)
-        log.Information("ChangeFeed {processorName}/{partition} {state} @ {lastCompltedPosition}/{readPosition} Active {active} read {batchesRead} ahead {cur}/{max} Gap {gap} | Recent {l:f1}s batches {recentPagesRead} age {age:dddd\.hh\:mm\:ss} {ru}RU Pause {pausedS:f1}s Committed {comitted} Wait {waitS:f1}s",
-                        processorName, partition, state, r completedPos, r readPos, isActive, batches, currentBatches, maxReadAhead, Option.toNullable lastGap, accReadLatency.TotalSeconds, recentBatches, recentAge, recentRu, (*pagesEmpty, events,*) accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
+        log.Information("ChangeFeed {processorName}/{partition} {state} @ {completedPosition}/{readPosition} Active {active} read {batches} ahead {cur}/{max} Gap {gap} " +
+                        "| Read {l:f1}s batches {recentBatches} age {age: d\.hh\:mm\:ss} {ru}RU Pause {pausedS:f1}s Committed {comittedPos} Wait {waitS:f1}s",
+                        processorName, partition, state, r completedPos, r readPos, isActive, batches, currentBatches, maxReadAhead, Option.toNullable lastGap,
+                        accReadLatency.TotalSeconds, recentBatches, recentAge, recentRu, accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
         accReadLatency <- TimeSpan.Zero; accWaits <- TimeSpan.Zero
         recentBatches <- 0; recentRu <- 0; recentCommittedPos <- None; recentBatchTimestamp <- None; lastGap <- None
         closed <- finishedReading

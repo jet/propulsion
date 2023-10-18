@@ -66,8 +66,8 @@ type CosmosStorePruner =
     static member Start
         (   log: ILogger, maxReadAhead, context, maxConcurrentStreams, stats: CosmosStorePrunerStats,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
-            // Defaults to statsInterval
-            ?ingesterStatsInterval)
+            // Defaults to stateInterval
+            ?ingesterStateInterval)
         : Sink =
         let dispatcher =
 #if COSMOSV3
@@ -82,4 +82,4 @@ type CosmosStorePruner =
         let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period)
