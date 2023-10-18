@@ -1015,8 +1015,8 @@ type SinkPipeline private () =
     static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStateInterval) =
         let mapBatch onCompletion (x: Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
             Buffer.Batch.Create(onCompletion, x.messages)
-        let submitter = SinkPipeline.CreateSubmitter (log, mapBatch, streamsScheduler, ingesterStateInterval)
-        let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester (rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
+        let submitter = SinkPipeline.CreateSubmitter(log, mapBatch, streamsScheduler, ingesterStateInterval)
+        let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
         Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
 [<AbstractClass; Sealed>]
