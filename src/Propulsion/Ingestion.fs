@@ -42,7 +42,7 @@ type private InternalMessage =
     | Added of epoch: int64 * streams: int * events: int
 
 [<Struct; NoComparison; NoEquality>]
-type Batch<'Items> = { epoch: int64; items: 'Items; onCompletion: unit -> unit; checkpoint: CancellationToken -> Task<unit>; isTail: bool }
+type Batch<'Items> = { epoch: int64; items: 'Items; isTail: bool; onCompletion: unit -> unit; checkpoint: CancellationToken -> Task<unit> }
 
 type private Stats(log: ILogger, partitionId, statsInterval: TimeSpan) =
     let mutable readEpoch, validatedEpoch, committedEpoch = None, None, None
@@ -114,10 +114,8 @@ type Ingester<'Items> private
             while progressWriter.IsDirty do
                 do! Task.delay (commitInterval / 2.) ct }
 
-    member private x.CheckpointPeriodically(ct: CancellationToken) = task {
-        while not ct.IsCancellationRequested do
-            do! x.FlushProgress ct
-            do! Task.delay commitInterval ct }
+    member private x.CheckpointPeriodically(ct: CancellationToken) =
+        Task.periodically (fun ct -> x.FlushProgress ct) commitInterval ct
 
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)

@@ -1,6 +1,6 @@
 namespace Propulsion.Feed.Core
 
-open FSharp.Control
+open FSharp.Control // taskSeq
 open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
@@ -15,7 +15,12 @@ type FeedSourceBase internal
         renderPos: Position -> string,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
-    let positions = TranchePositions()
+
+    let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
+
+    let dumpStats () = for _i, r in partitions do r.DumpStats()
+    let startStatsPump (ct: CancellationToken) = Task.periodicallyWithFlush dumpStats statsInterval ct
+
     let pumpPartition trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
         try let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
             try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
@@ -23,16 +28,14 @@ type FeedSourceBase internal
                 return! reader.Pump(pos, ct)
             with Exception.Log reader.LogFinishingPartition () -> ()
         finally ingester.Stop() }
-    let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
-    let dumpStats () = for _i, r in partitions do r.DumpStats()
-    let startStatsPump (ct: CancellationToken) = Task.periodicallyWithFlush dumpStats statsInterval ct
-    member val internal Positions = positions
+
+    member val internal Positions = TranchePositions()
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member _.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+    member x.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
         do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
-        return positions.Completed() }
+        return x.Positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal x.Pump
@@ -47,7 +50,7 @@ type FeedSourceBase internal
         partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
             let ingester = sink.StartIngester(log, partitionId)
-            let ingest = positions.Intercept(trancheId) >> ingester.Ingest
+            let ingest = x.Positions.Intercept(trancheId) >> ingester.Ingest
             let awaitIngester = if defaultArg readersStopAtTail false then Some ingester.Wait else None
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, ingester.AwaitCapacity, checkpoints.Commit, renderPos,
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
@@ -58,9 +61,9 @@ type FeedSourceBase internal
         do! x.Checkpoint(ct) |> Task.ignore }
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
-    member _.Start(pump) =
+    member x.Start(pump) =
         let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
-        let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
+        let monitor = lazy FeedMonitor(log, x.Positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams
@@ -132,11 +135,12 @@ type SinglePassFeedSource
         base.Start(fun ct -> x.Pump(readTranches, ct))
 
 module Categories =
-    let startsWith (p: string) (s: FsCodec.StreamName) = (FsCodec.StreamName.toString s).StartsWith(p)
+
+    let private startsWith (prefix: string) (s: FsCodec.StreamName) = (FsCodec.StreamName.toString s).StartsWith(prefix)
 
     let categoryFilter (categories: string[]) =
-        let prefixes = categories |> Array.map startsWith
-        fun (x: FsCodec.StreamName) -> prefixes |> Array.exists (fun f -> f x)
+        let hasDesiredPrefix = categories |> Array.map startsWith
+        fun (x: FsCodec.StreamName) -> hasDesiredPrefix |> Array.exists (fun f -> f x)
 
     let mapFilters categories streamFilter =
         match categories, streamFilter with

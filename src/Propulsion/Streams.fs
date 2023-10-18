@@ -994,35 +994,30 @@ type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] 
 
     abstract member HandleOk: outcome: 'Outcome -> unit
 
-module Projector =
+[<AbstractClass; Sealed>]
+type SinkPipeline private () =
 
-    type StreamsIngester =
+    static member private StartIngester(log, partitionId, maxRead, submit, statsInterval) =
+        let submitBatch (items: StreamEvent<'F> seq, onCompletion) =
+            let items = Array.ofSeq items
+            let streams = items |> Seq.map ValueTuple.fst |> HashSet
+            let batch: Submission.Batch<_, _> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
+            submit batch
+            struct (streams.Count, items.Length)
+        Ingestion.Ingester<StreamEvent<'F> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
-        static member Start(log, partitionId, maxRead, submit, statsInterval) =
-            let submitBatch (items: StreamEvent<'F> seq, onCompletion) =
-                let items = Array.ofSeq items
-                let streams = items |> Seq.map ValueTuple.fst |> HashSet
-                let batch: Submission.Batch<_, _> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
-                submit batch
-                struct (streams.Count, items.Length)
-            Ingestion.Ingester<StreamEvent<'F> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
+    static member CreateSubmitter(log: ILogger, mapBatch, streamsScheduler: Scheduling.Engine<_, _, _, _>, statsInterval) =
+        let trySubmitBatch (x: Buffer.Batch): int voption =
+            if streamsScheduler.TrySubmit x then ValueSome x.StreamsCount
+            else ValueNone
+        Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
 
-    type StreamsSubmitter =
-
-        static member Create(log: ILogger, mapBatch, streamsScheduler: Scheduling.Engine<_, _, _, _>, statsInterval) =
-            let trySubmitBatch (x: Buffer.Batch): int voption =
-                if streamsScheduler.TrySubmit x then ValueSome x.StreamsCount
-                else ValueNone
-            Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
-
-    type Pipeline =
-
-        static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStatsInterval) =
-            let mapBatch onCompletion (x: Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
-                Buffer.Batch.Create(onCompletion, x.messages)
-            let submitter = StreamsSubmitter.Create(log, mapBatch, streamsScheduler, ingesterStatsInterval)
-            let startIngester (rangeLog, partitionId: int) = StreamsIngester.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
-            Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
+    static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStatsInterval) =
+        let mapBatch onCompletion (x: Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
+            Buffer.Batch.Create(onCompletion, x.messages)
+        let submitter = SinkPipeline.CreateSubmitter (log, mapBatch, streamsScheduler, ingesterStatsInterval)
+        let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester (rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
+        Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
 [<AbstractClass; Sealed>]
 type Concurrent private () =
@@ -1051,7 +1046,7 @@ type Concurrent private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
 
     /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F, 'R>
@@ -1114,4 +1109,4 @@ type Batched private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
                                           ?requireCompleteStreams = requireCompleteStreams)
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStatsInterval = defaultArg ingesterStatsInterval stats.StatsInterval.Period)

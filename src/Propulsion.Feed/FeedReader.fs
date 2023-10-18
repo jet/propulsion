@@ -40,7 +40,7 @@ module Log =
 
 type internal Stats(partition: int, source: SourceId, tranche: TrancheId, renderPos: Position -> string) =
 
-    let mutable batchLastPosition = Position.parse -1L
+    let mutable lastReadPosition = Position.parse -1L
     let mutable closed, lastWasTail, finishedReading = false, false, false
 
     let mutable pagesRead, pagesEmpty, events = 0, 0, 0L
@@ -59,16 +59,16 @@ type internal Stats(partition: int, source: SourceId, tranche: TrancheId, render
         let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
         let m = Log.Metric.Read {
             source = source; tranche = tranche
-            token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = recentEvents
+            token = p lastReadPosition; latency = readLatency; pages = recentPagesRead; items = recentEvents
             ingestLatency = waitElapsed; ingestQueued = currentBatches }
         let readS, postS = readLatency.TotalSeconds, waitElapsed.TotalSeconds
         let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
         let state = if not lastWasTail then "Busy"
-                    elif lastCommittedPosition = batchLastPosition then "COMPLETE"
+                    elif lastCommittedPosition = lastReadPosition then "COMPLETE"
                     else if finishedReading then "End" else "Tail"
         (Log.withMetric m log).ForContext("tail", lastWasTail).Information(
             "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} Pause {pausedS:f1}s Ahead {cur}/{max} Wait {waitS:f1}s",
-            partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead, shutdownTimer.ElapsedSeconds)
+            partition, state, r lastCommittedPosition, r lastReadPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead, shutdownTimer.ElapsedSeconds)
         readLatency <- TimeSpan.Zero; waitElapsed <- TimeSpan.Zero
         recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
         closed <- finishedReading
@@ -76,7 +76,7 @@ type internal Stats(partition: int, source: SourceId, tranche: TrancheId, render
     member _.RecordBatch(readTime, batch: Batch<_>, cur, max) =
         updateIngesterState cur max
         readLatency <- readLatency + readTime
-        batchLastPosition <- batch.checkpoint
+        lastReadPosition <- batch.checkpoint
         lastWasTail <- batch.isTail
         match Array.length batch.items with
         | 0 ->  pagesEmpty <- pagesEmpty + 1
@@ -129,22 +129,18 @@ type FeedReader
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Task,
         renderPos,
-        ?logCommitFailure,
         // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
-        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>) =
+        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>, ?logCommitFailure) =
 
     let stats = Stats(partition, source, tranche, renderPos)
 
+    let logCommitFailure_ (e: exn) = log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint")
+    let logCommitFailure =  defaultArg logCommitFailure logCommitFailure_
     let commit (position: Position) ct = task {
-        let logExn (e: exn) =
-            match logCommitFailure with
-            | None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position)
-            | Some l -> l e
-        try
-            do! commitCheckpoint (source, tranche, position, ct)
+        try do! commitCheckpoint (source, tranche, position, ct)
             stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
-        with Exception.Log logExn () -> () }
+        with Exception.Log logCommitFailure () -> () }
 
     let submitPage (readLatency, batch: Batch<_>) = task {
         let epoch, streamEvents: int64 * Propulsion.Sinks.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items

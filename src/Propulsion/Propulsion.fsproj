@@ -14,9 +14,9 @@
     <Compile Include="Streams.fs" />
     <Compile Include="Sync.fs" />
     <Compile Include="Sinks.fs" />
-    <Compile Include="PropulsionPrometheus.fs" />
     <Compile Include="Feed.fs" />
     <Compile Include="FeedMonitor.fs" />
+    <Compile Include="PropulsionPrometheus.fs" />
   </ItemGroup>
 
   <ItemGroup>

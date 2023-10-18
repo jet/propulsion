@@ -25,7 +25,7 @@ type CosmosStoreSource
         // Specify `true` to request starting of projection from the present write position.
         // Default: false (projecting all events from start beforehand)
         [<O; D null>] ?startFromTail,
-        [<O; D null>] ?lagReportFreq: TimeSpan,
+        [<O; D null>] ?lagEstimationInterval: TimeSpan,
         // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
         [<O; D null>] ?notifyError: Action<int, exn>,
         // Admits customizations in the ChangeFeedProcessorBuilder chain
@@ -43,7 +43,7 @@ type CosmosStoreSource
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
     let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName, statsInterval)
-    let observer = new Observers<_>(stats, sink.StartIngester, Seq.collect parseFeedDoc)
+    let observer = new Observers<seq<Propulsion.Sinks.StreamEvent>>(stats, sink.StartIngester, Seq.collect parseFeedDoc)
     member _.Flush() = (observer: IDisposable).Dispose()
     member _.Start() =
         ChangeFeedProcessor.Start(
@@ -54,4 +54,4 @@ type CosmosStoreSource
             leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
             leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
             startFromTail = defaultArg startFromTail false,
-            ?lagReportFrequency = lagReportFreq)
+            ?estimationInterval = lagEstimationInterval)

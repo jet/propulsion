@@ -12,7 +12,7 @@ type TranchePositions() =
 
     member _.Intercept(trancheId) =
         positions.GetOrAdd(trancheId, fun _trancheId -> { read = ValueNone; isTail = false; completed = ValueNone }) |> ignore
-        fun (batch: Ingestion.Batch<_>) ->
+        fun (batch: Ingestion.Batch<'Items>) ->
             let p = positions[trancheId]
             p.read <- ValueSome batch.epoch
             p.isTail <- batch.isTail
