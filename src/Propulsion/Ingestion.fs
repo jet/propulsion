@@ -146,15 +146,13 @@ type Ingester<'Items> private
     /// Submits a batch for unpacking and submission
     /// Returns (reads in flight, maximum reads in flight)
     /// NOTE Caller should AwaitCapacity before calling again
-    member _.Ingest(batch: Batch<'Items>) =
+    member x.Ingest(batch: Batch<'Items>) =
         enqueueIncoming batch
-        maxRead.State
-
+        x.CurrentCapacity()
     /// If at/over limit, wait for the in-flight reads to drop below the limit
+    member _.AwaitCapacity() = maxRead.Wait(cts.Token)
     /// Returns (reads in flight, maximum reads in flight)
-    member _.AwaitCapacity() = task {
-        do! maxRead.Wait(cts.Token)
-        return maxRead.State }
+    member _.CurrentCapacity() = maxRead.State
 
     /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
     member _.Stop() = cts.Cancel()

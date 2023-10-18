@@ -86,8 +86,7 @@ type internal Stats(partition: int, source: SourceId, tranche: TrancheId, render
                 recentEvents <- recentEvents + c
                 recentPagesRead <- recentPagesRead + 1
         closed <- false // Any straggler reads (and/or bugs!) trigger logging
-    member _.RecordWaitForCapacity(latency, cur, max) =
-        updateIngesterState cur max
+    member _.RecordWaitForCapacity(latency) =
         waitElapsed <- waitElapsed + latency
 
     member _.UpdateCommittedPosition(pos) =
@@ -116,8 +115,8 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> struct (int * int),
-        awaitCapacity: unit -> Task<struct (int * int)>,
+        ingester: Propulsion.Ingestion.Ingester<Propulsion.Sinks.StreamEvent seq>,
+        decorate: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -128,9 +127,7 @@ type FeedReader
             * CancellationToken
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Task,
-        renderPos,
-        // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
-        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>, ?logCommitFailure) =
+        renderPos, stopAtTail, ?logCommitFailure) =
 
     let stats = Stats(partition, source, tranche, renderPos)
 
@@ -143,8 +140,8 @@ type FeedReader
         with Exception.Log logCommitFailure () -> () }
 
     let submitPage (readLatency, batch: Batch<_>) = task {
-        let epoch, streamEvents: int64 * Propulsion.Sinks.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items
-        let struct (cur, max) = submitBatch { isTail = batch.isTail; epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
+        let sinkBatch = decorate { isTail = batch.isTail; epoch = Position.toInt64 batch.checkpoint; checkpoint = commit batch.checkpoint; items = batch.items; onCompletion = ignore }
+        let struct (cur, max) = ingester.Ingest(decorate sinkBatch)
         stats.RecordBatch(readLatency, batch, cur, max)
 
         match Array.length batch.items with
@@ -154,8 +151,8 @@ type FeedReader
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
         let waitTimer = Stopwatch.timestamp ()
-        let! cur, max = awaitCapacity ()
-        stats.RecordWaitForCapacity(Stopwatch.elapsed waitTimer, cur, max) }
+        do! ingester.AwaitCapacity()
+        stats.RecordWaitForCapacity(Stopwatch.elapsed waitTimer) }
 
     member _.LogStartingPartition(pos: Position) =
         log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
@@ -169,14 +166,12 @@ type FeedReader
         log.Debug("Starting {partition} from {initialPosition}", partition, renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
-        while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
+        while not (ct.IsCancellationRequested || (lastWasTail && stopAtTail)) do
             for readLatency, batch in crawl (lastWasTail, currentPos) ct do
                 do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail
-        match awaitIngesterShutdown with
-        | Some a when not ct.IsCancellationRequested ->
+        if stopAtTail && not ct.IsCancellationRequested then
             stats.EnteringShutdown()
-            let! struct (cur, max) = a ct
-            stats.ShutdownCompleted(cur, max)
-        | _ -> () }
+            let! struct (cur, max) = ingester.Wait ct
+            stats.ShutdownCompleted(cur, max) }

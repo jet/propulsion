@@ -29,13 +29,13 @@ type FeedSourceBase internal
             with Exception.Log reader.LogFinishingPartition () -> ()
         finally ingester.Stop() }
 
-    member val internal Positions = TranchePositions()
+    let positions = TranchePositions()
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
     member x.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
         do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
-        return x.Positions.Completed() }
+        return positions.Completed() }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal x.Pump
@@ -50,10 +50,9 @@ type FeedSourceBase internal
         partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
             let ingester = sink.StartIngester(log, partitionId)
-            let ingest = x.Positions.Intercept(trancheId) >> ingester.Ingest
-            let awaitIngester = if defaultArg readersStopAtTail false then Some ingester.Wait else None
-            let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingest, ingester.AwaitCapacity, checkpoints.Commit, renderPos,
-                                    ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
+            let instrumentBatch = positions.Intercept(trancheId)
+            let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingester, instrumentBatch, checkpoints.Commit,
+                                    renderPos, stopAtTail = defaultArg readersStopAtTail false, ?logCommitFailure = logCommitFailure)
             ingester, reader)
         use _ = startStatsPump ct // loops in background until overall pumping is cancelled
         let trancheWorkflows = (tranches, partitions) ||> Seq.map2 pumpPartition
@@ -63,7 +62,7 @@ type FeedSourceBase internal
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump) =
         let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
-        let monitor = lazy FeedMonitor(log, x.Positions, sink, fun () -> outcomeTask.IsCompleted)
+        let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams

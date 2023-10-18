@@ -347,7 +347,7 @@ module Project =
                 let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
                 Propulsion.CosmosStore.CosmosStoreSource(
                     Log.Logger, stats.StatsInterval, monitored, leases, group, parseFeedDoc, sink,
-                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagEstimationInterval = sa.MaybeLogLagInterval
                 ).Start()
             | Choice2Of3 sa ->
                 let (indexContext, indexFilter), loadMode = sa.MonitoringParams()

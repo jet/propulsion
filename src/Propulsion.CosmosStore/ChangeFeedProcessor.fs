@@ -5,7 +5,8 @@ open System
 
 type internal ChangeFeedProcessor =
     static member Start
-        (   monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, stats: Stats, leaseOwnerId, ingest,
+        (   monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, stats: Stats, leaseOwnerId,
+            ingest, trancheCapacity,
             startFromTail, feedPollDelay, leaseAcquireInterval, leaseRenewInterval, leaseTtl, ?maxItems, ?notifyError, ?customize, ?lagEstimationInterval) =
         stats.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollDelay, startFromTail, ?maxItems = maxItems)
         let processorName_ = processorName + ":"
@@ -40,23 +41,22 @@ type internal ChangeFeedProcessor =
                 |> fun b -> match maxItems with Some mi -> b.WithMaxItems(mi) | None -> b
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
-        let pumpEstimation interval =
-            let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-            let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
-                use query = estimator.GetCurrentStateIterator()
-                let result = ResizeArray()
-                while query.HasMoreResults do
-                    let! res = query.ReadNextAsync(ct)
-                    for x in res do result.Add(map x)
-                return result.ToArray() }
-            let report ct: Task = task {
-                let! leasesStates = fetchEstimatorStates (fun s -> struct ((|RangeId|) s.LeaseToken, s.EstimatedLag)) ct
-                Array.sortInPlaceBy ValueTuple.fst leasesStates
-                stats.ReportEstimation leasesStates }
-            fun ct ->
-                stats.ReportEstimationInterval(interval)
-                Task.periodically report interval ct
+        let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
+        let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
+            use query = estimator.GetCurrentStateIterator()
+            let result = ResizeArray()
+            while query.HasMoreResults do
+                let! res = query.ReadNextAsync(ct)
+                for x in res do result.Add(map x)
+            return result.ToArray() }
+        let runEstimation ct = task {
+            let! leasesStates = fetchEstimatorStates (fun s -> struct ((|RangeId|) s.LeaseToken, s.EstimatedLag)) ct
+            Array.sortInPlaceBy ValueTuple.fst leasesStates
+            stats.ReportEstimation leasesStates }
+        let pumpEstimation interval ct =
+            stats.ReportEstimationInterval(interval)
+            Task.periodically (fun ct -> runEstimation ct) interval ct
         let children = seq {
             match lagEstimationInterval with None -> () | Some interval -> pumpEstimation interval
-            stats.PumpStats }
+            (fun ct -> stats.PumpStats(trancheCapacity, runEstimation, ct)) }
         Propulsion.PipelineFactory.Start(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)

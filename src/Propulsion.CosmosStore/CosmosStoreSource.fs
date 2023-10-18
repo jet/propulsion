@@ -47,11 +47,11 @@ type CosmosStoreSource
     member _.Flush() = (observer: IDisposable).Dispose()
     member _.Start() =
         ChangeFeedProcessor.Start(
-            monitored, leases, processorName, stats, leaseOwnerId, observer.Ingest,
+            monitored, leases, processorName, stats, leaseOwnerId, observer.Ingest, observer.CurrentTrancheCapacity,
             ?notifyError = notifyError, ?customize = customize, ?maxItems = maxItems,
             feedPollDelay = defaultArg tailSleepInterval (TimeSpan.seconds 1.),
             leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
             leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
             leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
             startFromTail = defaultArg startFromTail false,
-            ?estimationInterval = lagEstimationInterval)
+            ?lagEstimationInterval = lagEstimationInterval)

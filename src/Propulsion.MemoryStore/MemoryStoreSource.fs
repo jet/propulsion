@@ -50,7 +50,7 @@ type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, ca
                 | ValueNone -> more <- false
                 | ValueSome batch ->
                     ingester.Ingest batch |> ignore<struct (int * int)>
-                    do! ingester.AwaitCapacity() :> Task
+                    do! ingester.AwaitCapacity()
             do! awaitSubmissions ct :> Task }
 
     member x.Start() =
