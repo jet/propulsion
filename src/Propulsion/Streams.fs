@@ -1,11 +1,9 @@
 ﻿namespace Propulsion.Streams
 
-open Propulsion
 open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
 
 module Log =
 
@@ -50,7 +48,7 @@ module Log =
 
     let [<Literal>] PropertyTag = "propulsionEvent"
     /// Attach a property to the captured event record to hold the metric information
-    let internal withMetric (value: Metric) = Internal.Log.withScalarProperty PropertyTag value
+    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent: Serilog.Events.LogEvent): 't voption =
         let mutable p = Unchecked.defaultof<_>
         logEvent.Properties.TryGetValue(key, &p) |> ignore
@@ -501,7 +499,7 @@ module Scheduling =
             monitor.DumpState x.Log
             lats.Dump(log, function OutcomeKind.OkTag -> String.Empty | x -> x)
             lats.Clear()
-            let batchesCompleted = Interlocked.Exchange(&batchesCompleted, 0)
+            let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
             log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
                             batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
             batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
@@ -519,7 +517,7 @@ module Scheduling =
             eventsWrittenAhead <- eventsWrittenAhead + skippedEvents
 
         member _.RecordBatchCompletion() =
-            Interlocked.Increment(&batchesCompleted) |> ignore
+            System.Threading.Interlocked.Increment(&batchesCompleted) |> ignore
 
         member x.RecordStats() =
             cycles <- cycles + 1
@@ -1001,23 +999,23 @@ type SinkPipeline private () =
         let submitBatch (items: StreamEvent<'F> seq, onCompletion) =
             let items = Array.ofSeq items
             let streams = items |> Seq.map ValueTuple.fst |> HashSet
-            let batch: Submission.Batch<_, _> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
+            let batch: Propulsion.Submission.Batch<_, _> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
             submit batch
             struct (streams.Count, items.Length)
-        Ingestion.Ingester<StreamEvent<'F> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
+        Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
 
     static member CreateSubmitter(log: ILogger, mapBatch, streamsScheduler: Scheduling.Engine<_, _, _, _>, statsInterval) =
         let trySubmitBatch (x: Buffer.Batch): int voption =
             if streamsScheduler.TrySubmit x then ValueSome x.StreamsCount
             else ValueNone
-        Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
+        Propulsion.Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
 
     static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStateInterval) =
-        let mapBatch onCompletion (x: Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
+        let mapBatch onCompletion (x: Propulsion.Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
             Buffer.Batch.Create(onCompletion, x.messages)
         let submitter = SinkPipeline.CreateSubmitter(log, mapBatch, streamsScheduler, ingesterStateInterval)
         let startIngester (rangeLog, partitionId: int) = SinkPipeline.StartIngester(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
-        Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
+        Propulsion.Sink.Start(log, pumpScheduler, submitter.Pump, startIngester)
 
 [<AbstractClass; Sealed>]
 type Concurrent private () =
@@ -1040,7 +1038,7 @@ type Concurrent private () =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
             ?idleDelay,
             ?ingesterStateInterval, ?requireCompleteStreams)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+        : Propulsion.Sink<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
@@ -1065,7 +1063,7 @@ type Concurrent private () =
             [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStateInterval,
             [<O; D null>] ?requireCompleteStreams)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+        : Propulsion.Sink<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let prepare _streamName span =
             let metrics = StreamSpan.metrics eventSize span
             struct (metrics, span)
@@ -1087,7 +1085,7 @@ type Batched private () =
             ?pendingBufferSize,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             ?ingesterStateInterval, ?requireCompleteStreams)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+        : Propulsion.Sink<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items: Scheduling.Item<'F>[]) ct
             : Task<Scheduling.InternalRes<Result<struct (StreamSpan.Metrics * int64), struct (StreamSpan.Metrics * exn)>>[]> = task {
             let start = Stopwatch.timestamp ()
