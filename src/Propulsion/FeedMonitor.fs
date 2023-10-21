@@ -109,7 +109,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: TranchePositions, sink: Propuls
             // - processing: the observed processing time
             // Example:
             //   let lingerTime _isDrained (propagationTimeout: TimeSpan) (propagation: TimeSpan) (processing: TimeSpan) =
-            //      max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.FromSeconds
+            //      max (propagationTimeout.TotalSeconds / 4.) ((propagation.TotalSeconds + processing.TotalSeconds) / 3.) |> TimeSpan.seconds
             ?lingerTime: bool -> TimeSpan -> TimeSpan -> TimeSpan -> TimeSpan,
             ?ct) = task {
         let ct = defaultArg ct CancellationToken.None
@@ -133,7 +133,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: TranchePositions, sink: Propuls
             else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
             let propUsed = sw.Elapsed
-            let logInterval = defaultArg logInterval (TimeSpan.FromSeconds 5.)
+            let logInterval = defaultArg logInterval (TimeSpan.seconds 5)
             let swProcessing = Stopwatch.start ()
             do! awaitCompletion (sleep, logInterval) swProcessing starting waitMode ct
             let procUsed = swProcessing.Elapsed
@@ -176,7 +176,7 @@ module FeedMonitor =
 
             // If for some reason we're not provisioned well enough to read something within 1m, no point for paying for a full lambda timeout
             let initialReaderTimeout = TimeSpan.FromMinutes 1.
-            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.FromSeconds 30)
+            do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.seconds 30)
             // Shut down all processing (we create a fresh Source per Lambda invocation)
             pipeline.Stop()
 
