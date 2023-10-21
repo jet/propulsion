@@ -59,4 +59,4 @@ type internal ChangeFeedProcessor =
         let children = seq {
             match lagEstimationInterval with None -> () | Some interval -> pumpEstimation interval
             (fun ct -> stats.PumpStats(trancheCapacity, runEstimation, ct)) }
-        Propulsion.PipelineFactory.Start(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)
+        Propulsion.PipelineFactory.StartSource(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)

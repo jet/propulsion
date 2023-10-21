@@ -53,7 +53,7 @@ let flatten: Events.StreamSpan seq -> Events.StreamSpan seq =
             if i = -1 then i <- x.i
             let n = i + int64 c.Count
             let overlap = n - x.i
-            if overlap < 0 then invalidOp (sprintf "Invalid gap of %d at %d in '%O'" -overlap n p)
+            if overlap < 0 then invalidOp $"Invalid gap of %d{-overlap} at %d{n} in '{p}'"
             c.AddRange(Seq.skip (int overlap) x.c)
         { p = p; i = i; c = c.ToArray() })
 

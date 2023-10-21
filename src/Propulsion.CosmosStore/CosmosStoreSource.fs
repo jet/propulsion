@@ -15,7 +15,7 @@ type CosmosStoreSource
         // fail over we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
         leases: Microsoft.Azure.Cosmos.Container,
         // Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
-        processorName, parseFeedDoc, sink: Propulsion.Sinks.Sink,
+        processorName, parseFeedDoc, sink: Propulsion.Sinks.SinkPipeline,
         // Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
         // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
         [<O; D null>] ?maxItems,

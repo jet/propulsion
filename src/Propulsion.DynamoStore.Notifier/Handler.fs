@@ -21,7 +21,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValueP
     try for record in dynamoEvent.Records do
             match record.Dynamodb.StreamViewType with
             | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
-            | x -> invalidOp (sprintf "Unexpected StreamViewType %O" x)
+            | x -> invalidOp $"Unexpected StreamViewType {x}"
 
             if summary.Length <> 0 then summary.Append ' ' |> ignore
             summary.Append(record.EventName.Value[0]) |> ignore
@@ -50,7 +50,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValueP
                 | _ ->
                     if p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
-            | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
+            | et -> invalidOp $"Unknown OperationType %s{et.Value}"
         log.Information("Index {indexCount} Other {otherCount} NoEvents {noEventCount} Tails {tails} {summary:l}",
                         indexStream, otherStream, noEvents, Seq.map ValueTuple.ofKvp tails, summary)
         Array.ofSeq tails

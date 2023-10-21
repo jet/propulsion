@@ -11,7 +11,7 @@ open System.Collections.Generic
 type FeedSourceBase internal
     (   log: Serilog.ILogger, statsInterval: TimeSpan, sourceId,
         checkpoints: IFeedCheckpointStore, establishOrigin: Func<TrancheId, CancellationToken, Task<Position>> option,
-        sink: Propulsion.Sinks.Sink,
+        sink: Propulsion.Sinks.SinkPipeline,
         renderPos: Position -> string,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
@@ -61,7 +61,7 @@ type FeedSourceBase internal
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump) =
-        let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
+        let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
@@ -69,7 +69,7 @@ type FeedSourceBase internal
 type TailingFeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
         sourceId, tailSleepInterval: TimeSpan,
-        checkpoints: IFeedCheckpointStore, establishOrigin, sink: Propulsion.Sinks.Sink, renderPos,
+        checkpoints: IFeedCheckpointStore, establishOrigin, sink: Propulsion.Sinks.SinkPipeline, renderPos,
         crawl: Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>>,
         ?logReadFailure, ?readFailureSleepInterval: TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
     inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos,
@@ -101,7 +101,7 @@ type AllFeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
         sourceId, tailSleepInterval: TimeSpan,
         readBatch: Func<Position, CancellationToken, Task<Batch<Propulsion.Sinks.EventBody>>>,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         // Custom checkpoint rendering logic
         ?renderPos,
         // Custom logic to derive an origin position if the checkpoint store doesn't have one
@@ -123,7 +123,7 @@ type SinglePassFeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
         sourceId,
         crawl: Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<_>)>>,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         ?renderPos, ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
     inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink, defaultArg renderPos string,
                               crawl,
@@ -165,7 +165,7 @@ type Page<'F> = { items: FsCodec.ITimelineEvent<'F>[]; checkpoint: Position; isT
 type FeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
         sourceId, tailSleepInterval: TimeSpan,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
 

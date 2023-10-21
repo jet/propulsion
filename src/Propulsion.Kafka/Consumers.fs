@@ -195,7 +195,7 @@ module Core =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
             let statsInterval = stats.StatsInterval.Period
-            let submitter = SinkPipeline.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+            let submitter = Factory.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
             ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
         static member Start<'Info, 'Outcome>
@@ -371,7 +371,7 @@ type Factory private () =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
         let statsInterval = stats.StatsInterval.Period
-        let submitter = SinkPipeline.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+        let submitter = Factory.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
         ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
     /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>

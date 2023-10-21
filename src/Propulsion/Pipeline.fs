@@ -39,26 +39,21 @@ type Pipeline(task: Task<unit>, triggerStop) =
 
     member _.Monitor = monitor.Value
 
-type Sink<'Ingester> private (task: Task<unit>, triggerStop, startIngester) =
+type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
     member _.StartIngester(rangeLog: Serilog.ILogger, partitionId: int): 'Ingester = startIngester (rangeLog, partitionId)
 
-    static member Start(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
-        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
-        new Sink<'Ingester>(task, triggerStop, startIngester)
-
-and [<AbstractClass; Sealed>] PipelineFactory private () =
+type [<AbstractClass; Sealed>] PipelineFactory private () =
 
     static member PrepareSource(log: Serilog.ILogger, pump: CancellationToken -> Task<unit>) =
-        let ct, triggerStop =
+        let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
-            let triggerStop disposing =
+            cts.Token, fun disposing ->
                 if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
                 cts.Cancel()
-            cts.Token, triggerStop
 
-        let inner, markCompleted, outcomeTask =
+        let inner, outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
             let markCompleted () = tcs.TrySetResult () |> ignore
             let recordExn (e: exn) = tcs.TrySetException e |> ignore
@@ -71,7 +66,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
                 with e ->
                     log.Warning(e, "Exception encountered while running source, exiting loop")
                     recordExn e }
-            inner, markCompleted, tcs.Task
+            inner, tcs.Task, markCompleted
 
         let machine () = task {
             // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
@@ -82,31 +77,29 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
 
             try return! outcomeTask
             finally log.Information "... source completed" }
-        machine, outcomeTask, triggerStop
+        machine, stop, outcomeTask
 
-    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, children, stop: unit -> Task<unit>) =
-        let ct, triggerStop =
+    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, childTasks, outerStop: unit -> Task<unit>) =
+        let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
-            let triggerStop _disposing =
+            cts.Token, fun _disposing ->
                 let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
                 log.Write(level, "Source stopping...")
                 cts.Cancel()
-            cts.Token, triggerStop
 
-        let markCompleted, outcomeTask =
+        let outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            let markCompleted () = tcs.TrySetResult () |> ignore
-            markCompleted, tcs.Task
+            tcs.Task, fun () -> tcs.TrySetResult () |> ignore
 
         let inner () = task {
             do! start ()
-            try for startChild in children do Task.start (fun () -> startChild ct)
+            try for startChild in childTasks do Task.start (fun () -> startChild ct)
                 do! outcomeTask
             with _ -> // TODO: F# 7 supports do! in a finally, this catch-swallow-then is a very poor persons substitute
                 () // For now just ignore
                 // NOTE None of our work should actually trigger exceptions (we don't call tcs.TrySetException)
                 //      so this catch is really just for completeness
-            do! stop () } // NB: Stops the CFP, hence critical to return leases etc
+            do! outerStop () } // NB: Stops the CFP, hence critical to return leases etc
 
         let machine () = task {
             // external cancellation should yield a success result
@@ -114,11 +107,11 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             Task.start inner
             try return! outcomeTask
             finally log.Information "... source completed" }
-        machine, triggerStop
+        machine, stop
 
-    static member Start(log: Serilog.ILogger, start, children, stop) =
-        let machine, triggerStop = PipelineFactory.PrepareSource2(log, start, children, stop)
-        new Pipeline(Task.run machine, triggerStop)
+    static member StartSource(log: Serilog.ILogger, start, childTasks, outerStop) =
+        let machine, stop = PipelineFactory.PrepareSource2(log, start, childTasks, outerStop)
+        new Pipeline(Task.run machine, stop)
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new System.Threading.CancellationTokenSource()
@@ -160,10 +153,14 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             try return! tcs.Task
             finally // Scheduler needs to print stats, and we don't want to report shutdown until that's complete
                 let ts = Stopwatch.timestamp ()
-                let finishedAsRequested = scheduler.Wait(TimeSpan.FromSeconds 2)
+                let finishedAsRequested = scheduler.Wait(TimeSpan.seconds 2)
                 let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
                 let level = if finishedAsRequested && ms < 200 then LogEventLevel.Information else LogEventLevel.Warning
                 log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop
+
+    static member StartSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
+        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
+        new SinkPipeline<'Ingester>(task, triggerStop, startIngester)

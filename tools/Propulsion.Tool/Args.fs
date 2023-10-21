@@ -31,22 +31,22 @@ module Configuration =
         let [<Literal>] SCHEMA =                    "MDB_SCHEMA"
 
 type Configuration(tryGet: string -> string option, get: string -> string) =
-    member x.CosmosConnection =                     get Configuration.Cosmos.CONNECTION
-    member x.CosmosDatabase =                       get Configuration.Cosmos.DATABASE
-    member x.CosmosContainer =                      get Configuration.Cosmos.CONTAINER
+    member _.CosmosConnection =                     get Configuration.Cosmos.CONNECTION
+    member _.CosmosDatabase =                       get Configuration.Cosmos.DATABASE
+    member _.CosmosContainer =                      get Configuration.Cosmos.CONTAINER
 
-    member x.DynamoRegion =                         tryGet Configuration.Dynamo.REGION
-    member x.DynamoServiceUrl =                     get Configuration.Dynamo.SERVICE_URL
-    member x.DynamoAccessKey =                      get Configuration.Dynamo.ACCESS_KEY
-    member x.DynamoSecretKey =                      get Configuration.Dynamo.SECRET_KEY
-    member x.DynamoTable =                          get Configuration.Dynamo.TABLE
-    member x.DynamoIndexTable =                     tryGet Configuration.Dynamo.INDEX_TABLE
+    member _.DynamoRegion =                         tryGet Configuration.Dynamo.REGION
+    member _.DynamoServiceUrl =                     get Configuration.Dynamo.SERVICE_URL
+    member _.DynamoAccessKey =                      get Configuration.Dynamo.ACCESS_KEY
+    member _.DynamoSecretKey =                      get Configuration.Dynamo.SECRET_KEY
+    member _.DynamoTable =                          get Configuration.Dynamo.TABLE
+    member _.DynamoIndexTable =                     tryGet Configuration.Dynamo.INDEX_TABLE
 
-    member x.KafkaBroker =                          get Configuration.Kafka.BROKER
-    member x.KafkaTopic =                           get Configuration.Kafka.TOPIC
+    member _.KafkaBroker =                          get Configuration.Kafka.BROKER
+    member _.KafkaTopic =                           get Configuration.Kafka.TOPIC
 
-    member x.MdbConnectionString =                  get Configuration.Mdb.CONNECTION_STRING
-    member x.MdbSchema =                            get Configuration.Mdb.SCHEMA
+    member _.MdbConnectionString =                  get Configuration.Mdb.CONNECTION_STRING
+    member _.MdbSchema =                            get Configuration.Mdb.SCHEMA
 
 module Cosmos =
 

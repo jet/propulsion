@@ -196,7 +196,7 @@ type Factory private () =
                  statsInterval,
                  ?logExternalStats,
                  ?ingesterStateInterval)
-            : Sink<Ingestion.Ingester<'Item seq>> =
+            : SinkPipeline<Ingestion.Ingester<'Item seq>> =
 
         let ingesterStateInterval = defaultArg ingesterStateInterval statsInterval
         let dispatcher = Scheduling.Dispatcher maxDop
@@ -212,4 +212,4 @@ type Factory private () =
 
         let submitter = Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, ignore, alwaysReady, submitBatch)
         let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
-        Sink.Start(log, scheduler.Pump, submitter.Pump, startIngester, pumpDispatcher = dispatcher.Pump)
+        PipelineFactory.StartSink(log, scheduler.Pump, submitter.Pump, startIngester, pumpDispatcher = dispatcher.Pump)

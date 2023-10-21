@@ -10,7 +10,7 @@ open System
 type ParallelProducerSink =
 
     static member Start(maxReadAhead, maxDop, render: Func<'F, struct(string * string)>, producer: Producer, ?statsInterval)
-        : Sink<Ingestion.Ingester<'F seq>> =
+        : SinkPipeline<Ingestion.Ingester<'F seq>> =
         let statsInterval = defaultArg statsInterval (TimeSpan.FromMinutes 5.)
         let handle item ct = task {
             let struct (key, value) = render.Invoke item
@@ -34,7 +34,7 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents)
-        : Sink =
+        : SinkPipeline =
             let maxBytes = defaultArg maxBytes (1024*1024 - (*fudge*)4096)
             let handle (stream: StreamName) span ct = task {
                 let! (maybeMsg, outcome: 'Outcome) = prepare.Invoke(stream, span, ct)
@@ -59,7 +59,7 @@ type StreamsProducerSink =
             producer,
             stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
-        : Sink =
+        : SinkPipeline =
         let prepare' s xs ct = task {
             let! r, o = prepare s xs |> Async.executeAsTask ct
             let r' = r |> ValueOption.ofOption |> ValueOption.map ValueTuple.Create
@@ -81,7 +81,7 @@ type StreamsProducerSink =
             ?maxBytes,
             // Default 16384
             ?maxEvents)
-        : Sink =
+        : SinkPipeline =
             let prepare' stream span ct = task {
                 let! kv = prepare.Invoke(stream, span, ct)
                 return struct (ValueSome kv, ())
@@ -97,7 +97,7 @@ type StreamsProducerSink =
             producer,
             stats,
             ?purgeInterval, ?idleDelay, ?maxBytes, ?maxEvents)
-        : Sink =
+        : SinkPipeline =
         let prepare' s xs ct = task {
             let! k, v = prepare s xs |> Async.executeAsTask ct
             return struct (k, v) }
