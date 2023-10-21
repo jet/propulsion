@@ -7,7 +7,7 @@ open System
 
 module private Impl =
 
-    let renderPos (Checkpoint.Parse (epochId, offset)) = sprintf"%s@%d" (AppendsEpochId.toString epochId) offset
+    let renderPos (Checkpoint.Parse (epochId, offset)) = $"%s{AppendsEpochId.toString epochId}@%d{offset}"
 
     let readPartitions storeLog context =
         let index = AppendsIndex.Reader.create storeLog context

@@ -9,7 +9,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEve
     try for record in dynamoEvent.Records do
             match record.Dynamodb.StreamViewType with
             | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
-            | x -> invalidOp (sprintf "Unexpected StreamViewType %O" x)
+            | x -> invalidOp $"Unexpected StreamViewType {x}"
 
             summary.Append(record.EventName.Value[0]) |> ignore
 
@@ -38,9 +38,9 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEve
                         let et =
                             match appendedEts with
                             | [| et |] -> ":" + et
-                            | xs -> sprintf ":%s+%d" xs[0] (xs.Length - 1)
-                        summary.Append(p).Append(et).Append(if i = 0 then " " else sprintf "@%d " i) |> ignore
-            | et -> invalidOp (sprintf "Unknown OperationType %s" et.Value)
+                            | xs -> $":%s{xs[0]}+%d{xs.Length - 1}"
+                        summary.Append(p).Append(et).Append(if i = 0 then " " else $"@%d{i} ") |> ignore
+            | et -> invalidOp $"Unknown OperationType %s{et.Value}"
         let spans = spans.ToArray()
         log.Information("Index {indexCount} System {systemCount} NoEvents {noEventCount} Spans {spanCount} {summary}",
                         indexStream, systemStreams, noEvents, spans.Length, summary)
