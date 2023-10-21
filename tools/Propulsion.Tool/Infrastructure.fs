@@ -10,6 +10,15 @@ module Metrics =
     /// Allow logging to filter out emission of log messages whose information is also surfaced as metrics
     let logEventIsMetric e = Serilog.Filters.Matching.WithProperty(PropertyTag).Invoke e
 
+type Argu.ParseResults<'T when 'T :> Argu.IArgParserTemplate> with
+
+    member x.GetResult([<ReflectedDefinition>] e: Quotations.Expr<'Fields -> 'T>, f: unit -> 'Fields) = x.TryGetResult e |> Option.defaultWith f
+
+module EnvVar =
+
+    let tryGet = System.Environment.GetEnvironmentVariable >> Option.ofObj
+    let getOr raise key = tryGet key |> Option.defaultWith (fun () -> raise $"Missing Argument/Environment Variable %s{key}")
+
 module Sinks =
 
     let equinoxMetricsOnly (l: LoggerConfiguration) =
