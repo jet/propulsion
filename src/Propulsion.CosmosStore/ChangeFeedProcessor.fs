@@ -26,36 +26,6 @@ type IChangeFeedObserver =
     abstract member Ingest: context: ChangeFeedObserverContext * tryCheckpointAsync: (CancellationToken -> Task<unit>) * docs: IReadOnlyCollection<System.Text.Json.JsonDocument> * CancellationToken -> Task<unit>
 #endif
 
-type internal SourcePipeline =
-
-    static member Start(log: ILogger, start, maybeStartChild, stop, observer: IDisposable) =
-        let cts = new CancellationTokenSource()
-        let triggerStop _disposing =
-            let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
-            log.Write(level, "Source stopping...")
-            observer.Dispose()
-            cts.Cancel()
-        let ct = cts.Token
-
-        let tcs = TaskCompletionSource<unit>()
-
-        let machine () = task {
-            do! start ()
-            // external cancellation should yield a success result
-            use _ = ct.Register(fun _ -> tcs.TrySetResult () |> ignore)
-
-            match maybeStartChild with
-            | None -> ()
-            | Some child -> Task.start (fun () -> child ct)
-
-            try do! tcs.Task
-                do! stop ()
-            finally log.Information("... source stopped") }
-
-        let task = Task.run machine
-
-        new Propulsion.Pipeline(task, triggerStop)
-
 //// Wraps the V3 ChangeFeedProcessor and [`ChangeFeedProcessorEstimator`](https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator)
 type ChangeFeedProcessor =
 
@@ -166,7 +136,7 @@ type ChangeFeedProcessor =
                         do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
                 emitLagMetrics)
         let wrap (f: unit -> Task) () = task { return! f () }
-        SourcePipeline.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
+        Propulsion.PipelineFactory.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.
