@@ -74,4 +74,4 @@ type Factory private () =
             Scheduling.Engine<struct (int64 * StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
-        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)

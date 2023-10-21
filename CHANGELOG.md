@@ -18,7 +18,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Scheduler`: `purgeInterval` to control memory usage [#97](https://github.com/jet/propulsion/pull/97)
 - `Scheduler`: `wakeForResults` option to maximize throughput (without having to drop sleep interval to zero) [#161](https://github.com/jet/propulsion/pull/161)
 - `Sinks`, `Sinks.Config`: top level APIs for wiring common sink structures [#208](https://github.com/jet/propulsion/pull/208)
-- `Ingester`: Expose optional `ingesterStateInterval` control [#154](https://github.com/jet/propulsion/pull/154) [#238](https://github.com/jet/propulsion/pull/238)
+- `Ingester`: Expose optional `ingesterStateInterval` control [#154](https://github.com/jet/propulsion/pull/154) [#239](https://github.com/jet/propulsion/pull/239)
 - `Internal.Async.AwaitKeyboardInterruptAsTaskCanceledException`: Honored cancellation; moved to `Propulsion.Internal` [#160](https://github.com/jet/propulsion/pull/160)
 - `Propulsion.EventStoreDb`: Ported `EventStore` to target `Equinox.EventStore` >= `4.0.0` (using the gRPC interface)  [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore3`: Special cased version of `Propulsion.CosmosStore` to target `Equinox.CosmosStore` v `[3.0.7`-`3.99.0]` **Deprecated; Please migrate to `Propulsion.CosmosStore` by updating `Equinox.CosmosStore` dependencies to `4.0.0`** [#139](https://github.com/jet/propulsion/pull/139)

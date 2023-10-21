@@ -4,7 +4,7 @@
 // i.e. this is for sources that do/can not provide a mechanism that one might use to checkpoint within a given traversal
 namespace Propulsion.Feed
 
-open FSharp.Control
+open FSharp.Control // taskSeq
 open Propulsion.Internal
 open System
 open System.Collections.Generic
@@ -36,7 +36,7 @@ module private TimelineEvent =
     let ofBasePositionIndexAndEventData<'t> (basePosition: Position) =
         let baseIndex = Position.toInt64 basePosition
         fun (i, x: FsCodec.IEventData<_>, context: obj) ->
-            if i > DateTimeOffsetPosition.factor then invalidArg (nameof i) (sprintf "Index may not exceed %d" DateTimeOffsetPosition.factor)
+            if i > DateTimeOffsetPosition.factor then invalidArg (nameof i) $"Index may not exceed %d{DateTimeOffsetPosition.factor}"
             FsCodec.Core.TimelineEvent.Create(
                 baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 
