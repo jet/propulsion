@@ -3,8 +3,6 @@ namespace Propulsion.Sinks
 open Propulsion
 open Propulsion.Internal
 open System
-open System.Threading
-open System.Threading.Tasks
 
 /// Canonical Data/Meta type supplied by the majority of Sources
 type EventBody = ReadOnlyMemory<byte>
@@ -76,13 +74,13 @@ type Factory private () =
             [<O; D null>] ?purgeInterval,
             [<O; D null>] ?wakeForResults,
             [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval,
+            [<O; D null>] ?ingesterStateInterval,
             [<O; D null>] ?requireCompleteStreams)
         : Sink =
         Streams.Concurrent.Start<'Outcome, EventBody, StreamResult>(
             log, maxReadAhead, maxConcurrentStreams, handle, StreamResult.toIndex, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
-            ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStatsInterval = ingesterStatsInterval,
+            ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?ingesterStateInterval = ingesterStateInterval,
             ?requireCompleteStreams = requireCompleteStreams)
 
     /// Project Events sequentially via a <code>handle</code> function that yields a StreamResult per <c>select</c>ed Item
@@ -92,13 +90,13 @@ type Factory private () =
             handle: Func<StreamState[], CancellationToken, Task<seq<struct (TimeSpan * Result<StreamResult, exn>)>>>,
             stats,
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
+            [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle items ct = task {
             let! res = handle.Invoke(items, ct)
             return seq { for i, (ts, r) in Seq.zip items res -> struct (ts, Result.map (StreamResult.toIndex i.span) r) } }
         Streams.Batched.Start(log, maxReadAhead, select, handle, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+            ?ingesterStateInterval = ingesterStateInterval, ?requireCompleteStreams = requireCompleteStreams)
 
     /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a <code>handle</code> function
     /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
@@ -108,13 +106,13 @@ type Factory private () =
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
+            [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle' stream events ct = task {
             let! res, outcome = handle stream events |> Async.executeAsTask ct
             return struct (res, outcome) }
         Factory.StartConcurrentAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+            ?ingesterStateInterval = ingesterStateInterval, ?requireCompleteStreams = requireCompleteStreams)
 
     /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a <code>handle</code> function
     /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
@@ -148,8 +146,8 @@ type Factory private () =
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay,
-            [<O; D null>] ?ingesterStatsInterval, [<O; D null>] ?requireCompleteStreams) =
+            [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?requireCompleteStreams) =
         let handle items ct = handle items |> Async.executeAsTask ct
         Factory.StartBatchedAsync(log, maxReadAhead, select, handle, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay,
-            ?ingesterStatsInterval = ingesterStatsInterval, ?requireCompleteStreams = requireCompleteStreams)
+            ?ingesterStateInterval = ingesterStateInterval, ?requireCompleteStreams = requireCompleteStreams)

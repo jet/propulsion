@@ -8,8 +8,6 @@ open FSharp.Control
 open Propulsion.Internal
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 /// Int64.MaxValue = 9223372036854775807
 /// ([datetimeoffset]::FromUnixTimeSeconds(9223372036854775807 / 1000000000)) is in 2262
@@ -38,7 +36,7 @@ module private TimelineEvent =
     let ofBasePositionIndexAndEventData<'t> (basePosition: Position) =
         let baseIndex = Position.toInt64 basePosition
         fun (i, x: FsCodec.IEventData<_>, context: obj) ->
-            if i > DateTimeOffsetPosition.factor then invalidArg "i" (sprintf "Index may not exceed %d" DateTimeOffsetPosition.factor)
+            if i > DateTimeOffsetPosition.factor then invalidArg (nameof i) (sprintf "Index may not exceed %d" DateTimeOffsetPosition.factor)
             FsCodec.Core.TimelineEvent.Create(
                 baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 

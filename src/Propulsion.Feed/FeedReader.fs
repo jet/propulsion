@@ -6,8 +6,6 @@ open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
 type Batch<'F> =

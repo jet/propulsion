@@ -7,7 +7,6 @@ open System
 open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Threading
-open System.Threading.Tasks
 
 /// Deals with dispatch and result handling, triggering completion callbacks as batches reach completed state
 module Scheduling =
@@ -196,12 +195,12 @@ type Factory private () =
             (    log: ILogger, maxReadAhead, maxDop, handle,
                  statsInterval,
                  ?logExternalStats,
-                 ?ingesterStatsInterval)
+                 ?ingesterStateInterval)
             : Sink<Ingestion.Ingester<'Item seq>> =
 
-        let ingesterStatsInterval = defaultArg ingesterStatsInterval statsInterval
+        let ingesterStateInterval = defaultArg ingesterStateInterval statsInterval
         let dispatcher = Scheduling.Dispatcher maxDop
-        let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats=logExternalStats)
+        let scheduler = Scheduling.PartitionedSchedulingEngine<_, 'Item>(log, handle, dispatcher.TryAdd, statsInterval, ?logExternalStats = logExternalStats)
 
         let mapBatch onCompletion (x: Submission.Batch<_, 'Item>): struct (unit * Scheduling.Batch<_, 'Item>) =
             let onCompletion () = x.onCompletion(); onCompletion()
@@ -212,5 +211,5 @@ type Factory private () =
             ValueSome 0
 
         let submitter = Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, ignore, alwaysReady, submitBatch)
-        let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStatsInterval)
+        let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
         Sink.Start(log, scheduler.Pump, submitter.Pump, startIngester, pumpDispatcher = dispatcher.Pump)

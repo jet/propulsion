@@ -7,7 +7,6 @@ open System
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Threading
-open System.Threading.Tasks
 
 type [<NoComparison; NoEquality>] Message =
     | Batch of seriesIndex: int * epoch: int64 * checkpoint: (CancellationToken -> Task<unit>) * items: StreamEvent seq
@@ -77,7 +76,7 @@ type StripedIngester
                         // - yield a null function as the onCompleted callback to be triggered when the batch's processing has concluded
                         id
             let batchInfo: Propulsion.Ingestion.Batch<_ seq> =
-                { isTail = false; epoch = epoch; items = Array.ofSeq items; checkpoint = checkpoint; onCompletion = onCompletion }
+                { epoch = epoch; items = Array.ofSeq items; isTail = false; checkpoint = checkpoint; onCompletion = onCompletion }
 
             if isForActiveStripe then
                 pending.Enqueue batchInfo

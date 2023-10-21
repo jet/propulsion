@@ -5,7 +5,6 @@ open Propulsion.Internal
 open Serilog
 open System.Collections.Generic
 open System.Threading
-open System.Threading.Tasks
 
 /// Batch of work as passed from the Submitter to the Scheduler comprising messages with their associated checkpointing/completion callback
 [<NoComparison; NoEquality>]

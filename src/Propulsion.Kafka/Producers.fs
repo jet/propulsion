@@ -5,7 +5,6 @@ open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
-open System.Threading.Tasks
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer

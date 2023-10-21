@@ -6,8 +6,6 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
@@ -76,4 +74,4 @@ type Factory private () =
             Scheduling.Engine<struct (int64 * StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
+        SinkPipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
