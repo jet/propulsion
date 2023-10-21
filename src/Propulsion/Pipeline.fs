@@ -51,12 +51,11 @@ type Sink<'Ingester> private (task: Task<unit>, triggerStop, startIngester) =
 and [<AbstractClass; Sealed>] PipelineFactory private () =
 
     static member PrepareSource(log: Serilog.ILogger, pump: CancellationToken -> Task<unit>) =
-        let ct, triggerStop =
+        let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
-            let triggerStop disposing =
+            cts.Token, fun disposing ->
                 if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
                 cts.Cancel()
-            cts.Token, triggerStop
 
         let inner, markCompleted, outcomeTask =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
@@ -75,14 +74,14 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let machine () = task {
             // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
-            use _ = ct.Register markCompleted
+            use _ = ct.Register(fun _t -> markCompleted ())
 
             // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
             Task.start inner
 
             try return! outcomeTask
             finally log.Information "... source completed" }
-        machine, outcomeTask, triggerStop
+        machine, stop, outcomeTask
 
     static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, children, stop: unit -> Task<unit>) =
         let ct, triggerStop =

@@ -65,7 +65,7 @@ type FeedSourceBase internal
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump) =
-        let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
+        let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
