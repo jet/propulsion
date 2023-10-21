@@ -42,7 +42,7 @@ type private InternalMessage =
     | Added of epoch: int64 * streams: int * events: int
 
 [<Struct; NoComparison; NoEquality>]
-type Batch<'Items> = { epoch: int64; items: 'Items; onCompletion: unit -> unit; checkpoint: CancellationToken -> Task<unit>; isTail: bool }
+type Batch<'Items> = { epoch: int64; items: 'Items; isTail: bool; onCompletion: unit -> unit; checkpoint: CancellationToken -> Task<unit> }
 
 type private Stats(log: ILogger, partitionId, statsInterval: TimeSpan) =
     let mutable readEpoch, validatedEpoch, committedEpoch = None, None, None

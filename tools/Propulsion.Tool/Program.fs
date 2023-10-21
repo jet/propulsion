@@ -26,7 +26,6 @@ type Parameters =
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument."
-
 and [<NoComparison; NoEquality>] InitAuxParameters =
     | [<AltCommandLine "-ru"; Unique>]      Rus of int
     | [<AltCommandLine "-A"; Unique>]       Autoscale
@@ -42,14 +41,14 @@ and [<NoComparison; NoEquality>] InitAuxParameters =
             | Cosmos _ ->                   "Cosmos Connection parameters."
 and CosmosModeType = Container | Db | Serverless
 and CosmosInitArguments(p: ParseResults<InitAuxParameters>) =
-    let rusOrDefault value = p.GetResult(Rus, value)
+    let rusOrDefault (value: int) = p.GetResult(Rus, value)
     let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000)
                                   else CosmosInit.Throughput.Manual (rusOrDefault 400)
     member val ProvisioningMode =
         match p.GetResult(Mode, CosmosModeType.Container), p.Contains Autoscale with
         | CosmosModeType.Container, auto -> CosmosInit.Provisioning.Container (throughput auto)
         | CosmosModeType.Db, auto ->        CosmosInit.Provisioning.Database (throughput auto)
-        | CosmosModeType.Serverless, auto when auto || p.Contains Rus -> Args.missingArg "Cannot specify RU/s or Autoscale in Serverless mode"
+        | CosmosModeType.Serverless, auto when auto || p.Contains Rus -> p.Raise "Cannot specify RU/s or Autoscale in Serverless mode"
         | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 
 and [<NoEquality; NoComparison>] IndexParameters =

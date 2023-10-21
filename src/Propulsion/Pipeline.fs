@@ -23,6 +23,7 @@ type Pipeline(task: Task<unit>, triggerStop) =
 
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
     member _.Wait(): Task<unit> = task
+
     /// Asynchronously waits until Stop()ped or the Pipeline Faults (in which case the underlying Exception is observed)
     member _.Await(): Async<unit> = task |> Async.ofTask
 
@@ -128,7 +129,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
         let ct = cts.Token
 
         let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-                // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
+        // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
         let abend (exns: AggregateException) =
             if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
             else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)

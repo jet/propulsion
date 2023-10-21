@@ -90,18 +90,18 @@ module Cosmos =
         let connection =                    p.TryGetResult Connection |> Option.defaultWith (fun () -> c.CosmosConnection)
         let discovery =                     Equinox.CosmosStore.Discovery.ConnectionString connection
         let mode =                          p.TryGetResult ConnectionMode
-        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.FromSeconds
+        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.seconds
         let retries =                       p.GetResult(Retries, 1)
-        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.FromSeconds
+        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
         let connector =                     Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
         let databaseId =                    p.TryGetResult Database |> Option.defaultWith (fun () -> c.CosmosDatabase)
-        let checkpointInterval =            TimeSpan.FromHours 1.
+        let checkpointInterval =            TimeSpan.hours 1.
         member val ContainerId =            p.TryGetResult Container |> Option.defaultWith (fun () -> c.CosmosContainer)
         member val LeaseContainerId =       p.TryGetResult LeaseContainer
         member x.LeasesContainerName =      match x.LeaseContainerId with Some x -> x | None -> x.ContainerId + p.GetResult(Suffix, "-aux")
         member x.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, x.LeasesContainerName)
         member x.ConnectFeed() =            connector.ConnectFeed(databaseId, x.ContainerId, x.LeasesContainerName)
-        member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.FromMinutes
+        member _.MaybeLogLagInterval =      p.TryGetResult LagFreqM |> Option.map TimeSpan.minutes
 
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
             let! context = connector.ConnectContext("Checkpoints", databaseId, x.ContainerId, 256)
@@ -174,19 +174,19 @@ module Dynamo =
                                             |> Option.orElseWith  (fun () -> c.DynamoIndexTable)
                                             |> Option.defaultWith (fun () -> c.DynamoTable + indexSuffix)
 
-        let writeConnector =                let timeout = p.GetResult(RetriesTimeoutS, 120.) |> TimeSpan.FromSeconds
+        let writeConnector =                let timeout = p.GetResult(RetriesTimeoutS, 120.) |> TimeSpan.seconds
                                             let retries = p.GetResult(Retries, 10)
                                             connector timeout retries
         let writeClient =                   lazy writeConnector.CreateStoreClient() // lazy to trigger logging at the right time
 
-        let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.FromSeconds
+        let readConnector =                 let timeout = p.GetResult(RetriesTimeoutS, 10.) |> TimeSpan.seconds
                                             let retries = p.GetResult(Retries, 1)
                                             connector timeout retries
         let readClient =                    lazy readConnector.CreateStoreClient() // lazy to trigger logging at the right time
         let indexReadContext =              lazy readClient.Value.CreateContext("Index", indexTable)
         let streamsDop =                    p.TryGetResult StreamsDop
 
-        let checkpointInterval =            TimeSpan.FromHours 1.
+        let checkpointInterval =            TimeSpan.hours 1.
         let indexPartitions =               p.GetResults IndexPartition
         member val IndexTable =             indexTable
         member _.MonitoringParams() =

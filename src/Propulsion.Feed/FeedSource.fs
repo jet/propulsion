@@ -15,22 +15,22 @@ type FeedSourceBase internal
         renderPos: Position -> string,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
-    let positions = TranchePositions()
-    let pumpPartition (partitionId: int) trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
-        try let log (e: exn) = reader.Log.Warning(e, "Finishing {partition}", partitionId)
-            let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
-            try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
-                reader.Log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
-                                       partitionId, sourceId, trancheId, renderPos pos)
-                return! reader.Pump(pos, ct)
-            with Exception.Log log () -> ()
-        finally ingester.Stop() }
+
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
+
     let dumpStats () = for _i, r in partitions do r.DumpStats()
     let rec pumpStats ct: Task = task {
         try do! Task.delay statsInterval ct
         finally dumpStats () // finally is so we do a final write after we are cancelled, which would otherwise stop us after the sleep
         return! pumpStats ct }
+
+    let pumpPartition trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
+        try let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
+            try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
+                reader.LogStartingPartition(pos)
+                return! reader.Pump(pos, ct)
+            with Exception.Log reader.LogFinishingPartition () -> ()
+        finally ingester.Stop() }
 
     let positions = TranchePositions()
 
@@ -59,45 +59,15 @@ type FeedSourceBase internal
                                     ?logCommitFailure = logCommitFailure, ?awaitIngesterShutdown = awaitIngester)
             ingester, reader)
         pumpStats ct |> ignore // loops in background until overall pumping is cancelled
-        let trancheWorkflows = (tranches, partitions) ||> Seq.mapi2 pumpPartition
+        let trancheWorkflows = (tranches, partitions) ||> Seq.map2 pumpPartition
         do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
         do! x.Checkpoint(ct) |> Task.ignore }
 
+    /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump) =
-        let ct, stop =
-            let cts = new System.Threading.CancellationTokenSource()
-            let stop disposing =
-                if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
-                cts.Cancel()
-            cts.Token, stop
-
-        let supervise, markCompleted, outcomeTask =
-            let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            let markCompleted () = tcs.TrySetResult () |> ignore
-            let recordExn (e: exn) = tcs.TrySetException e |> ignore
-            // first exception from a supervised task becomes the outcome if that happens
-            let supervise inner () = task {
-                try do! inner ct
-                    // If the source completes all reading cleanly, declare completion
-                    log.Information "Source drained..."
-                    markCompleted ()
-                with e ->
-                    log.Warning(e, "Exception encountered while running source, exiting loop")
-                    recordExn e }
-            supervise, markCompleted, tcs.Task
-
-        let supervise () = task {
-            // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
-            use _ = ct.Register(fun _t -> markCompleted ())
-
-            // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
-            Task.start(supervise pump)
-
-            try return! outcomeTask
-            finally log.Information "... source completed" }
-
+        let machine, outcomeTask, triggerStop = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
-        new SourcePipeline<_>(Task.run supervise, stop, monitor)
+        new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams
 type TailingFeedSource
