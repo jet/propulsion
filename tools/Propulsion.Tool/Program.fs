@@ -154,7 +154,7 @@ module CosmosInit =
                 let modeStr = "Serverless"
                 Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
             Equinox.CosmosStore.Core.Initialization.initAux container.Database.Client (container.Database.Id, container.Id) mode
-        | x -> Args.missingArg $"unexpected subcommand %A{x}"
+        | x -> p.Raise $"unexpected subcommand %A{x}"
 
 module Checkpoints =
 
@@ -164,7 +164,7 @@ module Checkpoints =
             | CheckpointParameters.Cosmos p -> Choice1Of3 (Args.Cosmos.Arguments (c, p))
             | CheckpointParameters.Dynamo p -> Choice2Of3 (Args.Dynamo.Arguments (c, p))
             | CheckpointParameters.Pg p ->    Choice3Of3 (Args.Mdb.Arguments (c, p))
-            | x -> Args.missingArg $"unexpected subcommand %A{x}"
+            | x -> p.Raise $"unexpected subcommand %A{x}"
 
     let readOrOverride (c, p: ParseResults<CheckpointParameters>, ct) = task {
         let a = Arguments(c, p)
@@ -210,7 +210,7 @@ module Indexer =
         member val StoreArgs =
             match p.GetSubCommand() with
             | IndexParameters.Dynamo p -> Args.Dynamo.Arguments (c, p)
-            | x -> Args.missingArg $"unexpected subcommand %A{x}"
+            | x -> p.Raise $"unexpected subcommand %A{x}"
         member x.CreateContext() =          x.StoreArgs.CreateContext x.MinItemSize
 
     let dumpSummary gapsLimit streams spanCount =
@@ -239,7 +239,7 @@ module Indexer =
 
         match a.TrancheId with
         | None when (not << List.isEmpty) a.ImportJsonFiles ->
-            Args.missingArg "Must specify a trancheId parameter to import into"
+            p.Raise "Must specify a trancheId parameter to import into"
         | None ->
             let index = AppendsIndex.Reader.create Metrics.log context
             let! state = index.Read()
@@ -278,14 +278,14 @@ module Indexer =
 module Project =
 
     type KafkaArguments(c, p: ParseResults<KafkaParameters>) =
-        member _.Broker =                   p.TryGetResult Broker |> Option.defaultWith (fun () -> c.KafkaBroker)
-        member _.Topic =                    p.TryGetResult Topic |> Option.defaultWith (fun () -> c.KafkaTopic)
+        member _.Broker =                   p.GetResult(Broker, fun () -> c.KafkaBroker)
+        member _.Topic =                    p.GetResult(Topic, fun () -> c.KafkaTopic)
         member val StoreArgs =
             match p.GetSubCommand() with
             | KafkaParameters.Cosmos    p -> Choice1Of3 (Args.Cosmos.Arguments    (c, p))
             | KafkaParameters.Dynamo    p -> Choice2Of3 (Args.Dynamo.Arguments    (c, p))
             | KafkaParameters.Mdb p -> Choice3Of3 (Args.Mdb.Arguments (c, p))
-            | x -> Args.missingArg $"unexpected subcommand %A{x}"
+            | x -> p.Raise $"unexpected subcommand %A{x}"
 
     type StatsArguments(c, p: ParseResults<StatsParameters>) =
         member val StoreArgs =
@@ -300,7 +300,7 @@ module Project =
             match p.GetSubCommand() with
             | Kafka a -> KafkaArguments(c, a).StoreArgs
             | Stats a -> StatsArguments(c, a).StoreArgs
-            | x -> Args.missingArg $"unexpected subcommand %A{x}"
+            | x -> p.Raise $"unexpected subcommand %A{x}"
 
     type Stats(statsInterval, statesInterval, logExternalStats) =
         inherit Propulsion.Streams.Stats<unit>(Log.Logger, statsInterval = statsInterval, statesInterval = statesInterval)
@@ -317,7 +317,7 @@ module Project =
             match a.StoreArgs with
             | Choice1Of3 sa -> Choice1Of3 sa, Equinox.CosmosStore.Core.Log.InternalMetrics.dump
             | Choice2Of3 sa -> Choice2Of3 sa, Equinox.DynamoStore.Core.Log.InternalMetrics.dump
-            | Choice3Of3 sa -> Choice3Of3 sa, (fun _ -> ())
+            | Choice3Of3 sa -> Choice3Of3 sa, ignore
         let group, startFromTail, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.TryGetResult MaxItems
         let producer =
             match p.GetSubCommand() with
@@ -328,7 +328,7 @@ module Project =
                 let p = FsKafka.KafkaProducer.Create(Log.Logger, cfg, a.Topic)
                 Some p
             | Stats _ -> None
-            | x -> Args.missingArg $"unexpected subcommand %A{x}"
+            | x -> p.Raise $"unexpected subcommand %A{x}"
         let stats = Stats(TimeSpan.minutes 1., TimeSpan.minutes 5., logExternalStats = dumpStoreStats)
         let sink =
             let maxReadAhead, maxConcurrentStreams = 2, 16
@@ -374,29 +374,36 @@ module Project =
             source.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> }
 
-/// Parse the commandline; can throw exceptions in response to missing arguments and/or `-h`/`--help` args
-let parseCommandLine argv =
-    let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
-    let parser = ArgumentParser.Create<Parameters>(programName = programName)
-    parser.ParseCommandLine argv
+type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
+    member val Verbose = p.Contains Verbose
+    member val VerboseConsole = p.Contains VerboseConsole
+    member val VerboseStore = p.Contains VerboseStore
+    member _.ExecuteSubCommand() =
+        match p.GetSubCommand() with
+        | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
+        | InitPg a ->       Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable().Wait()
+        | Checkpoint a ->   Checkpoints.readOrOverride(c, a, CancellationToken.None).Wait()
+        | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
+        | Project a ->      Project.run (c, a) |> Async.RunSynchronously
+        | x ->              p.Raise $"unexpected subcommand %A{x}"
+    /// Parse the commandline; Throws ArguParseException for `-h`/`--help` args and/or malformed arguments
+    static member Parse argv =
+        let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
+        let parser = ArgumentParser.Create<Parameters>(programName = programName)
+        let parseResults = parser.ParseCommandLine argv
+        ToolArguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
+
+let isExpectedShutdownSignalException: exn -> bool = function
+    | :? ArguParseException -> false // Via Arguments.Parse and/or Configuration.tryGet
+    | :? System.Threading.Tasks.TaskCanceledException -> false // via AwaitKeyboardInterruptAsTaskCanceledException
+    | _ -> true
 
 [<EntryPoint>]
 let main argv =
-    try let a = parseCommandLine argv
-        let verbose, verboseConsole, verboseStore = a.Contains Verbose, a.Contains VerboseConsole, a.Contains VerboseStore
-        let metrics = Sinks.equinoxMetricsOnly
-        try Log.Logger <- LoggerConfiguration().Configure(verbose).Sinks(metrics, verboseConsole, verboseStore).CreateLogger()
-            let c = Args.Configuration(System.Environment.GetEnvironmentVariable >> Option.ofObj)
-            try match a.GetSubCommand() with
-                | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-                | InitPg a ->       Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable().Wait()
-                | Checkpoint a ->   Checkpoints.readOrOverride(c, a, CancellationToken.None).Wait()
-                | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
-                | Project a ->      Project.run (c, a) |> Async.RunSynchronously
-                | x ->              Args.missingArg $"unexpected subcommand %A{x}"
-                0
-            with e when not (e :? Args.MissingArg || e :? ArguParseException || e :? System.Threading.Tasks.TaskCanceledException) -> Log.Fatal(e, "Exiting"); 2
+    try let a = ToolArguments.Parse argv
+        try Log.Logger <- LoggerConfiguration().Configure(a.Verbose).Sinks(Sinks.equinoxMetricsOnly, a.VerboseConsole, a.VerboseStore).CreateLogger()
+            try a.ExecuteSubCommand(); 0
+            with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
     with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
-        | Args.MissingArg msg -> eprintfn $"ERROR: %s{msg}"; 1
         | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1
