@@ -136,7 +136,7 @@ type ChangeFeedProcessor =
                         do! lagMonitorCallback (Seq.sortBy fst leasesState |> List.ofSeq) }
                 emitLagMetrics)
         let wrap (f: unit -> Task) () = task { return! f () }
-        Propulsion.PipelineFactory.Start(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
+        Propulsion.PipelineFactory.StartSource(log, wrap processor.StartAsync, maybePumpMetrics, wrap processor.StopAsync, observer)
     static member private mkLeaseOwnerIdForProcess() =
         // If k>1 processes share an owner id, then they will compete for same partitions.
         // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.

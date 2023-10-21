@@ -31,7 +31,7 @@ and TrancheState =
     member x.IsEmpty = x.completed = x.read
 
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
-and FeedMonitor(log: Serilog.ILogger, positions: TranchePositions, sink: Propulsion.Sinks.Sink, sourceIsCompleted) =
+and FeedMonitor(log: Serilog.ILogger, positions: TranchePositions, sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
 
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
     let choose f (xs: KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]

@@ -49,7 +49,7 @@ type SourceItem<'F> = { streamName: FsCodec.StreamName; eventData: FsCodec.IEven
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan, sourceId, refreshInterval: TimeSpan,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 

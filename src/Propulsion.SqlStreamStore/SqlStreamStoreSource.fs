@@ -28,7 +28,7 @@ module private Impl =
 type SqlStreamStoreSource
     (   log: Serilog.ILogger, statsInterval,
         store: SqlStreamStore.IStreamStore, batchSize, tailSleepInterval,
-        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         // The whitelist of Categories to use
         ?categories,
         // Predicate to filter <c>StreamName</c>'s to use

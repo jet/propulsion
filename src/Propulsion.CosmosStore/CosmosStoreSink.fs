@@ -185,7 +185,7 @@ type CosmosStoreSink =
             // Default: 256KB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
             ?ingesterStateInterval)
-        : Sink =
+        : SinkPipeline =
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize

@@ -39,16 +39,12 @@ type Pipeline(task: Task<unit>, triggerStop) =
 
     member _.Monitor = monitor.Value
 
-type Sink<'Ingester> private (task: Task<unit>, triggerStop, startIngester) =
+type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
     member _.StartIngester(rangeLog: Serilog.ILogger, partitionId: int): 'Ingester = startIngester (rangeLog, partitionId)
 
-    static member Start(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
-        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
-        new Sink<'Ingester>(task, triggerStop, startIngester)
-
-and [<AbstractClass; Sealed>] PipelineFactory private () =
+type [<AbstractClass; Sealed>] PipelineFactory private () =
 
     static member PrepareSource(log: Serilog.ILogger, pump: CancellationToken -> Task<unit>) =
         let ct, stop =
@@ -110,7 +106,7 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
 
         machine, stop
 
-    static member Start(log: Serilog.ILogger, start, maybeStartChild, outerStop, observer) =
+    static member StartSource(log: Serilog.ILogger, start, maybeStartChild, outerStop, observer) =
         let machine, stop = PipelineFactory.PrepareSource2(log, start, maybeStartChild, outerStop, observer)
         new Pipeline(Task.run machine, stop)
 
@@ -154,10 +150,14 @@ and [<AbstractClass; Sealed>] PipelineFactory private () =
             try return! tcs.Task
             finally // Scheduler needs to print stats, and we don't want to report shutdown until that's complete
                 let ts = Stopwatch.timestamp ()
-                let finishedAsRequested = scheduler.Wait(TimeSpan.FromSeconds 2)
+                let finishedAsRequested = scheduler.Wait(TimeSpan.seconds 2)
                 let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
                 let level = if finishedAsRequested && ms < 200 then LogEventLevel.Information else LogEventLevel.Warning
                 log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop
+
+    static member StartSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, startIngester, ?pumpDispatcher) =
+        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ?pumpIngester = None, ?pumpDispatcher = pumpDispatcher)
+        new SinkPipeline<'Ingester>(task, triggerStop, startIngester)

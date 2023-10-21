@@ -48,7 +48,7 @@ type Factory private () =
             toIndex: Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
             stats: Stats<'Outcome>, sliceSize, eventSize,
             ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+        : SinkPipeline<Ingestion.Ingester<StreamEvent<'F> seq>> =
 
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 

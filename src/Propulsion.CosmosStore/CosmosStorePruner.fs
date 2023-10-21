@@ -68,7 +68,7 @@ type CosmosStorePruner =
             ?purgeInterval, ?wakeForResults, ?idleDelay,
             // Defaults to stateInterval
             ?ingesterStateInterval)
-        : Sink =
+        : SinkPipeline =
         let dispatcher =
 #if COSMOSV3
             let inline pruneUntil (sn, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context (FsCodec.StreamName.toString sn) index |> Async.executeAsTask ct

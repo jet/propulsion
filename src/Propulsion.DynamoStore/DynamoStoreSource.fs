@@ -147,7 +147,7 @@ module internal EventLoadMode =
 type DynamoStoreSource
     (   log: Serilog.ILogger, statsInterval,
         indexContext: DynamoStoreContext, batchSizeCutoff, tailSleepInterval,
-        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: Propulsion.Feed.IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         // If the Handler does not utilize the Data/Meta of the events, we can avoid having to read from the Store Table
         mode: EventLoadMode,
         // The whitelist of Categories to use

@@ -137,7 +137,7 @@ type EventStoreSink =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             ?ingesterStateInterval)
-        : Sink =
+        : SinkPipeline =
         let dispatcher = Internal.Dispatcher.Create(log, storeLog, connections, maxConcurrentStreams)
         let scheduler =
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize

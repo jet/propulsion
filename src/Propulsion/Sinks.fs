@@ -55,7 +55,7 @@ module Event =
     let renderedSize (x: Event) = storedSize x + 80
 
 /// Canonical Sink type that the bulk of Sources are configured to feed into
-type Sink = Propulsion.Sink<Ingestion.Ingester<StreamEvent seq>>
+type SinkPipeline = SinkPipeline<Ingestion.Ingester<StreamEvent seq>>
 /// A Single Event from an Ordered stream ready to be fed into a Sink's Ingester, using the Canonical Data/Meta type
 and StreamEvent = Propulsion.Streams.StreamEvent<EventBody>
 
@@ -76,7 +76,7 @@ type Factory private () =
             [<O; D null>] ?idleDelay,
             [<O; D null>] ?ingesterStateInterval,
             [<O; D null>] ?requireCompleteStreams)
-        : Sink =
+        : SinkPipeline =
         Streams.Concurrent.Start<'Outcome, EventBody, StreamResult>(
             log, maxReadAhead, maxConcurrentStreams, handle, StreamResult.toIndex, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
@@ -132,7 +132,7 @@ type Factory private () =
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval)
-        : Sink =
+        : SinkPipeline =
         let handle' s xs ct = task { let! r, o = handle s xs |> Async.executeAsTask ct in return struct (r, o) }
         Sync.Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', StreamResult.toIndex, stats, Event.renderedSize, Event.storedSize,
                                 ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)
