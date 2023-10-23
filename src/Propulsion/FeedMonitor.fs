@@ -161,6 +161,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: TranchePositions, sink: Propuls
                 return! sink.Wait() }
 
 module FeedMonitor =
+
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     let runUntilCaughtUp
             (start: unit -> SourcePipeline<FeedMonitor>)

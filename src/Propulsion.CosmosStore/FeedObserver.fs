@@ -8,12 +8,12 @@ module Log =
 
     type [<Struct>] MetricContext = { database: string; container: string; group: string }
     type ReadMetric =       { context: MetricContext; rangeId: int; token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int }
-    type IngestMetric =     { context: MetricContext; rangeId: int; ingestLatency: TimeSpan; ingestQueued: int }
+    type WaitMetric =       { context: MetricContext; rangeId: int; waits: TimeSpan; activeBatches: int }
     type LagMetric =        { context: MetricContext; rangeLags: struct (int * int64)[] }
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Metric =
         | Read of ReadMetric
-        | Wait of IngestMetric
+        | Wait of WaitMetric
         | Lag of LagMetric
 
     let [<Literal>] PropertyTag = "propulsionCosmosEvent"
@@ -29,7 +29,7 @@ type TrancheStats() =
     let mutable batches, readPos, completedPos = 0, None, None
     let mutable closed, finishedReading = false, false
 
-    let mutable accReadLatency, recentBatches, recentRu, recentBatchTimestamp, recentCommittedPos, accWaits = TimeSpan.Zero, 0, 0., None, None, TimeSpan.Zero
+    let mutable accReadLat, recentBatches, recentRu, recentBatchTimestamp, recentCommittedPos, accWaits = TimeSpan.Zero, 0, 0., None, None, TimeSpan.Zero
 
     let shutdownTimer = System.Diagnostics.Stopwatch()
     let mutable isActive, lastGap = false, None
@@ -45,8 +45,8 @@ type TrancheStats() =
         log.Information("ChangeFeed {processorName}/{partition} {state} @ {completedPosition}/{readPosition} Active {active} read {batches} ahead {cur}/{max} Gap {gap} " +
                         "| Read {l:f1}s batches {recentBatches} age {age: d\.hh\:mm\:ss} {ru}RU Pause {pausedS:f1}s Committed {comittedPos} Wait {waitS:f1}s",
                         processorName, partition, state, r completedPos, r readPos, isActive, batches, currentBatches, maxReadAhead, Option.toNullable lastGap,
-                        accReadLatency.TotalSeconds, recentBatches, recentAge, recentRu, accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
-        accReadLatency <- TimeSpan.Zero; accWaits <- TimeSpan.Zero
+                        accReadLat.TotalSeconds, recentBatches, recentAge, recentRu, accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
+        accReadLat <- TimeSpan.Zero; accWaits <- TimeSpan.Zero
         recentBatches <- 0; recentRu <- 0; recentCommittedPos <- None; recentBatchTimestamp <- None; lastGap <- None
         closed <- finishedReading
 
@@ -54,7 +54,7 @@ type TrancheStats() =
         isActive <- state
     member _.RecordBatch(readTime, batchTimestamp, requestCharge, batch: Propulsion.Ingestion.Batch<_>) =
         recentBatchTimestamp <- Some batchTimestamp
-        accReadLatency <- accReadLatency + readTime
+        accReadLat <- accReadLat + readTime
         readPos <- batch.epoch |> Position.parse |> Some
         batches <- batches + 1
         recentBatches <- recentBatches + 1
@@ -98,7 +98,7 @@ type internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName
         (statsFor rangeId).RecordBatch(latency, batchTimestamp, requestCharge, batch)
     member _.RecordWait(rangeId: int, waitElapsed, batchesInFlight, maxReadAhead) =
         if metricsLog.IsEnabled LogEventLevel.Information then
-            let m = Log.Metric.Wait { context = context; rangeId = rangeId; ingestLatency = waitElapsed; ingestQueued = batchesInFlight }
+            let m = Log.Metric.Wait { context = context; rangeId = rangeId; waits = waitElapsed; activeBatches = batchesInFlight }
             // NOTE: Write to metrics log (App wiring has logic to also emit it to Console when in verboseStore mode, but main purpose is to feed to Prometheus ASAP)
             (metricsLog |> Log.withMetric m).Information(
                 "Reader {partition} Wait {pausedS:f3}s Ahead {cur}/{max}",
@@ -163,8 +163,7 @@ module ChangeFeedItem = let timestamp = EquinoxSystemTextJsonParser.timestamp
 #endif
 type ChangeFeedItems = System.Collections.Generic.IReadOnlyCollection<ChangeFeedItem>
 
-type internal Observer<'Items>(
-    stats: Stats, trancheIngester: Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items, decorate) =
+type internal Observer<'Items>(stats: Stats, trancheIngester: Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items, decorateBatch) =
 
     let readSw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
     let awaitCapacitySw = System.Diagnostics.Stopwatch()
@@ -175,7 +174,7 @@ type internal Observer<'Items>(
             epoch = ctx.epoch; items = parseFeedBatch docs; isTail = false
             checkpoint = fun _ct -> task { do! checkpoint.Invoke () }
             onCompletion = fun () -> stats.RecordCompleted(ctx.rangeId, ctx.epoch) }
-        let struct (cur, max) = decorate batch |> trancheIngester.Ingest
+        let struct (cur, max) = batch |> decorateBatch |> trancheIngester.Ingest
         stats.RecordRead(ctx.rangeId, awaitCapacitySw.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, readSw.Elapsed, docs.Count, batch, cur, max)
         awaitCapacitySw.Restart()
         do! trancheIngester.AwaitCapacity()

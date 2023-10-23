@@ -123,8 +123,8 @@ type LogSink(customTags: seq<string * string>) =
         observeReadLatencySum group latS
         observeReadChargeHis group m.rc
         observeReadChargeSum group m.rc
-    let observeWait (m: IngestMetric) =
-        let ingestLatS, ingestQueueLen = m.ingestLatency.TotalSeconds, float m.ingestQueued
+    let observeWait (m: WaitMetric) =
+        let ingestLatS, ingestQueueLen = m.waits.TotalSeconds, float m.activeBatches
         let group = group m.context
         observeIngestLatHis group ingestLatS
         observeIngestLatSum group ingestLatS

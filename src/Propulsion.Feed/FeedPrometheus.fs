@@ -99,7 +99,7 @@ type LogSink(customTags: seq<string * string>) =
         observeItemCount group readItems
         observeReadLatencyHis group latS
         observeReadLatencySum group latS
-        let ingestLatS, ingestQueueLen = m.ingestLatency.TotalSeconds, float m.ingestQueued
+        let ingestLatS, ingestQueueLen = m.wait.TotalSeconds, float m.activeBatches
         observeIngestLatHis group ingestLatS
         observeIngestLatSum group ingestLatS
         observeIngestQueue group ingestQueueLen
