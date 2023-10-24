@@ -29,13 +29,13 @@ type FeedSourceBase internal
             with Exception.Log reader.LogFinishingPartition () -> ()
         finally ingester.Stop() }
 
-    let positions = TranchePositions()
+    let positions: ISourcePositions<ITranchePosition> = SourcePositions(fun _ -> lazy (TranchePosition() :> _))
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
     member x.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
         do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
-        return positions.Completed() }
+        return positions |> SourcePositions.completed }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
     member internal x.Pump
@@ -50,7 +50,7 @@ type FeedSourceBase internal
         partitions <- tranches |> Array.mapi (fun partitionId trancheId ->
             let log = log.ForContext("partition", partitionId).ForContext("tranche", trancheId)
             let ingester = sink.StartIngester(log, partitionId)
-            let instrumentBatch = positions.Intercept(trancheId)
+            let instrumentBatch = let t: ITranchePosition = positions.For(trancheId) in t.Decorate
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingester, instrumentBatch, checkpoints.Commit,
                                     renderPos, stopAtTail = defaultArg readersStopAtTail false, ?logCommitFailure = logCommitFailure)
             ingester, reader)

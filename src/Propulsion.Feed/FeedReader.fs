@@ -38,7 +38,7 @@ module Log =
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
-type internal Stats(partition: int, source: SourceId, tranche: TrancheId, renderPos: Position -> string) =
+type internal Stats(partition: int, source: SourceId, tranche: TrancheId) =
 
     let mutable readPos, pages, empty, events, commitPos = None, 0, 0, 0L, None
     let mutable accReadLat, recentPages, recentEvents, recentEmpty = TimeSpan.Zero, 0, 0, 0
@@ -61,7 +61,7 @@ type internal Stats(partition: int, source: SourceId, tranche: TrancheId, render
                     elif commitPos = readPos then "COMPLETE"
                     else if finishedReading then "End" else "Tail"
         (Log.withMetric m log).ForContext("tail", lastWasTail).Information(
-            "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} "+
+            "Reader {partition} {state} @ {commitPos}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} "+
             "| Recent {l:f1}s Pages {recentPages} empty {recentEmpty} events {recentEvents} Pause {pausedS:f1}s Ahead {cur}/{max} Wait {waitS:f1}s",
             partition, state, r commitPos, r readPos, pages, empty, events,
             accReadLat.TotalSeconds, recentPages, recentEmpty, recentEvents, accWaits.TotalSeconds, currentBatches, maxReadAhead, shutdownTimer.ElapsedSeconds)
@@ -121,9 +121,9 @@ type FeedReader
             * CancellationToken
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Task,
-        renderPos, stopAtTail, ?logCommitFailure) =
+        renderPos: Position -> string, stopAtTail, ?logCommitFailure) =
 
-    let stats = Stats(partition, source, tranche, renderPos)
+    let stats = Stats(partition, source, tranche)
 
     let logCommitFailure_ (e: exn) = log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint")
     let logCommitFailure =  defaultArg logCommitFailure logCommitFailure_

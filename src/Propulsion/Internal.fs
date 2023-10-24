@@ -139,7 +139,7 @@ module Task =
         let! _ = a
         return () }
     let ofUnitTask (x: Task): Task<unit> = task { return! x }
-    let periodically (f: CancellationToken -> Task) interval (ct: CancellationToken) = task {
+    let periodically (f: CancellationToken -> Task<unit>) interval (ct: CancellationToken) = task {
         let t = new System.Threading.PeriodicTimer(interval) // no use as ct will Dispose
         use _ = ct.Register(Action t.Dispose)
         while not ct.IsCancellationRequested do

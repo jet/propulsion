@@ -1,13 +1,12 @@
 ﻿namespace Propulsion.CosmosStore
 
 open Propulsion.Internal
-open Serilog
 open System
 
 /// Wraps the Microsoft.Azure.Cosmos ChangeFeedProcessor and ChangeFeedProcessorEstimator
 /// See https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator
 type CosmosStoreSource
-    (   log: ILogger, statsInterval,
+    (   log: Serilog.ILogger, statsInterval,
         monitored: Microsoft.Azure.Cosmos.Container,
         // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
         // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
@@ -42,16 +41,15 @@ type CosmosStoreSource
         // Including the processId should eliminate the possibility that a broken process manager causes k>1 scenario to happen.
         // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
         $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
-    let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName, statsInterval)
-    let observer = new Observers<seq<Propulsion.Sinks.StreamEvent>>(stats, sink.StartIngester, Seq.collect parseFeedDoc)
-    member _.Flush() = (observer: IDisposable).Dispose()
+    let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName)
+    let startIngester trancheId = sink.StartIngester(log, trancheId |> Propulsion.Feed.TrancheId.toString |> int)
+    let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, stats, processorName, startIngester, Seq.collect parseFeedDoc)
+    member _.Flush() = (observers: IDisposable).Dispose()
     member _.Start() =
         ChangeFeedProcessor.Start(
-            monitored, leases, processorName, stats, leaseOwnerId, observer.Ingest, observer.CurrentTrancheCapacity,
-            ?notifyError = notifyError, ?customize = customize, ?maxItems = maxItems,
-            feedPollDelay = defaultArg tailSleepInterval (TimeSpan.seconds 1.),
+            monitored, leases, processorName, leaseOwnerId, stats, statsInterval, observers,
+            defaultArg startFromTail false, feedPollDelay = defaultArg tailSleepInterval (TimeSpan.seconds 1.),
             leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
             leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
             leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
-            startFromTail = defaultArg startFromTail false,
-            ?lagEstimationInterval = lagEstimationInterval)
+            ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)

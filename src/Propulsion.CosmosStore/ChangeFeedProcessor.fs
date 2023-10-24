@@ -1,33 +1,35 @@
 namespace Propulsion.CosmosStore
 
+open Propulsion.Feed.Core
 open Propulsion.Internal
 open System
 
-type internal ChangeFeedProcessor =
-    static member Start
-        (   monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, stats: Stats, leaseOwnerId,
-            ingest, trancheCapacity,
-            startFromTail, feedPollDelay, leaseAcquireInterval, leaseRenewInterval, leaseTtl, ?maxItems, ?notifyError, ?customize, ?lagEstimationInterval) =
-        stats.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollDelay, startFromTail, ?maxItems = maxItems)
+type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
+    static member internal Start(
+            monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, leaseOwnerId,
+            stats: Stats, statsInterval, observers: Observers<_>,
+            startFromTail, feedPollDelay, leaseAcquireInterval, leaseRenewInterval, leaseTtl,
+            ?maxItems, ?notifyError, ?customize, ?lagEstimationInterval) =
+        observers.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollDelay, startFromTail, ?maxItems = maxItems)
         let processorName_ = processorName + ":"
-        let (|RangeId|) (leaseToken: string) = leaseToken.Trim[|'"'|] |> int
+        let (|TokenRangeId|) (leaseToken: string) = leaseToken.Trim[|'"'|] |> int
         let processor =
             let handler (context: Microsoft.Azure.Cosmos.ChangeFeedProcessorContext) (changes: ChangeFeedItems) (checkpointAsync: Func<Task>) ct: Task = task {
-                let (RangeId rangeId) = context.LeaseToken
+                let (TokenRangeId rangeId) =  context.LeaseToken
                 let log: exn -> unit = function
                     | :? OperationCanceledException -> () // Shutdown via .Stop triggers this
-                    | e -> stats.LogHandlerExn(rangeId, e)
+                    | e -> observers.LogHandlerExn(rangeId, e)
                 try let ctx = { group = processorName
                                 epoch = context.Headers.ContinuationToken.Trim[|'"'|] |> int64
                                 timestamp = changes |> Seq.last |> ChangeFeedItem.timestamp
                                 rangeId = rangeId
                                 requestCharge = context.Headers.RequestCharge }
-                    return! ingest (ctx, changes, checkpointAsync, ct)
+                    return! observers.Ingest(ctx, changes, checkpointAsync, ct)
                 with Exception.Log log () -> () }
             let notifyError =
-                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> stats.LogExn(i, ex))
-                fun (RangeId rangeId) ex -> log.Invoke(rangeId, ex); Task.CompletedTask
-            let logStateChange acquired (RangeId rangeId) = stats.LogStateChange(rangeId, acquired); Task.CompletedTask
+                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> observers.LogReaderExn(i, ex))
+                fun (TokenRangeId rangeId) ex -> log.Invoke(rangeId, ex); Task.CompletedTask
+            let logStateChange acquired (leaseToken: string) = observers.RecordStateChange(leaseToken, acquired); Task.CompletedTask
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, handler)
                 .WithLeaseContainer(leases)
@@ -50,13 +52,23 @@ type internal ChangeFeedProcessor =
                 for x in res do result.Add(map x)
             return result.ToArray() }
         let runEstimation ct = task {
-            let! leasesStates = fetchEstimatorStates (fun s -> struct ((|RangeId|) s.LeaseToken, s.EstimatedLag)) ct
+            let! leasesStates = fetchEstimatorStates (fun s -> struct ((|TokenRangeId|) s.LeaseToken, s.EstimatedLag)) ct
             Array.sortInPlaceBy ValueTuple.fst leasesStates
+            observers.RecordEstimation leasesStates
             stats.ReportEstimation leasesStates }
         let pumpEstimation interval ct =
             stats.ReportEstimationInterval(interval)
-            Task.periodically (fun ct -> runEstimation ct) interval ct
+            Task.periodically runEstimation interval ct
+        let dumpStats ct = task {
+            try do! runEstimation ct
+            with _ -> () // Dump will cope with absence of update (unless standalone estimation has already updated anyway)
+            let all = (observers : ISourcePositions<_>).Current()
+            all |> Array.sortInPlaceBy (fun x -> x.Key)
+            for kv in all do
+                kv.Value.Dump(stats.Log, processorName, kv.Key, kv.Value.CurrentCapacity()) }
+        let pumpStats = Task.periodically dumpStats statsInterval
+
         let children = seq {
             match lagEstimationInterval with None -> () | Some interval -> pumpEstimation interval
-            (fun ct -> stats.PumpStats(trancheCapacity, runEstimation, ct)) }
+            pumpStats }
         Propulsion.PipelineFactory.StartSource(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)

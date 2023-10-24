@@ -103,7 +103,7 @@ type PeriodicSource
     /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
     abstract member StartAsync: crawl: Func<TrancheId, IAsyncEnumerable<struct (TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>>
                                 * ?readTranches: Func<CancellationToken, Task<TrancheId[]>>
-                                 -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+                                -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.StartAsync(crawl, ?readTranches) =
         let readTranches = match readTranches with Some f -> f.Invoke | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
         base.Start(fun ct -> x.Pump(readTranches, crawl, ct))
