@@ -79,7 +79,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "... source completed" }
         machine, stop, outcomeTask
 
-    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, childTasks, outerStop: unit -> Task<unit>) =
+    static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
             cts.Token, fun _disposing ->
@@ -89,29 +89,17 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            tcs.Task, fun () -> tcs.TrySetResult () |> ignore
-
-        let inner () = task {
-            do! start ()
-            try for startChild in childTasks do Task.start (fun () -> startChild ct)
-                do! outcomeTask
-            with _ -> // TODO: F# 7 supports do! in a finally, this catch-swallow-then is a very poor persons substitute
-                () // For now just ignore
-                // NOTE None of our work should actually trigger exceptions (we don't call tcs.TrySetException)
-                //      so this catch is really just for completeness
-            do! outerStop () } // NB: Stops the CFP, hence critical to return leases etc
+            let markCompleted () = tcs.TrySetResult () |> ignore
+            tcs.Task, markCompleted
 
         let machine () = task {
             // external cancellation should yield a success result
             use _ = ct.Register markCompleted
-            Task.start inner
-            try return! outcomeTask
+            do! startup ct
+            try do! outcomeTask // Wait for external stop()
+                do! shutdown ()
             finally log.Information "... source completed" }
-        machine, stop
-
-    static member StartSource(log: Serilog.ILogger, start, childTasks, outerStop) =
-        let machine, stop = PipelineFactory.PrepareSource2(log, start, childTasks, outerStop)
-        new Pipeline(Task.run machine, stop)
+        machine, stop, outcomeTask
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new System.Threading.CancellationTokenSource()

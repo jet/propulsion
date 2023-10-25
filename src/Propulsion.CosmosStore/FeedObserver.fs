@@ -36,12 +36,11 @@ module ChangeFeedItem = let timestamp = EquinoxSystemTextJsonParser.timestamp
 #endif
 type ChangeFeedItems = System.Collections.Generic.IReadOnlyCollection<ChangeFeedItem>
 
-and internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName: string) =
-
-    let context: Log.MetricContext = { database = databaseId; container = containerId; group = processorName }
+type internal Stats(log: Serilog.ILogger, context: Log.MetricContext) =
     let metricsLog = log.ForContext("isMetric", true)
-
-    member val Log = log
+    new(log, databaseId, containerId, processorName: string) =
+        let context: Log.MetricContext = { database = databaseId; container = containerId; group = processorName }
+        Stats(log, context)
 
     member _.ReportRead(rangeId: int, lastWait: TimeSpan, epoch, requestCharge, batchTimestamp, latency, itemCount, batchesInFlight, maxReadAhead) =
         let age = DateTime.UtcNow - batchTimestamp
@@ -57,7 +56,8 @@ and internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName:
                 "Reader {partition} Wait {pausedS:f3}s Ahead {cur}/{max}",
                 rangeId, waitElapsed.TotalSeconds, batchesInFlight, maxReadAhead)
     member _.ReportEstimationInterval(interval: TimeSpan) =
-        log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, interval.TotalSeconds)
+        log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s",
+                        context.group, interval.TotalSeconds)
     member _.ReportEstimation(remainingWork) =
         let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
         for struct (rangeId, gap) as partitionAndGap in remainingWork do
@@ -67,66 +67,9 @@ and internal Stats(log: Serilog.ILogger, databaseId, containerId, processorName:
         let m = Log.Metric.Lag { context = context; rangeLags = remainingWork }
         (metricsLog |> Log.withMetric m).Information(
             "ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-            processorName, count, total, lagged, synced)
+            context.group, count, total, lagged, synced)
 
-and internal Observer<'Items>(stats: Stats, startIngester: unit -> Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items) as this =
-    inherit TrancheStats()
-    let readSw = System.Diagnostics.Stopwatch()
-    let awaitCapacitySw = System.Diagnostics.Stopwatch()
-    let ingester = lazy startIngester ()
-    member _.RecordStateChange(assigned) =
-        if assigned then readSw.Start()  // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        else readSw.Stop()
-    member x.Ingest(ctx: ChangeFeedContext, docs: ChangeFeedItems, checkpoint: Func<Task>, _ct) = task {
-        readSw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
-        let ingester = ingester.Value
-        let batch: Propulsion.Ingestion.Batch<'Items> = {
-            epoch = ctx.epoch; items = parseFeedBatch docs; isTail = false
-            checkpoint = fun _ct -> task { do! checkpoint.Invoke () }
-            onCompletion = fun () -> this.RecordCompleted(ctx.epoch) }
-        let struct (cur, max) = batch |> (x : Core.ITranchePosition).Decorate |> ingester.Ingest
-        stats.ReportRead(ctx.rangeId, awaitCapacitySw.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, readSw.Elapsed, docs.Count, cur, max)
-        let batchReadPos = batch.epoch |> Position.parse
-        this.RecordBatch(readSw.Elapsed, ctx.timestamp, ctx.requestCharge, batchReadPos)
-
-        awaitCapacitySw.Restart()
-        do! ingester.AwaitCapacity()
-        let struct (cur, max) = ingester.CurrentCapacity()
-        awaitCapacitySw.Stop()
-        stats.ReportWait(int ctx.rangeId, awaitCapacitySw.Elapsed, cur, max)
-        this.RecordWaitForCapacity(awaitCapacitySw.Elapsed)
-        readSw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor to fetch and pass that back to us
-    member _.CurrentCapacity() = if ingester.IsValueCreated then ingester.Value.CurrentCapacity() else 0, 0
-
-    interface IDisposable with member _.Dispose() = if ingester.IsValueCreated then ingester.Value.Stop()
-
-and internal Observers<'Items>(log: Serilog.ILogger, processorName, build) as this =
-    inherit Propulsion.Feed.Core.SourcePositions<Observer<'Items>>(build)
-    let (|Observer|) rangeId = (this : Core.ISourcePositions<_>).For(TrancheId.parse (string rangeId))
-    new (log, stats, processorName, startIngester: TrancheId -> Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items) =
-        let build trancheId = lazy (
-             let startIngester () = startIngester trancheId
-             new Observer<'Items>(stats, startIngester, parseFeedBatch))
-        new Observers<_>(log, processorName, build)
-    member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollDelay: TimeSpan, startFromTail: bool, ?maxItems) =
-        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollDelay {feedPollDelayS:n0}s Items limit {maxItems} fromTail {fromTail}",
-                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollDelay.TotalSeconds, Option.toNullable maxItems, startFromTail)
-    member _.LogReaderExn(rangeId: int, ex: exn) =
-        log.Error(ex, "ChangeFeed {processorName}/{partition} error", processorName, rangeId)
-    member _.LogHandlerExn(rangeId: int, ex: exn) =
-        log.Error(ex, "ChangeFeed {processorName}/{partition} Handler Threw", processorName, rangeId)
-    member x.Ingest(context, docs, checkpoint, ct) = (x : Core.ISourcePositions<_>).For(TrancheId.parse <| string context.rangeId).Ingest(context, docs, checkpoint, ct)
-    member x.RecordStateChange(Observer o as rangeId, acquired) =
-        log.Information("ChangeFeed {processorName} Lease {state} {partition}",
-            processorName, (if acquired then "Acquired" else "Released"), rangeId)
-        o.RecordActive(acquired)
-    member _.RecordEstimation(remainingWork: struct (int * int64)[]) =
-        for Observer o, gap in remainingWork do
-            o.RecordEstimatedGap(gap)
-
-    interface IDisposable with member _.Dispose() = base.Iter (fun x -> (x : IDisposable).Dispose())
-
-and TrancheStats() as this =
+type internal TrancheStats() as this =
     inherit Core.TranchePosition()
     let mutable batches = 0
     let mutable closed, finishedReading = false, false
@@ -167,5 +110,66 @@ and TrancheStats() as this =
     member _.RecordCompleted(epoch) =
         this.completed <- epoch |> Position.parse |> ValueSome
 
-    member _.RecordEstimatedGap(gap) =
+    member x.RecordEstimatedGap(gap) =
         lastGap <- Some gap
+        x.isTail <- gap = 0L
+
+type internal Observer<'Items>(stats: Stats, startIngester: unit -> Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items) as this =
+    inherit TrancheStats()
+    let readSw = System.Diagnostics.Stopwatch()
+    let awaitCapacitySw = System.Diagnostics.Stopwatch()
+    let ingester = lazy startIngester ()
+    member _.RecordStateChange(assigned) =
+        if assigned then readSw.Start()  // we'll end up reporting the warmup/connect time on the first batch, but that's ok
+        else readSw.Stop()
+    member x.Ingest(ctx: ChangeFeedContext, docs: ChangeFeedItems, checkpoint: Func<Task>, _ct) = task {
+        readSw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
+        let ingester = ingester.Value
+        let batch: Propulsion.Ingestion.Batch<'Items> = {
+            epoch = ctx.epoch; items = parseFeedBatch docs; isTail = false
+            checkpoint = fun _ct -> task { do! checkpoint.Invoke () }
+            onCompletion = fun () -> this.RecordCompleted(ctx.epoch) }
+        let struct (cur, max) = batch |> (x : Core.ITranchePosition).Decorate |> ingester.Ingest
+        stats.ReportRead(ctx.rangeId, awaitCapacitySw.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, readSw.Elapsed, docs.Count, cur, max)
+        let batchReadPos = batch.epoch |> Position.parse
+        this.RecordBatch(readSw.Elapsed, ctx.timestamp, ctx.requestCharge, batchReadPos)
+
+        awaitCapacitySw.Restart()
+        do! ingester.AwaitCapacity()
+        let struct (cur, max) = ingester.CurrentCapacity()
+        awaitCapacitySw.Stop()
+        stats.ReportWait(int ctx.rangeId, awaitCapacitySw.Elapsed, cur, max)
+        this.RecordWaitForCapacity(awaitCapacitySw.Elapsed)
+        readSw.Restart() } // restart the clock as we handoff back to the ChangeFeedProcessor to fetch and pass that back to us
+    member _.CurrentCapacity() =
+        if ingester.IsValueCreated then ingester.Value.CurrentCapacity()
+        else 0, 0
+
+    interface IDisposable with member _.Dispose() = if ingester.IsValueCreated then ingester.Value.Stop()
+
+type internal Observers<'Items>(log: Serilog.ILogger, processorName, buildObserver) as this =
+    inherit Propulsion.Feed.Core.SourcePositions<Observer<'Items>>(buildObserver)
+    let (|Observer|) rangeId = (this : Core.ISourcePositions<_>).For(TrancheId.parse (string rangeId))
+    member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollInterval: TimeSpan, startFromTail: bool, ?maxItems) =
+        log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollInterval {feedPollIntervalS:n0}s Items limit {maxItems} fromTail {fromTail}",
+                        processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollInterval.TotalSeconds, Option.toNullable maxItems, startFromTail)
+    member _.LogReaderExn(rangeId: int, ex: exn) =
+        log.Error(ex, "ChangeFeed {processorName}/{partition} error", processorName, rangeId)
+    member _.LogHandlerExn(rangeId: int, ex: exn) =
+        log.Error(ex, "ChangeFeed {processorName}/{partition} Handler Threw", processorName, rangeId)
+    member _.Ingest(context, docs, checkpoint, ct) =
+        let (Observer obs) = context.rangeId
+        obs.Ingest(context, docs, checkpoint, ct)
+    member _.RecordStateChange(Observer o as rangeId, acquired) =
+        log.Information("ChangeFeed {processorName} Lease {state} {partition}",
+            processorName, (if acquired then "Acquired" else "Released"), rangeId)
+        o.RecordActive(acquired)
+    member _.RecordEstimation(remainingWork: struct (int * int64)[]) =
+        for Observer o, gap in remainingWork do
+            o.RecordEstimatedGap(gap)
+
+    // TODO make base class just work
+    member _.Current() =
+        let xs = (this : Propulsion.Feed.Core.ISourcePositions<_>).Current()
+        [| for kv in xs -> System.Collections.Generic.KeyValuePair(kv.Key, kv.Value :> Propulsion.Feed.Core.ITranchePosition) |]
+    interface IDisposable with member _.Dispose() = base.Iter (fun x -> (x : IDisposable).Dispose())

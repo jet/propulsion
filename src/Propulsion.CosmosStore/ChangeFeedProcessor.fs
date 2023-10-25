@@ -5,12 +5,12 @@ open Propulsion.Internal
 open System
 
 type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
-    static member internal Start(
-            monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, leaseOwnerId,
-            stats: Stats, statsInterval, observers: Observers<_>,
-            startFromTail, feedPollDelay, leaseAcquireInterval, leaseRenewInterval, leaseTtl,
+    static member internal Start
+        (   monitored: Microsoft.Azure.Cosmos.Container, leases: Microsoft.Azure.Cosmos.Container, processorName: string, leaseOwnerId,
+            log, stats: Stats, statsInterval, observers: Observers<_>,
+            startFromTail, feedPollInterval, leaseAcquireInterval, leaseRenewInterval, leaseTtl,
             ?maxItems, ?notifyError, ?customize, ?lagEstimationInterval) =
-        observers.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollDelay, startFromTail, ?maxItems = maxItems)
+        observers.LogStart(leaseAcquireInterval, leaseTtl, leaseRenewInterval, feedPollInterval, startFromTail, ?maxItems = maxItems)
         let processorName_ = processorName + ":"
         let (|TokenRangeId|) (leaseToken: string) = leaseToken.Trim[|'"'|] |> int
         let processor =
@@ -33,7 +33,7 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
             monitored
                 .GetChangeFeedProcessorBuilderWithManualCheckpoint(processorName_, handler)
                 .WithLeaseContainer(leases)
-                .WithPollInterval(feedPollDelay)
+                .WithPollInterval(feedPollInterval)
                 .WithLeaseConfiguration(acquireInterval = leaseAcquireInterval, expirationInterval = leaseTtl, renewInterval = leaseRenewInterval)
                 .WithInstanceName(leaseOwnerId)
                 .WithLeaseAcquireNotification(logStateChange true)
@@ -44,7 +44,7 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
                 |> fun b -> match customize with Some c -> c b | None -> b
                 |> fun b -> b.Build()
         let estimator = monitored.GetChangeFeedEstimator(processorName_, leases)
-        let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]>  = task {
+        let fetchEstimatorStates (map: Microsoft.Azure.Cosmos.ChangeFeedProcessorState -> 'u) ct: Task<'u[]> = task {
             use query = estimator.GetCurrentStateIterator()
             let result = ResizeArray()
             while query.HasMoreResults do
@@ -65,10 +65,13 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
             let all = (observers : ISourcePositions<_>).Current()
             all |> Array.sortInPlaceBy (fun x -> x.Key)
             for kv in all do
-                kv.Value.Dump(stats.Log, processorName, kv.Key, kv.Value.CurrentCapacity()) }
-        let pumpStats = Task.periodically dumpStats statsInterval
-
-        let children = seq {
-            match lagEstimationInterval with None -> () | Some interval -> pumpEstimation interval
-            pumpStats }
-        Propulsion.PipelineFactory.StartSource(stats.Log, Task.ofUnitTask << processor.StartAsync, children, Task.ofUnitTask << processor.StopAsync)
+                kv.Value.Dump(log, processorName, kv.Key, kv.Value.CurrentCapacity()) }
+        let startup ct = task {
+            lagEstimationInterval |> Option.iter (fun interval -> Task.start (fun () -> pumpEstimation interval ct))
+            Task.start (fun () -> Task.periodically dumpStats statsInterval ct)
+            return! processor.StartAsync() }
+        let shutdown () = task {
+            try do! processor.StopAsync()
+                do! dumpStats CancellationToken.None
+            finally (observers : IDisposable).Dispose() }
+        Propulsion.PipelineFactory.PrepareSource2(log, startup, shutdown)

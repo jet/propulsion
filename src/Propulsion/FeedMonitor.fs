@@ -54,7 +54,7 @@ type SourcePositions<'T when 'T :> ITranchePosition>(createTranche: Func<Tranche
         member _.Current() = tranches.ToArray() |> Array.map (fun kv -> KeyValuePair(kv.Key, kv.Value.Value))
 
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
-and FeedMonitor(log: Serilog.ILogger, positions: ISourcePositions<#ITranchePosition>, sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
+and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<TrancheId, ITranchePosition>[], sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
 
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
     let choose f (xs: KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
@@ -81,7 +81,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: ISourcePositions<#ITranchePosit
     let awaitCompletion (sleep, logInterval) (sw: System.Diagnostics.Stopwatch) startReadPositions waitMode ct = task {
         let logInterval = IntervalTimer logInterval
         let logWaitStatusUpdateNow () =
-            let current = positions.Current()
+            let current = fetchPositions ()
             let currentRead, completed = current |> choose (fun v -> v.ReadPos), current |> choose (fun v -> v.CompletedPos)
             match waitMode with
             | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime:n1}s Awaiting Started {starting} Completed {completed}",
@@ -92,7 +92,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: ISourcePositions<#ITranchePosit
                                     log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Current {current} Completed {completed} Starting {starting}",
                                                     sw.ElapsedSeconds, draining, currentRead, completed, startReadPositions)
         let busy () =
-            let current = positions.Current()
+            let current = fetchPositions ()
             match waitMode with
             | OriginalWorkOnly ->   let completed = current |> choose (fun v -> v.CompletedPos)
                                     let trancheCompletedPos = Dictionary() in for struct (k, v) in completed do trancheCompletedPos.Add(k, v)
@@ -104,7 +104,7 @@ and FeedMonitor(log: Serilog.ILogger, positions: ISourcePositions<#ITranchePosit
             | IncludeSubsequent ->  current |> Array.exists (fun kv -> not (TranchePosition.isEmpty kv.Value)) // All work (including follow-on work) completed
             | AwaitFullyCaughtUp -> current |> SourcePositions.isDrained |> not
         while busy () && notEol () do
-            if logInterval.IfDueRestart() then logWaitStatusUpdateNow()
+            if logInterval.IfDueRestart() then logWaitStatusUpdateNow ()
             do! Task.delay sleep ct }
 
     /// Waits quasi-deterministically for events to be observed, (for up to the <c>propagationDelay</c>)
@@ -136,35 +136,38 @@ and FeedMonitor(log: Serilog.ILogger, positions: ISourcePositions<#ITranchePosit
         let ct = defaultArg ct CancellationToken.None
         let sw = Stopwatch.start ()
         let sleep = defaultArg sleep (TimeSpan.FromMilliseconds 1)
-        let currentCompleted = seq { for kv in positions.Current() -> struct (kv.Key, ValueOption.toNullable kv.Value.CompletedPos) }
+        let currentCompleted = seq { for kv in fetchPositions () -> struct (kv.Key, ValueOption.toNullable kv.Value.CompletedPos) }
         let waitMode =
             match ignoreSubsequent, awaitFullyCaughtUp with
-            | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) "cannot be combined with ignoreSubsequent"
+            | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) $"cannot be combined with {nameof ignoreSubsequent}"
             | _, Some true -> AwaitFullyCaughtUp
             | Some true, _ -> OriginalWorkOnly
             | _ -> OriginalWorkOnly
         let requireTail = match waitMode with AwaitFullyCaughtUp -> true | _ -> false
+        let orDummyValue = ValueOption.orElse (ValueSome (Position.parse -1L))
         let activeTranches () =
-            match positions.Current() with
+            match fetchPositions () with
+            | xs when Array.any xs && requireTail && xs |> Array.forall (fun kv -> TranchePosition.isDrained kv.Value) ->
+                xs |> choose (fun v -> v.ReadPos |> orDummyValue)
             | xs when xs |> Array.forall (fun kv -> TranchePosition.isEmpty kv.Value && (not requireTail || kv.Value.IsTail)) -> Array.empty
             | originals -> originals |> choose (fun v -> v.ReadPos)
         match! awaitPropagation sleep propagationDelay activeTranches ct with
         | [||] ->
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)
-            else log.Information("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
+            else log.Warning("FeedMonitor Wait {propagationDelay:n1}s Timeout. Completed {completed}", sw.ElapsedSeconds, currentCompleted)
         | starting ->
             let propUsed = sw.Elapsed
             let logInterval = defaultArg logInterval (TimeSpan.seconds 5)
             let swProcessing = Stopwatch.start ()
             do! awaitCompletion (sleep, logInterval) swProcessing starting waitMode ct
             let procUsed = swProcessing.Elapsed
-            let isDrainedNow () = positions.Current() |> SourcePositions.isDrained
+            let isDrainedNow () = fetchPositions () |> SourcePositions.isDrained
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then LogEventLevel.Information else LogEventLevel.Debug
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
-                let completed = positions.Current() |> choose (fun v -> v.CompletedPos)
+                let completed = fetchPositions () |> choose (fun v -> v.CompletedPos |> orDummyValue)
                 log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Tail {allAtTail} Starting {starting} Completed {completed}",
                           sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then

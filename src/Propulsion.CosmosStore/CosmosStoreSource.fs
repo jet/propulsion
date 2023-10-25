@@ -43,13 +43,19 @@ type CosmosStoreSource
         $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
     let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName)
     let startIngester trancheId = sink.StartIngester(log, trancheId |> Propulsion.Feed.TrancheId.toString |> int)
-    let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, stats, processorName, startIngester, Seq.collect parseFeedDoc)
-    member _.Flush() = (observers: IDisposable).Dispose()
+    let buildObserver trancheId = lazy (
+        let startIngester () = startIngester trancheId
+        new Observer<seq<Propulsion.Sinks.StreamEvent>>(stats, startIngester,  Seq.collect parseFeedDoc))
+    let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, processorName, buildObserver)
+
     member _.Start() =
-        ChangeFeedProcessor.Start(
-            monitored, leases, processorName, leaseOwnerId, stats, statsInterval, observers,
-            defaultArg startFromTail false, feedPollDelay = defaultArg tailSleepInterval (TimeSpan.seconds 1.),
-            leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
-            leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
-            leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
-            ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
+        let machine, triggerStop, outcomeTask =
+            ChangeFeedProcessor.Start(
+                monitored, leases, processorName, leaseOwnerId, log, stats, statsInterval, observers,
+                defaultArg startFromTail false, feedPollInterval = defaultArg tailSleepInterval (TimeSpan.seconds 1),
+                leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
+                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
+                leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
+                ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
+        let monitor = lazy Propulsion.Feed.Core.FeedMonitor(log, observers.Current, sink, fun () -> outcomeTask.IsCompleted)
+        new Propulsion.SourcePipeline<_>(Task.run machine, triggerStop, monitor)

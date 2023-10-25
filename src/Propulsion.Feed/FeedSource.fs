@@ -33,7 +33,7 @@ type FeedSourceBase internal
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member x.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+    member _.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
         do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
         return positions |> SourcePositions.completed }
 
@@ -60,9 +60,9 @@ type FeedSourceBase internal
         do! x.Checkpoint(ct) |> Task.ignore }
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
-    member x.Start(pump) =
+    member _.Start(pump) =
         let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
-        let monitor = lazy FeedMonitor(log, positions, sink, fun () -> outcomeTask.IsCompleted)
+        let monitor = lazy FeedMonitor(log, positions.Current, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams
