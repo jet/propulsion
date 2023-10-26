@@ -203,7 +203,8 @@ module FeedMonitor =
             do! pipeline.Monitor.AwaitCompletion(initialReaderTimeout, awaitFullyCaughtUp = true, logInterval = TimeSpan.seconds 30)
             // Shut down all processing (we create a fresh Source per Lambda invocation)
             pipeline.Stop()
-
+            do! pipeline.Wait()
+            do! pipeline.Flush() // TOCONSIDER should also go in a finally and/or have an IAsyncDisposable mon the SourcePipeline manage it
             if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
             // force a final attempt to flush (normally checkpointing is at 5s intervals)
         finally statsInterval.SleepUntilTriggerCleared() }

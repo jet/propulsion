@@ -41,8 +41,6 @@ type Pipeline(task: Task<unit>, triggerStop) =
     member _.FlushAsync() = flush ()
     member x.Flush() = x.FlushAsync() |> Async.AwaitTaskCorrect
 
-    interface IAsyncDisposable with member _.DisposeAsync() = flush () |> System.Threading.Tasks.ValueTask
-
 type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
 
@@ -67,9 +65,8 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
                     // If the source completes all reading cleanly, declare completion
                     log.Information "Source drained..."
                     markCompleted ()
-                with:? System.Threading.Tasks.TaskCanceledException when ct.IsCancellationRequested -> ()
-                    | e -> log.Warning(e, "Exception encountered while running source, exiting loop")
-                           recordExn e }
+                with e -> log.Warning(e, "Exception encountered while running source, exiting loop")
+                          recordExn e }
             inner, tcs.Task, markCompleted
 
         let machine () = task {

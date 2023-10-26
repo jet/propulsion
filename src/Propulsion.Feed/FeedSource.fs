@@ -26,7 +26,7 @@ type FeedSourceBase internal
             try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
                 reader.LogPartitionStarting(pos)
                 return! reader.Pump(pos, ct)
-            with:? System.Threading.Tasks.TaskCanceledException when ct.IsCancellationRequested -> ()
+            with//:? System.Threading.Tasks.TaskCanceledException when ct.IsCancellationRequested -> ()
                 | Exception.Log reader.LogPartitionExn () -> ()
         finally ingester.Stop() }
 
