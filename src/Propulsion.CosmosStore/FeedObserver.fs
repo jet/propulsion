@@ -79,24 +79,25 @@ type internal TrancheStats() as this =
     let shutdownTimer = System.Diagnostics.Stopwatch()
     let mutable isActive, lastGap = false, None
 
-    member x.Dump(log: Serilog.ILogger, processorName, partition, struct (currentBatches, maxReadAhead)) =
+    member x.Dump(log: Serilog.ILogger, processorName: string, partition: int, struct (currentBatches: int, maxReadAhead: int)) =
         if closed then () else
 
         let r = ValueOption.map string >> ValueOption.defaultValue null
         let p : Core.ITranchePosition = x
         let state = if not p.IsTail then "Busy" elif finishedReading then "End" else "Tail"
         let recentAge = recentBatchTimestamp |> Option.map (fun lbt -> DateTime.UtcNow - lbt) |> Option.toNullable
-        let log = if ValueOption.isSome p.ReadPos then log else log.ForContext("tail", p.IsTail)
-        log.Information("ChangeFeed {processorName}/{partition} {state} @ {completedPosition}/{readPosition} Active {active} read {batches} ahead {cur}/{max} Gap {gap} " +
-                        "| Read {l:f1}s batches {recentBatches} age {age: d\.hh\:mm\:ss} {ru}RU Pause {pausedS:f1}s Committed {comittedPos} Wait {waitS:f1}s",
-                        processorName, partition, state, r p.CompletedPos, r p.ReadPos, isActive, batches, currentBatches, maxReadAhead, Option.toNullable lastGap,
-                        accReadLat.TotalSeconds, recentBatches, recentAge, recentRu, accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
+        log.ForContext("tail", p.IsTail).Information(
+            "ChangeFeed {processorName}/{partition} {state} @ {completedPosition}/{readPosition} Active {active} read {batches} ahead {cur}/{max} Gap {gap} " +
+            "| Read {l:f1}s batches {recentBatches} age {age:d\.hh\:mm\:ss} {ru:n0}RU Pause {pausedS:f1}s Committed {comittedPos} Wait {waitS:f1}s",
+            processorName, partition, state, r p.CompletedPos, r p.ReadPos, isActive, batches, currentBatches, maxReadAhead, Option.toNullable lastGap,
+            accReadLat.TotalSeconds, recentBatches, recentAge, recentRu, accWaits.TotalSeconds, r recentCommittedPos, shutdownTimer.ElapsedSeconds)
         accReadLat <- TimeSpan.Zero; accWaits <- TimeSpan.Zero
         recentBatches <- 0; recentRu <- 0; recentCommittedPos <- ValueNone; recentBatchTimestamp <- None; lastGap <- None
         closed <- finishedReading
 
     member _.RecordActive(state) =
         isActive <- state
+        finishedReading <- not state
     member _.RecordBatch(batchLat, batchTimestamp, batchRu, batchReadPos) =
         recentBatchTimestamp <- Some batchTimestamp
         accReadLat <- accReadLat + batchLat
@@ -107,12 +108,17 @@ type internal TrancheStats() as this =
         closed <- false // Any straggler reads (and/or bugs!) trigger logging
     member _.RecordWaitForCapacity(latency) =
         accWaits <- accWaits + latency
+    member _.RecordCommitted(epoch) =
+        recentCommittedPos <- epoch |> Position.parse |> ValueSome
+        closed <- false
     member _.RecordCompleted(epoch) =
         this.completed <- epoch |> Position.parse |> ValueSome
+        closed <- false
 
     member x.RecordEstimatedGap(gap) =
         lastGap <- Some gap
         x.isTail <- gap = 0L
+        closed <- false
 
 type internal Observer<'Items>(stats: Stats, startIngester: unit -> Propulsion.Ingestion.Ingester<'Items>, parseFeedBatch: ChangeFeedItems -> 'Items) as this =
     inherit TrancheStats()
@@ -127,7 +133,8 @@ type internal Observer<'Items>(stats: Stats, startIngester: unit -> Propulsion.I
         let ingester = ingester.Value
         let batch: Propulsion.Ingestion.Batch<'Items> = {
             epoch = ctx.epoch; items = parseFeedBatch docs; isTail = false
-            checkpoint = fun _ct -> task { do! checkpoint.Invoke () }
+            checkpoint = fun _ct -> task { do! checkpoint.Invoke()
+                                           this.RecordCommitted(ctx.epoch) }
             onCompletion = fun () -> this.RecordCompleted(ctx.epoch) }
         let struct (cur, max) = batch |> (x : Core.ITranchePosition).Decorate |> ingester.Ingest
         stats.ReportRead(ctx.rangeId, awaitCapacitySw.Elapsed, ctx.epoch, ctx.requestCharge, ctx.timestamp, readSw.Elapsed, docs.Count, cur, max)
@@ -149,7 +156,7 @@ type internal Observer<'Items>(stats: Stats, startIngester: unit -> Propulsion.I
 
 type internal Observers<'Items>(log: Serilog.ILogger, processorName, buildObserver) as this =
     inherit Propulsion.Feed.Core.SourcePositions<Observer<'Items>>(buildObserver)
-    let (|Observer|) rangeId = (this : Core.ISourcePositions<_>).For(TrancheId.parse (string rangeId))
+    let (|Observer|) (rangeId: int) = (this : Core.ISourcePositions<_>).For(TrancheId.parse (string rangeId))
     member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollInterval: TimeSpan, startFromTail: bool, ?maxItems) =
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollInterval {feedPollIntervalS:n0}s Items limit {maxItems} fromTail {fromTail}",
                         processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollInterval.TotalSeconds, Option.toNullable maxItems, startFromTail)

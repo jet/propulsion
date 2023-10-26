@@ -99,8 +99,8 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
         let machine () = task {
             // external cancellation should yield a success result
             use _ = ct.Register markCompleted
-            do! startup ct
-            try do! outcomeTask // Wait for external stop()
+            try do! startup ct
+                do! outcomeTask // Wait for external stop()
                 do! shutdown ()
             finally log.Information "... source completed" }
         machine, stop, outcomeTask

@@ -45,7 +45,7 @@ type CosmosStoreSource
     let startIngester trancheId = sink.StartIngester(log, trancheId |> Propulsion.Feed.TrancheId.toString |> int)
     let buildObserver trancheId = lazy (
         let startIngester () = startIngester trancheId
-        new Observer<seq<Propulsion.Sinks.StreamEvent>>(stats, startIngester,  Seq.collect parseFeedDoc))
+        new Observer<seq<Propulsion.Sinks.StreamEvent>>(stats, startIngester, Seq.collect parseFeedDoc))
     let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, processorName, buildObserver)
 
     member _.Start() =

@@ -146,14 +146,6 @@ module Task =
             match! t.WaitForNextTickAsync CancellationToken.None with
             | false -> ()
             | true -> do! f ct }
-    let periodicallyWithFlush (f: unit -> unit) interval: CancellationToken -> System.Threading.CancellationTokenRegistration =
-        let timer = new System.Threading.PeriodicTimer(interval)
-        let rec loop () = task {
-            let! again = timer.WaitForNextTickAsync CancellationToken.None
-            f ()
-            if again then return! loop () }
-        start loop
-        fun (ct: CancellationToken) -> ct.Register(Action timer.Dispose)
 
 type Sem(max) =
     let inner = new System.Threading.SemaphoreSlim(max)
