@@ -81,7 +81,16 @@ type Ingester<'Items> private
         // forwards a set of items and the completion callback, yielding streams count * event count
         submitBatch: 'Items * (unit -> unit) -> struct (int * int),
         cts: CancellationTokenSource,
-        ?commitInterval) =
+        commitInterval: TimeSpan) =
+
+    let progressWriter = ProgressWriter<_>()
+    let startPeriodicCommitLoop ct () = Task.periodically progressWriter.CommitIfDirty commitInterval ct
+    let flushProgress (backoff: TimeSpan) ct = task {
+        while progressWriter.IsDirty do
+            try do! progressWriter.CommitIfDirty ct
+            with _ -> ()
+            if progressWriter.IsDirty then // TODO move backoff into the with when upping to F# 7
+                do! Task.delay backoff ct }
 
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
@@ -90,9 +99,6 @@ type Ingester<'Items> private
     let awaitMessage, applyMessages, enqueueMessage =
         let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
         Channel.awaitRead r, Channel.apply r, Channel.write w
-
-    let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
-    let progressWriter = ProgressWriter<_>()
 
     let handleIncoming (batch: Batch<'Items>) =
         let markCompleted () =
@@ -104,45 +110,38 @@ type Ingester<'Items> private
         let struct (streamCount, itemCount) = submitBatch (batch.items, markCompleted)
         enqueueMessage <| Added (batch.epoch, streamCount, itemCount)
 
-    member _.FlushProgress ct =
-        progressWriter.CommitIfDirty ct
-
-    member private x.AwaitCheckpointed ct = task {
-        if progressWriter.IsDirty then
-            try do! x.FlushProgress ct
-            with _ -> () // one attempt to do it proactively
-            while progressWriter.IsDirty do
-                do! Task.delay (commitInterval / 2.) ct }
-
-    member private x.CheckpointPeriodically(ct: CancellationToken) =
-        Task.periodically (fun ct -> x.FlushProgress ct) commitInterval ct
-
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
-        Task.start (fun () -> x.CheckpointPeriodically ct)
+        Task.start (startPeriodicCommitLoop ct)
         let mutable exiting = false
         while not exiting do
             exiting <- ct.IsCancellationRequested
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
+            if exiting then do! progressWriter.CommitIfDirty CancellationToken.None // Get stats clean before we dump them
             if exiting || stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             let startWaits ct = [| awaitIncoming ct :> Task
                                    awaitMessage ct
                                    Task.Delay(stats.Interval.RemainingMs, ct) |]
             if not exiting then do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct)) }
+
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `maxReadAhead`)
+    /// Default `commitInterval` is 5s
     static member Start<'Items>(log, partitionId, maxReadAhead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, ?commitInterval = commitInterval)
+        let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
+        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, commitInterval = commitInterval)
         let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("... ingester stopped") }
         Task.start startPump
         instance
 
+    /// Returns (reads in flight, maximum reads in flight)
+    member _.CurrentCapacity() = maxRead.State
     /// Submits a batch for unpacking and submission
     /// Returns (reads in flight, maximum reads in flight)
     /// NOTE Caller should AwaitCapacity before calling again
@@ -150,14 +149,10 @@ type Ingester<'Items> private
         enqueueIncoming batch
         x.CurrentCapacity()
     /// If at/over limit, wait for the in-flight reads to drop below the limit
-    member _.AwaitCapacity() = maxRead.Wait(cts.Token)
-    /// Returns (reads in flight, maximum reads in flight)
-    member _.CurrentCapacity() = maxRead.State
+    member _.AwaitCapacity() = maxRead.Wait cts.Token
+    /// Wait for all submitted batches to have been processed
+    member _.AwaitCompleted() = maxRead.WaitForCompleted cts.Token
 
-    /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
+    /// caller expected to `Stop` the active processing thread for the Ingester (and Flush) before releasing references to it
     member _.Stop() = cts.Cancel()
-
-    member x.Wait(ct) = task {
-        let! r = maxRead.WaitForCompleted ct
-        do! x.AwaitCheckpointed ct
-        return r }
+    member _.Flush backoff ct = flushProgress backoff ct

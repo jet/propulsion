@@ -58,4 +58,4 @@ type CosmosStoreSource
                 leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
                 ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
         let monitor = lazy Propulsion.Feed.Core.FeedMonitor(log, observers.Current, sink, fun () -> outcomeTask.IsCompleted)
-        new Propulsion.SourcePipeline<_>(Task.run machine, triggerStop, monitor)
+        new Propulsion.SourcePipeline<_>(Task.run machine, Task.FromResult, triggerStop, monitor)

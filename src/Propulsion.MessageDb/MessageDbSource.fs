@@ -107,4 +107,4 @@ type MessageDbSource =
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     member x.RunUntilCaughtUp(timeout: TimeSpan, statsInterval: IntervalTimer) =
-        Core.FeedMonitor.runUntilCaughtUp x.Start x.Checkpoint (timeout, statsInterval)
+        Core.FeedMonitor.runUntilCaughtUp x.Start (timeout, statsInterval)

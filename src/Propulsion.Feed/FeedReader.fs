@@ -129,12 +129,13 @@ type FeedReader
     let logCommitFailure =  defaultArg logCommitFailure logCommitFailure_
     let commit (position: Position) ct = task {
         try do! commitCheckpoint (source, tranche, position, ct)
-            stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
+            stats.UpdateCommittedPosition(position)
         with Exception.Log logCommitFailure () -> () }
 
     let submitPage (readLatency, batch: Batch<_>) = task {
-        let sinkBatch = decorate { isTail = batch.isTail; epoch = Position.toInt64 batch.checkpoint; checkpoint = commit batch.checkpoint; items = batch.items; onCompletion = ignore }
+        let sinkBatch = decorate { isTail = batch.isTail; epoch = Position.toInt64 batch.checkpoint
+                                   checkpoint = commit batch.checkpoint; items = batch.items; onCompletion = ignore }
         let struct (cur, max) = ingester.Ingest(sinkBatch)
         stats.RecordBatch(readLatency, batch, cur, max)
 
@@ -148,10 +149,10 @@ type FeedReader
         do! ingester.AwaitCapacity()
         stats.RecordWaitForCapacity(Stopwatch.elapsed waitTimer) }
 
-    member _.LogStartingPartition(pos: Position) =
+    member _.LogPartitionStarting(pos: Position) =
         log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
                         partition, source, tranche, renderPos pos)
-    member _.LogFinishingPartition(ex: exn) =
+    member _.LogPartitionExn(ex: exn) =
         log.Warning(ex, "Finishing {partition}", partition)
 
     member _.DumpStats() = stats.Dump(log)
@@ -160,12 +161,12 @@ type FeedReader
         log.Debug("Starting {partition} from {initialPosition}", partition, renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
-        while not (ct.IsCancellationRequested || (lastWasTail && stopAtTail)) do
+        while not ct.IsCancellationRequested && not (stopAtTail && lastWasTail) do
             for readLatency, batch in crawl (lastWasTail, currentPos) ct do
                 do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail
-        if stopAtTail && not ct.IsCancellationRequested then
+        if stopAtTail then
             stats.EnteringShutdown()
-            let! struct (cur, max) = ingester.Wait ct
+            let! struct (cur, max) = ingester.AwaitCompleted()
             stats.ShutdownCompleted(cur, max) }

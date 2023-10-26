@@ -34,8 +34,8 @@ type Scenario(testOutput) =
         do! src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true)
         // source runs until someone explicitly stops it, or it throws
         src.Stop()
-        // TailingFeedSource does not implicitly wait for completion or flush
-        do! source.Checkpoint(CancellationToken.None) |> Task.ignore
+        // Ensure checkpoints are written
+        do! src.Flush()
         // Yields source exception, if any
         do! src.Await()
         test <@ src.RanToCompletion @> }

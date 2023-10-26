@@ -13,28 +13,31 @@ type FeedSourceBase internal
         checkpoints: IFeedCheckpointStore, establishOrigin: Func<TrancheId, CancellationToken, Task<Position>> option,
         sink: Propulsion.Sinks.SinkPipeline,
         renderPos: Position -> string,
+        shutdownTimeout: TimeSpan,
         ?logCommitFailure, ?readersStopAtTail) =
     let log = log.ForContext("source", sourceId)
 
     let mutable partitions = Array.empty<struct(Ingestion.Ingester<_> * FeedReader)>
 
     let dumpStats () = for _i, r in partitions do r.DumpStats()
-    let startStatsPump (ct: CancellationToken) = Task.periodicallyWithFlush dumpStats statsInterval ct
 
     let pumpPartition trancheId struct (ingester: Ingestion.Ingester<_>, reader: FeedReader) ct = task {
         try let establishTrancheOrigin (f: Func<_, CancellationToken, _>) = Func<_, _>(fun ct -> f.Invoke(trancheId, ct))
             try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
-                reader.LogStartingPartition(pos)
+                reader.LogPartitionStarting(pos)
                 return! reader.Pump(pos, ct)
-            with Exception.Log reader.LogFinishingPartition () -> ()
+            with:? System.Threading.Tasks.TaskCanceledException when ct.IsCancellationRequested -> ()
+                | Exception.Log reader.LogPartitionExn () -> ()
         finally ingester.Stop() }
 
     let positions: ISourcePositions<ITranchePosition> = SourcePositions(fun _ -> lazy (TranchePosition() :> _))
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member _.Checkpoint(ct): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
-        do! Task.parallelLimit 4 ct (seq { for i, _r in partitions -> i.FlushProgress }) |> Task.ignore<unit[]>
+    member _.Checkpoint(): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+        use cts = new System.Threading.CancellationTokenSource(shutdownTimeout)
+        let backoff = max (TimeSpan.ms 100) (shutdownTimeout / 3.)
+        do! Task.parallelLimit 4 cts.Token (seq { for i, _r in partitions -> i.Flush backoff }) |> Task.ignore<unit[]>
         return positions |> SourcePositions.completed }
 
     /// Propagates exceptions raised by <c>readTranches</c> or <c>crawl</c>,
@@ -54,16 +57,18 @@ type FeedSourceBase internal
             let reader = FeedReader(log, partitionId, sourceId, trancheId, crawl trancheId, ingester, instrumentBatch, checkpoints.Commit,
                                     renderPos, stopAtTail = defaultArg readersStopAtTail false, ?logCommitFailure = logCommitFailure)
             ingester, reader)
-        use _ = startStatsPump ct // loops in background until overall pumping is cancelled
+        Task.start (fun () ->  // loops in background until overall pumping is cancelled
+            let dumpStats_ _ct = dumpStats (); Task.FromResult ()
+            Task.periodically dumpStats_ statsInterval ct)
         let trancheWorkflows = (tranches, partitions) ||> Seq.map2 pumpPartition
-        do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
-        do! x.Checkpoint(ct) |> Task.ignore }
+        try do! Task.parallelUnlimited ct trancheWorkflows |> Task.ignore<unit[]>
+        finally dumpStats () } // Flush the stats when each partition has finished (and flushed)
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
-    member _.Start(pump) =
+    member x.Start(pump) =
         let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions.Current, sink, fun () -> outcomeTask.IsCompleted)
-        new SourcePipeline<_>(Task.run machine, triggerStop, monitor)
+        new SourcePipeline<_>(Task.run machine, x.Checkpoint >> Task.ignore, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams
 type TailingFeedSource
@@ -71,8 +76,8 @@ type TailingFeedSource
         sourceId, tailSleepInterval: TimeSpan,
         checkpoints: IFeedCheckpointStore, establishOrigin, sink: Propulsion.Sinks.SinkPipeline, renderPos,
         crawl: Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>>,
-        ?logReadFailure, ?readFailureSleepInterval: TimeSpan, ?logCommitFailure, ?readersStopAtTail) =
-    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos,
+        ?logReadFailure, ?readFailureSleepInterval: TimeSpan, ?logCommitFailure, ?readersStopAtTail, ?shutdownTimeout) =
+    inherit FeedSourceBase(log, statsInterval, sourceId, checkpoints, establishOrigin, sink, renderPos, defaultArg shutdownTimeout (TimeSpan.seconds 5),
                            ?logCommitFailure = logCommitFailure, ?readersStopAtTail = readersStopAtTail)
 
     let crawl trancheId (wasLast, startPos) ct = taskSeq {
@@ -166,8 +171,9 @@ type FeedSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan,
         sourceId, tailSleepInterval: TimeSpan,
         checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
-        ?renderPos) =
-    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos string)
+        ?renderPos, ?shutdownTimeout) =
+    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink,
+                                defaultArg renderPos string, defaultArg shutdownTimeout (TimeSpan.seconds 5))
 
     let crawl (readPage: Func<TrancheId,Position,CancellationToken,Task<Page<_>>>) trancheId =
         let streamName = FsCodec.StreamName.compose "Messages" [| SourceId.toString sourceId; TrancheId.toString trancheId |]

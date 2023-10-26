@@ -189,7 +189,6 @@ module FeedMonitor =
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     let runUntilCaughtUp
             (start: unit -> SourcePipeline<FeedMonitor>)
-            (checkpoint: CancellationToken -> Task<'R>)
             (timeout: TimeSpan, statsInterval: IntervalTimer) = task {
         let sw = Stopwatch.start ()
         // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
@@ -207,5 +206,4 @@ module FeedMonitor =
 
             if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
             // force a final attempt to flush (normally checkpointing is at 5s intervals)
-            return! checkpoint CancellationToken.None
         finally statsInterval.SleepUntilTriggerCleared() }

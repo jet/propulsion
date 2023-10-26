@@ -142,7 +142,7 @@ let ``It doesn't read the tail event again`` () = task {
 
     use capture = new ActivityCapture()
 
-    do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) :> Task
+    do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval)
 
     // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
     test <@ capture.Operations.Count = 5 @> }
