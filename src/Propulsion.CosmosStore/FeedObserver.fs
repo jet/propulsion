@@ -101,7 +101,7 @@ type internal TrancheStats() as this =
     member _.RecordBatch(batchLat, batchTimestamp, batchRu, batchReadPos) =
         recentBatchTimestamp <- Some batchTimestamp
         accReadLat <- accReadLat + batchLat
-        this.read <- ValueSome batchReadPos // TOCONSIDER remove
+        this.read <- ValueSome batchReadPos
         batches <- batches + 1
         recentBatches <- recentBatches + 1
         recentRu <- recentRu + batchRu
