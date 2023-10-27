@@ -65,8 +65,9 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
                     // If the source completes all reading cleanly, declare completion
                     log.Information "Source drained..."
                     markCompleted ()
-                with e -> log.Warning(e, "Exception encountered while running source, exiting loop")
-                          recordExn e }
+                with e ->
+                    log.Warning(e, "Exception encountered while running source, exiting loop")
+                    recordExn e }
             inner, tcs.Task, markCompleted
 
         let machine () = task {
@@ -77,7 +78,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             Task.start inner
 
             try return! outcomeTask
-            finally log.Information "... source completed" }
+            finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
     static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>) =
@@ -99,7 +100,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             try do! startup ct
                 do! outcomeTask // Wait for external stop()
                 do! shutdown ()
-            finally log.Information "... source completed" }
+            finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
@@ -145,7 +146,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
                 let finishedAsRequested = scheduler.Wait(TimeSpan.seconds 2)
                 let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
                 let level = if finishedAsRequested && ms < 200 then LogEventLevel.Information else LogEventLevel.Warning
-                log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
+                log.Write(level, "Sink stopped {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop

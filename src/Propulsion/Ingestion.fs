@@ -132,8 +132,7 @@ type Ingester<'Items> private
     static member Start<'Items>(log, partitionId, maxReadAhead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
-        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, commitInterval = commitInterval)
+        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, commitInterval = defaultArg commitInterval (TimeSpan.seconds 5))
         let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("... ingester stopped") }

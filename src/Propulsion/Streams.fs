@@ -995,7 +995,7 @@ type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] 
 [<AbstractClass; Sealed>]
 type Factory private () =
 
-    static member private StartIngester(log, partitionId, maxRead, submit, statsInterval, ?commitInterval) =
+    static member private StartIngester(log, partitionId, maxRead, submit, statsInterval, [<O; D null>] ?commitInterval) =
         let submitBatch (items: StreamEvent<'F> seq, onCompletion) =
             let items = Array.ofSeq items
             let streams = items |> Seq.map ValueTuple.fst |> HashSet
@@ -1010,7 +1010,7 @@ type Factory private () =
             else ValueNone
         Propulsion.Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, streamsScheduler.SubmitStreams, streamsScheduler.WaitToSubmit, trySubmitBatch)
 
-    static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStateInterval, ?commitInterval) =
+    static member Start(log: ILogger, pumpScheduler, maxReadAhead, streamsScheduler, ingesterStateInterval, [<O; D null>] ?commitInterval) =
         let mapBatch onCompletion (x: Propulsion.Submission.Batch<_, StreamEvent<'F>>): struct (Buffer.Streams<'F> * Buffer.Batch) =
             Buffer.Batch.Create(onCompletion, x.messages)
         let submitter = Factory.CreateSubmitter(log, mapBatch, streamsScheduler, ingesterStateInterval)
@@ -1044,7 +1044,8 @@ type Concurrent private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
                                           ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
 
     /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F, 'R>
@@ -1107,4 +1108,5 @@ type Batched private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
                                           ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)

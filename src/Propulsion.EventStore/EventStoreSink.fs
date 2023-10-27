@@ -136,10 +136,10 @@ type EventStoreSink =
             ?purgeInterval,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
-            ?ingesterStateInterval)
-        : SinkPipeline =
+            ?ingesterStateInterval, ?commitInterval): SinkPipeline =
         let dispatcher = Internal.Dispatcher.Create(log, storeLog, connections, maxConcurrentStreams)
         let scheduler =
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, ?purgeInterval = purgeInterval, ?idleDelay = idleDelay)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
