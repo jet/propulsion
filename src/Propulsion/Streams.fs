@@ -1044,7 +1044,8 @@ type Concurrent private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
                                           ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
 
     /// Project Events using a <code>handle</code> function that yields a Write Position representing the next event that's to be handled on this Stream
     static member Start<'Outcome, 'F, 'R>
@@ -1107,4 +1108,5 @@ type Batched private () =
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
                                           ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)

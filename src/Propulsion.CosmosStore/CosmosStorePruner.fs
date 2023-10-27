@@ -66,9 +66,7 @@ type CosmosStorePruner =
     static member Start
         (   log: ILogger, maxReadAhead, context, maxConcurrentStreams, stats: CosmosStorePrunerStats,
             ?purgeInterval, ?wakeForResults, ?idleDelay,
-            // Defaults to stateInterval
-            ?ingesterStateInterval)
-        : SinkPipeline =
+            ?ingesterStateInterval, ?commitInterval): SinkPipeline =
         let dispatcher =
 #if COSMOSV3
             let inline pruneUntil (sn, index, ct) = Equinox.CosmosStore.Core.Events.pruneUntil context (FsCodec.StreamName.toString sn) index |> Async.executeAsTask ct
@@ -82,4 +80,5 @@ type CosmosStorePruner =
         let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
-        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler, ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
