@@ -180,13 +180,13 @@ module Scheduling =
 
 type ParallelIngester<'Item> =
 
-    static member Start(log, partitionId, maxRead, submit, statsInterval) =
+    static member Start(log, partitionId, maxRead, submit, statsInterval, ?commitInterval) =
         let submitBatch (items: 'Item seq, onCompletion) =
             let items = Array.ofSeq items
             let batch: Submission.Batch<_, 'Item> = { partitionId = partitionId; onCompletion = onCompletion; messages = items }
             submit batch
             struct (items.Length, items.Length)
-        Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval)
+        Ingestion.Ingester<'Item seq>.Start(log, partitionId, maxRead, submitBatch, statsInterval, ?commitInterval = commitInterval)
 
 [<AbstractClass; Sealed>]
 type Factory private () =
@@ -195,7 +195,8 @@ type Factory private () =
             (    log: ILogger, maxReadAhead, maxDop, handle,
                  statsInterval,
                  ?logExternalStats,
-                 ?ingesterStateInterval)
+                 ?ingesterStateInterval,
+                 ?commitInterval)
             : SinkPipeline<Ingestion.Ingester<'Item seq>> =
 
         let ingesterStateInterval = defaultArg ingesterStateInterval statsInterval
@@ -211,5 +212,5 @@ type Factory private () =
             ValueSome 0
 
         let submitter = Submission.SubmissionEngine<_, _, _, _>(log, statsInterval, mapBatch, ignore, alwaysReady, submitBatch)
-        let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval)
+        let startIngester (rangeLog, partitionId) = ParallelIngester<'Item>.Start(rangeLog, partitionId, maxReadAhead, submitter.Ingest, ingesterStateInterval, ?commitInterval = commitInterval)
         PipelineFactory.StartSink(log, scheduler.Pump, submitter.Pump, startIngester, pumpDispatcher = dispatcher.Pump)

@@ -70,7 +70,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let machine () = task {
             // external cancellation should yield a success result (in the absence of failures from the supervised tasks)
-            use _ = ct.Register(ignore >> markCompleted)
+            use _ = ct.Register markCompleted
 
             // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
             Task.start inner

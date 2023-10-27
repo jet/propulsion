@@ -81,7 +81,15 @@ type Ingester<'Items> private
         // forwards a set of items and the completion callback, yielding streams count * event count
         submitBatch: 'Items * (unit -> unit) -> struct (int * int),
         cts: CancellationTokenSource,
-        ?commitInterval) =
+        commitInterval: TimeSpan) =
+
+    let progressWriter = ProgressWriter<_>()
+    let flushProgress (backoff: TimeSpan) ct = task {
+        while progressWriter.IsDirty do
+            try do! progressWriter.CommitIfDirty ct
+            with _ -> ()
+            if progressWriter.IsDirty then // TODO move backoff into the with when upping to F# 7
+                do! Task.delay backoff ct }
 
     let maxRead = Sem maxReadAhead
     let awaitIncoming, applyIncoming, enqueueIncoming =
@@ -90,9 +98,6 @@ type Ingester<'Items> private
     let awaitMessage, applyMessages, enqueueMessage =
         let c = Channel.unboundedSr in let r, w = c.Reader, c.Writer
         Channel.awaitRead r, Channel.apply r, Channel.write w
-
-    let commitInterval = defaultArg commitInterval (TimeSpan.FromSeconds 5.)
-    let progressWriter = ProgressWriter<_>()
 
     let handleIncoming (batch: Batch<'Items>) =
         let markCompleted () =
@@ -103,21 +108,6 @@ type Ingester<'Items> private
             maxRead.Release()
         let struct (streamCount, itemCount) = submitBatch (batch.items, markCompleted)
         enqueueMessage <| Added (batch.epoch, streamCount, itemCount)
-
-    member _.FlushProgress ct =
-        progressWriter.CommitIfDirty ct
-
-    member private x.AwaitCheckpointed ct = task {
-        if progressWriter.IsDirty then
-            try do! x.FlushProgress ct
-            with _ -> () // one attempt to do it proactively
-            while progressWriter.IsDirty do
-                do! Task.delay (commitInterval / 2.) ct }
-
-    member private x.CheckpointPeriodically(ct: CancellationToken) = task {
-        while not ct.IsCancellationRequested do
-            do! x.FlushProgress ct
-            do! Task.delay commitInterval ct }
 
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
@@ -138,7 +128,7 @@ type Ingester<'Items> private
     static member Start<'Items>(log, partitionId, maxReadAhead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
-        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, ?commitInterval = commitInterval)
+        let instance = Ingester<'Items>(stats, maxReadAhead, submitBatch, cts, commitInterval = defaultArg commitInterval (TimeSpan.seconds 5))
         let startPump () = task {
             try do! instance.Pump cts.Token
             finally log.Information("... ingester stopped") }
@@ -153,11 +143,26 @@ type Ingester<'Items> private
         // ... but we might hold off on yielding if we're at capacity
         do! maxRead.Wait(cts.Token)
         return maxRead.State }
-
-    /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
-    member _.Stop() = cts.Cancel()
-
     member x.Wait(ct) = task {
         let! r = maxRead.WaitForCompleted ct
         do! x.AwaitCheckpointed ct
         return r }
+
+    /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
+    member _.Stop() = cts.Cancel()
+
+    member _.FlushProgress ct =
+        progressWriter.CommitIfDirty ct
+
+    member private x.AwaitCheckpointed ct = task {
+        if progressWriter.IsDirty then
+            try do! x.FlushProgress ct
+            with _ -> () // one attempt to do it proactively
+            while progressWriter.IsDirty do
+                do! Task.delay (commitInterval / 2.) ct }
+
+    member private x.CheckpointPeriodically(ct: CancellationToken) = task {
+        while not ct.IsCancellationRequested do
+            do! x.FlushProgress ct
+            do! Task.delay commitInterval ct }
+
