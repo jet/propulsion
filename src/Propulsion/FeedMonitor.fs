@@ -22,11 +22,11 @@ type TranchePosition() =
         member x.ReadPos = x.read
         member x.CompletedPos = x.completed
         member x.Decorate(batch) =
-            x.read <- ValueSome (Position.parse batch.epoch)
+            x.read <- Position.parse batch.epoch |> ValueSome
             x.isTail <- batch.isTail
             let onCompletion () =
                 batch.onCompletion()
-                x.completed <- ValueSome (Position.parse batch.epoch)
+                x.completed <- Position.parse batch.epoch |> ValueSome
             { batch with onCompletion = onCompletion }
 
 module TranchePosition =
