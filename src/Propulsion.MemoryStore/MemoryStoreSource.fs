@@ -61,7 +61,7 @@ type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, ca
             (fun () -> tcs.TrySetResult () |> ignore),
             fun () -> task {
                 try return! tcs.Task
-                finally log.Information "... source completed" }
+                finally log.Information "Source stopped" }
 
         let supervise () = task {
             // external cancellation (via Stop()) should yield a success result

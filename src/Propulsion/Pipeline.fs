@@ -76,7 +76,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             Task.start inner
 
             try return! outcomeTask
-            finally log.Information "... source completed" }
+            finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
     static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, maybeStartChild, outerStop: unit -> Task<unit>, observer: IDisposable) =
@@ -102,7 +102,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
 
             try do! outcomeTask
                 do! outerStop ()
-            finally log.Information("... source stopped") }
+            finally log.Information("Source stopped") }
 
         machine, stop
 
@@ -153,7 +153,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
                 let finishedAsRequested = scheduler.Wait(TimeSpan.seconds 2)
                 let ms = let t = Stopwatch.elapsed ts in int t.TotalMilliseconds
                 let level = if finishedAsRequested && ms < 200 then LogEventLevel.Information else LogEventLevel.Warning
-                log.Write(level, "... sink completed {schedulerCleanupMs}ms", ms) }
+                log.Write(level, "Sink stopped {schedulerCleanupMs}ms", ms) }
 
         let task = Task.Run<unit>(supervise)
         task, triggerStop
