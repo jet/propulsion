@@ -34,10 +34,12 @@ type Pipeline(task: Task<unit>, triggerStop) =
         use _ = ct.Register(Action x.Stop)
         return! x.Await() }
 
- type SourcePipeline<'M>(task, triggerStop, monitor: Lazy<'M>) =
+ type SourcePipeline<'M>(task, flush: unit -> Task<unit>, triggerStop, monitor: Lazy<'M>) =
     inherit Pipeline(task, triggerStop)
 
     member _.Monitor = monitor.Value
+    member _.FlushAsync() = flush ()
+    member x.Flush() = x.FlushAsync() |> Async.AwaitTaskCorrect
 
 type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
@@ -79,36 +81,27 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
-    static member private PrepareSource2(log: Serilog.ILogger, start: unit -> Task<unit>, maybeStartChild, outerStop: unit -> Task<unit>, observer: IDisposable) =
+    static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
             cts.Token, fun _disposing ->
                 let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
                 log.Write(level, "Source stopping...")
-                observer.Dispose()
                 cts.Cancel()
 
         let outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            tcs.Task, fun () -> tcs.TrySetResult () |> ignore
+            let markCompleted () = tcs.TrySetResult () |> ignore
+            tcs.Task, markCompleted
 
         let machine () = task {
-            do! start ()
-            use _ = ct.Register(ignore >> markCompleted)
-
-            match maybeStartChild with
-            | None -> ()
-            | Some child -> Task.start (fun () -> child ct)
-
-            try do! outcomeTask
-                do! outerStop ()
-            finally log.Information("Source stopped") }
-
-        machine, stop
-
-    static member StartSource(log: Serilog.ILogger, start, maybeStartChild, outerStop, observer) =
-        let machine, stop = PipelineFactory.PrepareSource2(log, start, maybeStartChild, outerStop, observer)
-        new Pipeline(Task.run machine, stop)
+            // external cancellation should yield a success result
+            use _ = ct.Register markCompleted
+            try do! startup ct
+                do! outcomeTask // Wait for external stop()
+                do! shutdown ()
+            finally log.Information "Source stopped" }
+        machine, stop, outcomeTask
 
     static member PrepareSink(log: Serilog.ILogger, pumpScheduler, pumpSubmitter, ?pumpIngester, ?pumpDispatcher) =
         let cts = new System.Threading.CancellationTokenSource()

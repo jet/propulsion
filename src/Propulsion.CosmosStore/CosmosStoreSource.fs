@@ -1,111 +1,61 @@
 ﻿namespace Propulsion.CosmosStore
 
-open Microsoft.Azure.Cosmos
 open Propulsion.Internal
-open Serilog
 open System
-open System.Collections.Generic
 
-module Log =
+/// Wraps the Microsoft.Azure.Cosmos ChangeFeedProcessor and ChangeFeedProcessorEstimator
+/// See https://docs.microsoft.com/en-us/azure/cosmos-db/how-to-use-change-feed-estimator
+type CosmosStoreSource
+    (   log: Serilog.ILogger, statsInterval,
+        monitored: Microsoft.Azure.Cosmos.Container,
+        // The non-partitioned (i.e., PartitionKey is "id") Container holding the partition leases.
+        // Should always read from the write region to keep the number of write conflicts to a minimum when the sdk
+        // updates the leases. Since the non-write region(s) might lag behind due to us using non-strong consistency, during
+        // fail over we are likely to reprocess some messages, but that's okay since processing has to be idempotent in any case
+        leases: Microsoft.Azure.Cosmos.Container,
+        // Identifier to disambiguate multiple independent feed processor positions (akin to a 'consumer group')
+        processorName, parseFeedDoc, sink: Propulsion.Sinks.SinkPipeline,
+        // Limit on items to take in a batch when querying for changes (in addition to 4MB response size limit). Default Unlimited.
+        // Max Items is not emphasized as a control mechanism as it can only be used meaningfully when events are highly regular in size.
+        [<O; D null>] ?maxItems,
+        // Delay before re-polling a partition after backlog has been drained. Default: 1s
+        [<O; D null>] ?tailSleepInterval,
+        // (NB Only applies if this is the first time this leasePrefix is presented)
+        // Specify `true` to request starting of projection from the present write position.
+        // Default: false (projecting all events from start beforehand)
+        [<O; D null>] ?startFromTail,
+        [<O; D null>] ?lagEstimationInterval: TimeSpan,
+        // Enables reporting or other processing of Exception conditions as per <c>WithErrorNotification</c>
+        [<O; D null>] ?notifyError: Action<int, exn>,
+        // Admits customizations in the ChangeFeedProcessorBuilder chain
+        [<O; D null>] ?customize,
+        // Frequency to check for partitions without a processor. Default: 5s
+        [<O; D null>] ?leaseAcquireInterval,
+        // Frequency to renew leases held by processors under our control. Default 3s
+        [<O; D null>] ?leaseRenewInterval,
+        // Duration to take lease when acquired/renewed. Default 10s
+        [<O; D null>] ?leaseTtl) =
+    let leaseOwnerId =
+        // If k>1 processes share an owner id, then they will compete for same partitions.
+        // In that scenario, redundant processing happen on assigned partitions, but checkpoint will process on only 1 consumer.
+        // Including the processId should eliminate the possibility that a broken process manager causes k>1 scenario to happen.
+        // The only downside is that upon redeploy, lease expiration / TTL would have to be observed before a consumer can pick it up.
+        $"%s{Environment.MachineName}-%s{System.Reflection.Assembly.GetEntryAssembly().GetName().Name}-%d{System.Diagnostics.Process.GetCurrentProcess().Id}"
+    let stats = Stats(log, monitored.Database.Id, monitored.Id, processorName)
+    let startIngester trancheId = sink.StartIngester(log, trancheId |> Propulsion.Feed.TrancheId.toString |> int)
+    let buildObserver trancheId = lazy (
+        let startIngester () = startIngester trancheId
+        new Observer<seq<Propulsion.Sinks.StreamEvent>>(stats, startIngester, Seq.collect parseFeedDoc))
+    let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, processorName, buildObserver)
 
-    type ReadMetric =
-        {   database: string; container: string; group: string; rangeId: int
-            token: int64; latency: TimeSpan; rc: float; age: TimeSpan; docs: int
-            ingestLatency: TimeSpan; ingestQueued: int }
-    type LagMetric =
-        {   database: string; container: string; group: string
-            rangeLags: (int * int64)[] }
-    [<RequireQualifiedAccess; NoEquality; NoComparison>]
-    type Metric =
-        | Read of ReadMetric
-        | Lag of LagMetric
-
-    let [<Literal>] PropertyTag = "propulsionCosmosEvent"
-    /// Attach a property to the captured event record to hold the metric information
-    let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
-    let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
-        let mutable p = Unchecked.defaultof<_>
-        logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
-        match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
-
-type CosmosStoreSource =
-
-    static member private CreateTrancheObserver<'Items>
-        (   log: ILogger,
-            trancheIngester: Propulsion.Ingestion.Ingester<'Items>,
-            mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
-
-        let sw = Stopwatch.start () // we'll end up reporting the warmup/connect time on the first batch, but that's ok
-        let ingest (ctx: ChangeFeedObserverContext) (checkpoint, docs: IReadOnlyCollection<_>, _ct) = task {
-            sw.Stop() // Stop the clock after ChangeFeedProcessor hands off to us
-            let readElapsed, age = sw.Elapsed, DateTime.UtcNow - ctx.timestamp
-            let pt = Stopwatch.start ()
-            let! struct (cur, max) = trancheIngester.Ingest { epoch = ctx.epoch; checkpoint = checkpoint; items = mapContent docs; onCompletion = ignore; isTail = false }
-            let m = Log.Metric.Read {
-                database = ctx.source.Database.Id; container = ctx.source.Id; group = ctx.group; rangeId = int ctx.rangeId
-                token = ctx.epoch; latency = readElapsed; rc = ctx.requestCharge; age = age; docs = docs.Count
-                ingestLatency = pt.Elapsed; ingestQueued = cur }
-            (log |> Log.withMetric m).Information("Reader {partition} {token,9} age {age:dddd\.hh\:mm\:ss} {count,4} docs {requestCharge,6:f1}RU {l,5:f1}s Wait {pausedS:f3}s Ahead {cur}/{max}",
-                                                  ctx.rangeId, ctx.epoch, age, docs.Count, ctx.requestCharge, readElapsed.TotalSeconds, pt.ElapsedSeconds, cur, max)
-            sw.Restart() // restart the clock as we handoff back to the ChangeFeedProcessor
-        }
-
-        { new IChangeFeedObserver with
-#if COSMOSV3
-            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
-#else
-            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
-#endif
-          interface IDisposable with
-            member _.Dispose() = trancheIngester.Stop() }
-
-    static member CreateObserver<'Items>
-        (   log: ILogger,
-            startIngester: ILogger * int -> Propulsion.Ingestion.Ingester<'Items>,
-            mapContent: IReadOnlyCollection<_> -> 'Items): IChangeFeedObserver =
-
-        // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
-        // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
-        let forTranche = System.Collections.Concurrent.ConcurrentDictionary<int, Lazy<IChangeFeedObserver>>()
-        let dispose () = for x in forTranche.Values do x.Value.Dispose()
-        let build trancheId = lazy CosmosStoreSource.CreateTrancheObserver(log, startIngester (log, trancheId), mapContent)
-        let forTranche trancheId = forTranche.GetOrAdd(trancheId, build).Value
-        let ingest context (checkpoint, docs, ct) =
-            let trancheObserver = forTranche context.rangeId
-            trancheObserver.Ingest(context, checkpoint, docs, ct)
-
-        { new IChangeFeedObserver with
-            member _.Ingest(context, checkpoint, docs, ct) = ingest context (checkpoint, docs, ct)
-          interface IDisposable with
-            member _.Dispose() = dispose () }
-
-    static member Start
-        (   log: ILogger,
-            monitored: Container, leases: Container, processorName, observer,
-            [<O; D null>] ?maxItems,
-            [<O; D null>] ?tailSleepInterval,
-            [<O; D null>] ?startFromTail,
-            [<O; D null>] ?lagReportFreq: TimeSpan,
-            [<O; D null>] ?notifyError,
-            [<O; D null>] ?customize) =
-        let databaseId, containerId = monitored.Database.Id, monitored.Id
-        let logLag (interval: TimeSpan) (remainingWork: (int*int64) list) = task {
-            let mutable synced, lagged, count, total = ResizeArray(), ResizeArray(), 0, 0L
-            for partitionId, gap as partitionAndGap in remainingWork do
-                total <- total + gap
-                count <- count + 1
-                if gap = 0L then synced.Add partitionId else lagged.Add partitionAndGap
-            let m = Log.Metric.Lag { database = databaseId; container = containerId; group = processorName; rangeLags = remainingWork |> Array.ofList }
-            (log |> Log.withMetric m).Information("ChangeFeed {processorName} Lag Partitions {partitions} Gap {gapDocs:n0} docs {@laggingPartitions} Synced {@syncedPartitions}",
-                                                  processorName, count, total, lagged, synced)
-            return! Async.Sleep(TimeSpan.toMs interval) }
-        let maybeLogLag = lagReportFreq |> Option.map logLag
-        let startFromTail = defaultArg startFromTail false
-        let source =
-            ChangeFeedProcessor.Start
-              ( log, monitored, leases, processorName, observer, ?notifyError=notifyError, ?customize=customize,
-                ?maxItems = maxItems, ?feedPollDelay = tailSleepInterval, ?reportLagAndAwaitNextEstimation = maybeLogLag,
-                startFromTail = startFromTail,
-                leaseAcquireInterval = TimeSpan.FromSeconds 5., leaseRenewInterval = TimeSpan.FromSeconds 5., leaseTtl = TimeSpan.FromSeconds 10.)
-        lagReportFreq |> Option.iter (fun s -> log.Information("ChangeFeed {processorName} Lag stats interval {lagReportIntervalS:n0}s", processorName, s.TotalSeconds))
-        source
+    member _.Start() =
+        let machine, triggerStop, outcomeTask =
+            ChangeFeedProcessor.Start(
+                monitored, leases, processorName, leaseOwnerId, log, stats, statsInterval, observers,
+                defaultArg startFromTail false, feedPollInterval = defaultArg tailSleepInterval (TimeSpan.seconds 1),
+                leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
+                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
+                leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
+                ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
+        let monitor = lazy Propulsion.Feed.Core.FeedMonitor(log, observers.Current, sink, fun () -> outcomeTask.IsCompleted)
+        new Propulsion.SourcePipeline<_>(Task.run machine, Task.FromResult, triggerStop, monitor)

@@ -92,6 +92,7 @@ and [<NoEquality; NoComparison>] CheckpointParameters =
 and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine "-Z"; Unique>]       FromTail
+    | [<AltCommandLine "-F"; Unique>]       Follow
     | [<AltCommandLine "-m"; Unique>]       MaxItems of int
 
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsParameters>
@@ -100,6 +101,7 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name."
             | FromTail _ ->                 "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
+            | Follow _ ->                   "Stop when the Tail is reached."
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
             | Stats _ ->                    "Do not emit events, only stats."
@@ -318,7 +320,7 @@ module Project =
             | Choice1Of3 sa -> Choice1Of3 sa, Equinox.CosmosStore.Core.Log.InternalMetrics.dump
             | Choice2Of3 sa -> Choice2Of3 sa, Equinox.DynamoStore.Core.Log.InternalMetrics.dump
             | Choice3Of3 sa -> Choice3Of3 sa, ignore
-        let group, startFromTail, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.TryGetResult MaxItems
+        let group, startFromTail, follow, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.Contains Follow, p.TryGetResult MaxItems
         let producer =
             match p.GetSubCommand() with
             | Kafka a ->
@@ -345,10 +347,10 @@ module Project =
             | Choice1Of3 sa ->
                 let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
                 let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
-                let observer = Propulsion.CosmosStore.CosmosStoreSource.CreateObserver(Log.Logger, sink.StartIngester, Seq.collect parseFeedDoc)
-                Propulsion.CosmosStore.CosmosStoreSource.Start
-                  ( Log.Logger, monitored, leases, group, observer,
-                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagReportFreq = sa.MaybeLogLagInterval)
+                Propulsion.CosmosStore.CosmosStoreSource(
+                    Log.Logger, stats.StatsInterval, monitored, leases, group, parseFeedDoc, sink,
+                    startFromTail = startFromTail, ?maxItems = maxItems, ?lagEstimationInterval = sa.MaybeLogLagInterval
+                ).Start()
             | Choice2Of3 sa ->
                 let (indexContext, indexFilter), loadMode = sa.MonitoringParams()
                 let checkpoints =
@@ -370,8 +372,16 @@ module Project =
                 ).Start()
         let work = [
             Async.AwaitKeyboardInterruptAsTaskCanceledException()
-            sink.AwaitWithStopOnCancellation()
-            source.AwaitWithStopOnCancellation() ]
+            if follow then
+                source.AwaitWithStopOnCancellation()
+            else async {
+                let initialWait = TimeSpan.seconds 10
+                do! source.Monitor.AwaitCompletion(initialWait, awaitFullyCaughtUp = true, logInterval = stats.StatsInterval / 2.) |> Async.AwaitTask
+                source.Stop()
+                do! source.Await() // Let it emit the stats
+                do! source.Flush() // flush checkpoints (currently a no-op)
+                raise <| System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed" } // trigger tear down of sibling waits
+            sink.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> }
 
 type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
@@ -394,9 +404,9 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
         ToolArguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
 
 let isExpectedShutdownSignalException: exn -> bool = function
-    | :? ArguParseException -> false // Via Arguments.Parse and/or Configuration.tryGet
-    | :? System.Threading.Tasks.TaskCanceledException -> false // via AwaitKeyboardInterruptAsTaskCanceledException
-    | _ -> true
+    | :? ArguParseException -> true // Via Arguments.Parse and/or Configuration.tryGet
+    | :? System.Threading.Tasks.TaskCanceledException -> true // via AwaitKeyboardInterruptAsTaskCanceledException
+    | _ -> false
 
 [<EntryPoint>]
 let main argv =

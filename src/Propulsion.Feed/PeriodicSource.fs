@@ -50,8 +50,9 @@ type SourceItem<'F> = { streamName: FsCodec.StreamName; eventData: FsCodec.IEven
 type PeriodicSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan, sourceId, refreshInterval: TimeSpan,
         checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
-        ?renderPos) =
-    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
+        ?renderPos, ?shutdownTimeout) =
+    inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink,
+                                defaultArg renderPos DateTimeOffsetPosition.render, defaultArg shutdownTimeout (TimeSpan.seconds 5))
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
     let crawlInternal (read: Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct: IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
@@ -103,7 +104,7 @@ type PeriodicSource
     /// Any exception from <c>readTranches</c> or <c>crawl</c> will be propagated in order to enable termination of the overall projector loop
     abstract member StartAsync: crawl: Func<TrancheId, IAsyncEnumerable<struct (TimeSpan * SourceItem<Propulsion.Sinks.EventBody>[])>>
                                 * ?readTranches: Func<CancellationToken, Task<TrancheId[]>>
-                                 -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+                                -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
     default x.StartAsync(crawl, ?readTranches) =
         let readTranches = match readTranches with Some f -> f.Invoke | None -> fun _ct -> task { return [| TrancheId.parse "0" |] }
         base.Start(fun ct -> x.Pump(readTranches, crawl, ct))

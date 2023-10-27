@@ -84,6 +84,7 @@ type Ingester<'Items> private
         commitInterval: TimeSpan) =
 
     let progressWriter = ProgressWriter<_>()
+    let startPeriodicCommitLoop ct () = Task.periodically progressWriter.CommitIfDirty commitInterval ct
     let flushProgress (backoff: TimeSpan) ct = task {
         while progressWriter.IsDirty do
             try do! progressWriter.CommitIfDirty ct
@@ -111,20 +112,23 @@ type Ingester<'Items> private
 
     member private x.Pump(ct) = task {
         use _ = progressWriter.Result.Subscribe(ProgressResult >> enqueueMessage)
-        Task.start (fun () -> x.CheckpointPeriodically ct)
+        Task.start (startPeriodicCommitLoop ct)
         let mutable exiting = false
         while not exiting do
             exiting <- ct.IsCancellationRequested
             while applyIncoming handleIncoming || applyMessages stats.Handle do ()
             stats.RecordCycle()
+            if exiting then do! progressWriter.CommitIfDirty CancellationToken.None // Get stats clean before we dump them
             if exiting || stats.Interval.IfDueRestart() then let struct (active, max) = maxRead.State in stats.DumpStats(active, max)
             let startWaits ct = [| awaitIncoming ct :> Task
                                    awaitMessage ct
                                    Task.Delay(stats.Interval.RemainingMs, ct) |]
             if not exiting then do! Task.runWithCancellation ct (fun ct -> Task.WhenAny(startWaits ct)) }
+
     /// Starts an independent Task that handles
     /// a) `unpack`ing of `incoming` items
     /// b) `submit`ting them onward (assuming there is capacity within the `maxReadAhead`)
+    /// Default `commitInterval` is 5s
     static member Start<'Items>(log, partitionId, maxReadAhead, submitBatch, statsInterval, ?commitInterval) =
         let cts = new CancellationTokenSource()
         let stats = Stats(log, partitionId, statsInterval)
@@ -135,34 +139,19 @@ type Ingester<'Items> private
         Task.start startPump
         instance
 
-    /// Submits a batch as read for unpacking and submission; will only return after the in-flight reads drops below the limit
     /// Returns (reads in flight, maximum reads in flight)
-    member _.Ingest(batch: Batch<'Items>) = task {
-        // It's been read... feed it into the queue for unpacking
+    member _.CurrentCapacity() = maxRead.State
+    /// Submits a batch for unpacking and submission
+    /// Returns (reads in flight, maximum reads in flight)
+    /// NOTE Caller should AwaitCapacity before calling again
+    member x.Ingest(batch: Batch<'Items>) =
         enqueueIncoming batch
-        // ... but we might hold off on yielding if we're at capacity
-        do! maxRead.Wait(cts.Token)
-        return maxRead.State }
-    member x.Wait(ct) = task {
-        let! r = maxRead.WaitForCompleted ct
-        do! x.AwaitCheckpointed ct
-        return r }
+        x.CurrentCapacity()
+    /// If at/over limit, wait for the in-flight reads to drop below the limit
+    member _.AwaitCapacity() = maxRead.Wait cts.Token
+    /// Wait for all submitted batches to have been processed
+    member _.AwaitCompleted() = maxRead.WaitForCompleted cts.Token
 
-    /// As range assignments get revoked, a user is expected to `Stop` the active processing thread for the Ingester before releasing references to it
+    /// caller expected to `Stop` the active processing thread for the Ingester (and Flush) before releasing references to it
     member _.Stop() = cts.Cancel()
-
-    member _.FlushProgress ct =
-        progressWriter.CommitIfDirty ct
-
-    member private x.AwaitCheckpointed ct = task {
-        if progressWriter.IsDirty then
-            try do! x.FlushProgress ct
-            with _ -> () // one attempt to do it proactively
-            while progressWriter.IsDirty do
-                do! Task.delay (commitInterval / 2.) ct }
-
-    member private x.CheckpointPeriodically(ct: CancellationToken) = task {
-        while not ct.IsCancellationRequested do
-            do! x.FlushProgress ct
-            do! Task.delay commitInterval ct }
-
+    member _.Flush backoff ct = flushProgress backoff ct

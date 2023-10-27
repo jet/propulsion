@@ -28,7 +28,7 @@ module Log =
      and [<NoEquality; NoComparison>] ReadMetric =
         {   source: SourceId; tranche: TrancheId
             token: Nullable<Position>; latency: TimeSpan; pages: int; items: int
-            ingestLatency: TimeSpan; ingestQueued: int }
+            wait: TimeSpan; activeBatches: int }
 
     let [<Literal>] PropertyTag = "propulsionFeedEvent"
     /// Attach a property to the captured event record to hold the metric information
@@ -38,60 +38,61 @@ module Log =
         logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
         match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
-type internal Stats(partition: int, source: SourceId, tranche: TrancheId, renderPos: Position -> string) =
+type internal Stats(partition: int, source: SourceId, tranche: TrancheId) =
 
-    let mutable batchLastPosition = Position.parse -1L
-    let mutable closed, lastWasTail, finishedReading = false, false, false
-
-    let mutable pagesRead, pagesEmpty, events = 0, 0, 0L
-    let mutable readLatency, recentPagesRead, recentEvents, recentPagesEmpty = TimeSpan.Zero, 0, 0, 0
-
-    let mutable ingestLatency, currentBatches, maxReadAhead = TimeSpan.Zero, 0, 0
-
-    let mutable lastCommittedPosition = Position.parse -1L
+    let mutable readPos, pages, empty, events, commitPos = None, 0, 0, 0L, None
+    let mutable accReadLat, recentPages, recentEvents, recentEmpty = TimeSpan.Zero, 0, 0, 0
+    let mutable accWaits, shutdownTimer, currentBatches, maxReadAhead = TimeSpan.Zero, System.Diagnostics.Stopwatch(), 0, 0
+    let mutable lastWasTail, finishedReading, closed = false, false, false
+    let updateIngesterState cur max =
+        currentBatches <- cur
+        maxReadAhead <- max
 
     member _.Dump(log: ILogger) =
         if closed then () else
 
-        let p pos = match pos with p when p = Position.parse -1L -> Nullable() | x -> Nullable x
+        closed <- finishedReading
         let m = Log.Metric.Read {
             source = source; tranche = tranche
-            token = p batchLastPosition; latency = readLatency; pages = recentPagesRead; items = recentEvents
-            ingestLatency = ingestLatency; ingestQueued = currentBatches }
-        let readS, postS = readLatency.TotalSeconds, ingestLatency.TotalSeconds
-        let inline r pos = match pos with p when p = Position.parse -1L -> null | x -> renderPos x
+            token = Option.toNullable readPos; latency = accReadLat; pages = recentPages; items = recentEvents
+            wait = accWaits; activeBatches = currentBatches }
+        let r = Option.map string >> Option.defaultValue null
         let state = if not lastWasTail then "Busy"
-                    elif lastCommittedPosition = batchLastPosition then "COMPLETE"
+                    elif commitPos = readPos then "COMPLETE"
                     else if finishedReading then "End" else "Tail"
         (Log.withMetric m log).ForContext("tail", lastWasTail).Information(
-            "Reader {partition} {state} @ {lastCommittedPosition}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} | Recent {l:f1}s Pages {recentPagesRead} empty {recentPagesEmpty} events {recentEvents} Wait {pausedS:f1}s Ahead {cur}/{max}",
-            partition, state, r lastCommittedPosition, r batchLastPosition, pagesRead, pagesEmpty, events, readS, recentPagesRead, recentPagesEmpty, recentEvents, postS, currentBatches, maxReadAhead)
-        readLatency <- TimeSpan.Zero; ingestLatency <- TimeSpan.Zero
-        recentPagesRead <- 0; recentEvents <- 0; recentPagesEmpty <- 0
-        closed <- finishedReading
+            "Reader {partition} {state} @ {commitPos}/{readPosition} Pages {pagesRead} empty {pagesEmpty} events {events} "+
+            "| Recent {l:f1}s Pages {recentPages} empty {recentEmpty} events {recentEvents} Pause {pausedS:f1}s Ahead {cur}/{max} Wait {waitS:f1}s",
+            partition, state, r commitPos, r readPos, pages, empty, events,
+            accReadLat.TotalSeconds, recentPages, recentEmpty, recentEvents, accWaits.TotalSeconds, currentBatches, maxReadAhead, shutdownTimer.ElapsedSeconds)
+        accReadLat <- TimeSpan.Zero; accWaits <- TimeSpan.Zero; recentPages <- 0; recentEvents <- 0; recentEmpty <- 0
 
-    member _.RecordBatch(readTime, batch: Batch<_>) =
-        readLatency <- readLatency + readTime
-        batchLastPosition <- batch.checkpoint
+    member _.RecordBatch(readTime, batch: Batch<_>, cur, max) =
+        updateIngesterState cur max
+        accReadLat <- accReadLat + readTime
+        readPos <- Some batch.checkpoint
         lastWasTail <- batch.isTail
         match Array.length batch.items with
-        | 0 ->  pagesEmpty <- pagesEmpty + 1
-                recentPagesEmpty <- recentPagesEmpty + 1
-        | c ->  pagesRead <- pagesRead + 1
+        | 0 ->  empty <- empty + 1
+                recentEmpty <- recentEmpty + 1
+        | c ->  pages <- pages + 1
                 events <- events + int64 c
                 recentEvents <- recentEvents + c
-                recentPagesRead <- recentPagesRead + 1
+                recentPages <- recentPages + 1
+        closed <- false // Any straggler reads (and/or bugs!) trigger logging
+    member _.RecordWaitForCapacity(latency) =
+        accWaits <- accWaits + latency
 
     member _.UpdateCommittedPosition(pos) =
-        lastCommittedPosition <- pos
+        commitPos <- Some pos
         closed <- false // Any updates trigger logging
 
-    member _.UpdateIngesterState(latency, cur, max, ?finished) =
-        ingestLatency <- ingestLatency + latency
-        currentBatches <- cur
-        maxReadAhead <- max
-        finishedReading <- defaultArg finished false
-        closed <- false // Any straggler reads (and/or bugs!) trigger logging
+    member _.EnteringShutdown() =
+        finishedReading <- true
+        shutdownTimer.Start()
+    member _.ShutdownCompleted(cur, max) =
+        updateIngesterState cur max
+        shutdownTimer.Stop()
 
 type FeedReader
     (   log: ILogger, partition, source, tranche,
@@ -108,7 +109,8 @@ type FeedReader
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
         //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
         // Yields (current batches pending,max readAhead) for logging purposes
-        submitBatch: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Task<struct (int * int)>,
+        ingester: Propulsion.Ingestion.Ingester<Propulsion.Sinks.StreamEvent seq>,
+        decorate: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
         // Should make one attempt to persist a checkpoint
         // Throwing exceptions is acceptable; retrying and handling of exceptions is managed by the internal loop
@@ -119,54 +121,52 @@ type FeedReader
             * CancellationToken
             // permitted to throw if it fails; failures are counted and/or retried with throttling
             -> Task,
-        renderPos,
-        ?logCommitFailure,
-        // If supplied, an isTail Batch stops the reader loop and waits for supplied cleanup function. Default is a perpetual read loop.
-        ?awaitIngesterShutdown: CancellationToken -> Task<struct(int * int)>) =
+        renderPos: Position -> string, stopAtTail, ?logCommitFailure) =
 
-    let stats = Stats(partition, source, tranche, renderPos)
+    let stats = Stats(partition, source, tranche)
 
     let logCommitFailure_ (e: exn) = log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint")
     let logCommitFailure =  defaultArg logCommitFailure logCommitFailure_
     let commit (position: Position) ct = task {
         try do! commitCheckpoint (source, tranche, position, ct)
-            stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
+            stats.UpdateCommittedPosition(position)
         with Exception.Log logCommitFailure () -> () }
 
     let submitPage (readLatency, batch: Batch<_>) = task {
-        stats.RecordBatch(readLatency, batch)
+        let sinkBatch = decorate { isTail = batch.isTail; epoch = Position.toInt64 batch.checkpoint
+                                   checkpoint = commit batch.checkpoint; items = batch.items; onCompletion = ignore }
+        let struct (cur, max) = ingester.Ingest(sinkBatch)
+        stats.RecordBatch(readLatency, batch, cur, max)
+
         match Array.length batch.items with
         | 0 -> log.Verbose("Page {latency:f0}ms Checkpoint {checkpoint} Empty", readLatency.TotalMilliseconds, batch.checkpoint)
         | c -> if log.IsEnabled LogEventLevel.Debug then
                    let streamsCount = batch.items |> Seq.distinctBy ValueTuple.fst |> Seq.length
                    log.Debug("Page {latency:f0}ms Checkpoint {checkpoint} {eventCount}e {streamCount}s",
                              readLatency.TotalMilliseconds, batch.checkpoint, c, streamsCount)
-        let epoch, streamEvents: int64 * Propulsion.Sinks.StreamEvent seq = int64 batch.checkpoint, Seq.ofArray batch.items
-        let ingestTimer = Stopwatch.start ()
-        let! struct (cur, max) = submitBatch { isTail = batch.isTail; epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
-        stats.UpdateIngesterState(ingestTimer.Elapsed, cur, max) }
+        let waitTimer = Stopwatch.timestamp ()
+        do! ingester.AwaitCapacity()
+        stats.RecordWaitForCapacity(Stopwatch.elapsed waitTimer) }
 
-    member _.LogStartingPartition(pos: Position) =
+    member _.LogPartitionStarting(pos: Position) =
         log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
                         partition, source, tranche, renderPos pos)
-    member _.LogFinishingPartition(ex: exn) =
+    member _.LogPartitionExn(ex: exn) =
         log.Warning(ex, "Finishing {partition}", partition)
 
     member _.DumpStats() = stats.Dump(log)
 
     member _.Pump(initialPosition: Position, ct: CancellationToken) = task {
-        log.Debug("Starting reading stream from position {initialPosition}", renderPos initialPosition)
+        log.Debug("Starting {partition} from {initialPosition}", partition, renderPos initialPosition)
         stats.UpdateCommittedPosition(initialPosition)
         let mutable currentPos, lastWasTail = initialPosition, false
-        while not (ct.IsCancellationRequested || (lastWasTail && Option.isSome awaitIngesterShutdown)) do
+        while not ct.IsCancellationRequested && not (stopAtTail && lastWasTail) do
             for readLatency, batch in crawl (lastWasTail, currentPos) ct do
                 do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail
-        match awaitIngesterShutdown with
-        | Some a when not ct.IsCancellationRequested ->
-            let completionTimer = Stopwatch.start ()
-            let! struct (cur, max) = a ct
-            stats.UpdateIngesterState(completionTimer.Elapsed, cur, max, finished = true)
-        | _ -> () }
+        if stopAtTail then
+            stats.EnteringShutdown()
+            let! struct (cur, max) = ingester.AwaitCompleted()
+            stats.ShutdownCompleted(cur, max) }

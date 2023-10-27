@@ -123,7 +123,8 @@ type StripedIngester
                 | true, x -> handle x; stats.Handle x; itemLimit <- itemLimit - 1
                 | false, _ -> itemLimit <- 0
             while pending.Count <> 0 do
-                do! inner.Ingest(pending.Dequeue()) |> Async.ofTask |> Async.Ignore
+                do inner.Ingest(pending.Dequeue()) |> ignore<struct (int * int)>
+                do! inner.AwaitCapacity() |> Async.ofUnitTask
             stats.TryDump(activeSeries, readingAhead, ready, maxInFlightBatches.State)
             do! Async.Sleep pumpIntervalMs }
 

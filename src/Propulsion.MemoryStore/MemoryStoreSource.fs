@@ -48,7 +48,9 @@ type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, ca
             while more do
                 match tryDequeueSubmission () with
                 | ValueNone -> more <- false
-                | ValueSome batch -> do! ingester.Ingest batch :> Task
+                | ValueSome batch ->
+                    ingester.Ingest batch |> ignore<struct (int * int)>
+                    do! ingester.AwaitCapacity()
             do! awaitSubmissions ct :> Task }
 
     member x.Start() =

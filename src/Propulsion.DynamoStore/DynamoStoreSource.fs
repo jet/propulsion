@@ -193,4 +193,4 @@ type DynamoStoreSource
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     member x.RunUntilCaughtUp(timeout: TimeSpan, statsInterval: IntervalTimer) =
-        Propulsion.Feed.Core.FeedMonitor.runUntilCaughtUp x.Start x.Checkpoint (timeout, statsInterval)
+        Propulsion.Feed.Core.FeedMonitor.runUntilCaughtUp x.Start (timeout, statsInterval)
