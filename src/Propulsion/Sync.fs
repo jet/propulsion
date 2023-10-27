@@ -6,8 +6,6 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
@@ -49,8 +47,8 @@ type Factory private () =
             handle: Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
             toIndex: Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
             stats: Stats<'Outcome>, sliceSize, eventSize,
-            ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval)
-        : Sink<Ingestion.Ingester<StreamEvent<'F> seq>> =
+            ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval, ?ingesterStateInterval, ?commitInterval)
+        : SinkPipeline<Ingestion.Ingester<StreamEvent<'F> seq>> =
 
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
@@ -76,4 +74,5 @@ type Factory private () =
             Scheduling.Engine<struct (int64 * StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
-        Projector.Pipeline.Start(log, scheduler.Pump, maxReadAhead, scheduler, stats.StatsInterval.Period)
+        Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
+                      ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)

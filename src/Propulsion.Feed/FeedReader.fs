@@ -6,8 +6,6 @@ open Propulsion.Internal
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<NoComparison; NoEquality>]
 type Batch<'F> =
@@ -105,10 +103,10 @@ type FeedReader
             * Position // checkpointPosition
             -> CancellationToken
             -> IAsyncEnumerable<struct (TimeSpan * Batch<Propulsion.Sinks.EventBody>)>,
-        // <summary>Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
+        // Feed a batch into the ingester. Internal checkpointing decides which Commit callback will be called
         // Throwing will tear down the processing loop, which is intended; we fail fast on poison messages
         // In the case where the number of batches reading has gotten ahead of processing exceeds the limit,
-        //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning</summary>
+        //   <c>submitBatch</c> triggers the backoff of the reading ahead loop by sleeping prior to returning
         // Yields (current batches pending,max readAhead) for logging purposes
         submitBatch: Propulsion.Ingestion.Batch<Propulsion.Sinks.StreamEvent seq> -> Task<struct (int * int)>,
         // Periodically triggered, asynchronously, by the scheduler as processing of submitted batches progresses
@@ -128,16 +126,13 @@ type FeedReader
 
     let stats = Stats(partition, source, tranche, renderPos)
 
+    let logCommitFailure_ (e: exn) = log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint")
+    let logCommitFailure =  defaultArg logCommitFailure logCommitFailure_
     let commit (position: Position) ct = task {
-        let logExn (e: exn) =
-            match logCommitFailure with
-            | None -> log.ForContext<FeedReader>().Debug(e, "Exception while committing checkpoint {position}", position)
-            | Some l -> l e
-        try
-            do! commitCheckpoint (source, tranche, position, ct)
+        try do! commitCheckpoint (source, tranche, position, ct)
             stats.UpdateCommittedPosition(position)
             log.Debug("Committed checkpoint {position}", position)
-        with Exception.Log logExn () -> () }
+        with Exception.Log logCommitFailure () -> () }
 
     let submitPage (readLatency, batch: Batch<_>) = task {
         stats.RecordBatch(readLatency, batch)
@@ -152,7 +147,12 @@ type FeedReader
         let! struct (cur, max) = submitBatch { isTail = batch.isTail; epoch = epoch; checkpoint = commit batch.checkpoint; items = streamEvents; onCompletion = ignore }
         stats.UpdateIngesterState(ingestTimer.Elapsed, cur, max) }
 
-    member _.Log = log
+    member _.LogStartingPartition(pos: Position) =
+        log.Information("Reading {partition} {source:l}/{tranche:l} From {pos}",
+                        partition, source, tranche, renderPos pos)
+    member _.LogFinishingPartition(ex: exn) =
+        log.Warning(ex, "Finishing {partition}", partition)
+
     member _.DumpStats() = stats.Dump(log)
 
     member _.Pump(initialPosition: Position, ct: CancellationToken) = task {

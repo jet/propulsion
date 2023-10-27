@@ -4,7 +4,7 @@ open System
 open System.Threading
 
 let private propEvents name (xs: System.Collections.Generic.KeyValuePair<string,string> seq) (log: Serilog.ILogger) =
-    let items = seq { for kv in xs do yield sprintf "{\"%s\": %s}" kv.Key kv.Value }
+    let items = seq { for kv in xs do yield $"{{\"%s{kv.Key}\": %s{kv.Value}}}" }
     log.ForContext(name, sprintf "[%s]" (String.concat ",\n\r" items))
 
 let private propEventJsonUtf8 name (events: FsCodec.ITimelineEvent<ReadOnlyMemory<byte>>[]) (log: Serilog.ILogger) =

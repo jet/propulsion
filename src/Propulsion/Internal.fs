@@ -4,6 +4,10 @@ open System
 
 module TimeSpan =
 
+    let seconds (x: float) = TimeSpan.FromSeconds x
+    let minutes (x: float) = TimeSpan.FromMinutes x
+    let hours (x: float) = TimeSpan.FromHours x
+    let ms (x: float) = TimeSpan.FromMilliseconds x
     let toMs (ts: TimeSpan): int = ts.TotalMilliseconds |> int
 
 module Stopwatch =
@@ -64,7 +68,9 @@ module Exception =
     let (|Inner|) = inner
     let [<return: Struct>] (|Log|_|) log (e: exn) = log e; ValueNone
 
-open System.Threading
+type CancellationToken = System.Threading.CancellationToken
+type Task = System.Threading.Tasks.Task
+type Task<'T> = System.Threading.Tasks.Task<'T>
 open System.Threading.Tasks
 
 module Channel =
@@ -120,7 +126,7 @@ module Task =
         Async.Parallel(xs |> Seq.map Async.call, ?maxDegreeOfParallelism = match maxDop with 0 -> None | x -> Some x) |> Async.executeAsTask ct
     /// Runs an inner task with a dedicated Linked Token Source. Cancels via the ct upon completion, before Disposing the LCTS
     let inline runWithCancellation (ct: CancellationToken) ([<InlineIfLambda>]f: CancellationToken -> Task) = task {
-        use cts = CancellationTokenSource.CreateLinkedTokenSource(ct) // https://stackoverflow.com/questions/6960520/when-to-dispose-cancellationtokensource
+        use cts = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(ct) // https://stackoverflow.com/questions/6960520/when-to-dispose-cancellationtokensource
         try do! f cts.Token
         finally cts.Cancel() }
     let parallelLimit maxDop ct xs: Task<'t []> =
@@ -132,9 +138,10 @@ module Task =
     let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
         let! _ = a
         return () }
+    let ofUnitTask (x: Task): Task<unit> = task { return! x }
 
 type Sem(max) =
-    let inner = new SemaphoreSlim(max)
+    let inner = new System.Threading.SemaphoreSlim(max)
     member _.HasCapacity = inner.CurrentCount <> 0
     member _.State = struct(max - inner.CurrentCount, max)
     member _.TryTake() = inner.Wait 0

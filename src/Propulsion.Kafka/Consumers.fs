@@ -11,8 +11,6 @@ open Propulsion.Streams
 open Serilog
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 [<AutoOpen>]
 module private Impl =
@@ -139,7 +137,7 @@ type ConsumerPipeline private (inner: IConsumer<string, string>, task: Task<unit
 
     static member Start(log, pumpScheduler, pumpSubmitter, config, consumeResultToInfo, submit, statsInterval, ?pumpDispatcher) =
         let consumer, ingester = Consumer.start (log, config, consumeResultToInfo, submit, statsInterval)
-        let task, triggerStop = Pipeline.Prepare(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
+        let task, triggerStop = PipelineFactory.PrepareSink(log, pumpScheduler, pumpSubmitter, ingester.Pump, ?pumpDispatcher = pumpDispatcher)
         new ConsumerPipeline(consumer, task, triggerStop)
 
 [<AbstractClass; Sealed>]
@@ -197,7 +195,7 @@ module Core =
                 let onCompletion () = x.onCompletion(); onCompletion()
                 Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
             let statsInterval = stats.StatsInterval.Period
-            let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+            let submitter = Factory.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
             ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
         static member Start<'Info, 'Outcome>
@@ -373,7 +371,7 @@ type Factory private () =
             let onCompletion () = x.onCompletion(); onCompletion()
             Buffer.Batch.Create(onCompletion, Seq.collect infoToStreamEvents x.messages)
         let statsInterval = stats.StatsInterval.Period
-        let submitter = Projector.StreamsSubmitter.Create(log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
+        let submitter = Factory.CreateSubmitter (log, mapConsumedMessagesToStreamsBatch, scheduler, statsInterval)
         ConsumerPipeline.Start(log, scheduler.Pump, submitter.Pump, config, consumeResultToInfo, submitter.Ingest, statsInterval)
 
     /// Starts a Kafka Consumer per the supplied <c>config</c>, which defines the source topic(s).<br/>

@@ -4,13 +4,12 @@ open Propulsion
 open Propulsion.Internal
 open System
 open System.Threading
-open System.Threading.Tasks
 
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
 type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, categoryFilter,
                            mapTimelineEvent: Func<FsCodec.ITimelineEvent<'F>, FsCodec.ITimelineEvent<Sinks.EventBody>>,
-                           sink: Propulsion.Sinks.Sink) =
+                           sink: Propulsion.Sinks.SinkPipeline) =
     let ingester: Ingestion.Ingester<_> = sink.StartIngester(log, 0)
     let positions = TranchePositions()
     let monitor = lazy MemoryStoreMonitor(log, positions, sink)
@@ -62,7 +61,7 @@ type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, ca
             (fun () -> tcs.TrySetResult () |> ignore),
             fun () -> task {
                 try return! tcs.Task
-                finally log.Information "... source completed" }
+                finally log.Information "Source stopped" }
 
         let supervise () = task {
             // external cancellation (via Stop()) should yield a success result
@@ -83,7 +82,7 @@ and internal TranchePositions() =
     member x.Completed with get () = completed
                        and set value = lock x.CompletedMonitor (fun () -> completed <- value; Monitor.Pulse x.CompletedMonitor)
 
-and MemoryStoreMonitor internal (log: Serilog.ILogger, positions: TranchePositions, sink: Propulsion.Sinks.Sink) =
+and MemoryStoreMonitor internal (log: Serilog.ILogger, positions: TranchePositions, sink: Propulsion.Sinks.SinkPipeline) =
 
     /// Deterministically waits until all <c>Submit</c>ed batches have been successfully processed via the Sink
     /// NOTE this relies on specific guarantees the MemoryStore's Committed event affords us

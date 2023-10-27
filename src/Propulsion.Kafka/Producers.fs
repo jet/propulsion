@@ -5,7 +5,6 @@ open Propulsion.Internal
 open Serilog
 open System
 open System.Threading
-open System.Threading.Tasks
 
 /// Methods are intended to be used safely from multiple threads concurrently
 type Producer
@@ -31,7 +30,7 @@ type Producer
     // - the theory is that because each producer gets a dedicated rdkafka context, compression thread and set of sockets, better throughput can be attained
     // - we should consider removing the degreeOfParallelism argument and this associated logic unless we actually get to the point of leaning on this
     let producers = Array.init (defaultArg degreeOfParallelism 1) (fun _i -> FsKafka.KafkaProducer.Create(log, cfg, topic))
-    let produceStats = Stats.ConcurrentLatencyStats(sprintf "producers(%d)" producers.Length)
+    let produceStats = Stats.ConcurrentLatencyStats $"producers(%d{producers.Length})"
     let mutable robin = 0
 
     member _.DumpStats log = produceStats.Dump log

@@ -4,12 +4,10 @@
 // i.e. this is for sources that do/can not provide a mechanism that one might use to checkpoint within a given traversal
 namespace Propulsion.Feed
 
-open FSharp.Control
+open FSharp.Control // taskSeq
 open Propulsion.Internal
 open System
 open System.Collections.Generic
-open System.Threading
-open System.Threading.Tasks
 
 /// Int64.MaxValue = 9223372036854775807
 /// ([datetimeoffset]::FromUnixTimeSeconds(9223372036854775807 / 1000000000)) is in 2262
@@ -38,7 +36,7 @@ module private TimelineEvent =
     let ofBasePositionIndexAndEventData<'t> (basePosition: Position) =
         let baseIndex = Position.toInt64 basePosition
         fun (i, x: FsCodec.IEventData<_>, context: obj) ->
-            if i > DateTimeOffsetPosition.factor then invalidArg "i" (sprintf "Index may not exceed %d" DateTimeOffsetPosition.factor)
+            if i > DateTimeOffsetPosition.factor then invalidArg (nameof i) $"Index may not exceed %d{DateTimeOffsetPosition.factor}"
             FsCodec.Core.TimelineEvent.Create(
                 baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
 
@@ -51,7 +49,7 @@ type SourceItem<'F> = { streamName: FsCodec.StreamName; eventData: FsCodec.IEven
 /// Processing concludes if <c>readTranches</c> and <c>readPage</c> throw, in which case the <c>Pump</c> loop terminates, propagating the exception.
 type PeriodicSource
     (   log: Serilog.ILogger, statsInterval: TimeSpan, sourceId, refreshInterval: TimeSpan,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.Sink,
+        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
         ?renderPos) =
     inherit Core.FeedSourceBase(log, statsInterval, sourceId, checkpoints, None, sink, defaultArg renderPos DateTimeOffsetPosition.render)
 
