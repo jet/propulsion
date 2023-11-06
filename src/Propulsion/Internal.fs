@@ -212,22 +212,34 @@ module Stats =
 
     open System.Collections.Generic
 
-    let statsDescending (xs: Dictionary<_, _>) = xs |> Seq.map ValueTuple.ofKvp |> Seq.sortByDescending ValueTuple.snd
-
-    /// Gathers stats relating to how many items of a given category have been observed
-    type CatStats() =
+    /// Gathers stats relating to how many items have been observed, indexed by a string name
+    type Counters() =
         let cats = Dictionary<string, int64>()
-
         member _.Ingest(cat, ?weight) =
             let weight = defaultArg weight 1L
             match cats.TryGetValue cat with
             | true, catCount -> cats[cat] <- catCount + weight
             | false, _ -> cats[cat] <- weight
-
         member _.Count = cats.Count
-        member _.Any = cats.Count <> 0
+        member x.Any = x.Count <> 0
+        member _.All = cats |> Seq.map ValueTuple.ofKvp
+        member x.StatsDescending = x.All |> Seq.sortByDescending ValueTuple.snd
         member _.Clear() = cats.Clear()
-        member _.StatsDescending = statsDescending cats
+    let emitPadded (log: Serilog.ILogger) names =
+        let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
+        fun (label: string) stats -> log.Information(" {label} {stats}", label.PadRight maxGroupLen, stats)
+    let dumpCounterSet (log: Serilog.ILogger) totalLabel (cats: IReadOnlyDictionary<string, Counters>) =
+        let keys = cats.Keys
+        let emit = emitPadded log keys
+        let summary =
+            cats.Values
+            |> Seq.collect (fun x -> x.All)
+            |> Seq.groupBy ValueTuple.fst
+            |> Seq.map (fun (g, xs) -> struct (g, Seq.sumBy ValueTuple.snd xs))
+            |> Seq.sortByDescending ValueTuple.snd
+        emit totalLabel summary
+        for cat in keys |> Seq.sort do
+            emit cat cats[cat].StatsDescending
 
     type private Data =
         {   min    : TimeSpan
@@ -280,22 +292,19 @@ module Stats =
     /// Not thread-safe, i.e. suitable for use in a Stats handler only
     type LatencyStatsSet() =
         let buckets = Dictionary<string, ResizeArray<TimeSpan>>()
-        let emit log names =
-            let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
-            fun (label: string) -> dumpStats log (label.PadRight maxGroupLen)
         member _.Record(bucket, value: TimeSpan) =
             match buckets.TryGetValue bucket with
             | false, _ -> let n = ResizeArray() in n.Add value; buckets.Add(bucket, n)
             | true, buf -> buf.Add value
         member _.Dump(log: Serilog.ILogger, ?labelSortOrder) =
             if buckets.Count <> 0 then
-                let emit = emit log buckets.Keys
+                let emit = emitPadded log buckets.Keys
                 for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
                     emit name buckets[name]
         member _.DumpGrouped(bucketGroup, log: Serilog.ILogger, ?totalLabel) =
             if buckets.Count <> 0 then
                 let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
-                let emit = emit log (clusters |> Seq.map fst)
+                let emit = emitPadded log (clusters |> Seq.map fst)
                 totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
                 for name, items in clusters do
                     emit name (items |> Seq.collect (fun kv -> kv.Value))

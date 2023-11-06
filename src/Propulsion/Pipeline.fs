@@ -52,22 +52,24 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
             cts.Token, fun disposing ->
-                if not cts.IsCancellationRequested && not disposing then log.Information "Source stopping..."
+                let level = if cts.IsCancellationRequested || disposing then LogEventLevel.Debug else LogEventLevel.Information
+                log.Write(level, "Source stopping...")
                 cts.Cancel()
 
         let inner, outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
             let markCompleted () = tcs.TrySetResult () |> ignore
             let recordExn (e: exn) = tcs.TrySetException e |> ignore
-            // first exception from a supervised task becomes the outcome if that happens
             let inner () = task {
                 try do! pump ct
                     // If the source completes all reading cleanly, declare completion
                     log.Information "Source drained..."
                     markCompleted ()
                 with e ->
+                    // first exception from a supervised task becomes the outcome if that happens
                     log.Warning(e, "Exception encountered while running source, exiting loop")
-                    recordExn e }
+                    recordExn e
+                return! tcs.Task }
             inner, tcs.Task, markCompleted
 
         let machine () = task {
@@ -75,17 +77,15 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             use _ = ct.Register markCompleted
 
             // Start the work on an independent task; if it fails, it'll flow via the TCS.TrySetException into outcomeTask's Result
-            Task.start inner
-
-            try return! outcomeTask
+            try return! inner ()
             finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
     static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
-            cts.Token, fun _disposing ->
-                let level = if cts.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Information
+            cts.Token, fun disposing ->
+                let level = if cts.IsCancellationRequested || disposing then LogEventLevel.Debug else LogEventLevel.Information
                 log.Write(level, "Source stopping...")
                 cts.Cancel()
 

@@ -48,7 +48,7 @@ and PartitionStats<'S when 'S: equality>() =
         | false, _ -> partitions[partitionId] <- weight
 
     member _.Clear() = partitions.Clear()
-    member _.StatsDescending = Stats.statsDescending partitions
+    member _.StatsDescending = partitions |> Seq.map ValueTuple.ofKvp |> Seq.sortByDescending ValueTuple.snd
 
 type private SubmitOutcome = Worked | TargetFull | SourceDrained
 
