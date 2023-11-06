@@ -225,12 +225,12 @@ module Stats =
         member _.All = cats |> Seq.map ValueTuple.ofKvp
         member x.StatsDescending = x.All |> Seq.sortByDescending ValueTuple.snd
         member _.Clear() = cats.Clear()
-    let emitPadded (log: Serilog.ILogger) names =
+    let private logStatsPadded (log: Serilog.ILogger) names =
         let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
         fun (label: string) stats -> log.Information(" {label} {stats}", label.PadRight maxGroupLen, stats)
     let dumpCounterSet (log: Serilog.ILogger) totalLabel (cats: IReadOnlyDictionary<string, Counters>) =
         let keys = cats.Keys
-        let emit = emitPadded log keys
+        let emit = logStatsPadded log keys
         let summary =
             cats.Values
             |> Seq.collect (fun x -> x.All)
@@ -241,6 +241,7 @@ module Stats =
         for cat in keys |> Seq.sort do
             emit cat cats[cat].StatsDescending
 
+    [<Struct>]
     type private Data =
         {   min    : TimeSpan
             p50    : TimeSpan
@@ -248,10 +249,10 @@ module Stats =
             p99    : TimeSpan
             max    : TimeSpan
             avg    : TimeSpan
-            stddev : TimeSpan option }
+            stddev : TimeSpan voption }
 
     open MathNet.Numerics.Statistics
-    let private dumpStats (log: Serilog.ILogger) (label: string) (xs: TimeSpan seq) =
+    let private logLatencyPercentiles (log: Serilog.ILogger) (label: string) (xs: TimeSpan seq) =
         let sortedLatencies = xs |> Seq.map (fun ts -> ts.TotalSeconds) |> Seq.sort |> Seq.toArray
 
         let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
@@ -260,16 +261,19 @@ module Stats =
             stddev =
                 let stdDev = ArrayStatistics.StandardDeviation sortedLatencies
                 // stddev of singletons is NaN
-                if Double.IsNaN stdDev then None else TimeSpan.FromSeconds stdDev |> Some
+                if Double.IsNaN stdDev then ValueNone else TimeSpan.FromSeconds stdDev |> ValueSome
 
             min = SortedArrayStatistics.Minimum sortedLatencies |> TimeSpan.FromSeconds
             max = SortedArrayStatistics.Maximum sortedLatencies |> TimeSpan.FromSeconds
             p50 = pc 50
             p95 = pc 95
             p99 = pc 99 }
-        let stdDev = match l.stddev with None -> Double.NaN | Some d -> d.TotalSeconds
+        let stdDev = match l.stddev with ValueNone -> Double.NaN | ValueSome d -> d.TotalSeconds
         log.Information(" {kind} {count,4} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
             label, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
+    let logLatencyPercentilesPadded log names =
+        let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
+        fun (label: string) -> logLatencyPercentiles log (label.PadRight maxGroupLen)
 
     /// Operations on an instance are safe cross-thread
     type ConcurrentLatencyStats(label) =
@@ -277,7 +281,7 @@ module Stats =
         member _.Record value = buffer.Push value
         member _.Dump(log: Serilog.ILogger) =
             if not buffer.IsEmpty then
-                dumpStats log label buffer
+                logLatencyPercentiles log label buffer
                 buffer.Clear() // yes, there is a race
 
     /// Not thread-safe, i.e. suitable for use in a Stats handler only
@@ -286,7 +290,7 @@ module Stats =
         member _.Record value = buffer.Add value
         member _.Dump(log: Serilog.ILogger) =
             if buffer.Count <> 0 then
-                dumpStats log label buffer
+                logLatencyPercentiles log label buffer
                 buffer.Clear()
 
     /// Not thread-safe, i.e. suitable for use in a Stats handler only
@@ -298,13 +302,13 @@ module Stats =
             | true, buf -> buf.Add value
         member _.Dump(log: Serilog.ILogger, ?labelSortOrder) =
             if buckets.Count <> 0 then
-                let emit = emitPadded log buckets.Keys
+                let emit = logLatencyPercentilesPadded log buckets.Keys
                 for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
                     emit name buckets[name]
         member _.DumpGrouped(bucketGroup, log: Serilog.ILogger, ?totalLabel) =
             if buckets.Count <> 0 then
                 let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
-                let emit = emitPadded log (clusters |> Seq.map fst)
+                let emit = logLatencyPercentilesPadded log (clusters |> Seq.map fst)
                 totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
                 for name, items in clusters do
                     emit name (items |> Seq.collect (fun kv -> kv.Value))
