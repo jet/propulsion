@@ -130,7 +130,7 @@ type WriterResult = Internal.Writer.Result
 type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let mutable okStreams, okEvents, okBytes = HashSet(), 0, 0L
-    let mutable exnCats, exnStreams, exnEvents, exnBytes = Stats.CatStats(), HashSet(), 0, 0L
+    let mutable exnCats, exnStreams, exnEvents, exnBytes = Stats.Counters(), HashSet(), 0, 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with

@@ -189,7 +189,7 @@ module Buffer =
 
         member _.Dump(log: ILogger, estimateSize, categorize) =
             let mutable waiting, waitingE, waitingB = 0, 0, 0L
-            let waitingCats, waitingStreams = Stats.CatStats(), Stats.CatStats()
+            let waitingCats, waitingStreams = Stats.Counters(), Stats.Counters()
             for KeyValue (stream, state) in states do
                 if not state.IsEmpty then
                     let sz = estimateSize state
@@ -305,8 +305,8 @@ module Scheduling =
         member _.Dump(log: ILogger, totalPurged: int, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
             let mutable (gaps, gapsE, gapsB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
-            let busyCats, readyCats, readyStreams = Stats.CatStats(), Stats.CatStats(), Stats.CatStats()
-            let gapCats, gapStreams, malformedCats, malformedStreams = Stats.CatStats(), Stats.CatStats(), Stats.CatStats(), Stats.CatStats()
+            let busyCats, readyCats, readyStreams = Stats.Counters(), Stats.Counters(), Stats.Counters()
+            let gapCats, gapStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
                 if state.IsEmpty then synced <- synced + 1 else
@@ -468,7 +468,7 @@ module Scheduling =
                 | Active -> active <- active + 1
                 | Full -> full <- full + 1
             member _.StatsDescending =
-                let t = Stats.CatStats()
+                let t = Stats.Counters()
                 if idle > 0   then t.Ingest(nameof Idle, idle)
                 if active > 0 then t.Ingest(nameof Active, active)
                 if full > 0   then t.Ingest(nameof Full, full)
@@ -956,7 +956,7 @@ module Dispatcher =
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] ?failThreshold) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, statesInterval, ?failThreshold = failThreshold)
-    let mutable okStreams, okEvents, okBytes, exnStreams, exnCats, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), Stats.CatStats(), 0, 0L
+    let mutable okStreams, okEvents, okBytes, exnStreams, exnCats, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), Stats.Counters(), 0, 0L
     let mutable resultOk, resultExn = 0, 0
     override _.DumpStats() =
         if resultOk <> 0 then
