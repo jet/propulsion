@@ -212,10 +212,6 @@ module Stats =
 
     open System.Collections.Generic
 
-    let toTuples (xs: IReadOnlyDictionary<_, _>) = xs |> Seq.map ValueTuple.ofKvp
-    let descending (xs: struct (_ * _) seq) = xs |> Seq.sortByDescending ValueTuple.snd
-    let statsDescending xs = xs |> toTuples |> descending
-
     /// Gathers stats relating to how many items have been observed, indexed by a string name
     type Counters() =
         let cats = Dictionary<string, int64>()
@@ -226,8 +222,8 @@ module Stats =
             | false, _ -> cats[cat] <- weight
         member _.Count = cats.Count
         member x.Any = x.Count <> 0
-        member _.All = cats |> toTuples
-        member _.StatsDescending = statsDescending cats
+        member _.All = cats |> Seq.map ValueTuple.ofKvp
+        member x.StatsDescending = x.All |> Seq.sortByDescending ValueTuple.snd
         member _.Clear() = cats.Clear()
     let emitPadded (log: Serilog.ILogger) names =
         let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
