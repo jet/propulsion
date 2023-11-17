@@ -81,7 +81,7 @@ let ``It processes events for a category`` () = task {
         lock handled (fun _ ->
            for evt in events do
                handled.Add((stream, evt.Index)) |> ignore)
-        test <@ Array.chooseV Simple.codec.TryDecode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
+        test <@ Array.chooseV Simple.codec.Decode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
         if handled.Count >= 2000 then
             stop ()
         return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
