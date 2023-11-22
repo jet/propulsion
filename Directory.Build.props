@@ -2,10 +2,10 @@
   <PropertyGroup>
     <Authors>@jet @moneylion @bartelink @eiriktsarpalis and contributors</Authors>
     <Company>Jet.com</Company>
-    <Description>Composable high performance event streaming pipelines</Description>
+    <Description>Efficient event streaming pipelines</Description>
     <PackageProjectUrl>https://github.com/jet/propulsion</PackageProjectUrl>
     <PackageTags>fsharp eventsourcing cosmosdb changefeedprocessor dynamodb equinox eventstoredb messagedb kafka</PackageTags>
-    <PackageLicense>Apache-2.0</PackageLicense>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <Copyright>Copyright © 2018-23</Copyright>
 
     <!-- Global Project config flags -->
