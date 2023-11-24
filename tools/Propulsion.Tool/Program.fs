@@ -379,7 +379,7 @@ module Project =
                 do! source.Monitor.AwaitCompletion(initialWait, awaitFullyCaughtUp = true, logInterval = stats.StatsInterval / 2.) |> Async.AwaitTask
                 source.Stop()
                 do! source.Await() // Let it emit the stats
-                do! source.Flush() // flush checkpoints (currently a no-op)
+                do! source.Flush() |> Async.Ignore<Propulsion.Feed.TranchePositions> // flush checkpoints (currently a no-op)
                 raise <| System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed" } // trigger tear down of sibling waits
             sink.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> }

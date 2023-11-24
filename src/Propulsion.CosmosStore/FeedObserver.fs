@@ -175,8 +175,4 @@ type internal Observers<'Items>(log: Serilog.ILogger, processorName, buildObserv
         for Observer o, gap in remainingWork do
             o.RecordEstimatedGap(gap)
 
-    // TODO make base class just work
-    member _.Current() =
-        let xs = (this : Propulsion.Feed.Core.ISourcePositions<_>).Current()
-        [| for kv in xs -> System.Collections.Generic.KeyValuePair(kv.Key, kv.Value :> Propulsion.Feed.Core.ITranchePosition) |]
     interface IDisposable with member _.Dispose() = base.Iter (fun x -> (x : IDisposable).Dispose())

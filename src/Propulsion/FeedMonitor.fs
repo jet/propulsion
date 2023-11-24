@@ -12,7 +12,6 @@ type ITranchePosition =
     abstract member CompletedPos: Position voption with get
     /// Intercepts receipt and completion of batches, recording the read and completion positions
     abstract member Decorate: Ingestion.Batch<'Items> -> Ingestion.Batch<'Items>
-
 type TranchePosition() =
     [<DefaultValue>] val mutable read: Position voption
     [<DefaultValue>] val mutable completed: Position voption
@@ -28,22 +27,18 @@ type TranchePosition() =
                 batch.onCompletion()
                 x.completed <- Position.parse batch.epoch |> ValueSome
             { batch with onCompletion = onCompletion }
-
 module TranchePosition =
-
     let isEmpty (x: #ITranchePosition) = x.ReadPos = x.CompletedPos
     let isDrained (s: #ITranchePosition) = s.IsTail && isEmpty s
 
 type ISourcePositions<'T> =
     abstract member For: TrancheId -> 'T
     abstract member Current: unit -> KeyValuePair<TrancheId, 'T>[]
-
 module SourcePositions =
-
-    let completed (x: ISourcePositions<#ITranchePosition>) = readOnlyDict (seq {
-        for kv in x.Current() do match kv.Value.CompletedPos with ValueNone -> () | ValueSome c -> (kv.Key, c) })
-    let isDrained (x: KeyValuePair<TrancheId, 'T>[]) = x |> Array.forall (fun kv -> kv.Value |> TranchePosition.isDrained)
-
+    let current (x: ISourcePositions<#ITranchePosition>) =
+        [| for kv in x.Current() -> System.Collections.Generic.KeyValuePair(kv.Key, kv.Value :> ITranchePosition) |]
+    let completed (x: ISourcePositions<#ITranchePosition>): TranchePositions =
+        [| for kv in x.Current() do match kv.Value.CompletedPos with ValueNone -> () | ValueSome c -> KeyValuePair(kv.Key, c) |]
 type SourcePositions<'T when 'T :> ITranchePosition>(createTranche: Func<TrancheId, Lazy<'T>>) =
     // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
     // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
@@ -56,6 +51,8 @@ type SourcePositions<'T when 'T :> ITranchePosition>(createTranche: Func<Tranche
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
 and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<TrancheId, ITranchePosition>[], sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
 
+    let allDrained (x: KeyValuePair<TrancheId, 'T>[]) =
+        x |> Array.forall (fun kv -> kv.Value |> TranchePosition.isDrained)
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
     let choose f (xs: KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
     // Waits for up to propagationDelay, returning the opening tranche positions observed (or empty if the wait has timed out)
@@ -102,7 +99,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
                                         | false, _ -> false
                                     startReadPositions |> Seq.exists (fun struct (t, s) -> startPosStillPendingCompletion s t)
             | IncludeSubsequent ->  current |> Array.exists (fun kv -> not (TranchePosition.isEmpty kv.Value)) // All work (including follow-on work) completed
-            | AwaitFullyCaughtUp -> current |> SourcePositions.isDrained |> not
+            | AwaitFullyCaughtUp -> current |> allDrained |> not
         while busy () && notEol () do
             if logInterval.IfDueRestart() then logWaitStatusUpdateNow ()
             do! Task.delay sleep ct }
@@ -161,7 +158,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
             let swProcessing = Stopwatch.start ()
             do! awaitCompletion (sleep, logInterval) swProcessing starting waitMode ct
             let procUsed = swProcessing.Elapsed
-            let isDrainedNow () = fetchPositions () |> SourcePositions.isDrained
+            let isDrainedNow = fetchPositions >> allDrained
             let linger = match lingerTime with None -> TimeSpan.Zero | Some lingerF -> lingerF (isDrainedNow ()) propagationDelay propUsed procUsed
             let skipLinger = linger = TimeSpan.Zero
             let ll = if skipLinger then LogEventLevel.Information else LogEventLevel.Debug
@@ -184,11 +181,13 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.Wait() }
 
+type SourcePipeline = Propulsion.SourcePipeline<FeedMonitor, TranchePositions>
+
 module FeedMonitor =
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed
     let runUntilCaughtUp
-            (start: unit -> SourcePipeline<FeedMonitor>)
+            (start: unit -> SourcePipeline)
             (timeout: TimeSpan, statsInterval: IntervalTimer) = task {
         let sw = Stopwatch.start ()
         // Kick off reading from the source (Disposal will Stop it if we're exiting due to a timeout; we'll spin up a fresh one when re-triggered)
@@ -204,7 +203,8 @@ module FeedMonitor =
             // Shut down all processing (we create a fresh Source per Lambda invocation)
             pipeline.Stop()
             do! pipeline.Wait()
-            do! pipeline.Flush() // TOCONSIDER should also go in a finally and/or have an IAsyncDisposable mon the SourcePipeline manage it
+            let! res = pipeline.Flush() // TOCONSIDER should also go in a finally and/or have an IAsyncDisposable mon the SourcePipeline manage it
             if sw.ElapsedSeconds > 2 then statsInterval.Trigger()
+            return res
             // force a final attempt to flush (normally checkpointing is at 5s intervals)
         finally statsInterval.SleepUntilTriggerCleared() }

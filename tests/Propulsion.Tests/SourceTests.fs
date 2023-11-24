@@ -2,11 +2,8 @@ module Propulsion.Tests.SourceTests
 
 open FSharp.Control
 open Propulsion.Feed
-open Propulsion.Internal
-open Serilog
 open Swensen.Unquote
 open System
-open System.Threading
 open Xunit
 
 type Scenario(testOutput) =
@@ -35,7 +32,7 @@ type Scenario(testOutput) =
         // source runs until someone explicitly stops it, or it throws
         src.Stop()
         // Ensure checkpoints are written
-        do! src.Flush()
+        do! src.FlushAsync() |> Task.ignore<TranchePositions>
         // Yields source exception, if any
         do! src.Await()
         test <@ src.RanToCompletion @> }
