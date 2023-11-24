@@ -48,7 +48,7 @@ type CosmosStoreSource
         new Observer<seq<Propulsion.Sinks.StreamEvent>>(stats, startIngester, Seq.collect parseFeedDoc))
     let observers = new Observers<seq<Propulsion.Sinks.StreamEvent>>(log, processorName, buildObserver)
 
-    member _.Start() =
+    member _.Start(): Propulsion.Feed.Core.SourcePipeline =
         let machine, triggerStop, outcomeTask =
             ChangeFeedProcessor.Start(
                 monitored, leases, processorName, leaseOwnerId, log, stats, statsInterval, observers,
@@ -57,5 +57,7 @@ type CosmosStoreSource
                 leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
                 leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
                 ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
-        let monitor = lazy Propulsion.Feed.Core.FeedMonitor(log, observers.Current, sink, fun () -> outcomeTask.IsCompleted)
-        new Propulsion.SourcePipeline<_>(Task.run machine, Task.FromResult, triggerStop, monitor)
+        let fetchPositions () = Propulsion.Feed.Core.SourcePositions.current observers
+        let monitor = lazy Propulsion.Feed.Core.FeedMonitor(log, fetchPositions, sink, fun () -> outcomeTask.IsCompleted)
+        let flush () = Propulsion.Feed.Core.SourcePositions.completed observers |> Task.FromResult
+        new Propulsion.SourcePipeline<_, _>(Task.run machine, flush, triggerStop, monitor)

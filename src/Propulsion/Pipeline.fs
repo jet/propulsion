@@ -34,12 +34,12 @@ type Pipeline(task: Task<unit>, triggerStop) =
         use _ = ct.Register(Action x.Stop)
         return! x.Await() }
 
- type SourcePipeline<'M>(task, flush: unit -> Task<unit>, triggerStop, monitor: Lazy<'M>) =
+ type SourcePipeline<'M, 'P>(task, flush: unit -> Task<'P>, triggerStop, monitor: Lazy<'M>) =
     inherit Pipeline(task, triggerStop)
 
     member _.Monitor = monitor.Value
-    member _.FlushAsync() = flush ()
-    member x.Flush() = x.FlushAsync() |> Async.AwaitTaskCorrect
+    member _.FlushAsync(): Task<'P> = flush ()
+    member x.Flush(): Async<'P> = x.FlushAsync() |> Async.AwaitTaskCorrect
 
 type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)

@@ -17,9 +17,10 @@ type SqsNotificationBatch(event: SQSEvent) =
     /// Yields the set of Index Partitions on which we are anticipating there to be work available
     member val Tranches = seq { for trancheId, _, _ in inputs -> trancheId } |> Seq.distinct |> Seq.toArray
     /// Correlates the achieved Tranche Positions with those that triggered the work; requeue any not yet acknowledged as processed
-    member _.FailuresForPositionsNotReached(updated: IReadOnlyDictionary<_, _>) =
+    member _.FailuresForPositionsNotReached(updated: Propulsion.Feed.TranchePositions) =
         let res = SQSBatchResponse()
         let incomplete = ResizeArray()
+        let updated = Dictionary updated
         for trancheId, pos, messageId in inputs do
             match updated.TryGetValue trancheId with
             | true, pos' when pos' >= pos -> ()

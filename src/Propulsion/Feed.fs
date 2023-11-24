@@ -26,6 +26,8 @@ module Position =
     let toInt64 (value: Position): int64 = %value
     let toString (value: Position): string = string value
 
+type TranchePositions = System.Collections.Generic.KeyValuePair<TrancheId, Position>[]
+
 type IFeedCheckpointStore =
 
     /// Determines the starting position, and checkpointing frequency for a given tranche

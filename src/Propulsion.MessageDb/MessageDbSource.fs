@@ -102,7 +102,7 @@ type MessageDbSource =
     abstract member Pump: CancellationToken -> Task<unit>
     default x.Pump(ct) = base.Pump(x.ListTranches, ct)
 
-    abstract member Start: unit -> Propulsion.SourcePipeline<Propulsion.Feed.Core.FeedMonitor>
+    abstract member Start: unit -> Propulsion.Feed.Core.SourcePipeline
     default x.Start() = base.Start(x.Pump)
 
     /// Pumps to the Sink until either the specified timeout has been reached, or all items in the Source have been fully consumed

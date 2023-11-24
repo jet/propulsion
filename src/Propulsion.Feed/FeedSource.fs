@@ -34,7 +34,7 @@ type FeedSourceBase internal
 
     /// Runs checkpointing functions for any batches with unwritten checkpoints
     /// Yields current Tranche Positions
-    member _.Checkpoint(): Task<IReadOnlyDictionary<TrancheId, Position>> = task {
+    member _.Checkpoint(): Task<TranchePositions> = task {
         use cts = new System.Threading.CancellationTokenSource(shutdownTimeout)
         let backoff = max (TimeSpan.ms 100) (shutdownTimeout / 3.)
         do! Task.parallelLimit 4 cts.Token (seq { for i, _r in partitions -> i.Flush backoff }) |> Task.ignore<unit[]>
@@ -65,10 +65,10 @@ type FeedSourceBase internal
         finally dumpStats () } // Flush the stats when each partition has finished (and flushed)
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
-    member x.Start(pump) =
+    member x.Start(pump): SourcePipeline =
         let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
         let monitor = lazy FeedMonitor(log, positions.Current, sink, fun () -> outcomeTask.IsCompleted)
-        new SourcePipeline<_>(Task.run machine, x.Checkpoint >> Task.ignore, triggerStop, monitor)
+        new SourcePipeline<_, _>(Task.run machine, x.Checkpoint, triggerStop, monitor)
 
 /// Drives reading and checkpointing from a source that contains data from multiple streams
 type TailingFeedSource
