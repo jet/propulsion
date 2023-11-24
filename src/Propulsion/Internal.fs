@@ -186,6 +186,7 @@ module ValueTuple =
     let inline fst struct (f, _s) = f
     let inline snd struct (_f, s) = s
     let inline ofKvp (x: System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
+    let inline toKvp struct (k, v) = System.Collections.Generic.KeyValuePair(k, v)
 
 module ValueOption =
 

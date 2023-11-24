@@ -20,7 +20,7 @@ type SqsNotificationBatch(event: SQSEvent) =
     member _.FailuresForPositionsNotReached(updated: Propulsion.Feed.TranchePositions) =
         let res = SQSBatchResponse()
         let incomplete = ResizeArray()
-        let updated = Dictionary updated
+        let updated = Dictionary(updated |> Seq.map ValueTuple.toKvp)
         for trancheId, pos, messageId in inputs do
             match updated.TryGetValue trancheId with
             | true, pos' when pos' >= pos -> ()

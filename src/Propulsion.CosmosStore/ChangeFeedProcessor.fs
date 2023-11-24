@@ -59,9 +59,9 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
             stats.ReportEstimation leasesStates }
         let emitStats () =
             let all = (observers : ISourcePositions<_>).Current()
-            all |> Array.sortInPlaceBy (fun x -> x.Key)
-            for kv in all do
-                kv.Value.Dump(log, processorName, int (Propulsion.Feed.TrancheId.toString kv.Key), kv.Value.CurrentCapacity())
+            all |> Array.sortInPlaceBy ValueTuple.fst
+            for k, v in all do
+                v.Dump(log, processorName, int (Propulsion.Feed.TrancheId.toString k), v.CurrentCapacity())
         let estimateAndLog ct = task {
             // Dump will cope with absence of update (unless standalone estimation has already updated anyway)
             try do! runEstimation ct with _ -> ()

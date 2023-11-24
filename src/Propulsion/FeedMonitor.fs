@@ -4,7 +4,6 @@ open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
 open System
-open System.Collections.Generic
 
 type ITranchePosition =
     abstract member IsTail: bool with get
@@ -33,12 +32,12 @@ module TranchePosition =
 
 type ISourcePositions<'T> =
     abstract member For: TrancheId -> 'T
-    abstract member Current: unit -> KeyValuePair<TrancheId, 'T>[]
+    abstract member Current: unit -> struct (TrancheId * 'T)[]
 module SourcePositions =
     let current (x: ISourcePositions<#ITranchePosition>) =
-        [| for kv in x.Current() -> System.Collections.Generic.KeyValuePair(kv.Key, kv.Value :> ITranchePosition) |]
+        [| for k, v in x.Current() -> struct (k, v :> ITranchePosition) |]
     let completed (x: ISourcePositions<#ITranchePosition>): TranchePositions =
-        [| for kv in x.Current() do match kv.Value.CompletedPos with ValueNone -> () | ValueSome c -> KeyValuePair(kv.Key, c) |]
+        [| for k, v in x.Current() do match v.CompletedPos with ValueNone -> () | ValueSome c -> struct (k, c) |]
 type SourcePositions<'T when 'T :> ITranchePosition>(createTranche: Func<TrancheId, Lazy<'T>>) =
     // Its important we don't risk >1 instance https://andrewlock.net/making-getoradd-on-concurrentdictionary-thread-safe-using-lazy/
     // while it would be safe, there would be a risk of incurring the cost of multiple initialization loops
@@ -46,15 +45,14 @@ type SourcePositions<'T when 'T :> ITranchePosition>(createTranche: Func<Tranche
     member _.Iter(f) = for x in tranches.Values do f x.Value
     interface ISourcePositions<'T> with
         member _.For trancheId = tranches.GetOrAdd(trancheId, createTranche).Value
-        member _.Current() = tranches.ToArray() |> Array.map (fun kv -> KeyValuePair(kv.Key, kv.Value.Value))
+        member _.Current() = tranches.ToArray() |> Array.map (fun kv -> (kv.Key, kv.Value.Value))
 
 and [<Struct; NoComparison; NoEquality>] private WaitMode = OriginalWorkOnly | IncludeSubsequent | AwaitFullyCaughtUp
-and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<TrancheId, ITranchePosition>[], sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
+and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId * ITranchePosition)[], sink: Propulsion.Sinks.SinkPipeline, sourceIsCompleted) =
 
-    let allDrained (x: KeyValuePair<TrancheId, 'T>[]) =
-        x |> Array.forall (fun kv -> kv.Value |> TranchePosition.isDrained)
+    let allDrained = Array.forall (ValueTuple.snd >> TranchePosition.isDrained)
     let notEol () = not sink.IsCompleted && not (sourceIsCompleted ())
-    let choose f (xs: KeyValuePair<_, _>[]) = [| for x in xs do match f x.Value with ValueNone -> () | ValueSome v' -> struct (x.Key, v') |]
+    let choose f (xs: struct (_ * _)[]) = [| for k, v in xs do match f v with ValueNone -> () | ValueSome v' -> struct (k, v') |]
     // Waits for up to propagationDelay, returning the opening tranche positions observed (or empty if the wait has timed out)
     let awaitPropagation sleep (propagationDelay: TimeSpan) positions ct = task {
         let timeout = IntervalTimer propagationDelay
@@ -92,13 +90,13 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
             let current = fetchPositions ()
             match waitMode with
             | OriginalWorkOnly ->   let completed = current |> choose (fun v -> v.CompletedPos)
-                                    let trancheCompletedPos = Dictionary() in for struct (k, v) in completed do trancheCompletedPos.Add(k, v)
+                                    let trancheCompletedPos = System.Collections.Generic.Dictionary(completed |> Seq.map ValueTuple.toKvp)
                                     let startPosStillPendingCompletion trancheStartPos trancheId =
                                         match trancheCompletedPos.TryGetValue trancheId with
                                         | true, v -> v <= trancheStartPos
                                         | false, _ -> false
                                     startReadPositions |> Seq.exists (fun struct (t, s) -> startPosStillPendingCompletion s t)
-            | IncludeSubsequent ->  current |> Array.exists (fun kv -> not (TranchePosition.isEmpty kv.Value)) // All work (including follow-on work) completed
+            | IncludeSubsequent ->  current |> Array.exists (not << TranchePosition.isEmpty << ValueTuple.snd) // All work (including follow-on work) completed
             | AwaitFullyCaughtUp -> current |> allDrained |> not
         while busy () && notEol () do
             if logInterval.IfDueRestart() then logWaitStatusUpdateNow ()
@@ -133,7 +131,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
         let ct = defaultArg ct CancellationToken.None
         let sw = Stopwatch.start ()
         let sleep = defaultArg sleep (TimeSpan.FromMilliseconds 1)
-        let currentCompleted = seq { for kv in fetchPositions () -> struct (kv.Key, ValueOption.toNullable kv.Value.CompletedPos) }
+        let currentCompleted = seq { for k, v in fetchPositions () -> struct (k, ValueOption.toNullable v.CompletedPos) }
         let waitMode =
             match ignoreSubsequent, awaitFullyCaughtUp with
             | Some true, Some true -> invalidArg (nameof awaitFullyCaughtUp) $"cannot be combined with {nameof ignoreSubsequent}"
@@ -144,9 +142,9 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> KeyValuePair<Tranc
         let orDummyValue = ValueOption.orElse (ValueSome (Position.parse -1L))
         let activeTranches () =
             match fetchPositions () with
-            | xs when Array.any xs && requireTail && xs |> Array.forall (fun kv -> TranchePosition.isDrained kv.Value) ->
+            | xs when Array.any xs && requireTail && xs |> Array.forall (ValueTuple.snd >> TranchePosition.isDrained) ->
                 xs |> choose (fun v -> v.ReadPos |> orDummyValue)
-            | xs when xs |> Array.forall (fun kv -> TranchePosition.isEmpty kv.Value && (not requireTail || kv.Value.IsTail)) -> Array.empty
+            | xs when xs |> Array.forall (fun struct (_, v) -> TranchePosition.isEmpty v && (not requireTail || v.IsTail)) -> Array.empty
             | originals -> originals |> choose (fun v -> v.ReadPos)
         match! awaitPropagation sleep propagationDelay activeTranches ct with
         | [||] ->

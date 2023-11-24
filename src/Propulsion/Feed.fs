@@ -26,7 +26,7 @@ module Position =
     let toInt64 (value: Position): int64 = %value
     let toString (value: Position): string = string value
 
-type TranchePositions = System.Collections.Generic.KeyValuePair<TrancheId, Position>[]
+type TranchePositions = (struct (TrancheId * Position)[])
 
 type IFeedCheckpointStore =
 
