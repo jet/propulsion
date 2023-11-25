@@ -19,7 +19,7 @@
     <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
 
     <PackageReference Include="FsCodec.Box" Version="3.0.0-rc.14.1" />
-    <PackageReference Include="Equinox.MemoryStore" Version="4.0.0-rc.14.2" />
+    <PackageReference Include="Equinox.MemoryStore" Version="4.0.0-rc.14.5" />
   </ItemGroup>
 
   <ItemGroup>
