@@ -424,6 +424,44 @@ Things EventStoreDB's subscriptions can do that are not presently covered in Pro
 
 This repo is derived from [`FsKafka`](https://github.com/jet/FsKafka); the history has been edited to focus only on edits to the `Propulsion` libraries.
 
+<a name="stream-vs-global"></a>
+### OK, but surely I need to process all events in the order they were written?
+
+In the general case, most handling can/should be considered at the stream level. Why?
+
+Flattening everything down into a denormalized SQL relational model complete with hierarchical foreign key constraints is the poster child case where you would benefit from a global order - if you traverse from start to finish in large batches and presume you're starting from a blank read model, you can map everything to large transactional batches of inserts and updates, and you save a checkpoint position as part of the same batch. If you want to pause, you can simply resume from the checkpoint in your read model
+ In reality, life is not that simple/complicated:
+- you may not be writing to a general database that you own, so you may not be able to have a transaction across your checkpoint and your model writes
+- if you're feeding to a partner system and/or a document store, there may not be an interface that lets you supply a batch of things to upsert - you're likely to be addressing individual documents / streams / things. To get that code clear and/or running efficiently, you'll need to to stuff concurrently
+- if you have a multi-TB store and want to rebuild, having to traverse all that data to rebuild your list of vendor names starts to take longer and longer
+handling all events in serial after a few years for a very boring system stops taking seconds or minutes. Over time, things inevitably creep into days
+- while a data warehouse with it all flattened out is never not useful, if you are going to do all views as queries against that, you're going to end up with a big mess
+- as your list of stored events grows, rebuilding views with an assumption of an empty store and reading absolutely all the events from event 0 may or may not be viable (i.e. you might only want to rebuild some child pieces and/or represent that data differently)
+- unless you are going to actually do all read model updates as transactional batches (seriously, you shouldn't), you need to deal with at least once delivery. This means very event you handle needs to become an idempotent upsert (as opposed to an unconditional insert or update) you need to deal with at least once delivery - after you just handled stream S1 event 4, the next event might be stream S1 event 1 (the projector host got restarted before it saved it's progress checkpoint)
+- as your data grows, you'll want to be able to parallelize the projection work - which is at odds with a global ordering guarantee
+
+To balance all the above forces, you'll pretty quickly go from
+  > well if I think of it as N million events in a big row and I Just handle them one by one, then I ca make it fast by doing some of the work in batches
+
+  to
+
+  >  OK, the data was written consistently to streams; there are concurrent writers; I need to be able to cope with peak write traffic, but also have a good story for efficiently re-traversing all the events if I want to resend/validate/reindex things
+
+At which point, you start thinking of projections as being a stream level thing. If you get S1E0 S2E0 S3E0 S1E1 S1E2 in a batch, you want to handle that as three pieces of work: S0: E0, E1, E2 + S1: E0 + S3: E0.
+
+If your data is coming from something sharded, you can balance consumers across shards, knowing that any given stream's events will always be within a single shard.
+
+A house of cards build on an assumption of a global order (or an almost ordered version of that, as I've seen - e.g. Cosmos provides a repeatable order as long as you never update an event-document UNTIL IT SHARDS) is:
+- slow (you tend to work event by event and lean on assumptions) and
+- quickly becomes a messy coupled thing (let's just do it the simple way and add this little piece in here in the same projector logic)
+
+But the real kicker is that twice as much data will mean twice the replay/rebuild time. That's only a good plan if you intend to leave the company pretty quick and don't care about how angry the maintainers of your "architecture" get over time.
+
+If you instead work/plan/assume at a stream level (with order assumptions only at that level), you have far more options:
+- you can cope with sharding the data
+- you can parallelise the processing
+- you can split processing along logical lines more easily
+
 ### Your question here
 
 - Please feel free to log question-issues; they'll get answered here
