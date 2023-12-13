@@ -28,7 +28,10 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
                     return! observers.Ingest(ctx, changes, checkpointAsync, ct)
                 with Exception.Log log () -> () }
             let notifyError =
-                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> observers.LogReaderExn(i, ex))
+                let isNoise: exn -> bool = function // TODO tell MS to stop misreporting it, and remove the filter when that's released
+                    | :? Microsoft.Azure.Cosmos.ChangeFeedProcessorUserException as e when (e.InnerException :? OperationCanceledException) -> true
+                    | _ -> false
+                let log = match notifyError with Some f -> f | None -> Action<_, _>(fun i ex -> observers.LogReaderExn(i, ex, isNoise ex))
                 fun (TokenRangeId rangeId) ex -> log.Invoke(rangeId, ex); Task.CompletedTask
             let logStateChange acquired (TokenRangeId rangeId) = observers.RecordStateChange(rangeId, acquired); Task.CompletedTask
             monitored
@@ -72,6 +75,7 @@ type [<AbstractClass; Sealed>] ChangeFeedProcessor private () =
             return! processor.StartAsync() }
         let shutdown () = task {
             try do! processor.StopAsync() with _ -> ()
-            (observers : IDisposable).Dispose() // Stop the ingesters
             do! estimateAndLog CancellationToken.None }
-        Propulsion.PipelineFactory.PrepareSource2(log, startup, shutdown)
+        // On shutdown, Readers waiting for Ingestion capacity need to be released
+        let stopIngesters = (observers : IDisposable).Dispose
+        Propulsion.PipelineFactory.PrepareSource2(log, startup, shutdown, stopIngesters)

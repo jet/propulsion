@@ -48,7 +48,7 @@ type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startInges
 
 type [<AbstractClass; Sealed>] PipelineFactory private () =
 
-    static member PrepareSource(log: Serilog.ILogger, pump: CancellationToken -> Task<unit>) =
+    static member PrepareSource(log: Serilog.ILogger, pump: CancellationToken -> Task<unit>, markCompleted: unit -> unit) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
             cts.Token, fun disposing ->
@@ -58,16 +58,19 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let inner, outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            let markCompleted () = tcs.TrySetResult () |> ignore
+            let markCompleted () =
+                markCompleted ()
+                tcs.TrySetResult () |> ignore
             let recordExn (e: exn) = tcs.TrySetException e |> ignore
             let inner () = task {
                 try do! pump ct
-                    // If the source completes all reading cleanly, declare completion
-                    log.Information "Source drained..."
+                    // If the source completes all reading cleanly, convey that fact ()
+                    if not ct.IsCancellationRequested then log.Information "Source drained..."
                     markCompleted ()
                 with e ->
+                    let level = if ct.IsCancellationRequested then LogEventLevel.Debug else LogEventLevel.Warning
                     // first exception from a supervised task becomes the outcome if that happens
-                    log.Warning(e, "Exception encountered while running source, exiting loop")
+                    log.Write(level, e, "Exception encountered while running source, exiting loop")
                     recordExn e
                 return! tcs.Task }
             inner, tcs.Task, markCompleted
@@ -81,7 +84,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             finally log.Information "Source stopped" }
         machine, stop, outcomeTask
 
-    static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>) =
+    static member PrepareSource2(log: Serilog.ILogger, startup: CancellationToken -> Task<unit>, shutdown: unit -> Task<unit>, markCompleted) =
         let ct, stop =
             let cts = new System.Threading.CancellationTokenSource()
             cts.Token, fun disposing ->
@@ -91,7 +94,9 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
 
         let outcomeTask, markCompleted =
             let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
-            let markCompleted () = tcs.TrySetResult () |> ignore
+            let markCompleted () =
+                markCompleted ()
+                tcs.TrySetResult () |> ignore
             tcs.Task, markCompleted
 
         let machine () = task {
