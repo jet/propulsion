@@ -19,7 +19,9 @@ module TestOutputLogger =
 
     let removeMetrics (e: Serilog.Events.LogEvent) =
         e.RemovePropertyIfPresent(Propulsion.Streams.Log.PropertyTag)
+#if TRIM_FEED
         e.RemovePropertyIfPresent(Propulsion.Feed.Core.Log.PropertyTag)
+#endif
     let trim (c: LoggerConfiguration) =
         c.Filter.ByExcluding(Serilog.Filters.Matching.WithProperty("isMetric"))
          .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt, _) = removeMetrics evt })
