@@ -166,7 +166,7 @@ type FeedReader
                 do! submitPage (readLatency, batch)
                 currentPos <- batch.checkpoint
                 lastWasTail <- batch.isTail
-        if stopAtTail then
+        if not ct.IsCancellationRequested && stopAtTail then
             stats.EnteringShutdown()
             let! struct (cur, max) = ingester.AwaitCompleted()
             stats.ShutdownCompleted(cur, max) }

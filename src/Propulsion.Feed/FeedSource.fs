@@ -26,7 +26,7 @@ type FeedSourceBase internal
             try let! pos = checkpoints.Start(sourceId, trancheId, establishOrigin = (establishOrigin |> Option.map establishTrancheOrigin), ct = ct)
                 reader.LogPartitionStarting(pos)
                 return! reader.Pump(pos, ct)
-            with//:? System.Threading.Tasks.TaskCanceledException when ct.IsCancellationRequested -> ()
+            with:? System.Threading.Tasks.TaskCanceledException | :? OperationCanceledException -> ()
                 | Exception.Log reader.LogPartitionExn () -> ()
         finally ingester.Stop() }
 
@@ -66,7 +66,8 @@ type FeedSourceBase internal
 
     /// Would be protected if that existed - derived types are expected to use this in implementing a parameterless `Start()`
     member x.Start(pump): SourcePipeline =
-        let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump)
+        let stopIngesters () = for i, _ in partitions do i.Stop()
+        let machine, triggerStop, outcomeTask = PipelineFactory.PrepareSource(log, pump, stopIngesters)
         let monitor = lazy FeedMonitor(log, positions.Current, sink, fun () -> outcomeTask.IsCompleted)
         new SourcePipeline<_, _>(Task.run machine, x.Checkpoint, triggerStop, monitor)
 

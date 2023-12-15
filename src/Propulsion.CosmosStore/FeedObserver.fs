@@ -160,8 +160,8 @@ type internal Observers<'Items>(log: Serilog.ILogger, processorName, buildObserv
     member _.LogStart(leaseAcquireInterval: TimeSpan, leaseTtl: TimeSpan, leaseRenewInterval: TimeSpan, feedPollInterval: TimeSpan, startFromTail: bool, ?maxItems) =
         log.Information("ChangeFeed {processorName} Lease acquire {leaseAcquireIntervalS:n0}s ttl {ttlS:n0}s renew {renewS:n0}s feedPollInterval {feedPollIntervalS:n0}s Items limit {maxItems} fromTail {fromTail}",
                         processorName, leaseAcquireInterval.TotalSeconds, leaseTtl.TotalSeconds, leaseRenewInterval.TotalSeconds, feedPollInterval.TotalSeconds, Option.toNullable maxItems, startFromTail)
-    member _.LogReaderExn(rangeId: int, ex: exn) =
-        log.Error(ex, "ChangeFeed {processorName}/{partition} error", processorName, rangeId)
+    member _.LogReaderExn(rangeId: int, ex: exn, isNoise: bool) =
+        log.Write((if isNoise then LogEventLevel.Debug else LogEventLevel.Error), ex, "ChangeFeed {processorName}/{partition} error", processorName, rangeId)
     member _.LogHandlerExn(rangeId: int, ex: exn) =
         log.Error(ex, "ChangeFeed {processorName}/{partition} Handler Threw", processorName, rangeId)
     member _.Ingest(context, docs, checkpoint, ct) =
