@@ -64,7 +64,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             let recordExn (e: exn) = tcs.TrySetException e |> ignore
             let inner () = task {
                 try do! pump ct
-                    // If the source completes all reading cleanly, convey that fact ()
+                    // If the source completes all reading cleanly, convey that fact
                     if not ct.IsCancellationRequested then log.Information "Source drained..."
                     markCompleted ()
                 with e ->
