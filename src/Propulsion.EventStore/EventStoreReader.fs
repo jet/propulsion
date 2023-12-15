@@ -270,7 +270,7 @@ type EventStoreReader(connections: _[], defaultBatchSize, minBatchSize, tryMapEv
                 let! res = pullAll (slicesStats, stats) (conn, batchSize) (range, true) tryMapEvent postBatch
                 do! awaitInterval
                 match res with
-                | PullResult.EndOfTranche | PullResult.Eof _ -> ()
+                | PullResult.EndOfTranche | PullResult.Eof -> ()
                 | PullResult.Exn e ->
                     batchSize <- adjust batchSize
                     Log.Warning(e, "Tail $all failed, adjusting batch size to {bs}", batchSize) }

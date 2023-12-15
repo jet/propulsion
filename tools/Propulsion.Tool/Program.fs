@@ -100,8 +100,8 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name."
-            | FromTail _ ->                 "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
-            | Follow _ ->                   "Stop when the Tail is reached."
+            | FromTail ->                   "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
+            | Follow ->                     "Stop when the Tail is reached."
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
             | Stats _ ->                    "Do not emit events, only stats."
