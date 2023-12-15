@@ -123,6 +123,7 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
             if tcs.TrySetException(exn) then
                 log.Warning(exn, "Cancelling processing due to faulted scheduler or health checks")
                 abended <- true
+            // Health check can flag need to abend multiple times; first one has to win
             elif not abended then log.Information(exn, "Failed setting abend exn")
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()

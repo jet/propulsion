@@ -234,11 +234,13 @@ module OutcomeKind =
 /// Details of name, time since first failure, and number of attempts for a Failing or Stuck stream
 type FailingStreamDetails = (struct (FsCodec.StreamName * TimeSpan * int))
 
-/// Raised by <c>Stats</c> to conclude the processing when the <c>abendThreshold</c> has been exceeded.
+/// <summary>Raised by <c>Stats</c>'s <c>HealthCheck</c> to terminate a Sink's processing when the <c>abendThreshold</c> has been exceeded.</summary>
 type HealthCheckException(oldestStuck, oldestFailing, stuckStreams, failingStreams) =
     inherit exn()
     override x.Message = $"Failure Threshold exceeded; Oldest stuck stream: {oldestStuck}, Oldest failing stream {oldestFailing}"
+    /// Duration for which oldest stream that's active but failing has failed to progress
     member val TimeStuck: TimeSpan = oldestStuck
+    /// Duration for which oldest stream that's active but failing to progress (though not erroring)
     member val OldestFailing: TimeSpan = oldestFailing
     /// Details of name, time since first attempt, and number of attempts for Streams not making progress
     member val StuckStreams: FailingStreamDetails[] = stuckStreams
@@ -381,9 +383,8 @@ module Scheduling =
                 let currentTs = Stopwatch.timestamp ()
                 [|  for kv in state ->
                         let sn = kv.Key
-                        let v = kv.Value
-                        let age = (currentTs - v.ts) |> Stopwatch.ticksToTimeSpan
-                        struct (sn, age, v.count) |]
+                        let age = currentTs - kv.Value.ts |> Stopwatch.ticksToTimeSpan
+                        struct (sn, age, kv.Value.count) |]
             let private renderState agesAndCounts =
                 let mutable oldest, newest, streams, attempts = Int64.MinValue, Int64.MaxValue, 0, 0
                 for struct (diff, count) in agesAndCounts do
