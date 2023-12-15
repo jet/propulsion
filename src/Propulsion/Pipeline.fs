@@ -117,10 +117,14 @@ type [<AbstractClass; Sealed>] PipelineFactory private () =
         let ct = cts.Token
 
         let tcs = System.Threading.Tasks.TaskCompletionSource<unit>()
+        let mutable abended = false
         // if scheduler encounters a faulted handler, we propagate that as the consumer's Result
-        let abend (exns: AggregateException) =
-            if tcs.TrySetException(exns) then log.Warning(exns, "Cancelling processing due to {count} faulted handlers", exns.InnerExceptions.Count)
-            else log.Information("Failed setting {count} exceptions", exns.InnerExceptions.Count)
+        let abend (exn: exn) =
+            if tcs.TrySetException(exn) then
+                log.Warning(exn, "Cancelling processing due to faulted scheduler or health checks")
+                abended <- true
+            // Health check can flag need to abend multiple times; first one has to win
+            elif not abended then log.Information(exn, "Failed setting abend exn")
             // NB cancel needs to be after TSE or the Register(TSE) will win
             cts.Cancel()
 

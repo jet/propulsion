@@ -17,9 +17,17 @@ type TestOutputLogger(testOutput: Xunit.Abstractions.ITestOutputHelper) =
 
 module TestOutputLogger =
 
-    let createLogger sink =
-        LoggerConfiguration()
+    let removeMetrics (e: Serilog.Events.LogEvent) =
+        e.RemovePropertyIfPresent(Propulsion.Streams.Log.PropertyTag)
+#if TRIM_FEED
+        e.RemovePropertyIfPresent(Propulsion.Feed.Core.Log.PropertyTag)
+#endif
+    let trim (c: LoggerConfiguration) =
+        c.Filter.ByExcluding(Serilog.Filters.Matching.WithProperty("isMetric"))
+         .Enrich.With({ new Serilog.Core.ILogEventEnricher with member _.Enrich(evt, _) = removeMetrics evt })
+    let createLoggerEx trimmed sink =
+        (LoggerConfiguration() |> if trimmed then trim else id)
             .WriteTo.Sink(sink)
             .CreateLogger()
-
-    let forTestOutput testOutput = TestOutputLogger testOutput |> createLogger
+    let forTestOutputEx trimmed testOutput = TestOutputLogger testOutput |> createLoggerEx trimmed
+    let forTestOutput testOutput = forTestOutputEx false testOutput

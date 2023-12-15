@@ -231,6 +231,22 @@ module OutcomeKind =
         | :? TimeoutException -> Timeout
         | _ -> OutcomeKind.Exn
 
+/// Details of name, time since first failure, and number of attempts for a Failing or Stuck stream
+type FailingStreamDetails = (struct (FsCodec.StreamName * TimeSpan * int))
+
+/// <summary>Raised by <c>Stats</c>'s <c>HealthCheck</c> to terminate a Sink's processing when the <c>abendThreshold</c> has been exceeded.</summary>
+type HealthCheckException(oldestStuck, oldestFailing, stuckStreams, failingStreams) =
+    inherit exn()
+    override x.Message = $"Failure Threshold exceeded; Oldest stuck stream: {oldestStuck}, Oldest failing stream {oldestFailing}"
+    /// Duration for which oldest stream that's active but failing has failed to progress
+    member val TimeStuck: TimeSpan = oldestStuck
+    /// Duration for which oldest stream that's active but failing to progress (though not erroring)
+    member val OldestFailing: TimeSpan = oldestFailing
+    /// Details of name, time since first attempt, and number of attempts for Streams not making progress
+    member val StuckStreams: FailingStreamDetails[] = stuckStreams
+    /// Details of name, time since first failure, and number of attempts for Streams experiencing continual non-transient exceptions
+    member val FailingStreams: FailingStreamDetails[] = failingStreams
+
 module Scheduling =
 
     open Buffer
@@ -363,6 +379,12 @@ module Scheduling =
                 if state.Count = 0 then Seq.empty else
                 let currentTs = Stopwatch.timestamp ()
                 seq { for x in state.Values -> struct (currentTs - x.ts, x.count) }
+            let private renderStats (state: Dictionary<_, _>) =
+                let currentTs = Stopwatch.timestamp ()
+                [|  for kv in state ->
+                        let sn = kv.Key
+                        let age = currentTs - kv.Value.ts |> Stopwatch.ticksToTimeSpan
+                        struct (sn, age, kv.Value.count) |]
             let private renderState agesAndCounts =
                 let mutable oldest, newest, streams, attempts = Int64.MinValue, Int64.MaxValue, 0, 0
                 for struct (diff, count) in agesAndCounts do
@@ -392,11 +414,10 @@ module Scheduling =
                          if state.TryGetValue(sn, &v) then v.count <- v.count + 1
                          else state.Add(sn, { ts = startTs; count = 1 })
                 member _.State = walkAges state |> renderState
+                member _.Stats = renderStats state
                 member _.Contains sn = state.ContainsKey sn
+                member x.MaxAge = let _, struct (oldest, _) = x.State in oldest
                 member _.TryGet sn = match state.TryGetValue sn with true, v -> ValueSome v.count | _ -> ValueNone
-                member x.OldestIsOlderThan threshold =
-                    let _, struct (oldest, _) = x.State
-                    oldest > threshold
 
             type [<Struct>] State = Running | Failing of c: int | Stuck of c2: int | Waiting
             /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
@@ -404,7 +425,7 @@ module Scheduling =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
                 let emit (log: ILogger) level state struct (streams, attempts) struct (oldest: TimeSpan, newest: TimeSpan) =
                     log.Write(level, " {state,-7} {streams,3} for {newest:n1}-{oldest:n1}s, {attempts} attempts",
-                                    state, streams, newest.TotalSeconds, oldest.TotalSeconds, attempts)
+                              state, streams, newest.TotalSeconds, oldest.TotalSeconds, attempts)
                 member _.HandleStarted(sn, ts) =
                     active.HandleStarted(sn, ts)
                 member _.HandleResult(sn, succeeded, progressed) =
@@ -420,8 +441,10 @@ module Scheduling =
                         | ValueNone ->
                             if active.Contains sn then Running
                             else Waiting
-                member _.IsFailing(failingThreshold: TimeSpan) =
-                    failing.OldestIsOlderThan failingThreshold || stuck.OldestIsOlderThan TimeSpan.Zero
+                member _.OldestStuck = stuck.MaxAge
+                member _.OldestFailing = failing.MaxAge
+                member _.StuckStreamDetails = stuck.Stats
+                member _.FailingStreamDetails = failing.Stats
                 member _.DumpState(log: ILogger) =
                     let dump level state struct (streams, attempts) ages =
                         if streams <> 0 then
@@ -479,8 +502,8 @@ module Scheduling =
 
     /// Gathers stats pertaining to the core projection/ingestion activity
     [<AbstractClass>]
-    type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan, [<O; D null>] ?failThreshold) =
-        let failThreshold = defaultArg failThreshold stateInterval
+    type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
+        let failThreshold = defaultArg failThreshold statsInterval
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats = Stats.StateStats()
@@ -492,11 +515,12 @@ module Scheduling =
         member val StateInterval = IntervalTimer stateInterval
         member val Timers = Stats.Timers()
 
-        member x.DumpStats(struct (dispatchActive, dispatchMax), struct (batchesWaiting, batchesRunning)) =
+        member x.DumpStats(struct (dispatchActive, dispatchMax), struct (batchesWaiting, batchesRunning), abend) =
             log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
                 cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; stateStats.Clear()
             monitor.DumpState x.Log
+            x.RunHealthCheck abend
             lats.Dump(log, function OutcomeKind.OkTag -> String.Empty | x -> x)
             lats.Clear()
             let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
@@ -506,7 +530,7 @@ module Scheduling =
             x.Timers.Dump log
             x.DumpStats()
 
-        member _.IsFailing = monitor.IsFailing failThreshold
+        member _.IsFailing = monitor.OldestFailing > failThreshold || monitor.OldestStuck > TimeSpan.Zero
         member _.Classify sn = monitor.Classify sn
 
         member _.RecordIngested(streams, events, skippedStreams, skippedEvents) =
@@ -565,6 +589,18 @@ module Scheduling =
             | OutcomeKind.Exn -> x.HandleExn(log, exn)
 
         abstract member HandleExn: ILogger * exn -> unit
+
+        abstract GenerateHealthCheckException: oldestStuck: TimeSpan * oldestFailing: TimeSpan * stuck: FailingStreamDetails[] * failing: FailingStreamDetails[] -> exn
+        default _.GenerateHealthCheckException(oldestStuck, oldestFailing, stuck, failing) =
+            HealthCheckException(oldestStuck, oldestFailing, stuck, failing)
+        abstract HealthCheck: oldestStuck: TimeSpan * oldestFailing: TimeSpan -> exn option
+        default x.HealthCheck(oldestStuck, oldestFailing) =
+            match abendThreshold with
+            | Some limit when oldestStuck > limit || oldestFailing > limit ->
+                x.GenerateHealthCheckException(oldestStuck, oldestFailing, monitor.StuckStreamDetails, monitor.FailingStreamDetails) |> Some
+            | _ -> None
+        member x.RunHealthCheck(abend) =
+            x.HealthCheck(monitor.OldestStuck, monitor.OldestFailing) |> Option.iter abend
 
     module Progress =
 
@@ -753,9 +789,9 @@ module Scheduling =
             batches.AppendBatch(onCompletion, reqs)
         let ingestBatch () = [| match tryPending () |> ValueOption.bind ingest with ValueSome b -> b | ValueNone -> () |]
 
-        let recordAndPeriodicallyLogStats exiting =
+        let recordAndPeriodicallyLogStats exiting abend =
             if stats.RecordStats() || exiting then
-                stats.Serialize(fun () -> stats.DumpStats(dispatcher.State, batchesWaitingAndRunning ()))
+                stats.Serialize(fun () -> stats.DumpStats(dispatcher.State, batchesWaitingAndRunning (), abend))
                 stats.StatsInterval.Restart() // manual restart only after we've serviced the call so observers can await completion
 
         let purgeDue: unit -> bool =
@@ -784,7 +820,7 @@ module Scheduling =
         member _.Pump(abend, ct: CancellationToken) = task {
             use _ = dispatcher.Result.Subscribe writeResult
             Task.start (fun () -> task { try do! dispatcher.Pump ct
-                                         with e -> abend (AggregateException e) })
+                                         with e -> abend e })
             let inline ts () = Stopwatch.timestamp ()
             let t = stats.Timers
             let processResults () = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
@@ -808,7 +844,7 @@ module Scheduling =
                 if exiting then
                     processResults () |> ignore
                     batches.EnumPending() |> ignore
-                recordAndPeriodicallyLogStats exiting; t.RecordStats statsTs
+                recordAndPeriodicallyLogStats exiting abend; t.RecordStats statsTs
                 // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
                 let idle = not processedResults && not dispatched && not (ingestStreamsOnly ())
                 if idle && not exiting then
@@ -954,8 +990,9 @@ module Dispatcher =
                 | Error (met, exn) -> ValueNone, Error (met, exn)
 
 [<AbstractClass>]
-type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, statesInterval, ?failThreshold = failThreshold)
+type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(
+        log, statsInterval, statesInterval, ?failThreshold = failThreshold, ?abendThreshold = abendThreshold)
     let mutable okStreams, okEvents, okBytes, exnStreams, exnCats, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), Stats.Counters(), 0, 0L
     let mutable resultOk, resultExn = 0, 0
     override _.DumpStats() =
