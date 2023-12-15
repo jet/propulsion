@@ -203,7 +203,7 @@ module Indexer =
     type Arguments(c, p: ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
-        member val TrancheId =              p.TryGetResult IndexParameters.IndexPartitionId |> Option.map (string >> AppendsPartitionId.parse)
+        member val TrancheId =              p.TryPostProcessResult(IndexParameters.IndexPartitionId, string >> AppendsPartitionId.parse)
         // Larger optimizes for not needing to use TransactWriteItems as frequently
         // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
