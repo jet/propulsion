@@ -14,7 +14,7 @@
         <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
         
         <PackageReference Include="Dapper" Version="2.0.30" />
-        <PackageReference Include="Microsoft.Data.SqlClient" Version="1.1.4" />
+        <PackageReference Include="Microsoft.Data.SqlClient" Version="2.1.7" />
         <PackageReference Include="SqlStreamStore" Version="1.2.0-beta.8" />
     </ItemGroup>
 
