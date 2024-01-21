@@ -146,3 +146,48 @@ let ``It doesn't read the tail event again`` () = task {
 
     // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
     test <@ capture.Operations.Count = 5 @> }
+
+
+[<Fact>]
+let ``Override Next Index`` () = task {
+    use! conn = connect ()
+    let log = Serilog.Log.Logger
+    let consumerGroup = $"{Guid.NewGuid():N}"
+    let category= $"{Guid.NewGuid():N}"
+    let streamName = $"{category}-{Guid.NewGuid():N}"
+    let batch = conn.CreateBatch()
+    // write 50 events to the stream. index 0..49
+    for _ in 1..50 do
+        let cmd = createStreamMessage streamName
+        batch.BatchCommands.Add(cmd)
+    do! batch.ExecuteNonQueryAsync() :> Task
+    let! checkpoints = makeCheckpoints consumerGroup
+    let stats = stats log
+    let mutable stop = ignore
+    let handled = ResizeArray<_>()
+    let handle _stream (events: Propulsion.Sinks.Event[]) _ct = task {
+        handled.AddRange(seq { for e in events do yield e.Index })
+        let index = (Array.last events).Index
+        if index = 49 then
+            stop ()
+            return struct (Propulsion.Sinks.StreamResult.AllProcessed, ())
+        else
+            // we've handled the stream up to version 48, so the next event we expect
+            // to receive is 49
+            return struct (Propulsion.Sinks.StreamResult.OverrideNextIndex 48, ()) }
+    use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 2, handle, stats)
+    let source = MessageDbSource(
+        log, TimeSpan.FromMinutes 1,
+        ConnectionString, 10, TimeSpan.FromMilliseconds 100,
+        checkpoints, sink, [| category |])
+    use src = source.Start()
+    stop <- src.Stop
+
+    Task.Delay(TimeSpan.FromSeconds 30).ContinueWith(fun _ -> src.Stop()) |> ignore
+
+    do! src.Await()
+
+    test <@ Seq.contains 49L handled @>
+    test <@ Seq.contains 0L handled @>
+    test <@ not <| Seq.contains 48L handled @>
+}
