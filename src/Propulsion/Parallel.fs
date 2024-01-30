@@ -14,7 +14,6 @@ module Scheduling =
     /// Single instance per system; coordinates the dispatching of work, subject to the maxDop concurrent processors constraint
     /// Semaphore is allocated on queueing, deallocated on completion of the processing
     type Dispatcher(maxDop) =
-        // Using a Queue as a) the ordering is more correct, favoring more important work b) we are adding from many threads so no value in ConcurrentBag's thread-affinity
         let tryWrite, wait, apply =
             let c = Channel.unboundedSwSr<_> in let r, w = c.Reader, c.Writer
             w.TryWrite, Channel.awaitRead r, Channel.apply r

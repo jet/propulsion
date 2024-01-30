@@ -876,7 +876,6 @@ module Dispatcher =
         let result = Event<'R>()
         let dop = Sem maxDop
 
-        // NOTE this obviously depends on the passed computation never throwing, or we'd leak dop
         let runHandler struct (computation: CancellationToken -> Task<'R>, ct) = task {
             let! res = computation ct
             dop.Release()
@@ -886,7 +885,8 @@ module Dispatcher =
         member _.State = dop.State
         member _.HasCapacity = dop.HasCapacity
         member _.AwaitButRelease(ct) = dop.WaitButRelease(ct)
-        member _.TryAdd(item) = dop.TryTake() && tryWrite item
+        // NOTE computation is required/trusted to have an outer catch (or results would not be posted and dop would leak)
+        member _.TryAdd(computation) = dop.TryTake() && tryWrite computation
 
         member _.Pump(ct: CancellationToken) = task {
             while not ct.IsCancellationRequested do
@@ -926,6 +926,7 @@ module Dispatcher =
             interpretProgress: Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Result<'P,'E> -> struct (int64 voption * Result<'R, 'E>)) =
         static member Create
             (   maxDop,
+                // NOTE `project` must not throw under any circumstances, or the exception will go unobserved, and DOP will leak in the dispatcher
                 project: FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> CancellationToken -> Task<Result<'P, 'E>>,
                 interpretProgress: Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Result<'P, 'E> -> struct (int64 voption * Result<'R, 'E>)) =
             let project struct (startTs, item: Scheduling.Item<'F>) (ct: CancellationToken) = task {
@@ -955,7 +956,7 @@ module Dispatcher =
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
         (   select: Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
-            // NOTE Handler must not throw under any circumstances, or the exception will go unobserved
+            // NOTE `handle` must not throw under any circumstances, or the exception will go unobserved
             handle: Scheduling.Item<'F>[] -> CancellationToken ->
                     Task<Scheduling.InternalRes<Result<struct (StreamSpan.Metrics * int64), struct (StreamSpan.Metrics * exn)>>[]>) =
         let inner = DopDispatcher 1
