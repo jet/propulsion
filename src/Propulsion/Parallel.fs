@@ -98,9 +98,9 @@ module Scheduling =
             log.Information("Scheduler {cycles} cycles Started {startedBatches}b {startedItems}i Completed {completedBatches}b {completedItems}i latency {completedLatency:f1}ms Ready {readyitems} Waiting {waitingBatches}b",
                 cycles, statsTotal startedB, statsTotal startedI, statsTotal completedB, totalItemsCompleted, latencyMs, waiting.Count, incoming.Count)
             let active =
-                seq { for KeyValue(pid,q) in active -> pid, q |> Seq.sumBy (fun x -> x.remaining) }
-                |> Seq.filter (fun (_,snd) -> snd <> 0)
-                |> Seq.sortBy (fun (_,snd) -> -snd)
+                seq { for KeyValue (pid, q) in active -> pid, q |> Seq.sumBy _.remaining }
+                |> Seq.filter (fun (_, snd) -> snd <> 0)
+                |> Seq.sortBy (fun (_, snd) -> -snd)
             log.Information("Partitions Active items {@active} Started batches {@startedBatches} items {@startedItems} Completed batches {@completedBatches} items {@completedItems}",
                 active, startedB, startedI, completedB, completedI)
             cycles <- 0; processingDuration <- TimeSpan.Zero; startedBatches.Clear(); completedBatches.Clear(); startedItems.Clear(); completedItems.Clear()

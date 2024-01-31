@@ -234,7 +234,7 @@ module Stats =
         let emit = logStatsPadded log keys
         let summary =
             cats.Values
-            |> Seq.collect (fun x -> x.All)
+            |> Seq.collect _.All
             |> Seq.groupBy ValueTuple.fst
             |> Seq.map (fun (g, xs) -> struct (g, Seq.sumBy ValueTuple.snd xs))
             |> Seq.sortByDescending ValueTuple.snd
@@ -254,7 +254,7 @@ module Stats =
 
     open MathNet.Numerics.Statistics
     let private logLatencyPercentiles (log: Serilog.ILogger) (label: string) (xs: TimeSpan seq) =
-        let sortedLatencies = xs |> Seq.map (fun ts -> ts.TotalSeconds) |> Seq.sort |> Seq.toArray
+        let sortedLatencies = xs |> Seq.map _.TotalSeconds |> Seq.sort |> Seq.toArray
 
         let pc p = SortedArrayStatistics.Percentile(sortedLatencies, p) |> TimeSpan.FromSeconds
         let l = {
@@ -310,9 +310,9 @@ module Stats =
             if buckets.Count <> 0 then
                 let clusters = buckets |> Seq.groupBy (fun kv -> bucketGroup kv.Key) |> Seq.sortBy fst |> Seq.toArray
                 let emit = logLatencyPercentilesPadded log (clusters |> Seq.map fst)
-                totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect (fun kv -> kv.Value)))
+                totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect _.Value))
                 for name, items in clusters do
-                    emit name (items |> Seq.collect (fun kv -> kv.Value))
+                    emit name (items |> Seq.collect _.Value)
         member _.Clear() = buckets.Clear()
 
 type LogEventLevel = Serilog.Events.LogEventLevel

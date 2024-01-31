@@ -100,7 +100,7 @@ module Reader =
         let! maybeStreamBytes, _version, state = epochs.Read(partitionId, epochId, 0)
         let sizeB, loadS = defaultValueArg maybeStreamBytes 0L, Stopwatch.elapsedSeconds ts
         let spans = state.changes |> Array.collect (fun struct (_i, spans) -> spans)
-        let totalEvents = spans |> Array.sumBy (fun x -> x.c.Length)
+        let totalEvents = spans |> Array.sumBy _.c.Length
         let totalStreams = spans |> AppendsEpoch.flatten |> Seq.length
         log.Information("Epoch {epochId} {totalE} events {totalS} streams ({spans} spans, {batches} batches, {k:n3} MiB) {loadS:n1}s",
                         string epochId, totalEvents, totalStreams, spans.Length, state.changes.Length, Log.miB sizeB, loadS)

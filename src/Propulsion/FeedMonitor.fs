@@ -77,7 +77,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
         let logInterval = IntervalTimer logInterval
         let logWaitStatusUpdateNow () =
             let current = fetchPositions ()
-            let currentRead, completed = current |> choose (fun v -> v.ReadPos), current |> choose (fun v -> v.CompletedPos)
+            let currentRead, completed = current |> choose _.ReadPos, current |> choose _.CompletedPos
             match waitMode with
             | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime:n1}s Awaiting Started {starting} Completed {completed}",
                                                     sw.ElapsedSeconds, startReadPositions, completed)
@@ -89,7 +89,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
         let busy () =
             let current = fetchPositions ()
             match waitMode with
-            | OriginalWorkOnly ->   let completed = current |> choose (fun v -> v.CompletedPos)
+            | OriginalWorkOnly ->   let completed = current |> choose _.CompletedPos
                                     let trancheCompletedPos = System.Collections.Generic.Dictionary(completed |> Seq.map ValueTuple.toKvp)
                                     let startPosStillPendingCompletion trancheStartPos trancheId =
                                         match trancheCompletedPos.TryGetValue trancheId with
@@ -145,7 +145,7 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
             | xs when Array.any xs && requireTail && xs |> Array.forall (ValueTuple.snd >> TranchePosition.isDrained) ->
                 xs |> choose (fun v -> v.ReadPos |> orDummyValue)
             | xs when xs |> Array.forall (fun struct (_, v) -> TranchePosition.isEmpty v && (not requireTail || v.IsTail)) -> Array.empty
-            | originals -> originals |> choose (fun v -> v.ReadPos)
+            | originals -> originals |> choose _.ReadPos
         match! awaitPropagation sleep propagationDelay activeTranches ct with
         | [||] ->
             if propagationDelay = TimeSpan.Zero then log.Debug("FeedSource Wait Skipped; no processing pending. Completed {completed}", currentCompleted)

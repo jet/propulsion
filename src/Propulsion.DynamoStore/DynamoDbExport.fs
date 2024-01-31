@@ -47,7 +47,7 @@ type Importer(buffer: DynamoStoreIndex.Buffer, emit, dump) =
             let _ok, _ = buffer.LogIndexed(string streamSpan.p, { i = int streamSpan.i; c = streamSpan.c })
             pending.Remove(string streamSpan.p) |> ignore
         totalIngestedSpans <- totalIngestedSpans + batch.LongLength
-        return pending.Values |> Seq.sumBy (fun x -> x.c.Length) }
+        return pending.Values |> Seq.sumBy _.c.Length }
 
     /// Ingest a file worth of data, flushing whenever we've accumulated enough pending data to be written
     member _.IngestDynamoDbJsonFile(file, bufferedEventsFlushThreshold) = async {

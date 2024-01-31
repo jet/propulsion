@@ -19,7 +19,7 @@ let renderSubmit (log: Serilog.ILogger) struct (epoch, categoryName, streamId, e
             if (not << log.IsEnabled) Serilog.Events.LogEventLevel.Debug then log
             elif typedefof<'F> <> typeof<ReadOnlyMemory<byte>> then log
             else log |> propEventJsonUtf8 "Json" (unbox events)
-        let types = events |> Seq.map (fun e -> e.EventType)
+        let types = events |> Seq.map (fun x -> x.EventType)
         log.ForContext("types", types).Debug("Submit #{epoch} {categoryName}-{streamId}x{count}", epoch, categoryName, streamId, events.Length)
     elif log.IsEnabled Serilog.Events.LogEventLevel.Debug then
         let types = seq { for e in events -> e.EventType } |> Seq.truncate 5

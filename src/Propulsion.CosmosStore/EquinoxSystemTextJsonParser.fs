@@ -4,8 +4,8 @@ open Equinox.CosmosStore.Core
 
 open Propulsion.Sinks
 
-/// Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams
-/// <remarks>NOTE No attempt is made to filter out Tip (`id=-1`) batches from the ChangeFeed; Equinox versions >= 3, Tip batches can bear events.</remarks>
+/// <summary>Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams.</summary>
+/// <remarks>NOTE No attempt is made to filter out Tip (`id=-1`) batches from the ChangeFeed, as in Equinox versions >= 3, Tip batches can bear events.</remarks>
 [<RequireQualifiedAccess>]
 #if !COSMOSV3
 module EquinoxSystemTextJsonParser =

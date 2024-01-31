@@ -45,7 +45,7 @@ module Events =
 let next (x: Events.StreamSpan) = int x.i + x.c.Length
 /// Aggregates all spans per stream into a single Span from the lowest index to the highest
 let flatten: Events.StreamSpan seq -> Events.StreamSpan seq =
-    Seq.groupBy (fun x -> x.p)
+    Seq.groupBy _.p
     >> Seq.map (fun (p, xs) ->
         let mutable i = -1L
         let c = ResizeArray()
@@ -175,7 +175,7 @@ module Reader =
 
         member _.ReadVersion(partitionId, epochId): Async<int64> =
             let decider = resolve (partitionId, epochId, System.Int64.MaxValue)
-            decider.QueryEx(fun c -> c.Version)
+            decider.QueryEx _.Version
 
     module Factory =
 

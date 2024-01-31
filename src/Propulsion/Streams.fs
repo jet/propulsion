@@ -198,7 +198,7 @@ module Buffer =
                         let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.WritePos 0L
                         waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].Length, (sz + 512L) / 1024L)
                     waiting <- waiting + 1
-                    waitingE <- waitingE + (state.queue |> Array.sumBy (fun x -> x.Length))
+                    waitingE <- waitingE + (state.queue |> Array.sumBy _.Length)
                     waitingB <- waitingB + sz
             let m = Log.Metric.BufferReport { cats = waitingCats.Count; streams = waiting; events = waitingE; bytes = waitingB }
             (log |> Log.withMetric m).Information(" Streams Waiting {busy:n0}/{busyMb:n1}MB", waiting, Log.miB waitingB)
