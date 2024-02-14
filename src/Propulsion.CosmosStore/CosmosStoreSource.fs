@@ -54,7 +54,7 @@ type CosmosStoreSource
                 monitored, leases, processorName, leaseOwnerId, log, stats, statsInterval, observers,
                 defaultArg startFromTail false, feedPollInterval = defaultArg tailSleepInterval (TimeSpan.seconds 1),
                 leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
-                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
+                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 3),
                 leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
                 ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
         let fetchPositions () = Propulsion.Feed.Core.SourcePositions.current observers
