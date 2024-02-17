@@ -8,7 +8,7 @@ module Metrics =
     let [<Literal>] PropertyTag = "isMetric"
     let log = Log.ForContext(PropertyTag, true)
     /// Allow logging to filter out emission of log messages whose information is also surfaced as metrics
-    let logEventIsMetric e = Serilog.Filters.Matching.WithProperty(PropertyTag).Invoke e
+    let logEventIsMetric = Serilog.Filters.Matching.WithProperty(PropertyTag).Invoke
 
 module EnvVar =
 

@@ -327,14 +327,14 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
     member val Verbose = p.Contains Verbose
     member val VerboseConsole = p.Contains VerboseConsole
     member val VerboseStore = p.Contains VerboseStore
-    member _.ExecuteSubCommand() =
+    member _.ExecuteSubCommand() = async {
         match p.GetSubCommand() with
-        | Init a ->         Args.Cosmos.initAux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
-        | InitPg a ->       Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable().Wait()
-        | Checkpoint a ->   Checkpoints.readOrOverride(c, a, CancellationToken.None).Wait()
-        | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously
-        | Project a ->      Project.run (c, a) |> Async.RunSynchronously
-        | x ->              p.Raise $"unexpected subcommand %A{x}"
+        | Init a ->         do! Args.Cosmos.initAux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container>
+        | InitPg a ->       do! Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.ofTask
+        | Checkpoint a ->   do! Checkpoints.readOrOverride(c, a, CancellationToken.None) |> Async.ofTask
+        | Index a ->        do! Indexer.run (c, a)
+        | Project a ->      do! Project.run (c, a)
+        | x ->              p.Raise $"unexpected subcommand %A{x}" }
     /// Parse the commandline; Throws ArguParseException for `-h`/`--help` args and/or malformed arguments
     static member Parse argv =
         let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
@@ -351,7 +351,7 @@ let isExpectedShutdownSignalException: exn -> bool = function
 let main argv =
     try let a = ToolArguments.Parse argv
         try Log.Logger <- LoggerConfiguration().Configure(a.Verbose).Sinks(Sinks.equinoxMetricsOnly, a.VerboseConsole, a.VerboseStore).CreateLogger()
-            try a.ExecuteSubCommand(); 0
+            try a.ExecuteSubCommand() |> Async.RunSynchronously; 0
             with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
     with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
