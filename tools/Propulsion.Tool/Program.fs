@@ -4,14 +4,12 @@ open Argu
 open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCanceledException
 open Serilog
 
-module CosmosInit = Equinox.CosmosStore.Core.Initialization
-
 [<NoEquality; NoComparison; RequireSubcommand>]
 type Parameters =
     | [<AltCommandLine "-V">]               Verbose
     | [<AltCommandLine "-C">]               VerboseConsole
     | [<AltCommandLine "-S">]               VerboseStore
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<InitAuxParameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<Args.Cosmos.InitParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<Args.Mdb.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<IndexParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
@@ -26,30 +24,6 @@ type Parameters =
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument."
-and [<NoEquality; NoComparison; RequireSubcommand>] InitAuxParameters =
-    | [<AltCommandLine "-ru"; Unique>]      Rus of int
-    | [<AltCommandLine "-A"; Unique>]       Autoscale
-    | [<AltCommandLine "-m"; Unique>]       Mode of CosmosModeType
-    | [<AltCommandLine "-s">]               Suffix of string
-    | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Args.Cosmos.Parameters>
-    interface IArgParserTemplate with
-        member a.Usage = a |> function
-            | Rus _ ->                      "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
-            | Autoscale ->                  "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
-            | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
-            | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
-            | Cosmos _ ->                   "Cosmos Connection parameters."
-and CosmosModeType = Container | Db | Serverless
-and CosmosInitArguments(p: ParseResults<InitAuxParameters>) =
-    let rusOrDefault (value: int) = p.GetResult(Rus, value)
-    let throughput auto = if auto then CosmosInit.Throughput.Autoscale (rusOrDefault 4000)
-                                  else CosmosInit.Throughput.Manual (rusOrDefault 400)
-    member val ProvisioningMode =
-        match p.GetResult(Mode, CosmosModeType.Container), p.Contains Autoscale with
-        | CosmosModeType.Container, auto -> CosmosInit.Provisioning.Container (throughput auto)
-        | CosmosModeType.Db, auto ->        CosmosInit.Provisioning.Database (throughput auto)
-        | CosmosModeType.Serverless, auto when auto || p.Contains Rus -> p.Raise "Cannot specify RU/s or Autoscale in Serverless mode"
-        | CosmosModeType.Serverless, _ ->   CosmosInit.Provisioning.Serverless
 and [<NoEquality; NoComparison; RequireSubcommand>] IndexParameters =
     | [<AltCommandLine "-p"; Unique>]       IndexPartitionId of int
     | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
@@ -121,33 +95,6 @@ and [<NoEquality; NoComparison; RequireSubcommand>] StatsParameters =
             | Mdb _ ->                      "Specify MessageDb parameters."
 
 let [<Literal>] AppName = "propulsion-tool"
-
-module CosmosInit =
-
-    let aux (c, p: ParseResults<InitAuxParameters>) =
-        match p.GetSubCommand() with
-        | InitAuxParameters.Cosmos sa ->
-            let mode, a = (CosmosInitArguments p).ProvisioningMode, Args.Cosmos.Arguments(c, sa)
-            let container = a.CreateLeasesContainer()
-            match mode with
-            | Equinox.CosmosStore.Core.Initialization.Provisioning.Container throughput ->
-                match throughput with
-                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container with Autoscale throughput of up to {rus:n0} RU/s", rus)
-                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container with {rus:n0} RU/s", rus)
-            | Equinox.CosmosStore.Core.Initialization.Provisioning.Database throughput ->
-                let modeStr = "Database"
-                match throughput with
-                | Equinox.CosmosStore.Core.Initialization.Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level with Autoscale throughput of up to {rus:n0} RU/s", modeStr, rus)
-                | Equinox.CosmosStore.Core.Initialization.Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
-            | Equinox.CosmosStore.Core.Initialization.Provisioning.Serverless ->
-                let modeStr = "Serverless"
-                Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
-            Equinox.CosmosStore.Core.Initialization.initAux container.Database.Client (container.Database.Id, container.Id) mode
-        | x -> p.Raise $"unexpected subcommand %A{x}"
 
 module Checkpoints =
 
@@ -382,7 +329,7 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
     member val VerboseStore = p.Contains VerboseStore
     member _.ExecuteSubCommand() =
         match p.GetSubCommand() with
-        | Init a ->         CosmosInit.aux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
+        | Init a ->         Args.Cosmos.initAux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container> |> Async.RunSynchronously
         | InitPg a ->       Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable().Wait()
         | Checkpoint a ->   Checkpoints.readOrOverride(c, a, CancellationToken.None).Wait()
         | Index a ->        Indexer.run (c, a) |> Async.RunSynchronously

@@ -95,6 +95,57 @@ module Cosmos =
             let! context = connector.ConnectContext("Checkpoints", databaseId, containerId, 256)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }
 
+    open Equinox.CosmosStore.Core.Initialization
+    type [<NoEquality; NoComparison; RequireSubcommand>] InitParameters =
+        | [<AltCommandLine "-ru"; Unique>]      Rus of int
+        | [<AltCommandLine "-A"; Unique>]       Autoscale
+        | [<AltCommandLine "-m"; Unique>]       Mode of ModeType
+        | [<AltCommandLine "-s">]               Suffix of string
+        | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Parameters>
+        interface IArgParserTemplate with
+            member a.Usage = a |> function
+                | Rus _ ->                      "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
+                | Autoscale ->                  "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
+                | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
+                | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
+                | Cosmos _ ->                   "Cosmos Connection parameters."
+    and ModeType = Container | Db | Serverless
+    type InitArguments(p: ParseResults<InitParameters>) =
+        let rusOrDefault (value: int) = p.GetResult(Rus, value)
+        let throughput auto = if auto then Throughput.Autoscale (rusOrDefault 4000)
+                                      else Throughput.Manual (rusOrDefault 400)
+        member val ProvisioningMode =
+            match p.GetResult(Mode, ModeType.Container), p.Contains Autoscale with
+            | ModeType.Container, auto -> Provisioning.Container (throughput auto)
+            | ModeType.Db, auto ->        Provisioning.Database (throughput auto)
+            | ModeType.Serverless, auto when auto || p.Contains Rus -> p.Raise "Cannot specify RU/s or Autoscale in Serverless mode"
+            | ModeType.Serverless, _ ->   Provisioning.Serverless
+
+    let initAux (c, p: ParseResults<InitParameters>) =
+        match p.GetSubCommand() with
+        | InitParameters.Cosmos sa ->
+            let mode, a = (InitArguments p).ProvisioningMode, Arguments(c, sa)
+            let container = a.CreateLeasesContainer()
+            match mode with
+            | Provisioning.Container throughput ->
+                match throughput with
+                | Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container with Autoscale throughput of up to {rus:n0} RU/s", rus)
+                | Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container with {rus:n0} RU/s", rus)
+            | Provisioning.Database throughput ->
+                let modeStr = "Database"
+                match throughput with
+                | Throughput.Autoscale rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level with Autoscale throughput of up to {rus:n0} RU/s", modeStr, rus)
+                | Throughput.Manual rus ->
+                    Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
+            | Provisioning.Serverless ->
+                let modeStr = "Serverless"
+                Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
+            initAux container.Database.Client (container.Database.Id, container.Id) mode
+        | x -> p.Raise $"unexpected subcommand %A{x}"
+
 module Dynamo =
 
     open Configuration.Dynamo
@@ -218,10 +269,10 @@ module Mdb =
         let checkpointConnectionString () = p.GetResult(CheckpointConnectionString, connectionString)
         let schema = p.GetResult(CheckpointSchema, fun () -> c.MdbSchema)
 
-        member x.CreateClient() =
+        member _.CreateClient() =
             Array.ofList (p.GetResults Category), connectionString ()
 
-        member x.CreateCheckpointStore(group) =
+        member _.CreateCheckpointStore(group) =
             Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConnectionString (), schema, group)
 
         member x.CreateCheckpointStoreTable([<O; D null>] ?ct) = task {
