@@ -51,6 +51,7 @@ type Configuration(tryGet: string -> string option, get: string -> string) =
 module Cosmos =
 
     open Configuration.Cosmos
+
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-m">]           ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
         | [<AltCommandLine "-s">]           Connection of string
@@ -250,8 +251,9 @@ module Dynamo =
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (indexReadContext.Value, cache)
 
 module Mdb =
+
     open Configuration.Mdb
-    open Npgsql
+
     type [<NoEquality; NoComparison>] Parameters =
         | [<AltCommandLine "-c">]           ConnectionString of string
         | [<AltCommandLine "-cc">]          CheckpointConnectionString of string
@@ -276,7 +278,7 @@ module Mdb =
             Propulsion.MessageDb.ReaderCheckpoint.CheckpointStore(checkpointConnectionString (), schema, group)
 
         member x.CreateCheckpointStoreTable([<O; D null>] ?ct) = task {
-            let connStringWithoutPassword = NpgsqlConnectionStringBuilder(checkpointConnectionString (), Password = null)
+            let connStringWithoutPassword = Npgsql.NpgsqlConnectionStringBuilder(checkpointConnectionString (), Password = null)
             Log.Information("Authenticating with postgres using {connectionString}", connStringWithoutPassword.ToString())
             Log.Information("Creating checkpoints table as {table}", $"{schema}.{Propulsion.MessageDb.ReaderCheckpoint.TableName}")
             let checkpointStore = x.CreateCheckpointStore("nil")
