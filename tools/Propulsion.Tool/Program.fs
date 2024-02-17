@@ -93,7 +93,7 @@ and [<NoComparison; NoEquality; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
     | [<AltCommandLine "-Z"; Unique>]       FromTail
     | [<AltCommandLine "-F"; Unique>]       Follow
-    | [<AltCommandLine "-m"; Unique>]       MaxItems of int
+    | [<AltCommandLine "-b"; Unique>]       MaxItems of int
 
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsParameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
