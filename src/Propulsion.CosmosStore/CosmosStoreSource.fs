@@ -31,7 +31,7 @@ type CosmosStoreSource
         [<O; D null>] ?customize,
         // Frequency to check for partitions without a processor. Default: 5s
         [<O; D null>] ?leaseAcquireInterval,
-        // Frequency to renew leases held by processors under our control. Default 3s
+        // Frequency to renew leases held by processors under our control. Default 5s
         [<O; D null>] ?leaseRenewInterval,
         // Duration to take lease when acquired/renewed. Default 10s
         [<O; D null>] ?leaseTtl) =
@@ -54,7 +54,7 @@ type CosmosStoreSource
                 monitored, leases, processorName, leaseOwnerId, log, stats, statsInterval, observers,
                 defaultArg startFromTail false, feedPollInterval = defaultArg tailSleepInterval (TimeSpan.seconds 1),
                 leaseAcquireInterval = defaultArg leaseAcquireInterval (TimeSpan.seconds 5),
-                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 3),
+                leaseRenewInterval = defaultArg leaseRenewInterval (TimeSpan.seconds 5),
                 leaseTtl = defaultArg leaseTtl (TimeSpan.seconds 10),
                 ?maxItems = maxItems, ?notifyError = notifyError, ?customize = customize, ?lagEstimationInterval = lagEstimationInterval)
         let fetchPositions () = Propulsion.Feed.Core.SourcePositions.current observers
