@@ -11,7 +11,7 @@ type Parameters =
     | [<AltCommandLine "-S">]               VerboseStore
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Init of ParseResults<Args.Cosmos.InitParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<Args.Mdb.Parameters>
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<IndexParameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<Args.Dynamo.IndexParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<ProjectParameters>
     interface IArgParserTemplate with
@@ -24,21 +24,6 @@ type Parameters =
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
             | Project _ ->                  "Project from store specified as the last argument."
-and [<NoEquality; NoComparison; RequireSubcommand>] IndexParameters =
-    | [<AltCommandLine "-p"; Unique>]       IndexPartitionId of int
-    | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
-    | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
-    | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
-    | [<AltCommandLine "-g"; Unique>]       GapsLimit of int
-    | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Args.Dynamo.Parameters>
-    interface IArgParserTemplate with
-        member a.Usage = a |> function
-            | IndexPartitionId _ ->         "PartitionId to verify/import into. (optional, omitting displays partitions->epochs list)"
-            | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
-            | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
-            | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
-            | GapsLimit _ ->                "Max Number of gaps to output to console. Default 10"
-            | Dynamo _ ->                   "Specify DynamoDB parameters."
 and [<NoEquality; NoComparison; RequireSubcommand>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
     | [<AltCommandLine "-t"; Mandatory>]    Tranche of Propulsion.Feed.TrancheId
@@ -133,87 +118,6 @@ module Checkpoints =
             let sn = Propulsion.Feed.ReaderCheckpoint.Stream.name (source, tranche, group)
             let cmd = $"eqx dump '{sn}' {storeSpecFragment}"
             Log.Information("Inspect via 👉 {cmd}", cmd) }
-
-module Indexer =
-
-    open Propulsion.DynamoStore
-
-    type Arguments(c, p: ParseResults<IndexParameters>) =
-        member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
-        member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
-        member val TrancheId =              p.TryPostProcessResult(IndexParameters.IndexPartitionId, string >> AppendsPartitionId.parse)
-        // Larger optimizes for not needing to use TransactWriteItems as frequently
-        // Smaller will trigger more items and reduce read costs for Sources reading from the tail
-        member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
-        member val EventsPerBatch =         p.GetResult(IndexParameters.EventsPerBatch, 10000)
-
-        member val StoreArgs =
-            match p.GetSubCommand() with
-            | IndexParameters.Dynamo p -> Args.Dynamo.Arguments (c, p)
-            | x -> p.Raise $"unexpected subcommand %A{x}"
-        member x.CreateContext() =          x.StoreArgs.CreateContext x.MinItemSize
-
-    let dumpSummary gapsLimit streams spanCount =
-        let mutable totalS, totalE, queuing, buffered, gapped = 0, 0L, 0, 0, 0
-        for KeyValue (stream, v: DynamoStoreIndex.BufferStreamState) in streams do
-            totalS <- totalS + 1
-            totalE <- totalE + int64 v.writePos
-            if v.spans.Length > 0 then
-                match v.spans[0].Index - v.writePos with
-                | 0 ->
-                    if v.spans.Length > 1 then queuing <- queuing + 1 // There's a gap within the queue
-                    else buffered <- buffered + 1 // Everything is fine, just not written yet
-                | gap ->
-                    gapped <- gapped + 1
-                    if gapped < gapsLimit then
-                        Log.Warning("Gapped stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}", stream, v.writePos, gap, v.spans[0].c)
-                    elif gapped = gapsLimit then
-                        Log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
-        let level = if gapped > 0 then LogEventLevel.Warning else LogEventLevel.Information
-        Log.Write(level, "Index {events:n0} events {streams:n0} streams ({spans:n0} spans) Buffered {buffered} Queueing {queuing} Gapped {gapped:n0}",
-                  totalE, totalS, spanCount, buffered, queuing, gapped)
-
-    let run (c: Args.Configuration, p: ParseResults<IndexParameters>) = async {
-        let a = Arguments(c, p)
-        let context = a.CreateContext()
-
-        match a.TrancheId with
-        | None when (not << List.isEmpty) a.ImportJsonFiles ->
-            p.Raise "Must specify a trancheId parameter to import into"
-        | None ->
-            let index = AppendsIndex.Reader.create Metrics.log context
-            let! state = index.Read()
-            Log.Information("Current Partitions / Active Epochs {summary}",
-                            seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
-
-            let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
-            let dumpCmd sn opts = $"eqx -C dump '{sn}' {opts}{storeSpecFragment}"
-            Log.Information("Inspect Index Partitions list events 👉 {cmd}",
-                            dumpCmd (AppendsIndex.Stream.name ()) "")
-
-            let pid, eid = AppendsPartitionId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
-            Log.Information("Inspect Batches in Epoch {epoch} of Index Partition {partition} 👉 {cmd}",
-                            eid, pid, dumpCmd (AppendsEpoch.Stream.name (pid, eid)) "-B ")
-        | Some trancheId ->
-            let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Metrics.log, context) trancheId a.GapsLimit
-            let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
-            dump 0
-
-            match a.ImportJsonFiles with
-            | [] -> ()
-            | files ->
-
-            Log.Information("Ingesting {files}...", files)
-
-            let ingest =
-                let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Metrics.log)
-                fun batch -> ingester.Service.IngestWithoutConcurrency(trancheId, batch)
-            let import = DynamoDbExport.Importer(buffer, ingest, dump)
-            for file in files do
-                let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
-                Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
-            do! import.Flush()
-        Equinox.DynamoStore.Core.Log.InternalMetrics.dump Log.Logger }
 
 module Project =
 
@@ -323,7 +227,7 @@ module Project =
             sink.AwaitWithStopOnCancellation() ]
         return! work |> Async.Parallel |> Async.Ignore<unit[]> }
 
-type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
+type Arguments(c: Args.Configuration, p: ParseResults<Parameters>) =
     member val Verbose = p.Contains Verbose
     member val VerboseConsole = p.Contains VerboseConsole
     member val VerboseStore = p.Contains VerboseStore
@@ -332,15 +236,13 @@ type ToolArguments(c: Args.Configuration, p: ParseResults<Parameters>) =
         | Init a ->         do! Args.Cosmos.initAux (c, a) |> Async.Ignore<Microsoft.Azure.Cosmos.Container>
         | InitPg a ->       do! Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.ofTask
         | Checkpoint a ->   do! Checkpoints.readOrOverride(c, a, CancellationToken.None) |> Async.ofTask
-        | Index a ->        do! Indexer.run (c, a)
+        | Index a ->        do! Args.Dynamo.index (c, a)
         | Project a ->      do! Project.run (c, a)
         | x ->              p.Raise $"unexpected subcommand %A{x}" }
     /// Parse the commandline; Throws ArguParseException for `-h`/`--help` args and/or malformed arguments
     static member Parse argv =
-        let programName = System.Reflection.Assembly.GetEntryAssembly().GetName().Name
-        let parser = ArgumentParser.Create<Parameters>(programName = programName)
-        let parseResults = parser.ParseCommandLine argv
-        ToolArguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
+        let parseResults = ArgumentParser.Create().ParseCommandLine argv
+        Arguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
 
 let isExpectedShutdownSignalException: exn -> bool = function
     | :? ArguParseException -> true // Via Arguments.Parse and/or Configuration.tryGet
@@ -349,7 +251,7 @@ let isExpectedShutdownSignalException: exn -> bool = function
 
 [<EntryPoint>]
 let main argv =
-    try let a = ToolArguments.Parse argv
+    try let a = Arguments.Parse argv
         try Log.Logger <- LoggerConfiguration().Configure(a.Verbose).Sinks(Sinks.equinoxMetricsOnly, a.VerboseConsole, a.VerboseStore).CreateLogger()
             try a.ExecuteSubCommand() |> Async.RunSynchronously; 0
             with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2

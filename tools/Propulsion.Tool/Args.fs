@@ -196,7 +196,6 @@ module Dynamo =
                 | IndexSuffix _ ->          "specify a suffix for the index store. (not relevant if `Table` or `IndexTable` specified. default: \"-index\")"
                 | StreamsDop _ ->           "parallelism when loading events from Store Feed Source. Default: Don't load events"
                 | IndexPartition _ ->       "Constrain Index Partitions to load. Default: Load all indexed partitions"
-
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let conn =                          match p.TryGetResult RegionProfile |> Option.orElseWith (fun () -> c.DynamoRegion) with
                                             | Some systemName ->
@@ -249,6 +248,101 @@ module Dynamo =
             client.CreateContext("Index", indexTable, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
         member _.CreateCheckpointStore(group, cache, storeLog) =
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (indexReadContext.Value, cache)
+
+    type [<NoEquality; NoComparison; RequireSubcommand>] IndexParameters =
+        | [<AltCommandLine "-p"; Unique>]       IndexPartitionId of int
+        | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
+        | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
+        | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
+        | [<AltCommandLine "-g"; Unique>]       GapsLimit of int
+        | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Parameters>
+        interface IArgParserTemplate with
+            member a.Usage = a |> function
+                | IndexPartitionId _ ->         "PartitionId to verify/import into. (optional, omitting displays partitions->epochs list)"
+                | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
+                | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
+                | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
+                | GapsLimit _ ->                "Max Number of gaps to output to console. Default 10"
+                | Dynamo _ ->                   "Specify DynamoDB parameters."
+
+    open Propulsion.DynamoStore
+
+    type IndexerArguments(c, p: ParseResults<IndexParameters>) =
+        member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
+        member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
+        member val TrancheId =              p.TryPostProcessResult(IndexParameters.IndexPartitionId, string >> AppendsPartitionId.parse)
+        // Larger optimizes for not needing to use TransactWriteItems as frequently
+        // Smaller will trigger more items and reduce read costs for Sources reading from the tail
+        member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)
+        member val EventsPerBatch =         p.GetResult(IndexParameters.EventsPerBatch, 10000)
+
+        member val StoreArgs =
+            match p.GetSubCommand() with
+            | IndexParameters.Dynamo p ->   Arguments (c, p)
+            | x ->                          p.Raise $"unexpected subcommand %A{x}"
+        member x.CreateContext() =          x.StoreArgs.CreateContext x.MinItemSize
+
+    let dumpSummary gapsLimit streams spanCount =
+        let mutable totalS, totalE, queuing, buffered, gapped = 0, 0L, 0, 0, 0
+        for KeyValue (stream, v: DynamoStoreIndex.BufferStreamState) in streams do
+            totalS <- totalS + 1
+            totalE <- totalE + int64 v.writePos
+            if v.spans.Length > 0 then
+                match v.spans[0].Index - v.writePos with
+                | 0 ->
+                    if v.spans.Length > 1 then queuing <- queuing + 1 // There's a gap within the queue
+                    else buffered <- buffered + 1 // Everything is fine, just not written yet
+                | gap ->
+                    gapped <- gapped + 1
+                    if gapped < gapsLimit then
+                        Log.Warning("Gapped stream {stream}@{wp}: Missing {gap} events before {successorEventTypes}", stream, v.writePos, gap, v.spans[0].c)
+                    elif gapped = gapsLimit then
+                        Log.Error("Gapped Streams Dump limit ({gapsLimit}) reached; use commandline flag to show more", gapsLimit)
+        let level = if gapped > 0 then LogEventLevel.Warning else LogEventLevel.Information
+        Log.Write(level, "Index {events:n0} events {streams:n0} streams ({spans:n0} spans) Buffered {buffered} Queueing {queuing} Gapped {gapped:n0}",
+                  totalE, totalS, spanCount, buffered, queuing, gapped)
+
+    let index (c: Configuration, p: ParseResults<IndexParameters>) = async {
+        let a = IndexerArguments(c, p)
+        let context = a.CreateContext()
+
+        match a.TrancheId with
+        | None when (not << List.isEmpty) a.ImportJsonFiles ->
+            p.Raise "Must specify a trancheId parameter to import into"
+        | None ->
+            let index = AppendsIndex.Reader.create Metrics.log context
+            let! state = index.Read()
+            Log.Information("Current Partitions / Active Epochs {summary}",
+                            seq { for kvp in state -> struct (kvp.Key, kvp.Value) } |> Seq.sortBy (fun struct (t, _) -> t))
+
+            let storeSpecFragment = $"dynamo -t {a.StoreArgs.IndexTable}"
+            let dumpCmd sn opts = $"eqx -C dump '{sn}' {opts}{storeSpecFragment}"
+            Log.Information("Inspect Index Partitions list events 👉 {cmd}",
+                            dumpCmd (AppendsIndex.Stream.name ()) "")
+
+            let pid, eid = AppendsPartitionId.wellKnownId, FSharp.UMX.UMX.tag<appendsEpochId> 2
+            Log.Information("Inspect Batches in Epoch {epoch} of Index Partition {partition} 👉 {cmd}",
+                            eid, pid, dumpCmd (AppendsEpoch.Stream.name (pid, eid)) "-B ")
+        | Some trancheId ->
+            let! buffer, indexedSpans = DynamoStoreIndex.Reader.loadIndex (Log.Logger, Metrics.log, context) trancheId a.GapsLimit
+            let dump ingestedCount = dumpSummary a.GapsLimit buffer.Items (indexedSpans + ingestedCount)
+            dump 0
+
+            match a.ImportJsonFiles with
+            | [] -> ()
+            | files ->
+
+            Log.Information("Ingesting {files}...", files)
+
+            let ingest =
+                let ingester = DynamoStoreIngester(Log.Logger, context, storeLog = Metrics.log)
+                fun batch -> ingester.Service.IngestWithoutConcurrency(trancheId, batch)
+            let import = DynamoDbExport.Importer(buffer, ingest, dump)
+            for file in files do
+                let! stats = import.IngestDynamoDbJsonFile(file, a.EventsPerBatch)
+                Log.Information("Merged {file}: {items:n0} items {events:n0} events", file, stats.items, stats.events)
+            do! import.Flush()
+        Equinox.DynamoStore.Core.Log.InternalMetrics.dump Log.Logger }
 
 module Mdb =
 
