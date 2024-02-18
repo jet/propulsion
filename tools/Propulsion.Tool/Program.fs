@@ -219,7 +219,7 @@ module Project =
                 source.AwaitWithStopOnCancellation()
             else async {
                 let initialWait = TimeSpan.seconds 10
-                do! source.Monitor.AwaitCompletion(initialWait, awaitFullyCaughtUp = true, logInterval = stats.StatsInterval / 2.) |> Async.AwaitTask
+                do! source.Monitor.AwaitCompletion(initialWait, awaitFullyCaughtUp = true, logInterval = stats.StatsInterval / 2.) |> Async.ofTask
                 source.Stop()
                 do! source.Await() // Let it emit the stats
                 do! source.Flush() |> Async.Ignore<Propulsion.Feed.TranchePositions> // flush checkpoints (currently a no-op)

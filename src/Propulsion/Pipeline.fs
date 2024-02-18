@@ -39,7 +39,7 @@ type Pipeline(task: Task<unit>, triggerStop) =
 
     member _.Monitor = monitor.Value
     member _.FlushAsync(): Task<'P> = flush ()
-    member x.Flush(): Async<'P> = x.FlushAsync() |> Async.AwaitTaskCorrect
+    member x.Flush(): Async<'P> = x.FlushAsync() |> Async.ofTask
 
 type SinkPipeline<'Ingester> internal (task: Task<unit>, triggerStop, startIngester) =
     inherit Pipeline(task, triggerStop)
