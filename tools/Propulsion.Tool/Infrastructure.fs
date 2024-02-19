@@ -104,6 +104,13 @@ type Logging() =
             let! cosmosClient = x.CreateAndInitialize("Feed", databaseId, [| containerId; auxContainerId |])
             return CosmosStoreConnector.createMonitoredAndLeases cosmosClient databaseId containerId auxContainerId }
 
+        /// CosmosSync: When using a ReadOnly connection string, the leases need to be maintained alongside the target
+        member x.ConnectFeedReadOnly(databaseId, containerId, auxClient, auxDatabaseId, auxContainerId) = async {
+            let! client = x.CreateAndInitialize("Main", databaseId, [| containerId |])
+            let source = CosmosStoreConnector.getSource client databaseId containerId
+            let leases = CosmosStoreConnector.getLeases auxClient auxDatabaseId auxContainerId
+            return source, leases }
+
         member x.ConnectContext(role, databaseId, containerId: string, maxEvents) = async {
             let! client = x.Connect(role, databaseId, [| containerId |])
             return client.CreateContext(role, databaseId, containerId, tipMaxEvents = maxEvents) }

@@ -23,6 +23,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
 
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<SourceParameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
+    | [<CliPrefix(CliPrefix.None); Last>]   SyncCosmos of ParseResults<SyncCosmosParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name. Optional if source is JSON"
@@ -43,6 +44,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
 
             | Stats _ ->                    "Do not emit events, only stats."
             | Kafka _ ->                    "Project to Kafka."
+            | SyncCosmos _ ->               "Feed Events into specified Store."
 and [<NoEquality; NoComparison; RequireSubcommand>] KafkaParameters =
     | [<AltCommandLine "-t"; Unique; MainCommand>] Topic of string
     | [<AltCommandLine "-b"; Unique>]       Broker of string
@@ -63,6 +65,52 @@ and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
             | Dynamo _ ->                   "Specify DynamoDB parameters."
             | Mdb _ ->                      "Specify MessageDb parameters."
             | Json _ ->                     "Specify JSON file parameters."
+and [<NoEquality; NoComparison; RequireSubcommand>] SyncCosmosParameters =
+    | [<AltCommandLine "-s">]               Connection of string
+    | [<AltCommandLine "-d">]               Database of string
+    | [<AltCommandLine "-c"; Mandatory>]    Container of string
+    | [<AltCommandLine "-a">]               LeaseContainerId of string
+    | [<AltCommandLine "-o">]               Timeout of float
+    | [<AltCommandLine "-r">]               Retries of int
+    | [<AltCommandLine "-rt">]              RetriesWaitTime of float
+    | [<AltCommandLine "-kb">]              MaxKiB of int
+    | [<CliPrefix(CliPrefix.None); Last>]   Source of ParseResults<SourceParameters>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Connection _ ->               "specify a connection string for the destination Cosmos account. Default (if Cosmos): Same as Source"
+            | Database _ ->                 "specify a database name for store. Default (if Cosmos): Same as Source"
+            | Container _ ->                "specify a container name for store."
+            | LeaseContainerId _ ->         "store leases in Sync target DB (default: use `-aux` adjacent to the Source Container). Enables the Source to be read via a ReadOnly connection string."
+            | Timeout _ ->                  "specify operation timeout in seconds. Default: 5."
+            | Retries _ ->                  "specify operation retries. Default: 0."
+            | RetriesWaitTime _ ->          "specify max wait-time for retry when being throttled by Cosmos in seconds. Default: 5."
+            | MaxKiB _ ->                   "specify maximum size in KiB to pass to the Sync stored proc (reduce if Malformed Streams due to 413 RequestTooLarge responses). Default: 128."
+            | Source _ ->                   "Specify Source."
+type SyncCosmosArguments(c: Args.Configuration, p: ParseResults<SyncCosmosParameters>) =
+    let source =                            SourceArguments(c, p.GetResult SyncCosmosParameters.Source)
+    let connection =                        match source.StoreArgs with
+                                            | Cosmos c -> p.GetResult(Connection, fun () -> c.Connection)
+                                            | Json _ -> p.GetResult Connection
+                                            | x -> p.Raise $"unexpected subcommand %A{x}"
+    let connector =
+        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.seconds
+        let retries =                       p.GetResult(Retries, 1)
+        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
+        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, timeout, retries, maxRetryWaitTime)
+    let database =                          match source.StoreArgs with
+                                            | Cosmos c -> p.GetResult(Database, fun () -> c.Database)
+                                            | Json _ -> p.GetResult Database
+                                            | x -> p.Raise $"unexpected subcommand %A{x}"
+    let container =                         p.GetResult Container
+    member val Source =                     source
+    member val MaxBytes =                   p.GetResult(MaxKiB, 128) * 1024
+    member x.Connect() =                    connector.ConnectContext("Destination", database, container, maxEvents = 128)
+    member x.ConnectEvents() = async {      let! context = x.Connect()
+                                            return Equinox.CosmosStore.Core.EventsContext(context, Metrics.log) }
+    member x.ConnectFeed() =                let source = match source.StoreArgs with SourceArgs.Cosmos c -> c | _ -> p.Raise "unexpected"
+                                            match p.TryGetResult LeaseContainerId with
+                                            | Some localAuxContainerId -> source.ConnectFeedReadOnly(connector.CreateUninitialized(), database, localAuxContainerId)
+                                            | None -> source.ConnectFeed()
 and SourceArguments(c, p: ParseResults<SourceParameters>) =
     member val StoreArgs =
         match p.GetSubCommand() with
@@ -122,13 +170,16 @@ type Arguments(c, p: ParseResults<Parameters>) =
         match p.GetSubCommand() with
         | Kafka a -> KafkaArguments(c, a) |> SubCommand.Kafka
         | Stats a -> SourceArguments(c, a) |> SubCommand.Stats
+        | SyncCosmos a -> SyncCosmosArguments(c, a) |> SubCommand.Sync
         | x -> p.Raise $"unexpected subcommand %A{x}"
 and [<NoEquality; NoComparison; RequireQualifiedAccess>] SubCommand =
     | Kafka of KafkaArguments
     | Stats of SourceArguments
+    | Sync of SyncCosmosArguments
     member x.SourceStore = x |> function
         | SubCommand.Kafka a -> a.Source.StoreArgs
         | SubCommand.Stats a -> a.StoreArgs
+        | SubCommand.Sync a -> a.Source.StoreArgs
 
 [<AbstractClass>]
 type StatsBase<'outcome>(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
@@ -220,7 +271,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
         | Cosmos _ -> Equinox.CosmosStore.Core.Log.InternalMetrics.dump
         | Dynamo _ -> Equinox.DynamoStore.Core.Log.InternalMetrics.dump
         | Mdb _ -> ignore
-        | Json _ -> ignore
+        | Json _ -> match a.Command with SubCommand.Sync _ -> Equinox.CosmosStore.Core.Log.InternalMetrics.dump | _ -> ignore
     let group =
         match p.TryGetResult ConsumerGroupName, a.Command.SourceStore with
         | Some x, _ -> x
@@ -234,27 +285,37 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             let cfg = FsKafka.KafkaProducerConfig.Create(appName, a.Broker, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
             let p = FsKafka.KafkaProducer.Create(Log.Logger, cfg, a.Topic)
             Some p
-        | SubCommand.Stats _ -> None
+        | SubCommand.Stats _ | SubCommand.Sync _ -> None
     let isFileSource = match a.Command.SourceStore with Json _ -> true | _ -> true
     let parse = a.Filters.CreateStreamFilter None |> Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream
     let statsInterval, stateInterval = a.StatsInterval, a.StateInterval
     let maxReadAhead = p.GetResult(MaxReadAhead, if isFileSource then 32768 else 2)
     let maxConcurrentProcessors = p.GetResult(MaxWriters, 8)
     let sink =
-        let stats = Stats(Log.Logger, statsInterval, stateInterval, verboseStore = false, logExternalStats = dumpStoreStats)
-        let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
-            let ham, spam = events |> Array.partition isValidEvent
-            match producer with
-            | None -> ()
-            | Some producer ->
-                let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
-                do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
-            return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
-        Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, idleDelay = a.IdleDelay)
+        match a.Command with
+        | SubCommand.Kafka _ | SubCommand.Stats _ ->
+            let stats = Stats(Log.Logger, statsInterval, stateInterval, verboseStore = false, logExternalStats = dumpStoreStats)
+            let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
+                let ham, spam = events |> Array.partition isValidEvent
+                match producer with
+                | None -> ()
+                | Some producer ->
+                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
+                    do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
+                return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, idleDelay = a.IdleDelay)
+        | SubCommand.Sync a ->
+            let eventsContext = a.ConnectEvents() |> Async.RunSynchronously
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval)
+            Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
+                                                         purgeInterval = TimeSpan.hours 1, maxBytes = a.MaxBytes)
     let source =
         match a.Command.SourceStore with
         | Cosmos sa ->
-            let monitored, leases =  sa.ConnectFeed() |> Async.RunSynchronously
+            let monitored, leases =
+                match a.Command with
+                | SubCommand.Sync a -> a.ConnectFeed() |> Async.RunSynchronously
+                | SubCommand.Kafka _ | SubCommand.Stats _ -> sa.ConnectFeed() |> Async.RunSynchronously
             Propulsion.CosmosStore.CosmosStoreSource(
                 Log.Logger, statsInterval, monitored, leases, group, parse, sink,
                 startFromTail = startFromTail, ?maxItems = maxItems, ?lagEstimationInterval = sa.MaybeLogLagInterval
