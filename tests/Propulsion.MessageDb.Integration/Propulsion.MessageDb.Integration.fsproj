@@ -9,7 +9,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.14.1" />
+        <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0-rc.16" />
         <PackageReference Include="TypeShape" Version="10.0.0" />
     </ItemGroup>
     <ItemGroup>

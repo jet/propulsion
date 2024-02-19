@@ -89,7 +89,7 @@ module Cosmos =
         let containerId =                   p.GetResult(Container, fun () -> c.CosmosContainer)
         let leasesContainerName =           p.GetResult(LeaseContainer, fun () -> containerId + p.GetResult(Suffix, "-aux"))
         let checkpointInterval =            TimeSpan.hours 1.
-        member val MaybeLogLagInterval =    p.TryPostProcessResult(LagFreqM, TimeSpan.minutes)
+        member val MaybeLogLagInterval =    p.TryGetResult(LagFreqM, TimeSpan.minutes)
         member _.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, leasesContainerName)
         member _.ConnectFeed() =            connector.ConnectFeed(databaseId, containerId, leasesContainerName)
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
@@ -270,7 +270,7 @@ module Dynamo =
     type IndexerArguments(c, p: ParseResults<IndexParameters>) =
         member val GapsLimit =              p.GetResult(IndexParameters.GapsLimit, 10)
         member val ImportJsonFiles =        p.GetResults IndexParameters.DynamoDbJson
-        member val TrancheId =              p.TryPostProcessResult(IndexParameters.IndexPartitionId, string >> AppendsPartitionId.parse)
+        member val TrancheId =              p.TryGetResult(IndexParameters.IndexPartitionId, string >> AppendsPartitionId.parse)
         // Larger optimizes for not needing to use TransactWriteItems as frequently
         // Smaller will trigger more items and reduce read costs for Sources reading from the tail
         member val MinItemSize =            p.GetResult(IndexParameters.MinSizeK, 48)

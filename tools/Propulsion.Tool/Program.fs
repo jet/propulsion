@@ -46,7 +46,7 @@ and [<NoEquality; NoComparison; RequireSubcommand>] ProjectParameters =
     | [<AltCommandLine "-Z"; Unique>]       FromTail
     | [<AltCommandLine "-F"; Unique>]       Follow
     | [<AltCommandLine "-b"; Unique>]       MaxItems of int
-    | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<StatsParameters>
+    | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<SourceParameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
@@ -59,17 +59,13 @@ and [<NoEquality; NoComparison; RequireSubcommand>] ProjectParameters =
 and [<NoEquality; NoComparison; RequireSubcommand>] KafkaParameters =
     | [<AltCommandLine "-t"; Unique; MainCommand>] Topic of string
     | [<AltCommandLine "-b"; Unique>]       Broker of string
-    | [<CliPrefix(CliPrefix.None); Last>]   Cosmos of ParseResults<Args.Cosmos.Parameters>
-    | [<CliPrefix(CliPrefix.None); Last>]   Dynamo of ParseResults<Args.Dynamo.Parameters>
-    | [<CliPrefix(CliPrefix.None); Last>]   Mdb    of ParseResults<Args.Mdb.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last>]   Source of ParseResults<SourceParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
             | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
-            | Cosmos _ ->                   "Specify CosmosDB parameters."
-            | Dynamo _ ->                   "Specify DynamoDB parameters."
-            | Mdb _ ->                      "Specify MessageDb parameters."
-and [<NoEquality; NoComparison; RequireSubcommand>] StatsParameters =
+            | Source _ ->                   "Specify Source."
+and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Mdb    of ParseResults<Args.Mdb.Parameters>
@@ -88,12 +84,12 @@ module Checkpoints =
             match p.GetSubCommand() with
             | CheckpointParameters.Cosmos p ->  Choice1Of3 (Args.Cosmos.Arguments (c, p))
             | CheckpointParameters.Dynamo p ->  Choice2Of3 (Args.Dynamo.Arguments (c, p))
-            | CheckpointParameters.Mdb p ->      Choice3Of3 (Args.Mdb.Arguments (c, p))
+            | CheckpointParameters.Mdb p ->     Choice3Of3 (Args.Mdb.Arguments (c, p))
             | x -> p.Raise $"unexpected subcommand %A{x}"
 
     let readOrOverride (c, p: ParseResults<CheckpointParameters>, ct) = task {
         let a = Arguments(c, p)
-        let source, tranche, group = p.GetResult Source, p.GetResult Tranche, p.GetResult Group
+        let source, tranche, group = p.GetResult CheckpointParameters.Source, p.GetResult Tranche, p.GetResult Group
         let! store, storeSpecFragment, overridePosition = task {
             let cache = Equinox.Cache (AppName, sizeMb = 1)
             match a.StoreArgs with
@@ -123,28 +119,22 @@ module Project =
 
     type [<NoEquality; NoComparison>] SourceArgs = Cosmos of Args.Cosmos.Arguments | Dynamo of Args.Dynamo.Arguments | Mdb of Args.Mdb.Arguments
     type KafkaArguments(c: Args.Configuration, p: ParseResults<KafkaParameters>) =
-        member val Broker =                   p.GetResult(Broker, fun () -> c.KafkaBroker)
-        member val Topic =                    p.GetResult(Topic, fun () -> c.KafkaTopic)
+        member val Broker =                  p.GetResult(Broker, fun () -> c.KafkaBroker)
+        member val Topic =                   p.GetResult(Topic, fun () -> c.KafkaTopic)
+        member val Source =                  SourceArguments(c, p.GetResult KafkaParameters.Source)
+    and SourceArguments(c, p: ParseResults<SourceParameters>) =
         member val StoreArgs =
             match p.GetSubCommand() with
-            | KafkaParameters.Cosmos p ->   Cosmos (Args.Cosmos.Arguments (c, p))
-            | KafkaParameters.Dynamo p ->   Dynamo (Args.Dynamo.Arguments (c, p))
-            | KafkaParameters.Mdb p ->      Mdb (Args.Mdb.Arguments (c, p))
-            | x -> p.Raise $"unexpected subcommand %A{x}"
-
-    type StatsArguments(c, p: ParseResults<StatsParameters>) =
-        member val StoreArgs =
-            match p.GetSubCommand() with
-            | StatsParameters.Cosmos p ->   Cosmos (Args.Cosmos.Arguments (c, p))
-            | StatsParameters.Dynamo p ->   Dynamo (Args.Dynamo.Arguments (c, p))
-            | StatsParameters.Mdb p ->      Mdb (Args.Mdb.Arguments (c, p))
+            | SourceParameters.Cosmos p ->   Cosmos (Args.Cosmos.Arguments (c, p))
+            | SourceParameters.Dynamo p ->   Dynamo (Args.Dynamo.Arguments (c, p))
+            | SourceParameters.Mdb p ->      Mdb (Args.Mdb.Arguments (c, p))
 
     type Arguments(c, p: ParseResults<ProjectParameters>) =
         member val IdleDelay =              TimeSpan.ms 10.
         member val StoreArgs =
             match p.GetSubCommand() with
-            | Kafka a -> KafkaArguments(c, a).StoreArgs
-            | Stats a -> StatsArguments(c, a).StoreArgs
+            | Kafka a -> KafkaArguments(c, a).Source.StoreArgs
+            | Stats a -> SourceArguments(c, a).StoreArgs
             | x -> p.Raise $"unexpected subcommand %A{x}"
 
     type Stats(statsInterval, statesInterval, logExternalStats) =
@@ -239,7 +229,6 @@ type Arguments(c: Args.Configuration, p: ParseResults<Parameters>) =
         | Index a ->        do! Args.Dynamo.index (c, a)
         | Project a ->      do! Project.run (c, a)
         | x ->              p.Raise $"unexpected subcommand %A{x}" }
-    /// Parse the commandline; Throws ArguParseException for `-h`/`--help` args and/or malformed arguments
     static member Parse argv =
         let parseResults = ArgumentParser.Create().ParseCommandLine argv
         Arguments(Args.Configuration(EnvVar.tryGet, EnvVar.getOr parseResults.Raise), parseResults)
