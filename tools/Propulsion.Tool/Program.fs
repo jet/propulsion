@@ -100,7 +100,7 @@ type Arguments(c: Args.Configuration, p: ParseResults<Parameters>) =
 
 let isExpectedShutdownSignalException: exn -> bool = function
     | :? ArguParseException -> true // Via Arguments.Parse and/or Configuration.tryGet
-    | :? System.Threading.Tasks.TaskCanceledException -> true // via AwaitKeyboardInterruptAsTaskCanceledException
+    | :? System.Threading.Tasks.TaskCanceledException -> true // via AwaitKeyboardInterruptAsTaskCanceledException or Project.eofSignalException
     | _ -> false
 
 [<EntryPoint>]
@@ -110,5 +110,6 @@ let main argv =
             try a.ExecuteSubCommand() |> Async.RunSynchronously; 0
             with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
-    with :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
+    with x when x = Project.eofSignalException -> printfn "Processing COMPLETE"; 0
+        | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1

@@ -6,7 +6,9 @@ open Propulsion.Internal
 open Serilog
 
 type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
-    | [<AltCommandLine "-g"; Mandatory>]    ConsumerGroupName of string
+    | [<AltCommandLine "-g"; Unique>]       ConsumerGroupName of string
+    | [<AltCommandLine "-r"; Unique>]       MaxReadAhead of int
+    | [<AltCommandLine "-w"; Unique>]       MaxWriters of int
     | [<AltCommandLine "-Z"; Unique>]       FromTail
     | [<AltCommandLine "-F"; Unique>]       Follow
     | [<AltCommandLine "-b"; Unique>]       MaxItems of int
@@ -14,7 +16,9 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | ConsumerGroupName _ ->        "Projector instance context name."
+            | ConsumerGroupName _ ->        "Projector instance context name. Optional if source is JSON"
+            | MaxReadAhead _ ->             "maximum number of batches to let processing get ahead of completion. Default: File: 32768 Other: 2."
+            | MaxWriters _ ->               "maximum number of concurrent streams on which to process at any time. Default: 8 (Sync: 16)."
             | FromTail ->                   "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | Follow ->                     "Stop when the Tail is reached."
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
@@ -33,28 +37,32 @@ and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Mdb    of ParseResults<Args.Mdb.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Json   of ParseResults<Args.Json.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Cosmos _ ->                   "Specify CosmosDB parameters."
             | Dynamo _ ->                   "Specify DynamoDB parameters."
             | Mdb _ ->                      "Specify MessageDb parameters."
+            | Json _ ->                     "Specify JSON file parameters."
 type [<NoEquality; NoComparison>] SourceArgs =
     | Cosmos of Args.Cosmos.Arguments
     | Dynamo of Args.Dynamo.Arguments
     | Mdb of Args.Mdb.Arguments
+    | Json of Args.Json.Arguments
 type KafkaArguments(c: Args.Configuration, p: ParseResults<KafkaParameters>) =
-    member val Broker =                  p.GetResult(Broker, fun () -> c.KafkaBroker)
-    member val Topic =                   p.GetResult(Topic, fun () -> c.KafkaTopic)
-    member val Source =                  SourceArguments(c, p.GetResult KafkaParameters.Source)
+    member val Broker =                     p.GetResult(Broker, fun () -> c.KafkaBroker)
+    member val Topic =                      p.GetResult(Topic, fun () -> c.KafkaTopic)
+    member val Source =                     SourceArguments(c, p.GetResult KafkaParameters.Source)
 and SourceArguments(c, p: ParseResults<SourceParameters>) =
     member val StoreArgs =
         match p.GetSubCommand() with
-        | SourceParameters.Cosmos p ->   Cosmos (Args.Cosmos.Arguments (c, p))
-        | SourceParameters.Dynamo p ->   Dynamo (Args.Dynamo.Arguments (c, p))
-        | SourceParameters.Mdb p ->      Mdb (Args.Mdb.Arguments (c, p))
+        | SourceParameters.Cosmos p ->      Cosmos (Args.Cosmos.Arguments (c, p))
+        | SourceParameters.Dynamo p ->      Dynamo (Args.Dynamo.Arguments (c, p))
+        | SourceParameters.Mdb p ->         Mdb (Args.Mdb.Arguments (c, p))
+        | SourceParameters.Json p ->        Json (Args.Json.Arguments (c, p))
 
 type Arguments(c, p: ParseResults<Parameters>) =
-    member val IdleDelay =              TimeSpan.ms 10.
+    member val IdleDelay =                  TimeSpan.ms 10.
     member val StoreArgs =
         match p.GetSubCommand() with
         | Kafka a -> KafkaArguments(c, a).Source.StoreArgs
@@ -70,6 +78,7 @@ type Stats(statsInterval, statesInterval, logExternalStats) =
         base.DumpStats()
         logExternalStats Log.Logger
 
+let eofSignalException = System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed"
 let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
     let a = Arguments(c, p)
     let dumpStoreStats =
@@ -77,7 +86,13 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
         | Cosmos _ -> Equinox.CosmosStore.Core.Log.InternalMetrics.dump
         | Dynamo _ -> Equinox.DynamoStore.Core.Log.InternalMetrics.dump
         | Mdb _ -> ignore
-    let group, startFromTail, follow, maxItems = p.GetResult ConsumerGroupName, p.Contains FromTail, p.Contains Follow, p.TryGetResult MaxItems
+        | Json _ -> ignore
+    let group =
+        match p.TryGetResult ConsumerGroupName, a.StoreArgs with
+        | Some x, _ -> x
+        | None, Json _ -> System.Guid.NewGuid() |> _.ToString("N")
+        | None, _ -> p.Raise "ConsumerGroupName is mandatory, unless consuming from a JSON file"
+    let startFromTail, follow, maxItems = p.Contains FromTail, p.Contains Follow, p.TryGetResult MaxItems
     let producer =
         match p.GetSubCommand() with
         | Kafka a ->
@@ -88,9 +103,11 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             Some p
         | Stats _ -> None
         | x -> p.Raise $"unexpected subcommand %A{x}"
+    let isFileSource = match a.StoreArgs with Json _ -> true | _ -> true
+    let maxReadAhead = p.GetResult(MaxReadAhead, if isFileSource then 32768 else 2)
+    let maxConcurrentProcessors = p.GetResult(MaxWriters, 8)
     let stats = Stats(TimeSpan.minutes 1., TimeSpan.minutes 5., logExternalStats = dumpStoreStats)
     let sink =
-        let maxReadAhead, maxConcurrentStreams = 2, 16
         let handle (stream: FsCodec.StreamName) (span: Propulsion.Sinks.Event[]) = async {
             match producer with
             | None -> ()
@@ -98,12 +115,12 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream span |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                 do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
             return Propulsion.Sinks.AllProcessed, () }
-        Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentStreams, handle, stats, idleDelay = a.IdleDelay)
+        Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle, stats, idleDelay = a.IdleDelay)
     let source =
+        let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
         match a.StoreArgs with
         | Cosmos sa ->
             let monitored, leases = sa.ConnectFeed() |> Async.RunSynchronously
-            let parseFeedDoc = Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream (fun _sn -> true)
             Propulsion.CosmosStore.CosmosStoreSource(
                 Log.Logger, stats.StatsInterval, monitored, leases, group, parseFeedDoc, sink,
                 startFromTail = startFromTail, ?maxItems = maxItems, ?lagEstimationInterval = sa.MaybeLogLagInterval
@@ -127,6 +144,8 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 client, defaultArg maxItems 100, TimeSpan.seconds 0.5,
                 checkpoints, sink, categories
             ).Start()
+        | Json sa ->
+            CosmosDumpSource.Start(Log.Logger, stats.StatsInterval, sa.Filepath, sa.Skip, parseFeedDoc, sink, ?truncateTo = sa.Trunc)
 
     let work = [
         Async.AwaitKeyboardInterruptAsTaskCanceledException()
@@ -138,6 +157,6 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             source.Stop()
             do! source.Await() // Let it emit the stats
             do! source.Flush() |> Async.Ignore<Propulsion.Feed.TranchePositions> // flush checkpoints (currently a no-op)
-            raise <| System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed" } // trigger tear down of sibling waits
+            raise eofSignalException } // trigger tear down of sibling waits
         sink.AwaitWithStopOnCancellation() ]
     return! work |> Async.Parallel |> Async.Ignore<unit[]> }
