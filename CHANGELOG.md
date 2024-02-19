@@ -28,6 +28,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.SqlStreamStore`: Added `startFromTail` [#173](https://github.com/jet/propulsion/pull/173)
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
+- `Propulsion.Tool`: `project` supports `json` source option [#250](https://github.com/jet/propulsion/pull/250)
 
 ### Changed
 
