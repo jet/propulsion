@@ -152,7 +152,7 @@ adjusting package references while retaining source compatibility to the maximum
       
     - [Propulsion+Equinox templates](https://github.com/jet/dotnet-templates#producerreactor-templates-combining-usage-of-equinox-and-propulsion):
       - `eqxShipping`: Event-sourced example with a Process Manager. Includes a `Watchdog` component that uses a `StreamsSink`, with example wiring for `CosmosStore`, `DynamoStore` and `EventStoreDb`  
-      - `proCosmosReactor`. single-source `StreamsSink` based Reactor. More legible version of `proReactor` template, currently only supports `Propulsion.CosmosStore`
+      - `proIndexer`. single-source `StreamsSink` based Reactor. More legible version of `proReactor` template, currently only supports `Propulsion.CosmosStore`, and provides some specific extensions such as updating snapshots.
       - `proReactor` generic template, supporting multiple sources and multiple processing modes
       - `summaryConsumer` consumes from the output of a `proReactor --kafka`, saving them in an `Equinox.CosmosStore` store
       - `trackingConsumer` consumes from Kafka, feeding into example Ingester logic in an `Equinox.CosmosStore` store 
@@ -199,17 +199,17 @@ The relevant pieces of the above break down as follows, when we emphasize the [C
 
 ```powershell
 dotnet tool uninstall Propulsion.Tool -g
-dotnet tool install Propulsion.Tool -g
+dotnet tool install Propulsion.Tool -g --prerelease
 
 propulsion init -ru 400 cosmos # generates a -aux container for the ChangeFeedProcessor to maintain consumer group progress within
 # -V for verbose ChangeFeedProcessor logging
 # `-g projector1` represents the consumer group - >=1 are allowed, allowing multiple independent projections to run concurrently
 # stats specifies one only wants stats regarding items (other options include `kafka` to project to Kafka)
 # cosmos specifies source overrides (using defaults in step 1 in this instance)
-propulsion -V project -g projector1 stats cosmos
+propulsion -V sync -g projector1 stats from cosmos
 
 # load events with 2 parallel readers, detailed store logging and a read timeout of 20s
-propulsion -VS project -g projector1 stats dynamo -rt 20 -d 2
+propulsion -VS sync -g projector1 stats from dynamo -rt 20 -d 2
 ```
 
 ### 2. Use `propulsion` tool to Run a CosmosDb ChangeFeedProcessor or DynamoStoreSource projector, emitting to a Kafka topic 
@@ -223,7 +223,7 @@ $env:PROPULSION_KAFKA_BROKER="instance.kafka.mysite.com:9092" # or use -b
 # `kafka` specifies one wants to emit to Kafka
 # `temp-topic` is the topic to emit to
 # `cosmos` specifies source overrides (using defaults in step 1 in this instance)
-propulsion -V project -g projector3 -l 5 kafka temp-topic cosmos
+propulsion -V sync -g projector3 -l 5 kafka temp-topic from cosmos
 ```
 
 ### 3. Use `propulsion` tool to inspect DynamoStore Index
