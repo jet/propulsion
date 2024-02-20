@@ -10,7 +10,7 @@ type Scenario(testOutput) =
 
     let log = TestOutputLogger.forTestOutput testOutput
 
-    let checkpoints = ReaderCheckpoint.MemoryStore.createNull()
+    let checkpoints = ReaderCheckpoint.MemoryStore.createNull ()
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                   with member _.HandleOk x = ()
                        member _.HandleExn(log, x) = () }
