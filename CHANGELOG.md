@@ -14,6 +14,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Feed`: `Checkpoint` enables committing progress (and obtaining the achieved positions) without stopping the Sink [#162](https://github.com/jet/propulsion/pull/162)
 - `Feed.SinglePassFeedSource`: Coordinates reads of a set of tranches until each reaches its Tail [#179](https://github.com/jet/propulsion/pull/179)
 - `Streams.Stats.abendThreshold`: Abends Sink's processing with a `HealthCheckException` if a stream continually fails to progress, or continually errors with non-transient exceptions [#246](https://github.com/jet/propulsion/pull/246)
+- `StreamFilter`: Generic logic for filtering source events based on Category name, Stream name or Event type [#252](https://github.com/jet/propulsion/pull/252)
 - `Ingester, Sinks`: Expose optional `ingesterStateInterval` and `commitInterval` control on Sink factories [#154](https://github.com/jet/propulsion/pull/154) [#239](https://github.com/jet/propulsion/pull/239)
 - `Scheduler`: Split out stats re `rateLimited` and `timedOut` vs `exceptions` [#194](https://github.com/jet/propulsion/pull/194)
 - `Scheduler`: Added `index`, `eventType` to error logging [#237](https://github.com/jet/propulsion/pull/237)
@@ -27,8 +28,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.MemoryStore`: `MemoryStoreSource` to align with other sources for integration testing. Includes *deterministic* `AwaitCompletion` as per `Propulsion.Feed`-based Sources [#165](https://github.com/jet/propulsion/pull/165)
 - `Propulsion.SqlStreamStore`: Added `startFromTail` [#173](https://github.com/jet/propulsion/pull/173)
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
+- `Propulsion.Tool`: `sync <kafka|stats>` supports `from json` source option [#250](https://github.com/jet/propulsion/pull/250)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
-- `Propulsion.Tool`: `project` supports `json` source option [#250](https://github.com/jet/propulsion/pull/250)
+- `Propulsion.Tool`: `sync cosmos from <cosmos|json>` [#252](https://github.com/jet/propulsion/pull/252)
 
 ### Changed
 
@@ -51,6 +53,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.EventStoreDb.EventStoreSource`: Changed API to match`Propulsion.SqlStreamStore` API rather than`Propulsion.EventStore` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.Feed`,`Kafka`: Replaced `Async` with `task` for supervision [#158](https://github.com/jet/propulsion/pull/158), [#159](https://github.com/jet/propulsion/pull/159)
 - `Propulsion.Kafka`: Target `FsCodec.NewtonsoftJson` v `3.0.0` [#139](https://github.com/jet/propulsion/pull/139)
+- `Propulsion.Tool`: `project` renamed to `sync`; sources now have a `from` prefix [#252](https://github.com/jet/propulsion/pull/252)
 
 ### Removed
 

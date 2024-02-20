@@ -7,6 +7,7 @@
     <ItemGroup>
         <Compile Include="FeedReader.fs" />
         <Compile Include="FeedSource.fs" />
+        <Compile Include="JsonSource.fs" />
         <Compile Include="PeriodicSource.fs" />
         <Compile Include="FeedPrometheus.fs" />
     </ItemGroup>

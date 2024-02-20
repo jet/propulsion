@@ -17,6 +17,7 @@
     <Compile Include="Feed.fs" />
     <Compile Include="FeedMonitor.fs" />
     <Compile Include="PropulsionPrometheus.fs" />
+    <Compile Include="StreamFilter.fs" />
   </ItemGroup>
 
   <ItemGroup>

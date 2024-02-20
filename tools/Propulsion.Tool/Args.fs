@@ -78,20 +78,24 @@ module Cosmos =
                 | LagFreqM _ ->             "Specify frequency to dump lag stats. Default: off"
 
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
+        let connection =                    p.GetResult(Connection, fun () -> c.CosmosConnection)
         let connector =
-            let discovery =                 p.GetResult(Connection, fun () -> c.CosmosConnection) |> Equinox.CosmosStore.Discovery.ConnectionString
             let timeout =                   p.GetResult(Timeout, 5.) |> TimeSpan.seconds
             let retries =                   p.GetResult(Retries, 1)
             let maxRetryWaitTime =          p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
             let mode =                      p.TryGetResult ConnectionMode
-            Equinox.CosmosStore.CosmosStoreConnector(discovery, timeout, retries, maxRetryWaitTime, ?mode = mode)
+            Equinox.CosmosStore.CosmosStoreConnector((connection |> Equinox.CosmosStore.Discovery.ConnectionString), timeout, retries, maxRetryWaitTime, ?mode = mode)
         let databaseId =                    p.GetResult(Database, fun () -> c.CosmosDatabase)
         let containerId =                   p.GetResult(Container, fun () -> c.CosmosContainer)
         let leasesContainerName =           p.GetResult(LeaseContainer, fun () -> containerId + p.GetResult(Suffix, "-aux"))
         let checkpointInterval =            TimeSpan.hours 1.
+        member val Connection =             connection
+        member val Database =               databaseId
         member val MaybeLogLagInterval =    p.TryGetResult(LagFreqM, TimeSpan.minutes)
         member _.CreateLeasesContainer() =  connector.CreateLeasesContainer(databaseId, leasesContainerName)
         member _.ConnectFeed() =            connector.ConnectFeed(databaseId, containerId, leasesContainerName)
+        member _.ConnectFeedReadOnly(auxClient, auxDatabase, auxContainerId) =
+                                            connector.ConnectFeedReadOnly(databaseId, containerId, auxClient, auxDatabase, auxContainerId)
         member x.CreateCheckpointStore(group, cache, storeLog) = async {
             let! context = connector.ConnectContext("Checkpoints", databaseId, containerId, 256)
             return Propulsion.Feed.ReaderCheckpoint.CosmosStore.create storeLog (group, checkpointInterval) (context, cache) }

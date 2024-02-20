@@ -196,6 +196,13 @@ module ValueOption =
 
 module Seq =
 
+    let partition predicate xs =
+        let ham = ResizeArray()
+        let spam = ResizeArray()
+        for x in xs do
+            if predicate x then ham.Add x
+            else spam.Add x
+        ham.ToArray(), spam.ToArray()
     let tryPickV f (xs: _ seq) =
         use e = xs.GetEnumerator()
         let mutable res = ValueNone

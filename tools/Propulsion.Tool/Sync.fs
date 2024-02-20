@@ -23,11 +23,12 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
 
     | [<CliPrefix(CliPrefix.None); Last>]   Stats of ParseResults<SourceParameters>
     | [<CliPrefix(CliPrefix.None); Last>]   Kafka of ParseResults<KafkaParameters>
+    | [<CliPrefix(CliPrefix.None); Last>]   Cosmos of ParseResults<CosmosParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | ConsumerGroupName _ ->        "Projector instance context name. Optional if source is JSON"
             | MaxReadAhead _ ->             "maximum number of batches to let processing get ahead of completion. Default: File: 32768 Other: 2."
-            | MaxWriters _ ->               "maximum number of concurrent streams on which to process at any time. Default: 8 (Sync: 16)."
+            | MaxWriters _ ->               "maximum number of concurrent streams on which to process at any time. Default: 8 (Cosmos: 16)."
             | FromTail ->                   "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | Follow ->                     "Stop when the Tail is reached."
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
@@ -43,15 +44,22 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
 
             | Stats _ ->                    "Do not emit events, only stats."
             | Kafka _ ->                    "Project to Kafka."
-and [<NoEquality; NoComparison; RequireSubcommand>] KafkaParameters =
-    | [<AltCommandLine "-t"; Unique; MainCommand>] Topic of string
-    | [<AltCommandLine "-b"; Unique>]       Broker of string
-    | [<CliPrefix(CliPrefix.None); Last>]   Source of ParseResults<SourceParameters>
-    interface IArgParserTemplate with
-        member a.Usage = a |> function
-            | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
-            | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
-            | Source _ ->                   "Specify Source."
+            | Cosmos _ ->                   "Feed Events into specified Cosmos Store."
+and Arguments(c, p: ParseResults<Parameters>) =
+    member val Filters = Propulsion.StreamFilter(
+                                            allowCats = p.GetResults IncCat, denyCats = p.GetResults ExcCat,
+                                            allowSns = p.GetResults IncStream, denySns = p.GetResults ExcStream,
+                                            incIndexes = p.Contains IncIdx,
+                                            allowEts = p.GetResults IncEvent, denyEts = p.GetResults ExcEvent)
+    member val Command =
+        match p.GetSubCommand() with
+        | Kafka a ->                        KafkaArguments(c, a) |> SubCommand.Kafka
+        | Stats a ->                        SourceArguments(c, a) |> SubCommand.Stats
+        | Parameters.Cosmos a ->            CosmosArguments(c, a) |> SubCommand.Sync
+        | x ->                              p.Raise $"unexpected subcommand %A{x}"
+    member val StatsInterval =              TimeSpan.minutes 1
+    member val StateInterval =              TimeSpan.minutes 5
+    member val IdleDelay =                  TimeSpan.ms 10.
 and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
@@ -64,71 +72,83 @@ and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
             | Mdb _ ->                      "Specify MessageDb parameters."
             | Json _ ->                     "Specify JSON file parameters."
 and SourceArguments(c, p: ParseResults<SourceParameters>) =
-    member val StoreArgs =
-        match p.GetSubCommand() with
+    member val Store = p.GetSubCommand () |> function
         | SourceParameters.Cosmos p ->      Cosmos (Args.Cosmos.Arguments (c, p))
         | SourceParameters.Dynamo p ->      Dynamo (Args.Dynamo.Arguments (c, p))
         | SourceParameters.Mdb p ->         Mdb (Args.Mdb.Arguments (c, p))
         | SourceParameters.Json p ->        Json (Args.Json.Arguments (c, p))
-and [<NoEquality; NoComparison>] SourceArgs =
+and [<NoEquality; NoComparison>] StoreArgs =
     | Cosmos of Args.Cosmos.Arguments
     | Dynamo of Args.Dynamo.Arguments
     | Mdb of Args.Mdb.Arguments
     | Json of Args.Json.Arguments
+and [<NoEquality; NoComparison; RequireSubcommand>] KafkaParameters =
+    | [<AltCommandLine "-t"; Unique; MainCommand>] Topic of string
+    | [<AltCommandLine "-b"; Unique>]       Broker of string
+    | [<CliPrefix(CliPrefix.None); Last>]   From of ParseResults<SourceParameters>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Topic _ ->                    "Specify target topic. Default: Use $env:PROPULSION_KAFKA_TOPIC"
+            | Broker _ ->                   "Specify target broker. Default: Use $env:PROPULSION_KAFKA_BROKER"
+            | From _ ->                     "Specify Source."
 and KafkaArguments(c: Args.Configuration, p: ParseResults<KafkaParameters>) =
     member val Broker =                     p.GetResult(Broker, fun () -> c.KafkaBroker)
     member val Topic =                      p.GetResult(Topic, fun () -> c.KafkaTopic)
-    member val Source =                     SourceArguments(c, p.GetResult KafkaParameters.Source)
-type StreamFilterArguments(p: ParseResults<Parameters>) =
-    let allowCats, denyCats = p.GetResults IncCat, p.GetResults ExcCat
-    let allowSns, denySns = p.GetResults IncStream, p.GetResults ExcStream
-    let incIndexes = p.Contains IncIdx
-    let allowEts, denyEts = p.GetResults IncEvent, p.GetResults ExcEvent
-    let isPlain = Seq.forall (fun x -> System.Char.IsLetterOrDigit x || x = '_')
-    let asRe = Seq.map (fun x -> if isPlain x then $"^{x}$" else x)
-    let (|Filter|) exprs =
-        let values, pats = List.partition isPlain exprs
-        let valuesContains = let set = System.Collections.Generic.HashSet(values) in set.Contains
-        let aPatternMatches (x: string) = pats |> List.exists (fun p -> System.Text.RegularExpressions.Regex.IsMatch(x, p))
-        fun cat -> valuesContains cat || aPatternMatches cat
-    let filter map (allow, deny) =
-        match allow, deny with
-        | [], [] -> fun _ -> true
-        | Filter includes, Filter excludes -> fun x -> let x = map x in (List.isEmpty allow || includes x) && not (excludes x)
-    let validStream = filter FsCodec.StreamName.toString (allowSns, denySns)
-    let isTransactionalStream (sn: FsCodec.StreamName) = let sn = FsCodec.StreamName.toString sn in not (sn.StartsWith('$'))
-    member _.CreateStreamFilter(maybeCategories) =
-        let handlerCats = match maybeCategories with Some xs -> List.ofArray xs | None -> List.empty
-        let allowCats = handlerCats @ allowCats
-        let validCat = filter FsCodec.StreamName.Category.ofStreamName (allowCats, denyCats)
-        let allowCats = match allowCats with [] -> [ ".*" ] | xs -> xs
-        let denyCats = denyCats @ [ if not incIndexes then "^\$" ]
-        let allowSns, denySns = match allowSns, denySns with [], [] -> [".*"], [] | x -> x
-        let allowEts, denyEts = match allowEts, denyEts with [], [] -> [".*"], [] | x -> x
-        Log.Information("Categories ☑️ {@allowCats} 🚫{@denyCats} Streams ☑️ {@allowStreams} 🚫{denyStreams} Events ☑️ {allowEts} 🚫{@denyEts}",
-                        asRe allowCats, asRe denyCats, asRe allowSns, asRe denySns, asRe allowEts, asRe denyEts)
-        fun sn ->
-            validCat sn
-            && validStream sn
-            && (incIndexes || isTransactionalStream sn)
-    member val EventFilter = filter (fun (x: Propulsion.Sinks.Event) -> x.EventType) (allowEts, denyEts)
-
-type Arguments(c, p: ParseResults<Parameters>) =
-    member val StatsInterval =              TimeSpan.minutes 1
-    member val StateInterval =              TimeSpan.minutes 5
-    member val IdleDelay =                  TimeSpan.ms 10.
-    member val Filters =                    StreamFilterArguments(p)
-    member val Command =
-        match p.GetSubCommand() with
-        | Kafka a -> KafkaArguments(c, a) |> SubCommand.Kafka
-        | Stats a -> SourceArguments(c, a) |> SubCommand.Stats
-        | x -> p.Raise $"unexpected subcommand %A{x}"
+    member val Source =                     SourceArguments(c, p.GetResult KafkaParameters.From)
+and [<NoEquality; NoComparison; RequireSubcommand>] CosmosParameters =
+    | [<AltCommandLine "-s">]               Connection of string
+    | [<AltCommandLine "-d">]               Database of string
+    | [<AltCommandLine "-c"; Mandatory>]    Container of string
+    | [<AltCommandLine "-a">]               LeaseContainerId of string
+    | [<AltCommandLine "-o">]               Timeout of float
+    | [<AltCommandLine "-r">]               Retries of int
+    | [<AltCommandLine "-rt">]              RetriesWaitTime of float
+    | [<AltCommandLine "-kb">]              MaxKiB of int
+    | [<CliPrefix(CliPrefix.None); Last>]   From of ParseResults<SourceParameters>
+    interface IArgParserTemplate with
+        member a.Usage = a |> function
+            | Connection _ ->               "specify a connection string for the destination Cosmos account. Default (if Cosmos): Same as Source"
+            | Database _ ->                 "specify a database name for store. Default (if Cosmos): Same as Source"
+            | Container _ ->                "specify a container name for store."
+            | LeaseContainerId _ ->         "store leases in Sync target DB (default: use `-aux` adjacent to the Source Container). Enables the Source to be read via a ReadOnly connection string."
+            | Timeout _ ->                  "specify operation timeout in seconds. Default: 5."
+            | Retries _ ->                  "specify operation retries. Default: 0."
+            | RetriesWaitTime _ ->          "specify max wait-time for retry when being throttled by Cosmos in seconds. Default: 5."
+            | MaxKiB _ ->                   "specify maximum size in KiB to pass to the Sync stored proc (reduce if Malformed Streams due to 413 RequestTooLarge responses). Default: 128."
+            | From _ ->                   "Specify Source."
+and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
+    let source =                            SourceArguments(c, p.GetResult CosmosParameters.From)
+    let connection =                        match source.Store with
+                                            | Cosmos c -> p.GetResult(Connection, fun () -> c.Connection)
+                                            | Json _ -> p.GetResult Connection
+                                            | x -> p.Raise $"unexpected subcommand %A{x}"
+    let connector =
+        let timeout =                       p.GetResult(Timeout, 5.) |> TimeSpan.seconds
+        let retries =                       p.GetResult(Retries, 1)
+        let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
+        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, timeout, retries, maxRetryWaitTime)
+    let database =                          match source.Store with
+                                            | Cosmos c -> p.GetResult(Database, fun () -> c.Database)
+                                            | Json _ -> p.GetResult Database
+                                            | x -> p.Raise $"unexpected subcommand %A{x}"
+    let container =                         p.GetResult Container
+    member val Source =                     source
+    member val MaxBytes =                   p.GetResult(MaxKiB, 128) * 1024
+    member x.Connect() =                    connector.ConnectContext("Destination", database, container, maxEvents = 128)
+    member x.ConnectEvents() = async {      let! context = x.Connect()
+                                            return Equinox.CosmosStore.Core.EventsContext(context, Metrics.log) }
+    member x.ConnectFeed() =                let source = match source.Store with StoreArgs.Cosmos c -> c | _ -> p.Raise "unexpected"
+                                            match p.TryGetResult LeaseContainerId with
+                                            | Some localAuxContainerId -> source.ConnectFeedReadOnly(connector.CreateUninitialized(), database, localAuxContainerId)
+                                            | None -> source.ConnectFeed()
 and [<NoEquality; NoComparison; RequireQualifiedAccess>] SubCommand =
     | Kafka of KafkaArguments
     | Stats of SourceArguments
-    member x.SourceStore = x |> function
-        | SubCommand.Kafka a -> a.Source.StoreArgs
-        | SubCommand.Stats a -> a.StoreArgs
+    | Sync of CosmosArguments
+    member x.Source: StoreArgs = x |> function
+        | SubCommand.Kafka a -> a.Source.Store
+        | SubCommand.Stats a -> a.Store
+        | SubCommand.Sync a -> a.Source.Store
 
 [<AbstractClass>]
 type StatsBase<'outcome>(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
@@ -216,13 +236,13 @@ let eofSignalException = System.Threading.Tasks.TaskCanceledException "Stopping;
 let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
     let a = Arguments(c, p)
     let dumpStoreStats =
-        match a.Command.SourceStore with
+        match a.Command.Source with
         | Cosmos _ -> Equinox.CosmosStore.Core.Log.InternalMetrics.dump
         | Dynamo _ -> Equinox.DynamoStore.Core.Log.InternalMetrics.dump
         | Mdb _ -> ignore
-        | Json _ -> ignore
+        | Json _ -> match a.Command with SubCommand.Sync _ -> Equinox.CosmosStore.Core.Log.InternalMetrics.dump | _ -> ignore
     let group =
-        match p.TryGetResult ConsumerGroupName, a.Command.SourceStore with
+        match p.TryGetResult ConsumerGroupName, a.Command.Source with
         | Some x, _ -> x
         | None, Json _ -> System.Guid.NewGuid() |> _.ToString("N")
         | None, _ -> p.Raise "ConsumerGroupName is mandatory, unless consuming from a JSON file"
@@ -234,27 +254,37 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             let cfg = FsKafka.KafkaProducerConfig.Create(appName, a.Broker, Confluent.Kafka.Acks.Leader, linger, Confluent.Kafka.CompressionType.Lz4)
             let p = FsKafka.KafkaProducer.Create(Log.Logger, cfg, a.Topic)
             Some p
-        | SubCommand.Stats _ -> None
-    let isFileSource = match a.Command.SourceStore with Json _ -> true | _ -> true
-    let parse = a.Filters.CreateStreamFilter None |> Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream
+        | SubCommand.Stats _ | SubCommand.Sync _ -> None
+    let isFileSource = match a.Command.Source with Json _ -> true | _ -> true
+    let parse = a.Filters.CreateStreamFilter() |> Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream
     let statsInterval, stateInterval = a.StatsInterval, a.StateInterval
     let maxReadAhead = p.GetResult(MaxReadAhead, if isFileSource then 32768 else 2)
     let maxConcurrentProcessors = p.GetResult(MaxWriters, 8)
     let sink =
-        let stats = Stats(Log.Logger, statsInterval, stateInterval, verboseStore = false, logExternalStats = dumpStoreStats)
-        let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
-            let ham, spam = events |> Array.partition isValidEvent
-            match producer with
-            | None -> ()
-            | Some producer ->
-                let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
-                do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
-            return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
-        Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, idleDelay = a.IdleDelay)
+        match a.Command with
+        | SubCommand.Kafka _ | SubCommand.Stats _ ->
+            let stats = Stats(Log.Logger, statsInterval, stateInterval, verboseStore = false, logExternalStats = dumpStoreStats)
+            let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
+                let ham, spam = events |> Array.partition isValidEvent
+                match producer with
+                | None -> ()
+                | Some producer ->
+                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
+                    do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
+                return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, idleDelay = a.IdleDelay)
+        | SubCommand.Sync a ->
+            let eventsContext = a.ConnectEvents() |> Async.RunSynchronously
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval)
+            Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
+                                                         purgeInterval = TimeSpan.hours 1, maxBytes = a.MaxBytes)
     let source =
-        match a.Command.SourceStore with
+        match a.Command.Source with
         | Cosmos sa ->
-            let monitored, leases =  sa.ConnectFeed() |> Async.RunSynchronously
+            let monitored, leases =
+                match a.Command with
+                | SubCommand.Sync a -> a.ConnectFeed() |> Async.RunSynchronously
+                | SubCommand.Kafka _ | SubCommand.Stats _ -> sa.ConnectFeed() |> Async.RunSynchronously
             Propulsion.CosmosStore.CosmosStoreSource(
                 Log.Logger, statsInterval, monitored, leases, group, parse, sink,
                 startFromTail = startFromTail, ?maxItems = maxItems, ?lagEstimationInterval = sa.MaybeLogLagInterval
@@ -279,9 +309,10 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 checkpoints, sink, categories
             ).Start()
         | Json sa ->
-            CosmosDumpSource.Start(Log.Logger, statsInterval, sa.Filepath, sa.Skip, parse, sink, ?truncateTo = sa.Trunc)
+            let checkpoints = Propulsion.Feed.ReaderCheckpoint.MemoryStore.createNull ()
+            Propulsion.Feed.JsonSource.Start(Log.Logger, statsInterval, sa.Filepath, sa.Skip, parse, checkpoints, sink, ?truncateTo = sa.Trunc)
 
-    let work = [
+    let pipeline = [
         Async.AwaitKeyboardInterruptAsTaskCanceledException()
         if follow then
             source.AwaitWithStopOnCancellation()
@@ -293,4 +324,4 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             do! source.Flush() |> Async.Ignore<Propulsion.Feed.TranchePositions> // flush checkpoints (currently a no-op)
             raise eofSignalException } // trigger tear down of sibling waits
         sink.AwaitWithStopOnCancellation() ]
-    return! work |> Async.Parallel |> Async.Ignore<unit[]> }
+    return! pipeline |> Async.Parallel |> Async.Ignore<unit[]> }
