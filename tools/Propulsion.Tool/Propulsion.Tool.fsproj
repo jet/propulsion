@@ -15,7 +15,6 @@
   <ItemGroup>
     <Compile Include="Infrastructure.fs" />
     <Compile Include="Args.fs" />
-    <Compile Include="CosmosDumpSource.fs" />
     <Compile Include="Sync.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

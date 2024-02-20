@@ -10,8 +10,7 @@ type Scenario(testOutput) =
 
     let log = TestOutputLogger.forTestOutputEx true testOutput
 
-    let store = Equinox.MemoryStore.VolatileStore()
-    let checkpoints = ReaderCheckpoint.MemoryStore.create log ("consumerGroup", TimeSpan.FromMinutes 1) store
+    let checkpoints = ReaderCheckpoint.MemoryStore.createNull()
     let abendThreshold = TimeSpan.FromSeconds 3.
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromSeconds 2, TimeSpan.FromSeconds 10, abendThreshold = abendThreshold)
                   with member _.HandleOk x = ()

@@ -163,6 +163,11 @@ module MemoryStore =
         let cat = MemoryStoreCategory(context, Stream.Category, Events.codec, Fold.fold, Fold.initial)
         let resolve = Equinox.Decider.forStream log cat
         Service(Stream.id >> resolve, consumerGroupName, defaultCheckpointFrequency)
+
+    let createNull () =
+        let checkpointStore = VolatileStore()
+        create Serilog.Log.Logger ("consumerGroup", TimeSpan.minutes 1) checkpointStore
+
 #else
 let private defaultCacheDuration = TimeSpan.FromMinutes 20.
 #if COSMOSV3

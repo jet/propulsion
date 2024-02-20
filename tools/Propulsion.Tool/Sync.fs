@@ -309,7 +309,8 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 checkpoints, sink, categories
             ).Start()
         | Json sa ->
-            CosmosDumpSource.Start(Log.Logger, statsInterval, sa.Filepath, sa.Skip, parse, sink, ?truncateTo = sa.Trunc)
+            let checkpoints = Propulsion.Feed.ReaderCheckpoint.MemoryStore.createNull ()
+            Propulsion.Feed.JsonSource.Start(Log.Logger, statsInterval, sa.Filepath, sa.Skip, parse, checkpoints, sink, ?truncateTo = sa.Trunc)
 
     let pipeline = [
         Async.AwaitKeyboardInterruptAsTaskCanceledException()
