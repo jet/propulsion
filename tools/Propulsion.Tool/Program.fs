@@ -1,7 +1,7 @@
 ﻿module Propulsion.Tool.Program
 
 open Argu
-open Propulsion.Internal // AwaitKeyboardInterruptAsTaskCanceledException
+open Propulsion.Internal
 open Serilog
 
 [<NoEquality; NoComparison; RequireSubcommand>]
@@ -13,7 +13,7 @@ type Parameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] InitPg of ParseResults<Args.Mdb.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Index of ParseResults<Args.Dynamo.IndexParameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Checkpoint of ParseResults<CheckpointParameters>
-    | [<CliPrefix(CliPrefix.None); Last; Unique>] Project of ParseResults<Project.Parameters>
+    | [<CliPrefix(CliPrefix.None); Last; Unique>] Sync of ParseResults<Sync.Parameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
             | Verbose ->                    "Include low level logging regarding specific test runs."
@@ -23,7 +23,7 @@ type Parameters =
             | InitPg _ ->                   "Initialize a postgres checkpoint store"
             | Index _ ->                    "Validate index (optionally, ingest events from a DynamoDB JSON S3 export to remediate missing events)."
             | Checkpoint _ ->               "Display or override checkpoints in Cosmos or Dynamo"
-            | Project _ ->                  "Project from store specified as the last argument."
+            | Sync _ ->                     "Project from store specified as the last argument. Supports kafka, cosmos, or just gathering `stats`."
 and [<NoEquality; NoComparison; RequireSubcommand>] CheckpointParameters =
     | [<AltCommandLine "-s"; Mandatory>]    Source of Propulsion.Feed.SourceId
     | [<AltCommandLine "-t"; Mandatory>]    Tranche of Propulsion.Feed.TrancheId
@@ -92,7 +92,7 @@ type Arguments(c: Args.Configuration, p: ParseResults<Parameters>) =
         | InitPg a ->       do! Args.Mdb.Arguments(c, a).CreateCheckpointStoreTable() |> Async.ofTask
         | Checkpoint a ->   do! Checkpoints.readOrOverride(c, a, CancellationToken.None) |> Async.ofTask
         | Index a ->        do! Args.Dynamo.index (c, a)
-        | Project a ->      do! Project.run AppName (c, a)
+        | Sync a ->         do! Sync.run AppName (c, a)
         | x ->              p.Raise $"unexpected subcommand %A{x}" }
     static member Parse argv =
         let parseResults = ArgumentParser.Create().ParseCommandLine argv
@@ -110,6 +110,6 @@ let main argv =
             try a.ExecuteSubCommand() |> Async.RunSynchronously; 0
             with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
-    with x when x = Project.eofSignalException -> printfn "Processing COMPLETE"; 0
+    with x when x = Sync.eofSignalException -> printfn "Processing COMPLETE"; 0
         | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1

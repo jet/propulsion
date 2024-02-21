@@ -1,4 +1,4 @@
-module Propulsion.Tool.Project
+module Propulsion.Tool.Sync
 
 open Argu
 open Infrastructure
@@ -115,7 +115,7 @@ and [<NoEquality; NoComparison; RequireSubcommand>] CosmosParameters =
             | Retries _ ->                  "specify operation retries. Default: 0."
             | RetriesWaitTime _ ->          "specify max wait-time for retry when being throttled by Cosmos in seconds. Default: 5."
             | MaxKiB _ ->                   "specify maximum size in KiB to pass to the Sync stored proc (reduce if Malformed Streams due to 413 RequestTooLarge responses). Default: 128."
-            | From _ ->                   "Specify Source."
+            | From _ ->                     "Specify Source."
 and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
     let source =                            SourceArguments(c, p.GetResult CosmosParameters.From)
     let connection =                        match source.Store with
