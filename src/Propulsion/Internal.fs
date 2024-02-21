@@ -322,6 +322,37 @@ module Stats =
                     emit name (items |> Seq.collect _.Value)
         member _.Clear() = buckets.Clear()
 
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
+    type CategoryCounters() =
+        let cats = Dictionary<string, Counters>()
+        member _.Ingest(category, counts) =
+            let cat =
+                match cats.TryGetValue category with
+                | false, _ -> let acc = Counters() in cats.Add(category, acc); acc
+                | true, acc -> acc
+            for event, count : int in counts do cat.Ingest(event, count)
+        member _.Categories = cats.Keys
+        member _.StatsDescending cat =
+            match cats.TryGetValue cat with
+            | true, acc -> acc.StatsDescending
+            | false, _ -> Seq.empty
+        member _.DumpGrouped(log: Serilog.ILogger, totalLabel) =
+            if cats.Count <> 0 then
+                dumpCounterSet log totalLabel cats
+        member _.Clear() = cats.Clear()
+
+    /// Not thread-safe, i.e. suitable for use in a Stats handler only
+    type EventTypeLatencies() =
+        let inner = LatencyStatsSet()
+        member _.Record(category: string, eventType: string, latency) =
+            let key = $"{category}/{eventType}"
+            inner.Record(key, latency)
+        member _.Dump(log, totalLabel) =
+            let inline catFromKey (key: string) = key.Substring(0, key.IndexOf '/')
+            inner.DumpGrouped(catFromKey, log, totalLabel = totalLabel)
+            inner.Dump log
+        member _.Clear() = inner.Clear()
+
 type LogEventLevel = Serilog.Events.LogEventLevel
 
 module Log =
