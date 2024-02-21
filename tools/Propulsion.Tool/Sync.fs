@@ -170,40 +170,11 @@ module Outcome =
         let share = TimeSpan.seconds (match Array.length ham with 0 -> 0 | count -> elapsedS / float count)
         create sn (ham |> Array.map (fun x -> struct (eventType x, share))) (eventCounts spam)
 
-type CategoryCounters() =
-    let cats = System.Collections.Generic.Dictionary<string, Propulsion.Internal.Stats.Counters>()
-    member _.Ingest(category, counts) =
-        let cat =
-            match cats.TryGetValue category with
-            | false, _ -> let acc = Propulsion.Internal.Stats.Counters() in cats.Add(category, acc); acc
-            | true, acc -> acc
-        for event, count : int in counts do cat.Ingest(event, count)
-    member _.Categories = cats.Keys
-    member _.StatsDescending cat =
-        match cats.TryGetValue cat with
-        | true, acc -> acc.StatsDescending
-        | false, _ -> Seq.empty
-    member _.DumpGrouped(log: ILogger, totalLabel) =
-        if cats.Count <> 0 then
-            Propulsion.Internal.Stats.dumpCounterSet log totalLabel cats
-    member _.Clear() = cats.Clear()
-
-type EventTypeLatencies() =
-    let inner = Propulsion.Internal.Stats.LatencyStatsSet()
-    member _.Record(category: string, eventType: string, latency) =
-        let key = $"{category}/{eventType}"
-        inner.Record(key, latency)
-    member _.Dump(log, totalLabel) =
-        let inline catFromKey (key: string) = key.Substring(0, key.IndexOf '/')
-        inner.DumpGrouped(catFromKey, log, totalLabel = totalLabel)
-        inner.Dump log
-    member _.Clear() = inner.Clear()
-
 type Stats(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
     inherit StatsBase<Outcome>(log, statsInterval, stateInterval, verboseStore, logExternalStats)
     let mutable handled, ignored = 0, 0
-    let accHam, accSpam = CategoryCounters(), CategoryCounters()
-    let intervalLats, accEventTypeLats = EventTypeLatencies(), EventTypeLatencies()
+    let accHam, accSpam = Stats.CategoryCounters(), Stats.CategoryCounters()
+    let intervalLats, accEventTypeLats = Stats.EventTypeLatencies(), Stats.EventTypeLatencies()
     override _.HandleOk((category, ham, spam)) =
         accHam.Ingest(category, ham |> Seq.countBy ValueTuple.fst)
         accSpam.Ingest(category, spam)
