@@ -59,7 +59,6 @@ and Arguments(c, p: ParseResults<Parameters>) =
         | x ->                              p.Raise $"unexpected subcommand %A{x}"
     member val StatsInterval =              TimeSpan.minutes 1
     member val StateInterval =              TimeSpan.minutes 5
-    member val IdleDelay =                  TimeSpan.ms 10.
 and [<NoEquality; NoComparison; RequireSubcommand>] SourceParameters =
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Cosmos of ParseResults<Args.Cosmos.Parameters>
     | [<CliPrefix(CliPrefix.None); Last; Unique>] Dynamo of ParseResults<Args.Dynamo.Parameters>
@@ -189,6 +188,7 @@ type Stats(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
             handled <- 0; ignored <- 0
             intervalLats.Dump(log, "EVENTS")
             intervalLats.Clear()
+        base.DumpStats()
     override _.DumpState purge =
         accEventTypeLats.Dump(log, "ΣEVENTS")
         for cat in Seq.append accHam.Categories accSpam.Categories |> Seq.distinct |> Seq.sort do
@@ -243,7 +243,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
                 return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
-            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, idleDelay = a.IdleDelay)
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats)
         | SubCommand.Sync a ->
             let eventsContext = a.ConnectEvents() |> Async.RunSynchronously
             let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval)

@@ -7,7 +7,7 @@ type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] al
                   [<Optional>] allowEts, [<Optional>] denyEts,
                   [<Optional; DefaultParameterValue(false)>] ?incIndexes,
                   [<Optional; DefaultParameterValue(null)>] ?log) =
-    let log = defaultArg log Serilog.Log.Logger
+    let log = lazy defaultArg log Serilog.Log.Logger
     let defA x = match x with null -> Array.empty | xs -> Seq.toArray xs
 
     let allowCats, denyCats, incIndexes = defA allowCats, defA denyCats, defaultArg incIndexes false
@@ -35,8 +35,8 @@ type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] al
         let denyCats = if incIndexes then denyCats else Array.append denyCats [| "^\$" |]
         let allowSns, denySns = match allowSns, denySns with [||], [||] -> [|".*"|], [||] | x -> x
         let allowEts, denyEts = match allowEts, denyEts with [||], [||] -> [|".*"|], [||] | x -> x
-        log.Information("Categories ☑️ {@allowCats} 🚫{@denyCats} Streams ☑️ {@allowStreams} 🚫{denyStreams} Events ☑️ {allowEts} 🚫{@denyEts}",
-                        asRe allowCats, asRe denyCats, asRe allowSns, asRe denySns, asRe allowEts, asRe denyEts)
+        log.Value.Information("Categories ☑️ {@allowCats} 🚫{@denyCats} Streams ☑️ {@allowStreams} 🚫{denyStreams} Events ☑️ {allowEts} 🚫{@denyEts}",
+                              asRe allowCats, asRe denyCats, asRe allowSns, asRe denySns, asRe allowEts, asRe denyEts)
         fun sn ->
             validCat sn
             && validStream sn
