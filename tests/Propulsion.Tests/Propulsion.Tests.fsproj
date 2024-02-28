@@ -25,11 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FsCheck.Xunit" Version="3.0.0-rc1" />
-    <!-- HACK re https://github.com/fscheck/FsCheck/issues/647 required for FsCheck rc1 -->
-    <PackageReference Include="xunit.extensibility.execution" Version="2.7.0">
-      <NoWarn>NU1608</NoWarn>
-    </PackageReference>
+    <PackageReference Include="FsCheck.Xunit" Version="3.0.0-rc2" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
     <!-- Pin requirement for at least 6.0.6 in one of the tests by requesting same as Propulsion.DynamoStore will require-->
 	<PackageReference Include="FSharp.Core" Version="6.0.7" ExcludeAssets="contentfiles" />
