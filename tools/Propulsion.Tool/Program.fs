@@ -105,11 +105,12 @@ let isExpectedShutdownSignalException: exn -> bool = function
 
 [<EntryPoint>]
 let main argv =
+    let startTs = Stopwatch.timestamp ()
     try let a = Arguments.Parse argv
         try Log.Logger <- LoggerConfiguration().Configure(a.Verbose).Sinks(Sinks.equinoxMetricsOnly, a.VerboseConsole, a.VerboseStore).CreateLogger()
             try a.ExecuteSubCommand() |> Async.RunSynchronously; 0
             with e when not (isExpectedShutdownSignalException e) -> Log.Fatal(e, "Exiting"); 2
         finally Log.CloseAndFlush()
-    with x when x = Sync.eofSignalException -> printfn "Processing COMPLETE"; 0
+    with x when x = Sync.eofSignalException -> printfn $"Processing COMPLETE, {Stopwatch.elapsed startTs |> TimeSpan.humanize}"; 0
         | :? ArguParseException as e -> eprintfn $"%s{e.Message}"; 1
         | e -> eprintfn $"EXCEPTION: %s{e.Message}"; 1

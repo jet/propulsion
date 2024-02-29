@@ -9,6 +9,11 @@ module TimeSpan =
     let hours (x: float) = TimeSpan.FromHours x
     let ms (x: float) = TimeSpan.FromMilliseconds x
     let toMs (ts: TimeSpan): int = ts.TotalMilliseconds |> int
+    let humanize: TimeSpan -> string = function
+        | x when x.TotalDays >= 1. -> x.ToString "d\dhh\hmm\m"
+        | x when x.TotalHours >= 1. -> x.ToString "h\hmm\mss\s"
+        | x when x.TotalMinutes >= 1. -> x.ToString "m\mss\.ff\s"
+        | x -> x.ToString("s\.fff\s")
 
 module Stopwatch =
 
