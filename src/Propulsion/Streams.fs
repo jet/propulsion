@@ -155,8 +155,9 @@ module Buffer =
         member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
 
         member x.HeadSpan = x.queue[0]
+        member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.HasGap = match x.write with WritePosUnknown -> false | w -> w <> x.HeadSpan[0].Index
+        member x.HasGap = match x.write with WritePosUnknown -> false | w -> w <> x.QueuePos
         member x.IsReady = not x.IsEmpty && not x.IsMalformed
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
@@ -198,7 +199,7 @@ module Buffer =
                         let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.WritePos 0L
                         waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].Length, (sz + 512L) / 1024L)
                     waiting <- waiting + 1
-                    waitingE <- waitingE + (state.queue |> Array.sumBy _.Length)
+                    waitingE <- waitingE + state.EventsCount
                     waitingB <- waitingB + sz
             let m = Log.Metric.BufferReport { cats = waitingCats.Count; streams = waiting; events = waitingE; bytes = waitingB }
             (log |> Log.withMetric m).Information(" Streams Waiting {busy:n0}/{busyMb:n1}MB", waiting, Log.miB waitingB)
@@ -334,7 +335,7 @@ module Scheduling =
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
                 else
-                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.HeadSpan[0].Index state.HeadSpan.Length
+                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.QueuePos state.HeadSpan.Length
                     if state.IsMalformed then
                         malformedCats.Ingest(cat)
                         malformedStreams.Ingest(label, Log.miB sz |> int64)
