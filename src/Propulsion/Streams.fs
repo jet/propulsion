@@ -157,7 +157,7 @@ module Buffer =
         member x.HeadSpan = x.queue[0]
         member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.HasGap = match x.write with WritePosUnknown -> false | w -> w <> x.QueuePos
+        member x.HasGap = match x.write with WritePosUnknown -> not x.IsEmpty && x.QueuePos <> 0L | w -> w <> x.QueuePos
         member x.IsReady = not x.IsEmpty && not x.IsMalformed
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
