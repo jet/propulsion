@@ -141,9 +141,10 @@ type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent
 
 module Buffer =
 
-    /// NOTE: Optimized Representation as this is the dominant data structure in terms of memory usage - takes it from 24b to a cache-friendlier 16b
     let [<Literal>] WritePosUnknown = -2L // sentinel value for write position signifying `None` (no write position yet established)
     let [<Literal>] WritePosMalformed = -3L // sentinel value for malformed data
+    /// <summary>Buffers events for a stream, tolerating gaps and out of order arrival (see <c>requireAll</c> for scenarios dictating this need)</summary>
+    /// <remarks>Optimized Representation as this is the dominant one in terms of memory usage - takes it from 24b to a cache-friendlier 16b</remarks>
     [<NoComparison; NoEquality; Struct>]
     type StreamState<'Format> = private { write: int64; queue: FsCodec.ITimelineEvent<'Format>[][] } with
         static member Create(write, queue, malformed) =
@@ -155,9 +156,9 @@ module Buffer =
         member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
 
         member x.HeadSpan = x.queue[0]
+        member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.HasGap = match x.write with WritePosUnknown -> false | w -> w <> x.HeadSpan[0].Index
-        member x.IsReady = not x.IsEmpty && not x.IsMalformed
+        member x.QueuedIsAtWritePos = match x.write with WritePosUnknown -> x.QueuePos = 0L | w -> w = x.QueuePos
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         member x.CanPurge = x.IsEmpty
@@ -198,7 +199,7 @@ module Buffer =
                         let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.WritePos 0L
                         waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].Length, (sz + 512L) / 1024L)
                     waiting <- waiting + 1
-                    waitingE <- waitingE + (state.queue |> Array.sumBy _.Length)
+                    waitingE <- waitingE + state.EventsCount
                     waitingB <- waitingB + sz
             let m = Log.Metric.BufferReport { cats = waitingCats.Count; streams = waiting; events = waitingE; bytes = waitingB }
             (log |> Log.withMetric m).Information(" Streams Waiting {busy:n0}/{busyMb:n1}MB", waiting, Log.miB waitingB)
@@ -283,9 +284,9 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
-        member _.ChooseDispatchable(s: FsCodec.StreamName, allowGaps): StreamState<'Format> voption =
+        member _.ChooseDispatchable(s: FsCodec.StreamName, requireAll): StreamState<'Format> voption =
             match tryGetItem s with
-            | ValueSome ss when ss.IsReady && (allowGaps || not ss.HasGap) && not (busy.Contains s) -> ValueSome ss
+            | ValueSome ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
@@ -320,9 +321,9 @@ module Scheduling =
 
         member _.Dump(log: ILogger, totalPurged: int, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
-            let mutable (gaps, gapsE, gapsB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
+            let mutable (waiting, waitingE, waitingB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
             let busyCats, readyCats, readyStreams = Stats.Counters(), Stats.Counters(), Stats.Counters()
-            let gapCats, gapStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
+            let waitCats, waitStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
                 if state.IsEmpty then synced <- synced + 1 else
@@ -334,19 +335,19 @@ module Scheduling =
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
                 else
-                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.HeadSpan[0].Index state.HeadSpan.Length
+                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.QueuePos state.HeadSpan.Length
                     if state.IsMalformed then
                         malformedCats.Ingest(cat)
                         malformedStreams.Ingest(label, Log.miB sz |> int64)
                         malformed <- malformed + 1
                         malformedB <- malformedB + sz
                         malformedE <- malformedE + state.EventsCount
-                    elif state.HasGap then
-                        gapCats.Ingest(cat)
-                        gapStreams.Ingest(label, kb sz)
-                        gaps <- gaps + 1
-                        gapsB <- gapsB + sz
-                        gapsE <- gapsE + state.EventsCount
+                    elif not state.IsEmpty && not state.QueuedIsAtWritePos then
+                        waitCats.Ingest(cat)
+                        waitStreams.Ingest(label, kb sz)
+                        waiting <- waiting + 1
+                        waitingB <- waitingB + sz
+                        waitingE <- waitingE + state.EventsCount
                     else
                         readyCats.Ingest(cat)
                         readyStreams.Ingest(label, kb sz)
@@ -355,17 +356,17 @@ module Scheduling =
                         readyE <- readyE + state.EventsCount
             let busyStats: Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
             let readyStats: Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
-            let bufferingStats: Log.BufferMetric = { cats = gapCats.Count; streams = gapStreams.Count; events = gapsE; bytes = gapsB }
+            let waitingStats: Log.BufferMetric = { cats = waitCats.Count; streams = waitStreams.Count; events = waitingE; bytes = waitingB }
             let malformedStats: Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
-            let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
+            let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, waitingStats, malformedStats)
             (log |> Log.withMetric m).Information("STATE Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
-                                                  synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, gaps, Log.miB gapsB, malformed, Log.miB malformedB)
+                                                  synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, waiting, Log.miB waitingB, malformed, Log.miB malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
                                   log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
-            if gapStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 gapStreams.StatsDescending)
+            if waitStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 waitStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
-            gapStreams.Any
+            waitStreams.Any
 
     type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full
 
@@ -719,9 +720,22 @@ module Scheduling =
             // Prioritize processing of the largest Payloads within the Head batch when scheduling work
             // Can yield significant throughput improvement when ingesting large batches in the face of rate limiting
             ?prioritizeStreamsBy,
-            // Where ingesters are potentially delivering events out of order, wait for first event until write position is known
-            // Cannot be combined with purging in the current implementation
-            ?requireCompleteStreams) =
+            // Constrain event handling dispatch to a) always start from event 0 per stream b) never permit gaps in the sequence of events for a stream
+            // Cannot be combined with purging in the current implementation, so supplying a <c>purgeInterval</c> alongside throws <c>NotSupportedException</c>
+            // <remarks>Gaps can naturally arise where a lease is lost, regained lost again, leading to a partial redelivery of earlier events.
+            // Thus normal dispatch needs to tolerate gaps in the sequence (in addition to the standard dropping of events prior to current write pos).
+            // NOTE This absolutely does not mean that an event store should be permitted to deliver events out of order or with gaps. The Equinox DynamoStore,
+            //      CosmosStore, EventStoreDb, LibSql, and MessageDb stores have absolute guarantees of NEVER presenting events out of order, or even temporary
+            //      gaps in the stream order. The entirely unforced error of relaxing this core assumption pushes problems up into the application:
+            //      1. having to second guess whether your handler might not have been presented an event (or had them delivered out of order)
+            //      2. adding junk logging or validation logic (requiring state, distributed storage, and/or manual log correlation) "just in case"
+            // Example use cases:
+            // - if a feed is known to potentially have out of order events _but you are processing all events in one shot on a single processing node_
+            //   e.g., a ChangeFeedProcessor where calved documents have been hand-edited that is being reprocessed in full without multiple processing nodes
+            // - if your ingestion pipeline is composing a synthetic stream from multiple sources, but they deliver events into the Ingester independently
+            //   e.g., if you are merging user info from 20 tables into one virtual user stream for processing, allocating event Indexes dynamically, you
+            //         don't want the arrival of event 2 first to cause events 0 and 1 to be dropped</remarks>
+            ?requireAll) =
         let writeResult, awaitResults, tryApplyResults =
             let r, w = let c = Channel.unboundedSr in c.Reader, c.Writer
             Channel.write w, Channel.awaitRead r, Channel.apply r
@@ -747,10 +761,10 @@ module Scheduling =
                 yield! freshlyAddedBatches }
         let priority = Progress.StreamsPrioritizer(prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy)
         let chooseDispatchable =
-            let requireCompleteStreams = defaultArg requireCompleteStreams false
-            if requireCompleteStreams && Option.isSome purgeInterval then invalidArg (nameof requireCompleteStreams) "Cannot be combined with a purgeInterval"
+            let requireAll = defaultArg requireAll false
+            if requireAll && Option.isSome purgeInterval then invalidArg (nameof requireAll) "Cannot be combined with a purgeInterval"
             fun stream ->
-                streams.ChooseDispatchable(stream, not requireCompleteStreams)
+                streams.ChooseDispatchable(stream, requireAll)
                 |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems: seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
@@ -1074,14 +1088,14 @@ type Concurrent private () =
             // Request optimal throughput by waking based on handler outcomes even if there is no unused dispatch capacity
             [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                                          ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
+                                          ?idleDelay = idleDelay, ?requireAll = requireAll)
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
                       ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
 
@@ -1099,7 +1113,7 @@ type Concurrent private () =
             // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
             [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let prepare _streamName span =
@@ -1108,7 +1122,7 @@ type Concurrent private () =
         Concurrent.StartEx<'R, 'Outcome, 'F, 'R>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, eventSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-            ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams,
+            ?idleDelay = idleDelay, ?requireAll = requireAll,
             ?ingesterStateInterval = ingesterStateInterval, ?commitInterval = commitInterval)
 
 [<AbstractClass; Sealed>]
@@ -1122,7 +1136,7 @@ type Batched private () =
             handle: Func<Scheduling.Item<'F>[], CancellationToken, Task<seq<struct (TimeSpan * Result<int64, exn>)>>>,
             eventSize, stats: Scheduling.Stats<_, _>,
             [<O; D null>] ?pendingBufferSize,
-            [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items: Scheduling.Item<'F>[]) ct
@@ -1145,6 +1159,6 @@ type Batched private () =
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                                          ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
+                                          ?idleDelay = idleDelay, ?requireAll = requireAll)
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
                       ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)

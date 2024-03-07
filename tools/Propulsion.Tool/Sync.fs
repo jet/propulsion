@@ -186,15 +186,15 @@ type Stats(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
         if handled > 0 || ignored > 0 then
             if ignored > 0 then log.Information(" Handled {count}, skipped {skipped}", handled, ignored)
             handled <- 0; ignored <- 0
-            intervalLats.Dump(log, "EVENTS")
-            intervalLats.Clear()
         base.DumpStats()
+        intervalLats.Dump(log, "EVENTS")
+        intervalLats.Clear()
     override _.DumpState purge =
-        accEventTypeLats.Dump(log, "ΣEVENTS")
         for cat in Seq.append accHam.Categories accSpam.Categories |> Seq.distinct |> Seq.sort do
             let ham, spam = accHam.StatsDescending(cat) |> Array.ofSeq, accSpam.StatsDescending cat |> Array.ofSeq
             if ham.Length > 00 then log.Information(" Category {cat} handled {@ham}", cat, ham)
             if spam.Length <> 0 then log.Information(" Category {cat} ignored {@spam}", cat, spam)
+        accEventTypeLats.Dump(log, "ΣEVENTS")
         if purge then
             accHam.Clear(); accSpam.Clear()
             accEventTypeLats.Clear()
