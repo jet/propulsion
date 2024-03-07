@@ -157,8 +157,8 @@ module Buffer =
         member x.HeadSpan = x.queue[0]
         member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.HasGap = match x.write with WritePosUnknown -> not x.IsEmpty && x.QueuePos <> 0L | w -> w <> x.QueuePos
-        member x.IsReady = not x.IsEmpty && not x.IsMalformed
+        member x.HasValidEvents = not x.IsEmpty && not x.IsMalformed
+        member x.IsComplete = match x.write with WritePosUnknown -> x.IsEmpty || x.QueuePos = 0L | w -> w = x.QueuePos
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         member x.CanPurge = x.IsEmpty
@@ -284,9 +284,9 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
-        member _.ChooseDispatchable(s: FsCodec.StreamName, allowGaps): StreamState<'Format> voption =
+        member _.ChooseDispatchable(s: FsCodec.StreamName, requireAll): StreamState<'Format> voption =
             match tryGetItem s with
-            | ValueSome ss when ss.IsReady && (allowGaps || not ss.HasGap) && not (busy.Contains s) -> ValueSome ss
+            | ValueSome ss when ss.HasValidEvents && (not requireAll || ss.IsComplete) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
@@ -342,7 +342,7 @@ module Scheduling =
                         malformed <- malformed + 1
                         malformedB <- malformedB + sz
                         malformedE <- malformedE + state.EventsCount
-                    elif state.HasGap then
+                    elif not state.IsComplete then
                         gapCats.Ingest(cat)
                         gapStreams.Ingest(label, kb sz)
                         gaps <- gaps + 1
@@ -764,7 +764,7 @@ module Scheduling =
             let requireAll = defaultArg requireAll false
             if requireAll && Option.isSome purgeInterval then invalidArg (nameof requireAll) "Cannot be combined with a purgeInterval"
             fun stream ->
-                streams.ChooseDispatchable(stream, not requireAll)
+                streams.ChooseDispatchable(stream, requireAll)
                 |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems: seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
