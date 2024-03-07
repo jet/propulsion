@@ -720,9 +720,22 @@ module Scheduling =
             // Prioritize processing of the largest Payloads within the Head batch when scheduling work
             // Can yield significant throughput improvement when ingesting large batches in the face of rate limiting
             ?prioritizeStreamsBy,
-            // Where ingesters are potentially delivering events out of order, wait for first event until write position is known
-            // Cannot be combined with purging in the current implementation
-            ?requireCompleteStreams) =
+            // Constrain event handling dispatch to a) always start from event 0 per stream b) never permit gaps in the sequence of events for a stream
+            // Cannot be combined with purging in the current implementation, so supplying a <c>purgeInterval</c> alongside throws <c>NotSupportedException</c>
+            // <remarks>Gaps can naturally arise where a lease is lost, regained lost again, leading to a partial redelivery of earlier events.
+            // Thus normal dispatch needs to tolerate gaps in the sequence (in addition to the standard dropping of events prior to current write pos).
+            // NOTE This absolutely does not mean that an event store should be permitted to deliver events out of order or with gaps. The Equinox DynamoStore,
+            //      CosmosStore, EventStoreDb, LibSql, and MessageDb stores have absolute guarantees of NEVER presenting events out of order, or even temporary
+            //      gaps in the stream order. The entirely unforced error of relaxing this core assumption pushes problems up into the application:
+            //      1. having to second guess whether your handler might not have been presented an event (or had them delivered out of order)
+            //      2. adding junk logging or validation logic (requiring state, distributed storage, and/or manual log correlation) "just in case"
+            // Example use cases:
+            // - if a feed is known to potentially have out of order events _but you are processing all events in one shot on a single processing node_
+            //   e.g., a ChangeFeedProcessor where calved documents have been hand-edited that is being reprocessed in full without multiple processing nodes
+            // - if your ingestion pipeline is composing a synthetic stream from multiple sources, but they deliver events into the Ingester independently
+            //   e.g., if you are merging user info from 20 tables into one virtual user stream for processing, allocating event Indexes dynamically, you
+            //         don't want the arrival of event 2 first to cause events 0 and 1 to be dropped</remarks>
+            ?requireAll) =
         let writeResult, awaitResults, tryApplyResults =
             let r, w = let c = Channel.unboundedSr in c.Reader, c.Writer
             Channel.write w, Channel.awaitRead r, Channel.apply r
@@ -748,10 +761,10 @@ module Scheduling =
                 yield! freshlyAddedBatches }
         let priority = Progress.StreamsPrioritizer(prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy)
         let chooseDispatchable =
-            let requireCompleteStreams = defaultArg requireCompleteStreams false
-            if requireCompleteStreams && Option.isSome purgeInterval then invalidArg (nameof requireCompleteStreams) "Cannot be combined with a purgeInterval"
+            let requireAll = defaultArg requireAll false
+            if requireAll && Option.isSome purgeInterval then invalidArg (nameof requireAll) "Cannot be combined with a purgeInterval"
             fun stream ->
-                streams.ChooseDispatchable(stream, not requireCompleteStreams)
+                streams.ChooseDispatchable(stream, not requireAll)
                 |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems: seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
@@ -1075,14 +1088,14 @@ type Concurrent private () =
             // Request optimal throughput by waking based on handler outcomes even if there is no unused dispatch capacity
             [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, 'F>.Create(maxConcurrentStreams, prepare, handle, toIndex)
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                                          ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
+                                          ?idleDelay = idleDelay, ?requireAll = requireAll)
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
                       ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
 
@@ -1100,7 +1113,7 @@ type Concurrent private () =
             // Request optimal throughput by waking based on handler outcomes even if there is unused dispatch capacity
             [<O; D null>] ?wakeForResults,
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1s.
-            [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let prepare _streamName span =
@@ -1109,7 +1122,7 @@ type Concurrent private () =
         Concurrent.StartEx<'R, 'Outcome, 'F, 'R>(
             log, maxReadAhead, maxConcurrentStreams, prepare, handle, toIndex, eventSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-            ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams,
+            ?idleDelay = idleDelay, ?requireAll = requireAll,
             ?ingesterStateInterval = ingesterStateInterval, ?commitInterval = commitInterval)
 
 [<AbstractClass; Sealed>]
@@ -1123,7 +1136,7 @@ type Batched private () =
             handle: Func<Scheduling.Item<'F>[], CancellationToken, Task<seq<struct (TimeSpan * Result<int64, exn>)>>>,
             eventSize, stats: Scheduling.Stats<_, _>,
             [<O; D null>] ?pendingBufferSize,
-            [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireCompleteStreams,
+            [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items: Scheduling.Item<'F>[]) ct
@@ -1146,6 +1159,6 @@ type Batched private () =
         let dumpStreams logStreamStates _log = logStreamStates eventSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams,
                                           defaultArg pendingBufferSize maxReadAhead, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults,
-                                          ?idleDelay = idleDelay, ?requireCompleteStreams = requireCompleteStreams)
+                                          ?idleDelay = idleDelay, ?requireAll = requireAll)
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
                       ingesterStateInterval = defaultArg ingesterStateInterval stats.StateInterval.Period, ?commitInterval = commitInterval)
