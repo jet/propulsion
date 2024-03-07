@@ -141,9 +141,10 @@ type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent
 
 module Buffer =
 
-    /// NOTE: Optimized Representation as this is the dominant data structure in terms of memory usage - takes it from 24b to a cache-friendlier 16b
     let [<Literal>] WritePosUnknown = -2L // sentinel value for write position signifying `None` (no write position yet established)
     let [<Literal>] WritePosMalformed = -3L // sentinel value for malformed data
+    /// <summary>Buffers events for a stream, tolerating gaps and out of order arrival (see <c>requireAll</c> for scenarios dictating this need)</summary>
+    /// <remarks>Optimized Representation as this is the dominant one in terms of memory usage - takes it from 24b to a cache-friendlier 16b</remarks>
     [<NoComparison; NoEquality; Struct>]
     type StreamState<'Format> = private { write: int64; queue: FsCodec.ITimelineEvent<'Format>[][] } with
         static member Create(write, queue, malformed) =
