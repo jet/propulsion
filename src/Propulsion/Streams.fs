@@ -323,7 +323,7 @@ module Scheduling =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
             let mutable (waiting, waitingE, waitingB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
             let busyCats, readyCats, readyStreams = Stats.Counters(), Stats.Counters(), Stats.Counters()
-            let waitCats, waitStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
+            let waitingCats, waitingStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
                 if state.IsEmpty then synced <- synced + 1 else
@@ -343,8 +343,8 @@ module Scheduling =
                         malformedB <- malformedB + sz
                         malformedE <- malformedE + state.EventsCount
                     elif not state.IsEmpty && not state.QueuedIsAtWritePos then
-                        waitCats.Ingest(cat)
-                        waitStreams.Ingest(label, kb sz)
+                        waitingCats.Ingest(cat)
+                        waitingStreams.Ingest(label, kb sz)
                         waiting <- waiting + 1
                         waitingB <- waitingB + sz
                         waitingE <- waitingE + state.EventsCount
@@ -356,7 +356,7 @@ module Scheduling =
                         readyE <- readyE + state.EventsCount
             let busyStats: Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
             let readyStats: Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
-            let waitingStats: Log.BufferMetric = { cats = waitCats.Count; streams = waitStreams.Count; events = waitingE; bytes = waitingB }
+            let waitingStats: Log.BufferMetric = { cats = waitingCats.Count; streams = waitingStreams.Count; events = waitingE; bytes = waitingB }
             let malformedStats: Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
             let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, waitingStats, malformedStats)
             (log |> Log.withMetric m).Information("STATE Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
@@ -364,9 +364,9 @@ module Scheduling =
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
                                   log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
-            if waitStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 waitStreams.StatsDescending)
+            if waitingStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 waitingStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
-            waitStreams.Any
+            waitingStreams.Any
 
     type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full
 
@@ -542,7 +542,7 @@ module Scheduling =
             x.DumpStats()
 
         member _.IsFailing = monitor.OldestFailing > failThreshold || monitor.OldestStuck > TimeSpan.Zero
-        member _.HasLongRunning = monitor.OldestFailing > failThreshold
+        member _.HasLongRunning = monitor.OldestFailing.TotalSeconds > longRunningThresholdS
         member _.Classify sn = monitor.Classify(longRunningThresholdS, sn)
 
         member _.RecordIngested(streams, events, skippedStreams, skippedEvents) =
@@ -652,10 +652,10 @@ module Scheduling =
                         | Stats.Busy.Stuck count -> stuck.Add struct(x.Key, x.Value, count)
                         | Stats.Busy.Failing count -> failing.Add struct(x.Key, x.Value, count)
                         | Stats.Busy.Slow seconds -> slow.Add struct (x.Key, x.Value, seconds)
-                        | Stats.Busy.Running -> running.Add(ValueTuple.ofKvp x)
-                        | Stats.Busy.Waiting -> waiting.Add(ValueTuple.ofKvp x)
-                    log.Write(lel, " Active Batch (sn, version[, attempts]) Stuck {stuck} Failing {failing} Slow {slow} Running {running} Waiting {waiting}",
-                              stuck, failing, slow |> Seq.sortByDescending (fun struct (_, _, s) -> s) |> Seq.truncate 10, Seq.truncate 10 running, Seq.truncate 10 waiting)
+                        | Stats.Busy.Running -> if running.Count < 10 then running.Add(ValueTuple.ofKvp x)
+                        | Stats.Busy.Waiting -> if waiting.Count < 10 then waiting.Add(ValueTuple.ofKvp x)
+                    log.Write(lel, " Active Batch (sn, version[, attempts|ageS]) Stuck {stuck} Failing {failing} Slow {slow} Running {running} Waiting {waiting}",
+                              stuck, failing, slow |> Seq.sortByDescending (fun struct (_, _, s) -> s) |> Seq.truncate 10, running, waiting)
 
         // We potentially traverse the pending streams thousands of times per second so we reuse buffers for better L2 caching properties
         // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
@@ -834,9 +834,9 @@ module Scheduling =
             if stats.RecordState(dispatcherState) || exiting then
                 let log = stats.Log
                 let dumpStreamStates (eventSize: FsCodec.ITimelineEvent<'F> -> int) =
-                    let hasGaps = streams.Dump(log, totalPurged, eventSize)
+                    let hasWaiting = streams.Dump(log, totalPurged, eventSize)
                     let lel =
-                        if exiting || hasGaps || stats.IsFailing then LogEventLevel.Warning
+                        if exiting || hasWaiting || stats.IsFailing then LogEventLevel.Warning
                         elif stats.HasLongRunning then LogEventLevel.Information
                         else LogEventLevel.Debug
                     batches.Dump(log, lel, stats.Classify)
