@@ -158,8 +158,7 @@ module Buffer =
         member x.HeadSpan = x.queue[0]
         member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.HasValidEvents = not x.IsEmpty && not x.IsMalformed
-        member x.IsComplete = match x.write with WritePosUnknown -> x.IsEmpty || x.QueuePos = 0L | w -> w = x.QueuePos
+        member x.QueuedIsAtWritePos = match x.write with WritePosUnknown -> x.QueuePos = 0L | w -> w = x.QueuePos
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         member x.CanPurge = x.IsEmpty
@@ -287,7 +286,7 @@ module Scheduling =
 
         member _.ChooseDispatchable(s: FsCodec.StreamName, requireAll): StreamState<'Format> voption =
             match tryGetItem s with
-            | ValueSome ss when ss.HasValidEvents && (not requireAll || ss.IsComplete) && not (busy.Contains s) -> ValueSome ss
+            | ValueSome ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePositionIsAlreadyBeyond(stream, required) =
@@ -322,9 +321,9 @@ module Scheduling =
 
         member _.Dump(log: ILogger, totalPurged: int, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
-            let mutable (gaps, gapsE, gapsB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
+            let mutable (waiting, waitingE, waitingB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
             let busyCats, readyCats, readyStreams = Stats.Counters(), Stats.Counters(), Stats.Counters()
-            let gapCats, gapStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
+            let waitCats, waitStreams, malformedCats, malformedStreams = Stats.Counters(), Stats.Counters(), Stats.Counters(), Stats.Counters()
             let kb sz = (sz + 512L) / 1024L
             for KeyValue (stream, state) in states do
                 if state.IsEmpty then synced <- synced + 1 else
@@ -343,12 +342,12 @@ module Scheduling =
                         malformed <- malformed + 1
                         malformedB <- malformedB + sz
                         malformedE <- malformedE + state.EventsCount
-                    elif not state.IsComplete then
-                        gapCats.Ingest(cat)
-                        gapStreams.Ingest(label, kb sz)
-                        gaps <- gaps + 1
-                        gapsB <- gapsB + sz
-                        gapsE <- gapsE + state.EventsCount
+                    elif not state.IsEmpty && not state.QueuedIsAtWritePos then
+                        waitCats.Ingest(cat)
+                        waitStreams.Ingest(label, kb sz)
+                        waiting <- waiting + 1
+                        waitingB <- waitingB + sz
+                        waitingE <- waitingE + state.EventsCount
                     else
                         readyCats.Ingest(cat)
                         readyStreams.Ingest(label, kb sz)
@@ -357,17 +356,17 @@ module Scheduling =
                         readyE <- readyE + state.EventsCount
             let busyStats: Log.BufferMetric = { cats = busyCats.Count; streams = busyCount; events = busyE; bytes = busyB }
             let readyStats: Log.BufferMetric = { cats = readyCats.Count; streams = readyStreams.Count; events = readyE; bytes = readyB }
-            let bufferingStats: Log.BufferMetric = { cats = gapCats.Count; streams = gapStreams.Count; events = gapsE; bytes = gapsB }
+            let waitingStats: Log.BufferMetric = { cats = waitCats.Count; streams = waitStreams.Count; events = waitingE; bytes = waitingB }
             let malformedStats: Log.BufferMetric = { cats = malformedCats.Count; streams = malformedStreams.Count; events = malformedE; bytes = malformedB }
-            let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, bufferingStats, malformedStats)
+            let m = Log.Metric.SchedulerStateReport (synced, busyStats, readyStats, waitingStats, malformedStats)
             (log |> Log.withMetric m).Information("STATE Synced {synced:n0} Purged {purged:n0} Active {busy:n0}/{busyMb:n1}MB Ready {ready:n0}/{readyMb:n1}MB Waiting {waiting}/{waitingMb:n1}MB Malformed {malformed}/{malformedMb:n1}MB",
-                                                  synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, gaps, Log.miB gapsB, malformed, Log.miB malformedB)
+                                                  synced, totalPurged, busyCount, Log.miB busyB, ready, Log.miB readyB, waiting, Log.miB waitingB, malformed, Log.miB malformedB)
             if busyCats.Any then log.Information(" Active Categories, events {@busyCats}", Seq.truncate 5 busyCats.StatsDescending)
             if readyCats.Any then log.Information(" Ready Categories, events {@readyCats}", Seq.truncate 5 readyCats.StatsDescending)
                                   log.Information(" Ready Streams, KB {@readyStreams}", Seq.truncate 5 readyStreams.StatsDescending)
-            if gapStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 gapStreams.StatsDescending)
+            if waitStreams.Any then log.Information(" Waiting Streams, KB {@waitingStreams}", Seq.truncate 5 waitStreams.StatsDescending)
             if malformedStreams.Any then log.Information(" Malformed Streams, MB {@malformedStreams}", malformedStreams.StatsDescending)
-            gapStreams.Any
+            waitStreams.Any
 
     type [<Struct; NoEquality; NoComparison>] BufferState = Idle | Active | Full
 
