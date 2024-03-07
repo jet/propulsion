@@ -64,6 +64,19 @@ type IntervalTimer(period: TimeSpan) =
         while x.IsTriggered && not timeout.IsDue do
             System.Threading.Thread.Sleep(defaultArg sleepMs 1)
 
+type System.Net.Http.HttpClient with
+
+    member x.GetToFile(uri: Uri, filePath) = task {
+        use! s = x.GetStreamAsync(uri)
+        use fs = System.IO.File.Create(filePath) // Will silently truncate if it exists
+        do! s.CopyToAsync(fs) }
+
+module Uri =
+
+    let tryParseHttp uriOrFilepath =
+        match Uri.TryCreate(uriOrFilepath, UriKind.Absolute) with
+        | true, uri -> Some uri | false, _ -> None
+
 module Exception =
 
     let rec inner (e: exn) =

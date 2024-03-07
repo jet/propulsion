@@ -75,7 +75,7 @@ and SourceArguments(c, p: ParseResults<SourceParameters>) =
         | SourceParameters.Cosmos p ->      Cosmos (Args.Cosmos.Arguments (c, p))
         | SourceParameters.Dynamo p ->      Dynamo (Args.Dynamo.Arguments (c, p))
         | SourceParameters.Mdb p ->         Mdb (Args.Mdb.Arguments (c, p))
-        | SourceParameters.Json p ->        Json (Args.Json.Arguments (c, p))
+        | SourceParameters.Json p ->        Json (Args.Json.Arguments p)
 and [<NoEquality; NoComparison>] StoreArgs =
     | Cosmos of Args.Cosmos.Arguments
     | Dynamo of Args.Dynamo.Arguments
@@ -281,7 +281,8 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             ).Start()
         | Json sa ->
             let checkpoints = Propulsion.Feed.ReaderCheckpoint.MemoryStore.createNull ()
-            Propulsion.Feed.JsonSource.Start(Log.Logger, statsInterval, sa.Filepath, sa.Skip, parse, checkpoints, sink, ?truncateTo = sa.Trunc)
+            let filePath = Propulsion.Feed.JsonSource.DownloadIfHttpUri sa.Filepath |> Async.ofTask |> Async.RunSynchronously
+            Propulsion.Feed.JsonSource.Start(Log.Logger, statsInterval, filePath, sa.Skip, parse, checkpoints, sink, ?truncateTo = sa.Trunc)
 
     let pipeline = [
         Async.AwaitKeyboardInterruptAsTaskCanceledException()

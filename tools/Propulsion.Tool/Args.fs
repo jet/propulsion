@@ -392,11 +392,11 @@ module Json =
         | [<AltCommandLine "-pos"; Unique>] LineNo of int
         interface IArgParserTemplate with
             member p.Usage = p |> function
-                | Path _ ->                 "specify file path"
+                | Path _ ->                 "specify file path (or a HTTP URL to GET)"
                 | Skip _ ->                 "specify number of lines to skip"
                 | Truncate _ ->             "specify line number to pretend is End of File"
                 | LineNo _ ->               "specify line number to start (1-based)"
-    and Arguments(c: Configuration, p: ParseResults<Parameters>) =
+    and Arguments(p: ParseResults<Parameters>) =
         member val Filepath =               p.GetResult Path
         member val Skip =                   p.TryGetResult(LineNo, fun l -> l - 1) |> Option.defaultWith (fun () -> p.GetResult(Skip, 0))
         member val Trunc =                  p.TryGetResult Truncate
