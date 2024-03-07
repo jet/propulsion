@@ -376,15 +376,17 @@ module Scheduling =
         module Busy =
 
             type private StreamState = { ts: int64; mutable count: int }
+            let inline private ticksSince effectiveTimestamp (x: StreamState) = effectiveTimestamp - x.ts
+            let inline private ageInTicks () = let currentTs = Stopwatch.timestamp () in ticksSince currentTs
             let private walkAges (state: Dictionary<_, _>) =
                 if state.Count = 0 then Seq.empty else
-                let currentTs = Stopwatch.timestamp ()
-                seq { for x in state.Values -> struct (currentTs - x.ts, x.count) }
+                let ticksOld = ageInTicks ()
+                seq { for x in state.Values -> struct (ticksOld x, x.count) }
             let private renderStats (state: Dictionary<_, _>) =
-                let currentTs = Stopwatch.timestamp ()
+                let ticksOld = ageInTicks ()
                 [|  for kv in state ->
                         let sn = kv.Key
-                        let age = currentTs - kv.Value.ts |> Stopwatch.ticksToTimeSpan
+                        let age = ticksOld kv.Value |> Stopwatch.ticksToTimeSpan
                         struct (sn, age, kv.Value.count) |]
             let private renderState agesAndCounts =
                 let mutable oldest, newest, streams, attempts = Int64.MinValue, Int64.MaxValue, 0, 0
@@ -405,7 +407,11 @@ module Scheduling =
                     state.Remove sn |> ignore
                     res.ts
                 member _.State = walkAges state |> renderState
-                member _.Contains sn = state.ContainsKey sn
+                member x.MaxAge = let _, struct (oldest, _) = x.State in oldest
+                member _.TryGetAgeS sn =
+                    match state.TryGetValue sn with
+                    | false, _ -> ValueNone
+                    | true, ss -> ageInTicks () ss |> Stopwatch.ticksToSeconds |> int |> ValueSome
             /// Represents state of streams where the handler did not make progress on the last execution either intentionally or due to an exception
             type private Repeating() =
                 let state = Dictionary<FsCodec.StreamName, StreamState>()
@@ -420,7 +426,7 @@ module Scheduling =
                 member x.MaxAge = let _, struct (oldest, _) = x.State in oldest
                 member _.TryGet sn = match state.TryGetValue sn with true, v -> ValueSome v.count | _ -> ValueNone
 
-            type [<Struct>] State = Running | Failing of c: int | Stuck of c2: int | Waiting
+            type [<Struct>] State = Running | Slow of s: int | Failing of c: int | Stuck of c2: int | Waiting
             /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
             type Monitor() =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
@@ -433,16 +439,18 @@ module Scheduling =
                     let startTs = active.TakeFinished(sn)
                     failing.HandleResult(sn, not succeeded, startTs)
                     stuck.HandleResult(sn, succeeded && not progressed, startTs)
-                member _.Classify(sn) =
+                member _.Classify(longRunningThreshold, sn) =
                     match failing.TryGet sn with
                     | ValueSome count -> Failing count
                     | ValueNone ->
                         match stuck.TryGet sn with
                         | ValueSome count -> Stuck count
                         | ValueNone ->
-                            if active.Contains sn then Running
-                            else Waiting
+                            match active.TryGetAgeS sn with
+                            | ValueSome age -> if age > longRunningThreshold then Slow age else Running
+                            | ValueNone -> Waiting
                 member _.OldestStuck = stuck.MaxAge
+                member _.OldestActive = active.MaxAge
                 member _.OldestFailing = failing.MaxAge
                 member _.StuckStreamDetails = stuck.Stats
                 member _.FailingStreamDetails = failing.Stats
@@ -503,8 +511,10 @@ module Scheduling =
 
     /// Gathers stats pertaining to the core projection/ingestion activity
     [<AbstractClass>]
-    type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
+    type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan,
+                       [<O; D null>] ?longRunningThreshold, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
         let failThreshold = defaultArg failThreshold statsInterval
+        let longRunningThresholdS = defaultArg longRunningThreshold stateInterval |> _.TotalSeconds |> int
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats = Stats.StateStats()
@@ -532,7 +542,8 @@ module Scheduling =
             x.DumpStats()
 
         member _.IsFailing = monitor.OldestFailing > failThreshold || monitor.OldestStuck > TimeSpan.Zero
-        member _.Classify sn = monitor.Classify sn
+        member _.HasLongRunning = monitor.OldestFailing > failThreshold
+        member _.Classify sn = monitor.Classify(longRunningThresholdS, sn)
 
         member _.RecordIngested(streams, events, skippedStreams, skippedEvents) =
             batchesStarted <- batchesStarted + 1
@@ -632,18 +643,19 @@ module Scheduling =
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
                         x.streamToRequiredIndex.Remove stream |> ignore
 
-            member _.Dump(log: ILogger, force, classify: FsCodec.StreamName -> Stats.Busy.State) =
-                if (force || log.IsEnabled LogEventLevel.Debug) && pending.Count <> 0 then
-                    let stuck, failing, running, waiting = ResizeArray(), ResizeArray(), ResizeArray(), ResizeArray()
+            member _.Dump(log: ILogger, lel, classify: FsCodec.StreamName -> Stats.Busy.State) =
+                if log.IsEnabled lel && pending.Count <> 0 then
+                    let stuck, failing, slow, running, waiting = ResizeArray(), ResizeArray(), ResizeArray(), ResizeArray(), ResizeArray()
                     let h = pending.Peek()
                     for x in h.streamToRequiredIndex do
                         match classify x.Key with
                         | Stats.Busy.Stuck count -> stuck.Add struct(x.Key, x.Value, count)
                         | Stats.Busy.Failing count -> failing.Add struct(x.Key, x.Value, count)
+                        | Stats.Busy.Slow seconds -> slow.Add struct (x.Key, x.Value, seconds)
                         | Stats.Busy.Running -> running.Add(ValueTuple.ofKvp x)
                         | Stats.Busy.Waiting -> waiting.Add(ValueTuple.ofKvp x)
-                    log.Write((if force then LogEventLevel.Warning else LogEventLevel.Debug),
-                              " Active Batch (sn, version[, attempts]) Stuck {stuck} Failing {failing} Running {running} Waiting {waiting}", stuck, failing, running, waiting)
+                    log.Write(lel, " Active Batch (sn, version[, attempts]) Stuck {stuck} Failing {failing} Slow {slow} Running {running} Waiting {waiting}",
+                              stuck, failing, slow |> Seq.sortByDescending (fun struct (_, _, s) -> s) |> Seq.truncate 10, Seq.truncate 10 running, Seq.truncate 10 waiting)
 
         // We potentially traverse the pending streams thousands of times per second so we reuse buffers for better L2 caching properties
         // NOTE internal reuse of `sortBuffer` and `streamsBuffer` means it's critical to never have >1 of these in flight
@@ -823,7 +835,11 @@ module Scheduling =
                 let log = stats.Log
                 let dumpStreamStates (eventSize: FsCodec.ITimelineEvent<'F> -> int) =
                     let hasGaps = streams.Dump(log, totalPurged, eventSize)
-                    batches.Dump(log, exiting || hasGaps || stats.IsFailing, stats.Classify)
+                    let lel =
+                        if exiting || hasGaps || stats.IsFailing then LogEventLevel.Warning
+                        elif stats.HasLongRunning then LogEventLevel.Information
+                        else LogEventLevel.Debug
+                    batches.Dump(log, lel, stats.Classify)
                 dumpState dumpStreamStates log
                 let runPurge = not exiting && purgeDue ()
                 stats.DumpState(runPurge)
