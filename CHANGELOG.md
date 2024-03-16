@@ -14,6 +14,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Feed`: `Checkpoint` enables committing progress (and obtaining the achieved positions) without stopping the Sink [#162](https://github.com/jet/propulsion/pull/162)
 - `Feed.SinglePassFeedSource`: Coordinates reads of a set of tranches until each reaches its Tail [#179](https://github.com/jet/propulsion/pull/179)
 - `Streams.Stats.abendThreshold`: Abends Sink's processing with a `HealthCheckException` if a stream continually fails to progress, or continually errors with non-transient exceptions [#246](https://github.com/jet/propulsion/pull/246)
+- `Streams.Stats.Categorize`: Break down `ok` handler outcomes by stream category [#258](https://github.com/jet/propulsion/pull/258)
+- `Streams.Stats.Latency.Record`: Gather custom Handler latency metrics [#258](https://github.com/jet/propulsion/pull/258)
 - `StreamFilter`: Generic logic for filtering source events based on Category name, Stream name or Event type [#252](https://github.com/jet/propulsion/pull/252)
 - `Ingester, Sinks`: Expose optional `ingesterStateInterval` and `commitInterval` control on Sink factories [#154](https://github.com/jet/propulsion/pull/154) [#239](https://github.com/jet/propulsion/pull/239)
 - `Scheduler`: Split out stats re `rateLimited` and `timedOut` vs `exceptions` [#194](https://github.com/jet/propulsion/pull/194)
