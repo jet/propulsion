@@ -11,6 +11,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
     | [<AltCommandLine "-w"; Unique>]       MaxWriters of int
     | [<AltCommandLine "-Z"; Unique>]       FromTail
     | [<AltCommandLine "-F"; Unique>]       Follow
+    | [<AltCommandLine "-C"; Unique>]       Categorize
     | [<AltCommandLine "-b"; Unique>]       MaxItems of int
 
     | [<AltCommandLine "-I";    AltCommandLine "--include-indexes"; Unique>] IncIdx
@@ -31,6 +32,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
             | MaxWriters _ ->               "maximum number of concurrent streams on which to process at any time. Default: 8 (Cosmos: 16)."
             | FromTail ->                   "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | Follow ->                     "Stop when the Tail is reached."
+            | Categorize ->                 "Gather handler latency stats by category"
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
             | IncIdx ->                     "Include Index streams. Default: Exclude Index Streams, identified by a $ prefix."
@@ -51,6 +53,7 @@ and Arguments(c, p: ParseResults<Parameters>) =
                                             allowSns = p.GetResults IncStream, denySns = p.GetResults ExcStream,
                                             incIndexes = p.Contains IncIdx,
                                             allowEts = p.GetResults IncEvent, denyEts = p.GetResults ExcEvent)
+    member val Categorize =                 p.Contains Categorize
     member val Command =
         match p.GetSubCommand() with
         | Kafka a ->                        KafkaArguments(c, a) |> SubCommand.Kafka
@@ -186,6 +189,7 @@ type Stats(log: ILogger, statsInterval, stateInterval, logExternalStats) =
         intervalLats.Dump(log, "EVENTS")
         intervalLats.Clear()
     override _.DumpState purge =
+        base.DumpState purge
         for cat in Seq.append accHam.Categories accSpam.Categories |> Seq.distinct |> Seq.sort do
             let ham, spam = accHam.StatsDescending(cat) |> Array.ofSeq, accSpam.StatsDescending cat |> Array.ofSeq
             if ham.Length > 0 then log.Information(" Category {cat} handled {@ham}", cat, ham)
@@ -230,7 +234,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
     let sink =
         match a.Command with
         | SubCommand.Kafka _ | SubCommand.Stats _ ->
-            let stats = Stats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats)
+            let stats = Stats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
                 let ham, spam = events |> Array.partition isValidEvent
                 match producer with
@@ -240,11 +244,11 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
                 return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
             Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats)
-        | SubCommand.Sync a ->
-            let eventsContext = a.ConnectEvents() |> Async.RunSynchronously
-            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats)
+        | SubCommand.Sync sa ->
+            let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
-                                                         purgeInterval = TimeSpan.hours 1, maxBytes = a.MaxBytes)
+                                                         purgeInterval = TimeSpan.hours 1, maxBytes = sa.MaxBytes)
     let source =
         match a.Command.Source with
         | Cosmos sa ->

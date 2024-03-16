@@ -231,6 +231,9 @@ module OutcomeKind =
     let classify: exn -> OutcomeKind = function
         | :? TimeoutException -> Timeout
         | _ -> OutcomeKind.Exn
+    let tag = function OutcomeKind.Ok -> OkTag | OutcomeKind.Tagged g -> g | OutcomeKind.Exn -> ExnTag
+    let isOk = function OutcomeKind.Ok -> true | OutcomeKind.Tagged _ | OutcomeKind.Exn -> false
+    let isException = function OutcomeKind.Exn -> true | OutcomeKind.Ok | OutcomeKind.Tagged _ -> false
 
 /// Details of name, time since first failure, and number of attempts for a Failing or Stuck stream
 type FailingStreamDetails = (struct (FsCodec.StreamName * TimeSpan * int))
@@ -509,6 +512,38 @@ module Scheduling =
     [<Struct; NoComparison; NoEquality>]
     type Res<'R> = { duration: TimeSpan; stream: FsCodec.StreamName; index: int64; event: string; index': int64; result: 'R }
 
+    type LatencyStats() =
+        let outcomes = Stats.LatencyStatsSet()
+        let okCats = Stats.LatencyStatsSet()
+        let okCatsAcc = Stats.LatencyStatsSet()
+        member val Categorize = false with get, set
+        member _.Record(category, duration) =
+            okCats.Record(category, duration)
+            okCatsAcc.Record(category, duration)
+        member internal x.DumpStats log =
+            if x.Categorize then
+                okCats.Dump(log, totalLabel = "OK")
+                outcomes.Dump(log)
+            else
+                okCats.Dump log
+                outcomes.Dump(log, labelSortOrder = function OutcomeKind.OkTag -> String.Empty | x -> x)
+            okCats.Clear()
+            outcomes.Clear()
+        member internal x.DumpState(log, purge) =
+            if x.Categorize then
+                okCatsAcc.Dump(log, totalLabel = "OK")
+            else
+                okCatsAcc.Dump log
+            if purge then okCatsAcc.Clear()
+        member internal x.RecordOutcome(streamName, kind, duration) =
+            let tag = OutcomeKind.tag kind
+            if tag = OutcomeKind.OkTag && x.Categorize then
+                let cat = StreamName.categorize streamName
+                x.Record(cat, duration)
+            else
+                outcomes.Record(tag, duration)
+            tag
+
     /// Gathers stats pertaining to the core projection/ingestion activity
     [<AbstractClass>]
     type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan,
@@ -519,10 +554,12 @@ module Scheduling =
         let metricsLog = log.ForContext("isMetric", true)
         let monitor, monitorInterval = Stats.Busy.Monitor(), IntervalTimer(TimeSpan.FromSeconds 1.)
         let stateStats = Stats.StateStats()
-        let lats = Stats.LatencyStatsSet()
+        let lats = LatencyStats()
         let mutable cycles, batchesCompleted, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead = 0, 0, 0, 0, 0, 0, 0
 
         member val Log = log
+        member val Latency = lats
+        member _.Categorize with get () = lats.Categorize and set value = lats.Categorize <- value
         member val StatsInterval = IntervalTimer statsInterval
         member val StateInterval = IntervalTimer stateInterval
         member val Timers = Stats.Timers()
@@ -531,10 +568,9 @@ module Scheduling =
             log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
                 cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; stateStats.Clear()
-            monitor.DumpState x.Log
+            monitor.DumpState log
             x.RunHealthCheck abend
-            lats.Dump(log, function OutcomeKind.OkTag -> String.Empty | x -> x)
-            lats.Clear()
+            lats.DumpStats log
             let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
             log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
                             batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
@@ -571,7 +607,8 @@ module Scheduling =
 
         /// Allows an ingester or projector to trigger dumping of accumulated statistics (less frequent than DumpStats)
         abstract DumpState: bool -> unit
-        default _.DumpState _purge = ()
+        default _.DumpState(purge) = lats.DumpState(log, purge)
+
 
         /// Allows serialization of the emission of statistics where multiple Schedulers are active (via an externally managed lock object)
         abstract Serialize: (unit -> unit) -> unit
@@ -582,14 +619,10 @@ module Scheduling =
 
         abstract member Handle: Res<Result<'R, 'E>> -> unit
 
-        member private _.RecordOutcomeKind(r, k) =
+        member private x.RecordOutcomeKind(r, k) =
             let progressed = r.index' > r.index
-            let inline updateMonitor succeeded = monitor.HandleResult(r.stream, succeeded = succeeded, progressed = progressed)
-            let kindTag =
-                match k with
-                | OutcomeKind.Ok ->              updateMonitor true;  lats.Record(OutcomeKind.OkTag, r.duration); OutcomeKind.OkTag
-                | OutcomeKind.Tagged g ->        updateMonitor false; lats.Record(g, r.duration); g
-                | OutcomeKind.Exn ->             updateMonitor false; lats.Record(OutcomeKind.ExnTag, r.duration); OutcomeKind.ExnTag
+            monitor.HandleResult(r.stream, succeeded = OutcomeKind.isOk k, progressed = progressed)
+            let kindTag = lats.RecordOutcome(r.stream, k, r.duration)
             if metricsLog.IsEnabled LogEventLevel.Information then
                 let m = Log.Metric.HandlerResult (kindTag, r.duration.TotalSeconds)
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
@@ -598,9 +631,8 @@ module Scheduling =
         member x.RecordOk(r) = x.RecordOutcomeKind(r, OutcomeKind.Ok)
         member x.RecordExn(r, k, log, exn) =
             x.RecordOutcomeKind(r, k)
-            match k with
-            | OutcomeKind.Ok | OutcomeKind.Tagged _ -> ()
-            | OutcomeKind.Exn -> x.HandleExn(log, exn)
+            if OutcomeKind.isException k then
+                x.HandleExn(log, exn)
 
         abstract member HandleExn: ILogger * exn -> unit
 
