@@ -58,7 +58,7 @@ type Logging() =
 
     [<System.Runtime.CompilerServices.Extension>]
     static member Sinks(configuration: LoggerConfiguration, configureMetricsSinks, verboseStore, verboseConsole) =
-        let logEventIsMetric = Serilog.Filters.Matching.WithProperty(Metrics.PropertyTag).Invoke
+        let logEventIsMetric x = Serilog.Filters.Matching.WithProperty(Metrics.PropertyTag).Invoke x
         configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some logEventIsMetric)
 
     module CosmosStoreConnector =

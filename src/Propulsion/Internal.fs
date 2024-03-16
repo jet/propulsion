@@ -328,9 +328,10 @@ module Stats =
             match buckets.TryGetValue bucket with
             | false, _ -> let n = ResizeArray() in n.Add value; buckets.Add(bucket, n)
             | true, buf -> buf.Add value
-        member _.Dump(log: Serilog.ILogger, ?labelSortOrder) =
+        member _.Dump(log: Serilog.ILogger, ?totalLabel, ?labelSortOrder) =
             if buckets.Count <> 0 then
                 let emit = logLatencyPercentilesPadded log buckets.Keys
+                totalLabel |> Option.iter (fun l -> emit l (buckets |> Seq.collect _.Value))
                 for name in Seq.sortBy (defaultArg labelSortOrder id) buckets.Keys do
                     emit name buckets[name]
         member _.DumpGrouped(bucketGroup, log: Serilog.ILogger, ?totalLabel) =
