@@ -512,7 +512,8 @@ module Scheduling =
     /// Gathers stats pertaining to the core projection/ingestion activity
     [<AbstractClass>]
     type Stats<'R, 'E>(log: ILogger, statsInterval: TimeSpan, stateInterval: TimeSpan,
-                       [<O; D null>] ?longRunningThreshold, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
+                       [<O; D null>] ?longRunningThreshold, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold,
+                       [<O; D null>] ?logExternalStats: Action<ILogger>) =
         let failThreshold = defaultArg failThreshold statsInterval
         let longRunningThresholdS = defaultArg longRunningThreshold stateInterval |> _.TotalSeconds |> int
         let metricsLog = log.ForContext("isMetric", true)
@@ -540,6 +541,7 @@ module Scheduling =
             batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
             x.Timers.Dump log
             x.DumpStats()
+            logExternalStats |> Option.iter (fun (f: Action<ILogger>) -> f.Invoke log)
 
         member _.IsFailing = monitor.OldestFailing > failThreshold || monitor.OldestStuck > TimeSpan.Zero
         member _.HasLongRunning = monitor.OldestFailing.TotalSeconds > longRunningThresholdS
@@ -1021,9 +1023,10 @@ module Dispatcher =
                 | Error (met, exn) -> ValueNone, Error (met, exn)
 
 [<AbstractClass>]
-type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold) =
+type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval,
+                     [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold, [<O; D null>] ?logExternalStats) =
     inherit Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>(
-        log, statsInterval, statesInterval, ?failThreshold = failThreshold, ?abendThreshold = abendThreshold)
+        log, statsInterval, statesInterval, ?failThreshold = failThreshold, ?abendThreshold = abendThreshold, ?logExternalStats = logExternalStats)
     let mutable okStreams, okEvents, okBytes, exnStreams, exnCats, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), Stats.Counters(), 0, 0L
     let mutable resultOk, resultExn = 0, 0
     override _.DumpStats() =

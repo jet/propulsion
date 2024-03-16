@@ -127,8 +127,10 @@ module Internal =
 
 type WriterResult = Internal.Writer.Result
 
-type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
+type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(
+        log, statsInterval, stateInterval, ?failThreshold = failThreshold,
+        logExternalStats = defaultArg logExternalStats Equinox.CosmosStore.Core.Log.InternalMetrics.dump)
     let mutable okStreams, okEvents, okBytes = HashSet(), 0, 0L
     let mutable exnCats, exnStreams, exnEvents, exnBytes = Stats.Counters(), HashSet(), 0, 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
@@ -170,7 +172,6 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
             log.Warning("  Affected cats {@exnCats} Streams {@exnStreams}",
                 exnCats.StatsDescending |> Seq.truncate 50, exnStreams |> Seq.truncate 100)
             exnCats.Clear(); exnStreams.Clear()
-        Equinox.CosmosStore.Core.Log.InternalMetrics.dump log
 
     override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 

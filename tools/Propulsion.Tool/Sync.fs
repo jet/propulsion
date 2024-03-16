@@ -150,12 +150,8 @@ and [<NoEquality; NoComparison; RequireQualifiedAccess>] SubCommand =
         | SubCommand.Sync a -> a.Source.Store
 
 [<AbstractClass>]
-type StatsBase<'outcome>(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
-    inherit Propulsion.Streams.Stats<'outcome>(log, statsInterval, stateInterval)
-
-    override _.DumpStats() =
-        base.DumpStats()
-        logExternalStats Log.Logger
+type StatsBase<'outcome>(log, statsInterval, stateInterval, logExternalStats) =
+    inherit Propulsion.Streams.Stats<'outcome>(log, statsInterval, stateInterval, logExternalStats = logExternalStats)
 
     override _.HandleExn(log, exn) =
         log.Information(exn, "Unhandled")
@@ -169,8 +165,8 @@ module Outcome =
         let share = TimeSpan.seconds (match Array.length ham with 0 -> 0 | count -> elapsedS / float count)
         create sn (ham |> Array.map (fun x -> struct (eventType x, share))) (eventCounts spam)
 
-type Stats(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
-    inherit StatsBase<Outcome>(log, statsInterval, stateInterval, verboseStore, logExternalStats)
+type Stats(log: ILogger, statsInterval, stateInterval, logExternalStats) =
+    inherit StatsBase<Outcome>(log, statsInterval, stateInterval, logExternalStats)
     let mutable handled, ignored = 0, 0
     let accHam, accSpam = Stats.CategoryCounters(), Stats.CategoryCounters()
     let intervalLats, accEventTypeLats = Stats.EventTypeLatencies(), Stats.EventTypeLatencies()
@@ -192,7 +188,7 @@ type Stats(log, statsInterval, stateInterval, verboseStore, logExternalStats) =
     override _.DumpState purge =
         for cat in Seq.append accHam.Categories accSpam.Categories |> Seq.distinct |> Seq.sort do
             let ham, spam = accHam.StatsDescending(cat) |> Array.ofSeq, accSpam.StatsDescending cat |> Array.ofSeq
-            if ham.Length > 00 then log.Information(" Category {cat} handled {@ham}", cat, ham)
+            if ham.Length > 0 then log.Information(" Category {cat} handled {@ham}", cat, ham)
             if spam.Length <> 0 then log.Information(" Category {cat} ignored {@spam}", cat, spam)
         accEventTypeLats.Dump(log, "ΣEVENTS")
         if purge then
@@ -234,7 +230,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
     let sink =
         match a.Command with
         | SubCommand.Kafka _ | SubCommand.Stats _ ->
-            let stats = Stats(Log.Logger, statsInterval, stateInterval, verboseStore = false, logExternalStats = dumpStoreStats)
+            let stats = Stats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats)
             let handle isValidEvent (stream: FsCodec.StreamName) (events: Propulsion.Sinks.Event[]) = async {
                 let ham, spam = events |> Array.partition isValidEvent
                 match producer with
@@ -246,7 +242,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats)
         | SubCommand.Sync a ->
             let eventsContext = a.ConnectEvents() |> Async.RunSynchronously
-            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval)
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
                                                          purgeInterval = TimeSpan.hours 1, maxBytes = a.MaxBytes)
     let source =

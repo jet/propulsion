@@ -87,8 +87,10 @@ module Internal =
 
 type WriterResult = Internal.Writer.Result
 
-type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
+type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
+    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(
+        log, statsInterval, stateInterval, ?failThreshold = failThreshold,
+        logExternalStats = defaultArg logExternalStats Log.InternalMetrics.dump)
     let mutable okStreams, okEvents, okBytes, exnCats, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, Stats.Counters(), HashSet(), 0 , 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
@@ -122,7 +124,6 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
             log.Warning("  Affected cats {@exnCats} Streams {@exnStreams}",
                 exnCats.StatsDescending |> Seq.truncate 50, exnStreams |> Seq.truncate 100)
             exnCats.Clear(); exnStreams.Clear()
-        Log.InternalMetrics.dump log
 
     override _.HandleExn(log, exn) = log.Warning(exn, "Unhandled")
 

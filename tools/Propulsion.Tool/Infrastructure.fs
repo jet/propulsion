@@ -3,12 +3,15 @@ module Propulsion.Tool.Infrastructure
 
 open Serilog
 
+// NOTE it's critical that the program establishes Serilog.Logger before anyone calls `Metrics.log`
+//      Yes, that's a footgun whose symptom is logging showing '0.0R/0.0W CU @ 0 rps`, but explicitly passing a `storeLog` gets ugly fast
 module Metrics =
 
     let [<Literal>] PropertyTag = "isMetric"
-    let log = Log.ForContext(PropertyTag, true)
-    /// Allow logging to filter out emission of log messages whose information is also surfaced as metrics
-    let logEventIsMetric = Serilog.Filters.Matching.WithProperty(PropertyTag).Invoke
+    let mutable log = Log.ForContext(PropertyTag, true)
+    // In a real app, you have a separate module Store with Metrics inside, and the static initializer is not triggered too early
+    // TODO get rid of this; I have up this time around :(
+    let init () = log <- Log.ForContext(PropertyTag, true)
 
 module EnvVar =
 
@@ -55,7 +58,8 @@ type Logging() =
 
     [<System.Runtime.CompilerServices.Extension>]
     static member Sinks(configuration: LoggerConfiguration, configureMetricsSinks, verboseStore, verboseConsole) =
-        configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some Metrics.logEventIsMetric)
+        let logEventIsMetric = Serilog.Filters.Matching.WithProperty(Metrics.PropertyTag).Invoke
+        configuration.Sinks(configureMetricsSinks, Sinks.console verboseConsole, ?isMetric = if verboseStore then None else Some logEventIsMetric)
 
     module CosmosStoreConnector =
 

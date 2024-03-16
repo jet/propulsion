@@ -17,7 +17,9 @@ module TimeSpan =
 
 module Stopwatch =
 
+    let inline create () = System.Diagnostics.Stopwatch()
     let inline start () = System.Diagnostics.Stopwatch.StartNew()
+
     let inline timestamp () = System.Diagnostics.Stopwatch.GetTimestamp()
     let inline ticksToSeconds ticks = double ticks / double System.Diagnostics.Stopwatch.Frequency
     let inline ticksToTimeSpan ticks = ticksToSeconds ticks |> TimeSpan.FromSeconds
