@@ -517,26 +517,29 @@ module Scheduling =
         let okCats = Stats.LatencyStatsSet()
         let okCatsAcc = Stats.LatencyStatsSet()
         member val Categorize = false with get, set
-        member _.RecordLatency(label, duration) =
-            okCats.Record(label, duration)
-            okCatsAcc.Record(label, duration)
+        member _.Record(category, duration) =
+            okCats.Record(category, duration)
+            okCatsAcc.Record(category, duration)
         member internal x.DumpStats log =
             if x.Categorize then
                 okCats.Dump(log, totalLabel = "OK")
-                okCats.Clear()
                 outcomes.Dump(log)
             else
+                okCats.Dump log
                 outcomes.Dump(log, labelSortOrder = function OutcomeKind.OkTag -> String.Empty | x -> x)
+            okCats.Clear()
             outcomes.Clear()
         member internal x.DumpState(log, purge) =
             if x.Categorize then
                 okCatsAcc.Dump(log, totalLabel = "OK")
+            else
+                okCatsAcc.Dump log
             if purge then okCatsAcc.Clear()
         member internal x.RecordOutcome(streamName, kind, duration) =
             let tag = OutcomeKind.tag kind
             if tag = OutcomeKind.OkTag && x.Categorize then
                 let cat = StreamName.categorize streamName
-                x.RecordLatency(cat, duration)
+                x.Record(cat, duration)
             else
                 outcomes.Record(tag, duration)
             tag
