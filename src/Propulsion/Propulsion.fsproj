@@ -21,7 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
     <!-- Exclude FSharp.Core.xml due to temporarly malformed state -->
     <PackageReference Include="FSharp.Core" Version="6.0.0" ExcludeAssets="contentfiles" />

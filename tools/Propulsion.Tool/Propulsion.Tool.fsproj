@@ -29,7 +29,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.38.1" />
-    <PackageReference Include="MinVer" Version="4.2.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
 	<PackageReference Include="Argu" Version="6.2.2" />
     <!-- Required or there'll be an exception at runtime re missing support DLLs when using RBAC -->
@@ -38,7 +38,7 @@
     <PackageReference Include="AWSSDK.SSO" Version="3.7.100.69" />
     <PackageReference Include="AWSSDK.SSOOIDC" Version="3.7.100.69" />
     <PackageReference Include="Serilog.Sinks.Async" Version="1.5.0" />
-    <PackageReference Include="Serilog.Sinks.Console" Version="4.0.1" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
   </ItemGroup>
 
 </Project>
