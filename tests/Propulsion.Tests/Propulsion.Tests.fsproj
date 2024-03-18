@@ -26,7 +26,7 @@
 
   <ItemGroup>
     <PackageReference Include="FsCheck.Xunit" Version="3.0.0-rc3" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
     <!-- Pin requirement for at least 6.0.6 in one of the tests by requesting same as Propulsion.DynamoStore will require-->
 	<PackageReference Include="FSharp.Core" Version="6.0.7" ExcludeAssets="contentfiles" />
 	<PackageReference Include="unquote" Version="6.1.0" />
