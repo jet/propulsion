@@ -36,7 +36,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.0`, `FSharp.Control.TaskSeq` v `0.4.0-alpha.1`, `MathNet.Numerics` v `4.15.0`
+- Targeted `net6.0` with `6.0.300` SDK, `FSharp.Core` v `6.0.0`, `FSharp.Control.TaskSeq` v `0.4.0`, `MathNet.Numerics` v `4.15.0`
 - Changed all `Tuple` types to `struct` tuples (`System.ValueTuple`) [#169](https://github.com/jet/propulsion/pull/169)
 - Changed all `Async` to `Task` [#192](https://github.com/jet/propulsion/pull/192)
 - `Dispatcher`: Replaced `GetConsumingEnumerable` with `System.Threading.Channels` [#155](https://github.com/jet/propulsion/pull/155)
