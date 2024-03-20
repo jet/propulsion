@@ -102,51 +102,44 @@ module Cosmos =
 
     open Equinox.CosmosStore.Core.Initialization
     type [<NoEquality; NoComparison; RequireSubcommand>] InitParameters =
-        | [<AltCommandLine "-ru"; Unique>]      Rus of int
-        | [<AltCommandLine "-A"; Unique>]       Autoscale
-        | [<AltCommandLine "-m"; Unique>]       Mode of ModeType
-        | [<AltCommandLine "-s">]               Suffix of string
-        | [<CliPrefix(CliPrefix.None)>]         Cosmos of ParseResults<Parameters>
+        | [<AltCommandLine "-ru"; Unique>]  Rus of int
+        | [<AltCommandLine "-A"; Unique>]   Autoscale
+        | [<AltCommandLine "-m"; Unique>]   Mode of ModeType
+        | [<AltCommandLine "-s">]           Suffix of string
+        | [<CliPrefix(CliPrefix.None)>]     Cosmos of ParseResults<Parameters>
         interface IArgParserTemplate with
             member a.Usage = a |> function
-                | Rus _ ->                      "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
-                | Autoscale ->                  "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
-                | Mode _ ->                     "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
-                | Suffix _ ->                   "Specify Container Name suffix (default: `-aux`)."
-                | Cosmos _ ->                   "Cosmos Connection parameters."
+                | Rus _ ->                  "Specify RU/s level to provision for the Aux Container. (with AutoScale, the value represents the maximum RU/s to AutoScale based on)."
+                | Autoscale ->              "Autoscale provisioned throughput. Use --rus to specify the maximum RU/s."
+                | Mode _ ->                 "Configure RU mode to use Container-level RU, Database-level RU, or Serverless allocations (Default: Use Container-level allocation)."
+                | Suffix _ ->               "Specify Container Name suffix (default: `-aux`)."
+                | Cosmos _ ->               "Cosmos Connection parameters."
     and ModeType = Container | Db | Serverless
     type InitArguments(p: ParseResults<InitParameters>) =
-        let rusOrDefault (value: int) = p.GetResult(Rus, value)
-        let throughput auto = if auto then Throughput.Autoscale (rusOrDefault 4000)
-                                      else Throughput.Manual (rusOrDefault 400)
-        member val ProvisioningMode =
-            match p.GetResult(Mode, ModeType.Container), p.Contains Autoscale with
-            | ModeType.Container, auto -> Provisioning.Container (throughput auto)
-            | ModeType.Db, auto ->        Provisioning.Database (throughput auto)
-            | ModeType.Serverless, auto when auto || p.Contains Rus -> p.Raise "Cannot specify RU/s or Autoscale in Serverless mode"
-            | ModeType.Serverless, _ ->   Provisioning.Serverless
+        member val ProvisioningMode =       let (|Throughput|) auto =       p.GetResult(Rus, if auto then 4000 else 400)
+                                                                            |> if auto then Throughput.Autoscale else Throughput.Manual
+                                            match p.GetResult(Mode, ModeType.Container), p.Contains Autoscale with
+                                            | ModeType.Container, Throughput throughput -> Provisioning.Container throughput
+                                            | ModeType.Db,        Throughput throughput -> Provisioning.Database throughput
+                                            | ModeType.Serverless, auto when auto || p.Contains Rus -> p.Raise "Cannot specify RU/s or Autoscale in Serverless mode"
+                                            | ModeType.Serverless, _ ->                     Provisioning.Serverless
 
     let initAux (c, p: ParseResults<InitParameters>) =
         match p.GetSubCommand() with
         | InitParameters.Cosmos sa ->
             let mode, a = (InitArguments p).ProvisioningMode, Arguments(c, sa)
+            let modeStr = FsCodec.Union.caseName mode
             let container = a.CreateLeasesContainer()
             match mode with
-            | Provisioning.Container throughput ->
-                match throughput with
-                | Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container with Autoscale throughput of up to {rus:n0} RU/s", rus)
-                | Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container with {rus:n0} RU/s", rus)
-            | Provisioning.Database throughput ->
-                let modeStr = "Database"
-                match throughput with
-                | Throughput.Autoscale rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level with Autoscale throughput of up to {rus:n0} RU/s", modeStr, rus)
-                | Throughput.Manual rus ->
-                    Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
+            | Provisioning.Container (Throughput.Autoscale rus) ->
+                Log.Information("Provisioning Leases Container with Autoscale throughput of up to {rus:n0} RU/s", rus)
+            | Provisioning.Container (Throughput.Manual rus) ->
+                Log.Information("Provisioning Leases Container with {rus:n0} RU/s", rus)
+            | Provisioning.Database (Throughput.Autoscale rus) ->
+                Log.Information("Provisioning Leases Container at {modeStr:l} level with Autoscale throughput of up to {rus:n0} RU/s", modeStr, rus)
+            | Provisioning.Database (Throughput.Manual rus) ->
+                Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
             | Provisioning.Serverless ->
-                let modeStr = "Serverless"
                 Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
             initAux container.Database.Client (container.Database.Id, container.Id) mode
         | x -> p.Raise $"unexpected subcommand %A{x}"
@@ -225,49 +218,47 @@ module Dynamo =
         let checkpointInterval =            TimeSpan.hours 1.
         member val IndexTable =             indexTable
         member x.MonitoringParams() =
-            let indexProps =
-                let c = indexReadContext.Value
-                match List.toArray indexPartitions with
-                | [||] ->
-                    Log.Information "DynamoStoreSource Partitions (All)"
-                    (c, None)
-                | xs ->
-                    Log.Information("DynamoStoreSource Partition Filter {partitionIds}", xs)
-                    (c, Some xs)
-            let loadMode =
-                match streamsDop with
-                | None ->
-                    Log.Information("DynamoStoreSource IndexOnly mode")
-                    Propulsion.DynamoStore.EventLoadMode.IndexOnly
-                | Some streamsDop ->
-                    Log.Information("DynamoStoreSource WithData, parallelism limit {streamsDop}", streamsDop)
-                    let table = p.GetResult(Table, fun () -> c.DynamoTable)
-                    let context = readClient.Value.CreateContext("Store", table)
-                    Propulsion.DynamoStore.EventLoadMode.WithData (streamsDop, context)
+            let indexProps =                let c = indexReadContext.Value
+                                            match List.toArray indexPartitions with
+                                            | [||] ->
+                                                Log.Information "DynamoStoreSource Partitions (All)"
+                                                (c, None)
+                                            | xs ->
+                                                Log.Information("DynamoStoreSource Partition Filter {partitionIds}", xs)
+                                                (c, Some xs)
+            let loadMode =                  match streamsDop with
+                                            | None ->
+                                                Log.Information("DynamoStoreSource IndexOnly mode")
+                                                Propulsion.DynamoStore.EventLoadMode.IndexOnly
+                                            | Some streamsDop ->
+                                                Log.Information("DynamoStoreSource WithData, parallelism limit {streamsDop}", streamsDop)
+                                                let table = p.GetResult(Table, fun () -> c.DynamoTable)
+                                                let context = readClient.Value.CreateContext("Store", table)
+                                                Propulsion.DynamoStore.EventLoadMode.WithData (streamsDop, context)
             indexProps, loadMode
         member _.CreateContext(minItemSizeK) =
-            let queryMaxItems = 100
-            let client = writeClient.Value
-            Log.Information("DynamoStore QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
-            client.CreateContext("Index", indexTable, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
+                                            let queryMaxItems = 100
+                                            let client = writeClient.Value
+                                            Log.Information("DynamoStore QueryMaxItems {queryMaxItems} MinItemSizeK {minItemSizeK}", queryMaxItems, minItemSizeK)
+                                            client.CreateContext("Index", indexTable, queryMaxItems = queryMaxItems, maxBytes = minItemSizeK * 1024)
         member _.CreateCheckpointStore(group, cache, storeLog) =
             Propulsion.Feed.ReaderCheckpoint.DynamoStore.create storeLog (group, checkpointInterval) (indexReadContext.Value, cache)
 
     type [<NoEquality; NoComparison; RequireSubcommand>] IndexParameters =
-        | [<AltCommandLine "-p"; Unique>]       IndexPartitionId of int
-        | [<AltCommandLine "-j"; MainCommand>]  DynamoDbJson of string
-        | [<AltCommandLine "-m"; Unique>]       MinSizeK of int
-        | [<AltCommandLine "-b"; Unique>]       EventsPerBatch of int
-        | [<AltCommandLine "-g"; Unique>]       GapsLimit of int
-        | [<CliPrefix(CliPrefix.None)>]         Dynamo of ParseResults<Parameters>
+        | [<AltCommandLine "-p"; Unique>]   IndexPartitionId of int
+        | [<AltCommandLine "-j"; MainCommand>] DynamoDbJson of string
+        | [<AltCommandLine "-m"; Unique>]   MinSizeK of int
+        | [<AltCommandLine "-b"; Unique>]   EventsPerBatch of int
+        | [<AltCommandLine "-g"; Unique>]   GapsLimit of int
+        | [<CliPrefix(CliPrefix.None)>]     Dynamo of ParseResults<Parameters>
         interface IArgParserTemplate with
             member a.Usage = a |> function
-                | IndexPartitionId _ ->         "PartitionId to verify/import into. (optional, omitting displays partitions->epochs list)"
-                | DynamoDbJson _ ->             "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
-                | MinSizeK _ ->                 "Index Stream minimum Item size in KiB. Default 48"
-                | EventsPerBatch _ ->           "Maximum Events to Ingest as a single batch. Default 10000"
-                | GapsLimit _ ->                "Max Number of gaps to output to console. Default 10"
-                | Dynamo _ ->                   "Specify DynamoDB parameters."
+                | IndexPartitionId _ ->     "PartitionId to verify/import into. (optional, omitting displays partitions->epochs list)"
+                | DynamoDbJson _ ->         "Source DynamoDB JSON filename(s) to import (optional, omitting displays current state)"
+                | MinSizeK _ ->             "Index Stream minimum Item size in KiB. Default 48"
+                | EventsPerBatch _ ->       "Maximum Events to Ingest as a single batch. Default 10000"
+                | GapsLimit _ ->            "Max Number of gaps to output to console. Default 10"
+                | Dynamo _ ->               "Specify DynamoDB parameters."
 
     open Propulsion.DynamoStore
 
