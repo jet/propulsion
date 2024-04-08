@@ -297,7 +297,7 @@ module Stats =
             p95 = pc 95
             p99 = pc 99 }
         let stdDev = match l.stddev with ValueNone -> Double.NaN | ValueSome d -> d.TotalSeconds
-        log.Information(" {kind} {count,4} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
+        log.Information(" {kind} {count,5} : max={max:n3}s p99={p99:n3}s p95={p95:n3}s p50={p50:n3}s min={min:n3}s avg={avg:n3}s stddev={stddev:n3}s",
             label, sortedLatencies.Length, l.max.TotalSeconds, l.p99.TotalSeconds, l.p95.TotalSeconds, l.p50.TotalSeconds, l.min.TotalSeconds, l.avg.TotalSeconds, stdDev)
     let logLatencyPercentilesPadded log names =
         let maxGroupLen = names |> Seq.map String.length |> Seq.max // NOTE caller must guarantee >1 item
