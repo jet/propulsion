@@ -571,11 +571,11 @@ module Scheduling =
             monitor.DumpState log
             x.RunHealthCheck abend
             lats.DumpStats log
+            x.Timers.Dump log
             let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
             log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
                             batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
             batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
-            x.Timers.Dump log
             x.DumpStats()
             logExternalStats |> Option.iter (fun (f: Action<ILogger>) -> f.Invoke log)
 
