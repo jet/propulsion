@@ -531,7 +531,7 @@ module Scheduling =
             outcomes.Clear()
         member internal x.DumpState(log, purge) =
             if x.Categorize then
-                okCatsAcc.Dump(log, totalLabel = "OK")
+                okCatsAcc.Dump(log, totalLabel = "ΣOK")
             else
                 okCatsAcc.Dump log
             if purge then okCatsAcc.Clear()
