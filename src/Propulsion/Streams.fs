@@ -489,7 +489,7 @@ module Scheduling =
                 let dt = Stopwatch.ticksToTimeSpan dispatch - it - mt |> max TimeSpan.Zero
                 let rt, st, zt = Stopwatch.ticksToTimeSpan results, Stopwatch.ticksToTimeSpan stats, Stopwatch.ticksToTimeSpan sleep
                 let log = log |> Log.withMetric (Log.Metric.SchedulerCpu (mt, it, dt, rt, st))
-                log.Information(" Cpu Dispatch {dispatch:n1}s streams {streams:n1}s batches {batches:n1}s Results {results:n1}s Stats {stats:n1}s Sleep {sleep:n1}s Total {total:n1}s Interval {int:n1}s",
+                log.Information("Cpu Dispatch {dispatch:n1}s streams {streams:n1}s batches {batches:n1}s Results {results:n1}s Stats {stats:n1}s Sleep {sleep:n1}s Total {total:n1}s Interval {int:n1}s",
                                 dt.TotalSeconds, mt.TotalSeconds, it.TotalSeconds, rt.TotalSeconds, st.TotalSeconds, zt.TotalSeconds, tot.TotalSeconds, sw.ElapsedSeconds)
                 results <- 0L; dispatch <- 0L; merge <- 0L; ingest <- 0L; stats <- 0L; sleep <- 0L
                 sw.Restart()
@@ -565,17 +565,17 @@ module Scheduling =
         member val Timers = Stats.Timers()
 
         member x.DumpStats(struct (dispatchActive, dispatchMax), struct (batchesWaiting, batchesRunning), abend) =
+            let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
+            log.Information("Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
+                            batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
+            batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
+            x.Timers.Dump log
             log.Information("Scheduler {cycles} cycles {@states} Running {busy}/{processors}",
-                cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
+                            cycles, stateStats.StatsDescending, dispatchActive, dispatchMax)
             cycles <- 0; stateStats.Clear()
             monitor.DumpState log
             x.RunHealthCheck abend
             lats.DumpStats log
-            x.Timers.Dump log
-            let batchesCompleted = System.Threading.Interlocked.Exchange(&batchesCompleted, 0)
-            log.Information(" Batches waiting {waiting} started {started} {streams:n0}s {events:n0}e skipped {streamsSkipped:n0}s {eventsSkipped:n0}e completed {completed} Running {active}",
-                            batchesWaiting, batchesStarted, streamsStarted, eventsStarted, streamsWrittenAhead, eventsWrittenAhead, batchesCompleted, batchesRunning)
-            batchesStarted <- 0; streamsStarted <- 0; eventsStarted <- 0; streamsWrittenAhead <- 0; eventsWrittenAhead <- 0; (*batchesCompleted <- 0*)
             x.DumpStats()
             logExternalStats |> Option.iter (fun (f: Action<ILogger>) -> f.Invoke log)
 
