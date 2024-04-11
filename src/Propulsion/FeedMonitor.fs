@@ -78,14 +78,16 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
         let logWaitStatusUpdateNow () =
             let current = fetchPositions ()
             let currentRead, completed = current |> choose _.ReadPos, current |> choose _.CompletedPos
+            let elapsed = sw.Elapsed
+            let log = log.ForContext("totalTime", elapsed)
             match waitMode with
-            | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime:n1}s Awaiting Started {starting} Completed {completed}",
-                                                    sw.ElapsedSeconds, startReadPositions, completed)
+            | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime} Awaiting Started {starting} Completed {completed}",
+                                                    TimeSpan.humanize elapsed, startReadPositions, completed)
             | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Current {current} Completed {completed} Starting {starting}",
-                                                    sw.ElapsedSeconds, currentRead, completed, startReadPositions)
+                                                    TimeSpan.humanize elapsed, currentRead, completed, startReadPositions)
             | AwaitFullyCaughtUp -> let draining = current |> choose (fun v -> if TranchePosition.isDrained v then ValueNone else ValueSome ()) |> Array.map ValueTuple.fst
                                     log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Current {current} Completed {completed} Starting {starting}",
-                                                    sw.ElapsedSeconds, draining, currentRead, completed, startReadPositions)
+                                                    TimeSpan.humanize elapsed, draining, currentRead, completed, startReadPositions)
         let busy () =
             let current = fetchPositions ()
             match waitMode with
