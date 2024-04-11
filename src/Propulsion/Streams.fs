@@ -513,35 +513,36 @@ module Scheduling =
     type Res<'R> = { duration: TimeSpan; stream: FsCodec.StreamName; index: int64; event: string; index': int64; result: 'R }
 
     type LatencyStats() =
-        let outcomes = Stats.LatencyStatsSet()
-        let okCats = Stats.LatencyStatsSet()
-        let okCatsAcc = Stats.LatencyStatsSet()
+        let outcomes, outcomesAcc = Stats.LatencyStatsSet(), Stats.LatencyStatsSet()
+        let okCats, exnCats = Stats.LatencyStatsSet(), Stats.LatencyStatsSet()
+        let okCatsAcc, exnCatsAcc = Stats.LatencyStatsSet(), Stats.LatencyStatsSet()
         member val Categorize = false with get, set
-        member _.Record(category, duration) =
+        member _.RecordOutcome(tag, duration) =
+            outcomes.Record(tag, duration)
+            outcomesAcc.Record(tag, duration)
+        member _.RecordOk(category, duration) =
             okCats.Record(category, duration)
             okCatsAcc.Record(category, duration)
+        member _.RecordExn(tag, duration) =
+            exnCats.Record(tag, duration)
+            exnCatsAcc.Record(tag, duration)
         member internal x.DumpStats log =
-            if x.Categorize then
-                okCats.Dump(log, totalLabel = "OK")
-                outcomes.Dump(log)
-            else
-                okCats.Dump log
-                outcomes.Dump(log, labelSortOrder = function OutcomeKind.OkTag -> String.Empty | x -> x)
-            okCats.Clear()
-            outcomes.Clear()
+            outcomes.Dump(log, labelSortOrder = function OutcomeKind.OkTag -> String.Empty | x -> x)
+            okCats.Dump(log, totalLabel = "OK")
+            exnCats.Dump(log, totalLabel = "ERROR")
+            outcomes.Clear(); okCats.Clear(); exnCats.Clear()
         member internal x.DumpState(log, purge) =
-            if x.Categorize then
-                okCatsAcc.Dump(log, totalLabel = "ΣOK")
-            else
-                okCatsAcc.Dump log
-            if purge then okCatsAcc.Clear()
+            outcomesAcc.Dump(log, labelSortOrder = function OutcomeKind.OkTag -> String.Empty | x -> x)
+            okCatsAcc.Dump(log, totalLabel = "ΣOK")
+            exnCatsAcc.Dump(log, totalLabel = "ΣERROR")
+            if purge then outcomesAcc.Clear(); okCatsAcc.Clear(); exnCatsAcc.Clear()
         member internal x.RecordOutcome(streamName, kind, duration) =
             let tag = OutcomeKind.tag kind
             if tag = OutcomeKind.OkTag && x.Categorize then
                 let cat = StreamName.categorize streamName
-                x.Record(cat, duration)
+                x.RecordOk(cat, duration)
             else
-                outcomes.Record(tag, duration)
+                x.RecordOutcome(tag, duration)
             tag
 
     /// Gathers stats pertaining to the core projection/ingestion activity
