@@ -81,13 +81,13 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
             let elapsed = sw.Elapsed
             let log = log.ForContext("totalTime", elapsed)
             match waitMode with
-            | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime} Awaiting Started {starting} Completed {completed}",
+            | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime} Awaiting {starting} Checkpoint {completed}",
                                                     TimeSpan.humanize elapsed, startReadPositions, completed)
-            | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Current {current} Completed {completed} Starting {starting}",
-                                                    TimeSpan.humanize elapsed, currentRead, completed, startReadPositions)
+            | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Tails {current} Start {starting} Completed {completed}",
+                                                    TimeSpan.humanize elapsed, currentRead, startReadPositions, completed)
             | AwaitFullyCaughtUp -> let draining = current |> choose (fun v -> if TranchePosition.isDrained v then ValueNone else ValueSome ()) |> Array.map ValueTuple.fst
-                                    log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Current {current} Completed {completed} Starting {starting}",
-                                                    TimeSpan.humanize elapsed, draining, currentRead, completed, startReadPositions)
+                                    log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Tails {current} Start {starting} Completed {completed}",
+                                                    TimeSpan.humanize elapsed, draining, currentRead, startReadPositions, completed)
         let busy () =
             let current = fetchPositions ()
             match waitMode with
@@ -165,17 +165,17 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
             let originalCompleted = currentCompleted |> Seq.cache
             if log.IsEnabled ll then
                 let completed = fetchPositions () |> choose (fun v -> v.CompletedPos |> orDummyValue)
-                log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Tail {allAtTail} Starting {starting} Completed {completed}",
+                log.Write(ll, "FeedMonitor Wait {totalTime:n1}s Processed Propagate {propagate:n1}s/{propTimeout:n1}s Process {process:n1}s Tail {allAtTail} Start {starting} Completed {completed}",
                           sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, isDrainedNow (), starting, completed)
             if not skipLinger then
                 let swLinger = Stopwatch.start ()
                 match! awaitLinger sleep linger activeTranches ct with
                 | [||] ->
-                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Completed {completed}",
+                    log.Information("FeedMonitor Wait {totalTime:n1}s OK Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Start {starting} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger.TotalSeconds, isDrainedNow (), starting, originalCompleted)
                 | lingering ->
                     do! awaitCompletion (sleep, logInterval) swProcessing lingering waitMode ct
-                    log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Starting {starting} Lingering {lingering} Completed {completed}",
+                    log.Information("FeedMonitor Wait {totalTime:n1}s Lingered Propagate {propagate:n1}/{propTimeout:n1}s Process {process:n1}s Linger {lingered:n1}/{linger:n1}s Tail {allAtTail}. Start {starting} Lingering {lingering} Completed {completed}",
                                     sw.ElapsedSeconds, propUsed.TotalSeconds, propagationDelay.TotalSeconds, procUsed.TotalSeconds, swLinger.ElapsedSeconds, linger, isDrainedNow (), starting, lingering, currentCompleted)
             // If the sink Faulted, let the awaiter observe the associated Exception that triggered the shutdown
             if sink.IsCompleted && not sink.RanToCompletion then
