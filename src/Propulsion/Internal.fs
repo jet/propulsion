@@ -77,7 +77,8 @@ module Uri =
 
     let tryParseHttp uriOrFilepath =
         match Uri.TryCreate(uriOrFilepath, UriKind.Absolute) with
-        | true, uri -> Some uri | false, _ -> None
+        | true, uri when uri.Scheme = Uri.UriSchemeHttp || uri.Scheme = Uri.UriSchemeHttps -> Some uri
+        | _, _ -> None
 
 module Exception =
 
