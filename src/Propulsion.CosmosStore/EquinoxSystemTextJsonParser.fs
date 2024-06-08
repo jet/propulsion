@@ -41,7 +41,10 @@ module EquinoxSystemTextJsonParser =
         batch.e |> Seq.mapi (fun offset x ->
             let d = batch.MapData x.d
             let m = batch.MapData x.m
-            FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, d, m, timestamp = x.t, size = x.c.Length + d.Length + m.Length + 80))
+            let inline len s = if isNull s then 0 else String.length s
+            FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, d, m, timestamp = x.t,
+                                              size = x.c.Length + d.Length + m.Length + len x.correlationId + len x.causationId + 80,
+                                              correlationId = x.correlationId, causationId = x.causationId))
 
     /// Attempts to parse a Document/Item from the Store
     /// returns ValueNone if it does not bear the hallmarks of a valid Batch, or the streamFilter predicate rejects
