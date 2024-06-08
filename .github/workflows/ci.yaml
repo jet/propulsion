@@ -38,11 +38,8 @@ jobs:
           tar -xf /tmp/eventide/message-db.tgz --directory /tmp/eventide
           (cd /tmp/eventide/message-db-${MESSAGE_DB_VERSION}/database && ./install.sh)
           
-      - name: Restore
-        run: dotnet restore Propulsion.sln
-        
       - name: Build
-        run: dotnet build Propulsion.sln --configuration Release --no-restore
+        run: dotnet build Propulsion.sln --configuration Release
         
       - name: Run Tests
         env:
