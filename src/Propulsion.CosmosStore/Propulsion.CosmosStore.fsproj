@@ -1,7 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <Sdk Name="Microsoft.DotNet.PackageValidation" Version="1.0.0-preview.7.21379.12" />
+
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
+    <PackageValidationBaselineVersion>3.0.0-rc.12</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +26,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+    <ProjectReference Condition=" '$(Configuration)' == 'Debug' " Include="..\Propulsion\Propulsion.fsproj" />
+    <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion" Version="[3.0.0-rc.12, 4.0.0)" />
   </ItemGroup>
 
 </Project>

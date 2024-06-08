@@ -42,7 +42,8 @@
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
       <PackageReference Include="AWSSDK.SimpleNotificationService" Version="3.7.4.10" />
       <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-      <ProjectReference Include="..\Propulsion\Propulsion.fsproj" />
+      <ProjectReference Condition=" '$(Configuration)' == 'Debug' " Include="..\Propulsion\Propulsion.fsproj" />
+      <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion" Version="[3.0.0-rc.12, 4.0.0)" />
     </ItemGroup>
     
     <!-- The Notifier dotnet new template extracts the published binaries from the tools folder using logic in https://github.com/jet/propulsion/pull/143 -->

@@ -34,7 +34,8 @@
       <PackageReference Include="Amazon.Lambda.DynamoDBEvents" Version="2.1.1" />
       <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.3.0" />
       <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
-      <ProjectReference Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
+      <ProjectReference Condition=" '$(Configuration)' == 'Debug' " Include="..\Propulsion.DynamoStore\Propulsion.DynamoStore.fsproj" />
+      <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion.DynamoStore" Version="[3.0.0-rc.12, 4.0.0)" />
     </ItemGroup>
     
     <!-- The Indexer dotnet new template extracts the published binaries from the tools folder using logic in https://github.com/jet/propulsion/pull/143 -->
