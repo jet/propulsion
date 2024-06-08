@@ -140,7 +140,7 @@ module Cosmos =
             | Provisioning.Database (Throughput.Manual rus) ->
                 Log.Information("Provisioning Leases Container at {modeStr:l} level with {rus:n0} RU/s", modeStr, rus)
             | Provisioning.Serverless ->
-                Log.Information("Provisioning Leases Container in {modeStr:l} mode with automatic throughput RU/s as configured in account", modeStr)
+                Log.Information("Provisioning Leases Container in {modeStr:l} mode with throughput as defined at account level", modeStr)
             initAux container.Database.Client (container.Database.Id, container.Id) mode
         | x -> p.Raise $"unexpected subcommand %A{x}"
 

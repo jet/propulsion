@@ -68,6 +68,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
+- `Propulsion.CosmosStore.CosmosStoreSource`: Propagate `correlationId`/`causationId` [#260](https://github.com/jet/propulsion/pull/260)
 - `Propulsion.SqlStreamStore`: Replaced incorrect/meaningless stream name for `SqlStreamStoreSource` [#139](https://github.com/jet/propulsion/pull/139)
 - Synced [`AwaitTaskCorrect`](http://www.fssnip.net/7Rc/title/AsyncAwaitTaskCorrect) with official version [3c11142](https://github.com/jet/propulsion/commit/3c11142b75bf3b0ef2181fd106a4b17c0b2313ef)
 - `Projector`,`Ingester`,`Submitter`, `Scheduler`: Deterministic shutdown via Cancellation and/or unhandled exceptions [#154](https://github.com/jet/propulsion/pull/154)
