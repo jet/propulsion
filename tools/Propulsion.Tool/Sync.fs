@@ -245,15 +245,19 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 match producer with
                 | None -> ()
                 | Some producer ->
-                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
+                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events
+                               |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
                 return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
-            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats, requireAll = requireAll)
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats,
+                                                     requireAll = requireAll)
         | SubCommand.Sync sa ->
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
-            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats, Categorize = a.Categorize)
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval,
+                                                                    logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
-                                                         ?purgeInterval = (if requireAll then None else Some (TimeSpan.hours 1)), maxBytes = sa.MaxBytes, requireAll = requireAll)
+                                                         maxBytes = sa.MaxBytes, requireAll = requireAll,
+                                                         ?purgeInterval = if requireAll then None else Some (TimeSpan.hours 1))
     let source =
         match a.Command.Source with
         | Cosmos sa ->
