@@ -180,12 +180,12 @@ type CosmosStoreSink =
     /// Starts a <c>Sink</c> that ingests all submitted events into the supplied <c>context</c>
     static member Start
         (   log: ILogger, maxReadAhead, eventsContext, maxConcurrentStreams, stats: CosmosStoreSinkStats,
-            ?purgeInterval, ?wakeForResults, ?idleDelay,
+            ?purgeInterval, ?wakeForResults, ?idleDelay, ?requireAll,
             // Default: 16384
             ?maxEvents,
             // Default: 256KB (limited by maximum size of a CosmosDB stored procedure invocation)
             ?maxBytes,
-            ?ingesterStateInterval, ?commitInterval, ?requireAll): SinkPipeline =
+            ?ingesterStateInterval, ?commitInterval): SinkPipeline =
         let dispatcher = Internal.Dispatcher.Create(log, eventsContext, maxConcurrentStreams, ?maxEvents = maxEvents, ?maxBytes = maxBytes)
         let scheduler =
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
