@@ -253,7 +253,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
             let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
-                                                         purgeInterval = TimeSpan.hours 1, maxBytes = sa.MaxBytes, requireAll = requireAll)
+                                                         ?purgeInterval = (if requireAll then None else Some (TimeSpan.hours 1)), maxBytes = sa.MaxBytes, requireAll = requireAll)
     let source =
         match a.Command.Source with
         | Cosmos sa ->
