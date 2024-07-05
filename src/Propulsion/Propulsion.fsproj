@@ -4,7 +4,7 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-<!--    <PackageValidationBaselineVersion>3.0.0-rc.12</PackageValidationBaselineVersion>-->
+    <PackageValidationBaselineVersion>3.0.0-rc.13</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <ItemGroup>
