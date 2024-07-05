@@ -4,7 +4,7 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <PackageValidationBaselineVersion>3.0.0-rc.12</PackageValidationBaselineVersion>
+<!--    <PackageValidationBaselineVersion>3.0.0-rc.12</PackageValidationBaselineVersion>-->
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,7 +23,7 @@
 
   <ItemGroup>
     <ProjectReference Condition=" '$(Configuration)' == 'Debug' " Include="..\Propulsion\Propulsion.fsproj" />
-    <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion" Version="[3.0.0-rc.12, 4.0.0)" />
+    <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion" Version="[3.0.0-rc.13, 4.0.0)" />
   </ItemGroup>
 
 </Project>
