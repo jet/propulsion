@@ -15,7 +15,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
     | [<AltCommandLine "-C"; Unique>]       Categorize
     | [<AltCommandLine "-b"; Unique>]       MaxItems of int
 
-    | [<AltCommandLine "-I";    AltCommandLine "--include-indexes"; Unique>] IncIdx
+    | [<AltCommandLine "-I";    AltCommandLine "--include-system"; Unique>] IncSys
     | [<AltCommandLine "-cat";  AltCommandLine "--include-category">]   IncCat of    regex: string
     | [<AltCommandLine "-ncat"; AltCommandLine "--exclude-category">]   ExcCat of    regex: string
     | [<AltCommandLine "-sn";   AltCommandLine "--include-streamname">] IncStream of regex: string
@@ -40,7 +40,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
             | Categorize ->                 "Gather handler latency stats by category"
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
-            | IncIdx ->                     "Include Index streams. Default: Exclude Index Streams, identified by a $ prefix."
+            | IncSys ->                     "Include System streams. Default: Exclude Index Streams, identified by a $ prefix."
             | IncCat _ ->                   "Allow Stream Category. Multiple values are combined with OR. Default: include all, subject to Category Deny and Stream Deny rules."
             | ExcCat _ ->                   "Deny  Stream Category. Specified values/regexes are applied after the Category Allow rule(s)."
             | IncStream _ ->                "Allow Stream Name. Multiple values are combined with OR. Default: Allow all streams that pass the category Allow test, Fail the Category and Stream deny tests."
@@ -56,7 +56,7 @@ and Arguments(c, p: ParseResults<Parameters>) =
     member val Filters = Propulsion.StreamFilter(
                                             allowCats = p.GetResults IncCat, denyCats = p.GetResults ExcCat,
                                             allowSns = p.GetResults IncStream, denySns = p.GetResults ExcStream,
-                                            incIndexes = p.Contains IncIdx,
+                                            includeSystem = p.Contains IncSys,
                                             allowEts = p.GetResults IncEvent, denyEts = p.GetResults ExcEvent)
     member val Categorize =                 p.Contains Categorize
     member val Command =
