@@ -1,16 +1,16 @@
 namespace Propulsion
 
-open System.Runtime.InteropServices
 open Propulsion.Internal
+open System.Runtime.InteropServices
 
 type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] allowSns, [<Optional>] denySns,
                   [<Optional>] allowEts, [<Optional>] denyEts,
-                  [<Optional; DefaultParameterValue(false)>] ?incIndexes,
+                  [<Optional; DefaultParameterValue(false)>] ?includeSystem,
                   [<Optional; DefaultParameterValue(null)>] ?log) =
     let log = lazy defaultArg log Serilog.Log.Logger
     let defA x = match x with null -> Array.empty | xs -> Seq.toArray xs
 
-    let allowCats, denyCats, incIndexes = defA allowCats, defA denyCats, defaultArg incIndexes false
+    let allowCats, denyCats, includeSystem_ = defA allowCats, defA denyCats, defaultArg includeSystem false
     let allowSns, denySns = defA allowSns, defA denySns
     let allowEts, denyEts = defA allowEts, defA denyEts
     let isPlain = Seq.forall (fun x -> System.Char.IsLetterOrDigit x || x = '_')
@@ -27,12 +27,13 @@ type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] al
     let validStream = filter FsCodec.StreamName.toString (allowSns, denySns)
     let isTransactionalStream (sn: FsCodec.StreamName) = let sn = FsCodec.StreamName.toString sn in not (sn.StartsWith('$'))
 
-    member _.CreateStreamFilter([<Optional>] maybeCategories) =
+    member _.CreateStreamFilter([<Optional>] maybeCategories, [<Optional>] ?includeSystem) =
+        let includeSystem = includeSystem_ || defaultArg includeSystem false
         let handlerCats = defA maybeCategories
         let allowCats = Array.append handlerCats allowCats
         let validCat = filter FsCodec.StreamName.Category.ofStreamName (allowCats, denyCats)
         let allowCats = match allowCats with [||] -> [| ".*" |] | xs -> xs
-        let denyCats = if incIndexes then denyCats else Array.append denyCats [| "^\$" |]
+        let denyCats = if includeSystem_ then denyCats else Array.append denyCats [| "^\$" |]
         let allowSns, denySns = match allowSns, denySns with [||], [||] -> [|".*"|], [||] | x -> x
         let allowEts, denyEts = match allowEts, denyEts with [||], [||] -> [|".*"|], [||] | x -> x
         log.Value.Information("Categories ☑️ {@allowCats} 🚫{@denyCats} Streams ☑️ {@allowStreams} 🚫{denyStreams} Events ☑️ {allowEts} 🚫{@denyEts}",
@@ -40,6 +41,6 @@ type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] al
         fun sn ->
             validCat sn
             && validStream sn
-            && (incIndexes || isTransactionalStream sn)
+            && (includeSystem || isTransactionalStream sn)
 
     member val EventFilter = filter (fun (x: Propulsion.Sinks.Event) -> x.EventType) (allowEts, denyEts)
