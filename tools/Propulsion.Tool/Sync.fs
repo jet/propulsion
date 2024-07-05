@@ -11,10 +11,11 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
     | [<AltCommandLine "-w"; Unique>]       MaxWriters of int
     | [<AltCommandLine "-Z"; Unique>]       FromTail
     | [<AltCommandLine "-F"; Unique>]       Follow
+    | [<AltCommandLine "-A"; Unique>]       RequireAll
     | [<AltCommandLine "-C"; Unique>]       Categorize
     | [<AltCommandLine "-b"; Unique>]       MaxItems of int
 
-    | [<AltCommandLine "-I";    AltCommandLine "--include-indexes"; Unique>] IncIdx
+    | [<AltCommandLine "-I";    AltCommandLine "--include-system"; Unique>] IncSys
     | [<AltCommandLine "-cat";  AltCommandLine "--include-category">]   IncCat of    regex: string
     | [<AltCommandLine "-ncat"; AltCommandLine "--exclude-category">]   ExcCat of    regex: string
     | [<AltCommandLine "-sn";   AltCommandLine "--include-streamname">] IncStream of regex: string
@@ -32,10 +33,14 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
             | MaxWriters _ ->               "maximum number of concurrent streams on which to process at any time. Default: 8 (Cosmos: 16)."
             | FromTail ->                   "(iff fresh projection) - force starting from present Position. Default: Ensure each and every event is projected from the start."
             | Follow ->                     "Stop when the Tail is reached."
+            | RequireAll ->                 "Wait for out of order events to arrive (including waiting for event 0 per stream) before dispatching for any stream. " +
+                                            "NOTE normally a large `MaxReadAhead` and `cosmos -b` is required to avoid starving the scheduler. " +
+                                            "NOTE This mode does not make sense to apply unless the ProcessorName is fresh; if the consumer group name is not fresh (and hence items are excluded from the feed), there will inevitably be missing events, and processing will stall. " +
+                                            "Default: assume events arrive from the changefeed (and/or the input JSON file) without any gaps or out of order deliveries for any stream."
             | Categorize ->                 "Gather handler latency stats by category"
             | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
 
-            | IncIdx ->                     "Include Index streams. Default: Exclude Index Streams, identified by a $ prefix."
+            | IncSys ->                     "Include System streams. Default: Exclude Index Streams, identified by a $ prefix."
             | IncCat _ ->                   "Allow Stream Category. Multiple values are combined with OR. Default: include all, subject to Category Deny and Stream Deny rules."
             | ExcCat _ ->                   "Deny  Stream Category. Specified values/regexes are applied after the Category Allow rule(s)."
             | IncStream _ ->                "Allow Stream Name. Multiple values are combined with OR. Default: Allow all streams that pass the category Allow test, Fail the Category and Stream deny tests."
@@ -51,7 +56,7 @@ and Arguments(c, p: ParseResults<Parameters>) =
     member val Filters = Propulsion.StreamFilter(
                                             allowCats = p.GetResults IncCat, denyCats = p.GetResults ExcCat,
                                             allowSns = p.GetResults IncStream, denySns = p.GetResults ExcStream,
-                                            incIndexes = p.Contains IncIdx,
+                                            includeSystem = p.Contains IncSys,
                                             allowEts = p.GetResults IncEvent, denyEts = p.GetResults ExcEvent)
     member val Categorize =                 p.Contains Categorize
     member val Command =
@@ -217,7 +222,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
         | Some x, _ -> x
         | None, Json _ -> System.Guid.NewGuid() |> _.ToString("N")
         | None, _ -> p.Raise "ConsumerGroupName is mandatory, unless consuming from a JSON file"
-    let startFromTail, follow, maxItems = p.Contains FromTail, p.Contains Follow, p.TryGetResult MaxItems
+    let startFromTail, follow, requireAll, maxItems = p.Contains FromTail, p.Contains Follow, p.Contains RequireAll, p.TryGetResult MaxItems
     let producer =
         match a.Command with
         | SubCommand.Kafka a ->
@@ -240,15 +245,19 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                 match producer with
                 | None -> ()
                 | Some producer ->
-                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
+                    let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events
+                               |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
                 return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
-            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats)
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats,
+                                                     requireAll = requireAll)
         | SubCommand.Sync sa ->
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
-            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, logExternalStats = dumpStoreStats, Categorize = a.Categorize)
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval,
+                                                                    logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
-                                                         purgeInterval = TimeSpan.hours 1, maxBytes = sa.MaxBytes)
+                                                         maxBytes = sa.MaxBytes, requireAll = requireAll,
+                                                         ?purgeInterval = if requireAll then None else Some (TimeSpan.hours 1))
     let source =
         match a.Command.Source with
         | Cosmos sa ->
