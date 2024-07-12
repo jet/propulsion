@@ -34,10 +34,9 @@ module private Impl =
 
         // v4 and later use JsonElement, but Propulsion is using ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies
         open System.Text.Json
-        let private toNativeEventBody (x: EventBody): JsonElement =
+        let toNativeEventBody (x: EventBody): JsonElement =
             if x.IsEmpty then JsonElement()
-            else JsonSerializer.Deserialize(x.Span)
-        let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
+            else JsonSerializer.Deserialize<JsonElement>(x.Span)
 #endif
 
 module Internal =
@@ -66,21 +65,31 @@ module Internal =
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
-            log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
+            let i = StreamSpan.idx span
+            let n = StreamSpan.ver span
+            log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if COSMOSV3
-            let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
+            span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds"
+            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
                        |> Async.executeAsTask ct
 #else
-            let! res = ctx.Sync(stream, { index = span[0].Index; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _), ct)
+            let unfolds, span = span |> Array.partition _.IsUnfold
+            let mkUnfold baseIndex (compressor, x: IEventData<'t>): Unfold =
+                {   i = baseIndex; t = x.Timestamp
+                    c = x.EventType; d = compressor x.Data; m = compressor x.Meta }
+            let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
+            let unfolds = unfolds |> Array.map (fun x -> (*Equinox.CosmosStore.Core.Store.Sync.*)mkUnfold i (StreamSpan.toNativeEventBody, x))
+            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map mapData, unfolds, ct)
 #endif
             let res' =
                 match res with
                 | AppendResult.Ok pos -> Result.Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
+                    // TODO can't drop unfolds
                     match pos.index with
-                    | actual when actual < span[0].Index -> Result.PrefixMissing (span, actual)
-                    | actual when actual >= span[0].Index + span.LongLength -> Result.Duplicate actual
-                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
+                    | actual when actual < i -> Result.PrefixMissing (span, actual) // TODO
+                    | actual when actual >= n -> Result.Duplicate actual
+                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - i |> int)) // TODO
             log.Debug("Result: {res}", res')
             return res' }
         let containsMalformedMessage e =

@@ -1,7 +1,7 @@
 namespace Propulsion.CosmosStore
 
 open Equinox.CosmosStore.Core
-
+open Propulsion.Internal
 open Propulsion.Sinks
 
 /// <summary>Maps fields in an Event within an Equinox.Cosmos V1+ Event (in a Batch or Tip) to the interface defined by Propulsion.Streams.</summary>
@@ -10,12 +10,11 @@ open Propulsion.Sinks
 #if !COSMOSV3
 module EquinoxSystemTextJsonParser =
 
-    type System.Text.Json.JsonDocument with
-        member document.Cast<'T>() =
-            System.Text.Json.JsonSerializer.Deserialize<'T>(document.RootElement)
-    type Batch with
-        member _.MapData x =
-            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes x
+    type System.Text.Json.JsonElement with
+        member x.Cast<'T>() = System.Text.Json.JsonSerializer.Deserialize<'T>(x)
+        member x.ToSinkEventBody() = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes x |> System.ReadOnlyMemory
+
+    type System.Text.Json.JsonDocument with member x.Cast<'T>() = x.RootElement.Cast<'T>()
     let timestamp (doc: System.Text.Json.JsonDocument) =
         let unixEpoch = System.DateTime.UnixEpoch
         let ts = let r = doc.RootElement in r.GetProperty("_ts")
@@ -33,24 +32,31 @@ module EquinoxSystemTextJsonParser =
         match tryProp "p" with
         | ValueSome je when je.ValueKind = System.Text.Json.JsonValueKind.String && hasProp "i" && hasProp "n" && hasProp "e" ->
             let sn = je.GetString() |> FsCodec.StreamName.parse // we expect all Equinox data to adhere to "{category}-{streamId}" form (or we'll throw)
-            if streamFilter sn then ValueSome (struct (sn, d.Cast<Batch>())) else ValueNone
+            if streamFilter sn then ValueSome (struct (sn, d.Cast<Batch>(), tryProp "u")) else ValueNone
         | _ -> ValueNone
 
     /// Enumerates the events represented within a batch
-    let enumEquinoxCosmosEvents (batch: Batch): Event seq =
-        batch.e |> Seq.mapi (fun offset x ->
-            let d = batch.MapData x.d
-            let m = batch.MapData x.m
+    let enumEquinoxCosmosEvents (u: System.Text.Json.JsonElement voption) (batch: Batch): Event seq =
+        let inline gen isUnfold i (x: Equinox.CosmosStore.Core.Event) =
+            let d = x.d.ToSinkEventBody()
+            let m = x.m.ToSinkEventBody()
             let inline len s = if isNull s then 0 else String.length s
-            FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, d, m, timestamp = x.t,
+            FsCodec.Core.TimelineEvent.Create(i, x.c, d, m, timestamp = x.t,
                                               size = x.c.Length + d.Length + m.Length + len x.correlationId + len x.causationId + 80,
-                                              correlationId = x.correlationId, causationId = x.causationId))
+                                              correlationId = x.correlationId, causationId = x.causationId, isUnfold = isUnfold)
+        let events = batch.e |> Seq.mapi (fun offset -> gen false (batch.i + int64 offset))
+        match u |> ValueOption.map (fun u -> u.Cast<Equinox.CosmosStore.Core.Event[]>()) with
+        | ValueNone | ValueSome null | ValueSome [||] -> events
+        | ValueSome unfolds -> seq {
+            yield! events
+            for x in unfolds do
+                gen true batch.n x }
 
     /// Attempts to parse a Document/Item from the Store
     /// returns ValueNone if it does not bear the hallmarks of a valid Batch, or the streamFilter predicate rejects
     let tryEnumStreamEvents streamFilter d: seq<StreamEvent> voption =
         tryParseEquinoxBatch streamFilter d
-        |> ValueOption.map (fun struct (s, xs) -> enumEquinoxCosmosEvents xs |> Seq.map (fun x -> s, x))
+        |> ValueOption.map (fun struct (s, xs, u) -> enumEquinoxCosmosEvents u xs |> Seq.map (fun x -> s, x))
 
     /// Collects all events that pass the streamFilter from a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let whereStream streamFilter d: StreamEvent seq =

@@ -96,10 +96,11 @@ module StreamSpan =
             if res then count <- count + 1; bytes <- bytes + eventBytes
             res
         let trimmed = span |> Array.takeWhile withinLimits
+        // TODO all or none of unfolds
         metrics eventSize trimmed, trimmed
 
     let inline idx (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
-    let inline ver (span: FsCodec.ITimelineEvent<'F>[]) = idx span + span.LongLength
+    let inline ver (span: FsCodec.ITimelineEvent<'F>[]) = span[span.Length - 1].Index + 1L
     let dropBeforeIndex min: FsCodec.ITimelineEvent<_>[] -> FsCodec.ITimelineEvent<_>[] = function
         | xs when xs.Length = 0 -> null
         | xs when idx xs >= min -> xs // don't adjust if min not within

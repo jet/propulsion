@@ -9,11 +9,11 @@
     <Compile Include="ProgressTests.fs" />
     <Compile Include="StreamStateTests.fs" />
     <Compile Include="FsKafkaCodec.fs" />
-    <Compile Include="SpanQueueTests.fs" />
     <Compile Include="ParallelThrottledValidation.fs" />
     <Compile Include="TestOutputLogger.fs" />
     <Compile Include="SourceTests.fs" />
     <Compile Include="SinkHealthTests.fs" />
+    <Compile Include="SpanQueueTests.fs" />
     <Compile Include="AppendsIndexTests.fs" />
     <Compile Include="AppendsEpochTests.fs" />
   </ItemGroup>
