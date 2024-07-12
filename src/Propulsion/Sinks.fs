@@ -17,9 +17,9 @@ type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
 module Events =
 
     /// The Index of the next event ordinarily expected on the next handler invocation (assuming this invocation handles all successfully)
-    let nextIndex: Event[] -> int64 = Streams.StreamSpan.ver
+    let nextIndex: Event[] -> int64 = Streams.StreamSpan.nextIndex
     /// The Index of the first event as supplied to this handler
-    let index: Event[] -> int64 = Streams.StreamSpan.idx
+    let index: Event[] -> int64 = Streams.StreamSpan.index
 
 /// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
 /// This will be reflected in adjustments to the Write Position for the stream in question.

@@ -65,8 +65,8 @@ module Internal =
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
-            let i = StreamSpan.idx span
-            let n = StreamSpan.ver span
+            let i = StreamSpan.index span
+            let n = StreamSpan.nextIndex span
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if COSMOSV3
             span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds"

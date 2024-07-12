@@ -26,7 +26,7 @@ module FsCodecEx =
 
         override _.ToString() =
             let t = if isUnfold then "Unfold" else "Event"
-            $"{t} {eventType} @{index}"
+            $"{t} {eventType} @{index} {context}"
         interface ITimelineEvent<'Format> with
             member _.Index = index
             member _.IsUnfold = isUnfold
@@ -51,9 +51,8 @@ let mk p c = mk_ p c 0 0
 let merge = StreamSpan.merge
 let dropBeforeIndex = StreamSpan.dropBeforeIndex
 let is (xs: FsCodec.ITimelineEvent<string>[][]) (res: FsCodec.ITimelineEvent<string>[][]) =
-    (xs = null && res = null)
-    || (xs, res) ||> Seq.forall2 (fun x y -> (x = null && y = null)
-                                             || (x[0].Index = y[0].Index && (x, y) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType)))
+    (xs, res) ||> Seq.forall2 (fun x y -> (Array.isEmpty x && Array.isEmpty y)
+                                          || x[0].Index = y[0].Index && (x, y) ||> Seq.forall2 (fun x y -> x.EventType = y.EventType))
 
 let [<Fact>] nothing () =
     let r = merge 0L [| mk 0L 0; mk 0L 0 |]
@@ -81,7 +80,7 @@ let [<Fact>] adjacent () =
 
 let [<Fact>] ``adjacent to min`` () =
     let r = Array.map (dropBeforeIndex 2L) [| mk 0L 1; mk 1L 2 |]
-    test <@ r |> is [| null; mk 2L 1 |] @>
+    test <@ r |> is [| [||]; mk 2L 1 |] @>
 
 let [<Fact>] ``adjacent to min merge`` () =
     let r = merge 2L [| mk 0L 1; mk 1L 2 |]
@@ -125,25 +124,28 @@ let [<Fact>] ``fail 2`` () =
 
 let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 (fun x y -> obj.ReferenceEquals(x, y))
 
-let [<FsCheck.Xunit.Property>] ``merges retain freshest unfolds, one per event type`` (counts: _[]) =
+let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds, one per event type`` counts =
     let input = [|
         let mutable pos = 0L
         let mutable seg = 0
-        for gapOrOverlap, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in counts do
-            let normal = normal % 10
-            let unfolds = unfolds % 120 // |> ignore; 0
+        for gapOrOverlap, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in (counts : _[]) do
+            let events = normal % 10
+            let unfolds = unfolds % 10
             pos <- if gapOrOverlap < 0uy then max 0L (pos+int64 gapOrOverlap) else pos + int64 gapOrOverlap
-            yield mk_ pos normal seg unfolds
-            pos <- pos + int64 normal
-            seg <- seg + 1
-    |]
-    let spans = merge 0L input
-    // Empty spans are dropped
-    if spans = null then
+            yield mk_ pos events seg unfolds
+            pos <- pos + int64 events
+            seg <- seg + 1 |]
+    let res = merge 0L input
+    // The only way to end up with a null output is by sending either no spans, or all empties
+    if res = null then
         test <@ input |> Array.forall Array.isEmpty @>
     else
 
-    let all = spans |> Array.concat
+    // an Empty span sequence is replaced with null
+    test <@ res |> Array.isEmpty |> not @>
+    // A Span sequence does not have any empty spans
+    test <@ res |> Array.forall (not << Array.isEmpty) @>
+    let all = res |> Array.concat
     let unfolds, events = all |> Array.partition _.IsUnfold
     // Events are always in order
     test <@ (events |> Seq.sortBy _.Index) === events @>
@@ -159,15 +161,23 @@ let [<FsCheck.Xunit.Property>] ``merges retain freshest unfolds, one per event t
     test <@ match events |> Array.tryLast, unfolds |> Array.tryLast with
             | Some le, Some lu -> lu.Index > le.Index
             | _ -> true @>
-    // resulting span sequence must be monotonic, with a gap of at least 1 in the Index ranges per span
-    test <@ spans |> Seq.pairwise |> Seq.forall (fun (x, y) -> StreamSpan.ver x < StreamSpan.idx y) @>
-    match spans with
-    | [||] -> ()
-    | xs ->
-        let others = Array.take (xs.Length - 1) xs
-        // Only the last span can have unfolds
-        test <@ others |> Array.forall (Array.forall (fun x -> not x.IsUnfold)) @>
 
+    // resulting span sequence must be monotonic, with a gap of at least 1 in the Index ranges per span
+    test <@ res |> Seq.pairwise |> Seq.forall (fun (x, y) -> StreamSpan.nextIndex x < StreamSpan.index y) @>
+
+    let others = res |> Array.take (res.Length - 1)
+    // Only the last span can have unfolds
+    test <@ others |> Array.forall (Array.forall (fun x -> not x.IsUnfold)) @>
+
+    match res |> Array.last |> Array.last with
+    | u when u.IsUnfold ->
+        // If there are unfolds, they can only be the newest ones
+        test <@ input |> Array.forall (not << Array.exists (fun x -> x.IsUnfold && x.Index > u.Index)) @>
+        // if two sets of unfolds with identical Index values were supplied, the freshest ones must win
+        let uc = unbox<int> u.Context
+        let newerUnfolds = Seq.concat input |> Seq.filter (fun x -> x.IsUnfold && x.Index = u.Index && unbox<int> x.Context > uc)
+        test <@ newerUnfolds === [||] || uc = -1 @>
+    | _ -> ()
     // TODO verify that slice never orphans unfolds
 
 #if MEMORY_USAGE_ANALYSIS

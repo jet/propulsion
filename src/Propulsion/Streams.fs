@@ -99,48 +99,55 @@ module StreamSpan =
         // TODO all or none of unfolds
         metrics eventSize trimmed, trimmed
 
-    let inline idx (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
-    let inline ver (span: FsCodec.ITimelineEvent<'F>[]) = span[span.Length - 1].Index + 1L
-    let dropBeforeIndex min: FsCodec.ITimelineEvent<_>[] -> FsCodec.ITimelineEvent<_>[] = function
-        | xs when xs.Length = 0 -> null
-        | xs when idx xs >= min -> xs // don't adjust if min not within
-        | v when ver v <= min -> null // throw away if before min
-        | xs -> xs |> Array.skip (min - idx xs |> int) // slice
+    let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
+    let inline nextIndex (span: FsCodec.ITimelineEvent<'F>[]) =
+        let l = span[span.Length - 1]
+        if l.IsUnfold then l.Index else l.Index + 1L
+    let inline dropBeforeIndex min = function
+        | [||] as xs -> xs
+        | xs when nextIndex xs < min -> Array.empty
+        | xs ->
+            match index xs with
+            | xi when xi = min -> xs
+            | xi -> xs |> Array.skip (min - xi |> int)
 
     let merge min (spans: FsCodec.ITimelineEvent<_>[][]) =
-        let candidates = [|
-            for span in spans do
-                if span <> null then
-                    match dropBeforeIndex min span with
-                    | null -> ()
-                    | trimmed when trimmed.Length = 0 -> invalidOp "Cant add empty"
-                    | trimmed -> trimmed |]
+        let candidates = [| for span in spans do
+                                if span <> null then
+                                    match dropBeforeIndex min span with
+                                    | [||] -> ()
+                                    | xs -> xs |]
         if candidates.Length = 0 then null
         elif candidates.Length = 1 then candidates
         else
-            candidates |> Array.sortInPlaceBy idx
+            candidates |> Array.sortInPlaceBy index
 
             // no data buffered -> buffer first item
-            let mutable curr = candidates[0]
+            let mutable acc = candidates[0]
             let mutable buffer = null
             for i in 1 .. candidates.Length - 1 do
                 let x = candidates[i]
-                let index = idx x
-                let currNext = ver curr
-                if index > currNext then // Gap
-                    match curr |> Array.filter (_.IsUnfold >> not) with
+                let xIndex = index x
+                let accNext = nextIndex acc
+                if xIndex > accNext then // Gap
+                    match acc |> Array.filter (_.IsUnfold >> not) with
                     | [||] -> ()
                     | eventsOnly ->
                         if buffer = null then buffer <- ResizeArray(candidates.Length)
                         buffer.Add eventsOnly
-                    curr <- x
+                    acc <- x
                 // Overlapping, join
-                elif index + x.LongLength > currNext then
-                    curr <- Array.append curr (dropBeforeIndex currNext x)
-            let v = ver curr - 1L
-            let last = curr |> Array.filter (fun x -> not x.IsUnfold || x.Index = v)
-            if buffer = null then Array.singleton last
-            else buffer.Add last; buffer.ToArray()
+                elif nextIndex x > accNext then
+                    match dropBeforeIndex accNext x with
+                    | [||] -> ()
+                    | news ->
+                        acc <- [| for x in acc do if not x.IsUnfold then x
+                                  yield! news |]
+            match acc with
+            | [||] when buffer = null -> null
+            | [||] -> buffer.ToArray()
+            | last when buffer = null -> Array.singleton last
+            | last -> buffer.Add last; buffer.ToArray()
 
 /// A Single Event from an Ordered stream being supplied for ingestion into the internal data structures
 type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
