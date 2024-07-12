@@ -128,14 +128,19 @@ module StreamSpan =
                 let index = idx x
                 let currNext = ver curr
                 if index > currNext then // Gap
-                    if buffer = null then buffer <- ResizeArray(candidates.Length)
-                    buffer.Add curr
+                    match curr |> Array.filter (_.IsUnfold >> not) with
+                    | [||] -> ()
+                    | eventsOnly ->
+                        if buffer = null then buffer <- ResizeArray(candidates.Length)
+                        buffer.Add eventsOnly
                     curr <- x
                 // Overlapping, join
                 elif index + x.LongLength > currNext then
                     curr <- Array.append curr (dropBeforeIndex currNext x)
-            if buffer = null then Array.singleton curr
-            else buffer.Add curr; buffer.ToArray()
+            let v = ver curr - 1L
+            let last = curr |> Array.filter (fun x -> not x.IsUnfold || x.Index = v)
+            if buffer = null then Array.singleton last
+            else buffer.Add last; buffer.ToArray()
 
 /// A Single Event from an Ordered stream being supplied for ingestion into the internal data structures
 type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
