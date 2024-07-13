@@ -73,13 +73,13 @@ module Internal =
             let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
                        |> Async.executeAsTask ct
 #else
-            let unfolds, span = span |> Array.partition _.IsUnfold
+            let unfolds, events = span |> Array.partition _.IsUnfold
             let mkUnfold baseIndex (compressor, x: IEventData<'t>): Unfold =
                 {   i = baseIndex; t = x.Timestamp
                     c = x.EventType; d = compressor x.Data; m = compressor x.Meta }
             let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
             let unfolds = unfolds |> Array.map (fun x -> (*Equinox.CosmosStore.Core.Store.Sync.*)mkUnfold i (StreamSpan.toNativeEventBody, x))
-            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map mapData, unfolds, ct)
+            let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds, ct)
 #endif
             let res' =
                 match res with
@@ -87,9 +87,9 @@ module Internal =
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
                     // TODO can't drop unfolds
                     match pos.index with
-                    | actual when actual < i -> Result.PrefixMissing (span, actual) // TODO
+                    | actual when actual < i -> Result.PrefixMissing (span, actual) // TODO ensure unfolds are merged with potential fresh ones correctly
                     | actual when actual >= n -> Result.Duplicate actual
-                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - i |> int)) // TODO
+                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - i |> int)) // TODO ensure unfolds are merged correctly
             log.Debug("Result: {res}", res')
             return res' }
         let containsMalformedMessage e =
