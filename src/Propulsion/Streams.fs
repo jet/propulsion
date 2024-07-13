@@ -87,16 +87,20 @@ module StreamSpan =
     let slice<'F> eventSize (maxEvents, maxBytes) (span: FsCodec.ITimelineEvent<'F>[]): struct (Metrics * FsCodec.ITimelineEvent<'F>[]) =
         let mutable count, bytes = 0, 0
         let mutable countBudget, bytesBudget = maxEvents, maxBytes
-        let withinLimits y =
+        let withinLimits x =
             countBudget <- countBudget - 1
-            let eventBytes = eventSize y
+            let eventBytes = eventSize x
             bytesBudget <- bytesBudget - eventBytes
             // always send at least one event in order to surface the problem and have the stream marked malformed
             let res = count = 0 || (countBudget >= 0 && bytesBudget >= 0)
             if res then count <- count + 1; bytes <- bytes + eventBytes
             res
         let trimmed = span |> Array.takeWhile withinLimits
-        // TODO all or none of unfolds
+        let trimmed =
+            let inline isEvent (x: FsCodec.ITimelineEvent<'F>) = not x.IsUnfold
+            if Obj.isSame (Array.last trimmed) (Array.last span) then trimmed
+            elif trimmed |> Array.exists isEvent then trimmed |> Array.filter isEvent // Remove the unfolds if there's > 0 events
+            else span // We don't have any events, but we never orphan unfolds, even if the limit would imply they should get split
         metrics eventSize trimmed, trimmed
 
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
@@ -164,7 +168,7 @@ module Buffer =
             if malformed then { write = WritePosMalformed; queue = queue }
             else StreamState<'Format>.Create(write, queue)
         static member Create(write, queue) = { write = (match write with ValueSome x -> x | ValueNone -> WritePosUnknown); queue = queue }
-        member x.IsEmpty = obj.ReferenceEquals(null, x.queue)
+        member x.IsEmpty = Obj.isSame null x.queue
         member x.EventsSumBy(f) = if x.IsEmpty then 0L else x.queue |> Seq.map (Seq.sumBy f) |> Seq.sum |> int64
         member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
 

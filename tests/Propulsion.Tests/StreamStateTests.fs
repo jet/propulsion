@@ -1,5 +1,6 @@
 ﻿module Propulsion.Tests.StreamStateTests
 
+open Propulsion.Internal
 open Propulsion.Streams
 open Swensen.Unquote
 open Xunit
@@ -56,11 +57,11 @@ let is (xs: FsCodec.ITimelineEvent<string>[][]) (res: FsCodec.ITimelineEvent<str
 
 let [<Fact>] nothing () =
     let r = merge 0L [| mk 0L 0; mk 0L 0 |]
-    test <@ obj.ReferenceEquals(null, r) @>
+    test <@ Obj.isSame null r @>
 
 let [<Fact>] synced () =
     let r = merge 1L [| mk 0L 1; mk 0L 0 |]
-    test <@ obj.ReferenceEquals(null, r) @>
+    test <@ Obj.isSame null r @>
 
 let [<Fact>] ``no overlap`` () =
     let r = merge 0L [| mk 0L 1; mk 2L 2 |]
@@ -122,7 +123,7 @@ let [<Fact>] ``fail 2`` () =
     let r = merge 11613L [| mk 11614L 1; null |]
     test <@ r |> is [| mk 11614L 1 |] @>
 
-let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 (fun x y -> obj.ReferenceEquals(x, y))
+let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 Obj.isSame
 
 let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds, one per event type`` counts =
     let input = [|
@@ -142,9 +143,9 @@ let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds,
     else
 
     // an Empty span sequence is replaced with null
-    test <@ res |> Array.isEmpty |> not @>
+    test <@ res |> Array.any @>
     // A Span sequence does not have any empty spans
-    test <@ res |> Array.forall (not << Array.isEmpty) @>
+    test <@ res |> Array.forall Array.any @>
     let all = res |> Array.concat
     let unfolds, events = all |> Array.partition _.IsUnfold
     // Events are always in order

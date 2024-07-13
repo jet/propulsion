@@ -1,6 +1,7 @@
 module Propulsion.Tests.SinkHealthTests
 
 open FSharp.Control
+open Propulsion.Internal
 open Propulsion.Feed
 open Swensen.Unquote
 open System
@@ -67,7 +68,7 @@ type Scenario(testOutput) =
                 pe.StuckStreams.Length = 1
                 && pe.FailingStreams.Length = 1
                 && all |> Seq.exists (fun struct (_s, age, _c) -> age > abendThreshold) @>
-        test <@ obj.ReferenceEquals(me, pe) @>
-        test <@ obj.ReferenceEquals(me, sink.Await() |> Async.Catch |> Async.RunSynchronously |> extractHealthCheckExn) @> }
+        test <@ Obj.isSame me pe @>
+        test <@ Obj.isSame me (sink.Await() |> Async.Catch |> Async.RunSynchronously |> extractHealthCheckExn) @> }
 
     interface IDisposable with member _.Dispose() = dispose ()
