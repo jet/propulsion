@@ -69,7 +69,7 @@ module Internal =
             let n = StreamSpan.nextIndex span
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if COSMOSV3
-            span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds"
+            span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds")
             let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
                        |> Async.executeAsTask ct
 #else
