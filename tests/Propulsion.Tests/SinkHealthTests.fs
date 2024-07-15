@@ -23,15 +23,15 @@ type Scenario(testOutput) =
     let sid n = FsCodec.StreamName.Internal.trust n
     let stuckSid = sid "a-stuck"
     let failingSid = sid "a-bad"
-    let handle sn _ = async {
+    let handle sn events = async {
         if sn = stuckSid then
             do! Async.Sleep (TimeSpan.FromMilliseconds 50)
-            return (Propulsion.Sinks.StreamResult.NoneProcessed, ())
+            return ((), Propulsion.Sinks.Events.index events)
         elif sn = failingSid then
             return failwith "transient"
         else
             do! Async.Sleep (TimeSpan.FromSeconds 1)
-            return Propulsion.Sinks.StreamResult.AllProcessed, () }
+            return (), Propulsion.Sinks.Events.nextIndex events }
     let sink = Propulsion.Sinks.Factory.StartConcurrent(log, 2, 2, handle, stats)
     let dispose () =
         sink.Stop()

@@ -29,7 +29,7 @@ module Pruner =
         let res = if deleted = 0 && deferred = 0 then Nop span.Length else Ok (deleted, deferred)
         // For case where we discover events have already been deleted beyond our requested position, signal to reader to drop events
         let writePos = max trimmedPos (untilIndex + 1L)
-        return struct (writePos, res) }
+        return struct (res, writePos) }
 
 type CosmosStorePrunerStats(log, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
     inherit Propulsion.Streams.Stats<Pruner.Outcome>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
@@ -75,8 +75,8 @@ type CosmosStorePruner =
 #endif
             let interpret _stream span =
                 let metrics = StreamSpan.metrics Event.storedSize span
-                struct (metrics, span)
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil, (fun _ r -> r))
+                struct (span, metrics)
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, interpret, Pruner.handle pruneUntil)
         let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
         let scheduler = Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5,
                                           ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)

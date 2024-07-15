@@ -181,15 +181,15 @@ module Core =
 
         static member Start<'Info, 'Outcome>
             (   log: ILogger, config: KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-                prepare, maxDop, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
-                stats: Scheduling.Stats<struct (StreamSpan.Metrics * 'Outcome), struct (StreamSpan.Metrics * exn)>,
+                prepare, maxDop, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct ('Outcome * int64)>>,
+                stats: Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>,
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
                 logStreamStates Event.storedSize
             let scheduler =
                 Scheduling.Engine(
-                    Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle, StreamResult.toIndex), stats, dumpStreams, pendingBufferSize = 5,
+                    Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, prepare, handle), stats, dumpStreams, pendingBufferSize = 5,
                     ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
             let mapConsumedMessagesToStreamsBatch onCompletion (x: Submission.Batch<TopicPartition, 'Info>): struct (_ * Buffer.Batch) =
                 let onCompletion () = x.onCompletion(); onCompletion()
@@ -203,7 +203,7 @@ module Core =
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let prepare _streamName span =
                 let metrics = StreamSpan.metrics Event.storedSize span
-                struct (metrics, span)
+                struct (span, metrics)
             StreamsConsumer.Start<'Info, 'Outcome>(
                 log, config, consumeResultToInfo, infoToStreamEvents, prepare, maxDop, handle, stats,
                 ?logExternalState = logExternalState, ?purgeInterval = purgeInterval, ?wakeForResults = wakeForResults, ?idleDelay = idleDelay)
@@ -229,7 +229,7 @@ module Core =
             (   log: ILogger, config: KafkaConsumerConfig,
                 // often implemented via <c>StreamNameSequenceGenerator.KeyValueToStreamEvent</c>
                 keyValueToStreamEvents: KeyValuePair<string, string> -> StreamEvent seq,
-                handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>, maxDop,
+                handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct ('Outcome * int64)>>, maxDop,
                 stats,
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             StreamsConsumer.Start<KeyValuePair<string, string>, 'Outcome>(
@@ -333,7 +333,7 @@ type Factory private () =
     static member StartConcurrentAsync<'Outcome>
         (   log: ILogger, config: KafkaConsumerConfig,
             consumeResultToStreamEvents: ConsumeResult<_, _> -> StreamEvent seq,
-            maxDop, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>, stats,
+            maxDop, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct ('Outcome * int64)>>, stats,
             ?logExternalState,
             ?purgeInterval, ?wakeForResults, ?idleDelay) =
         Core.StreamsConsumer.Start<ConsumeResult<_, _>, 'Outcome>(
@@ -343,21 +343,21 @@ type Factory private () =
 
     static member StartBatchedAsync<'Info>
         (   log: ILogger, config: KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
-            select, handle: Func<Scheduling.Item<_>[], CancellationToken, Task<seq<struct (TimeSpan * Result<int64, exn>)>>>, stats,
+            select, handle: Func<Scheduling.Item<_>[], CancellationToken, Task<seq<struct (Result<int64, exn> * TimeSpan)>>>, stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
         let handle (items: Scheduling.Item<EventBody>[]) ct
-            : Task<Scheduling.InternalRes<Result<struct (StreamSpan.Metrics * int64), struct (StreamSpan.Metrics * exn)>>[]> = task {
+            : Task<Scheduling.InternalRes<Result<struct (int64 * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>>[]> = task {
             let start = Stopwatch.timestamp ()
             let inline err ts e (x: Scheduling.Item<_>) =
                 let met = StreamSpan.metrics Event.renderedSize x.span
-                Scheduling.InternalRes.create (x, ts, Result.Error struct (met, e))
+                Scheduling.InternalRes.create (x, ts, Result.Error struct (e, met))
             try let! results = handle.Invoke(items, ct)
-                return Array.ofSeq (Seq.zip items results |> Seq.map(function
-                    | item, (ts, Ok index') ->
-                        let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index' ) |> Array.ofSeq
+                return Array.ofSeq (Seq.zip items results |> Seq.map (function
+                    | item, (Ok index', ts) ->
+                        let used = item.span |> Seq.takeWhile (fun e -> e.Index <> index') |> Array.ofSeq
                         let metrics = StreamSpan.metrics Event.storedSize used
-                        Scheduling.InternalRes.create (item, ts, Result.Ok struct (metrics, index'))
-                    | item, (ts, Error e) -> err ts e item))
+                        Scheduling.InternalRes.create (item, ts, Result.Ok struct (index', metrics))
+                    | item, (Error e, ts) -> err ts e item))
             with e ->
                 let ts = Stopwatch.elapsed start
                 return items |> Array.map (err ts e) }
@@ -391,7 +391,7 @@ type Factory private () =
             // - Ok: Index at which next processing will proceed (which can trigger discarding of earlier items on that stream)
             // - Error: Records the processing of the stream in question as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle: StreamState[] -> Async<seq<struct (TimeSpan * Result<int64, exn>)>>,
+            handle: StreamState[] -> Async<seq<struct (Result<int64, exn> * TimeSpan)>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
@@ -419,7 +419,7 @@ type Factory private () =
             // - second component: Outcome (can be simply <c>unit</c>), to pass to the <c>stats</c> processor
             // - throwing marks the processing of a stream as having faulted (the stream's pending events and/or
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
-            handle: FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            handle: FsCodec.StreamName -> Event[] -> Async<'Outcome * int64>,
             // The <c>'Outcome</c> from each handler invocation is passed to the Statistics processor by the scheduler for periodic emission
             stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =

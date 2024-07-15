@@ -48,28 +48,28 @@ module Internal =
         type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
             | Ok of updatedPos: int64
             | Duplicate of updatedPos: int64
-            | PartialDuplicate of overage: Event[]
-            | PrefixMissing of batch: Event[] * writePos: int64
-        let logTo (log: ILogger) malformed (res: StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+            | PartialDuplicate of updatedPos: int64
+            | PrefixMissing of gap: int * actualPos: int64
+        let logTo (log: ILogger) malformed (res: StreamName * Result<struct (Result * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>) =
             match res with
-            | stream, Ok (_, Result.Ok pos) ->
+            | stream, Ok (Result.Ok pos, _) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Ok (_, Result.Duplicate updatedPos) ->
+            | stream, Ok (Result.Duplicate updatedPos, _) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Ok (_, Result.PartialDuplicate overage) ->
-                log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage[0].Index, overage.Length)
-            | stream, Ok (_, Result.PrefixMissing (batch, pos)) ->
-                log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})", stream, batch[0].Index - pos, batch.Length, batch[0].Index)
-            | stream, Error (_, exn) ->
+            | stream, Ok (Result.PartialDuplicate updatedPos, _) ->
+                log.Information("Requeuing {stream} {pos}", stream, updatedPos)
+            | stream, Ok (Result.PrefixMissing (gap, pos), _) ->
+                log.Information("Waiting   {stream} missing {gap} events before {pos}", stream, gap, pos)
+            | stream, Error (exn, _) ->
                 let level = if malformed then LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
             let i = StreamSpan.index span
             let n = StreamSpan.nextIndex span
-            log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if COSMOSV3
             span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds")
+            log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
             let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
                        |> Async.executeAsTask ct
 #else
@@ -79,17 +79,17 @@ module Internal =
                     c = x.EventType; d = compressor x.Data; m = compressor x.Meta }
             let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
             let unfolds = unfolds |> Array.map (fun x -> (*Equinox.CosmosStore.Core.Store.Sync.*)mkUnfold i (StreamSpan.toNativeEventBody, x))
+            log.Debug("Writing {s}@{i}x{n}+{u}", stream, i, events.Length, unfolds.Length)
             let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds, ct)
 #endif
             let res' =
                 match res with
                 | AppendResult.Ok pos -> Result.Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
-                    // TODO can't drop unfolds
                     match pos.index with
-                    | actual when actual < i -> Result.PrefixMissing (span, actual) // TODO ensure unfolds are merged with potential fresh ones correctly
+                    | actual when actual < i -> Result.PrefixMissing (actual - i |> int, actual)
                     | actual when actual >= n -> Result.Duplicate actual
-                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - i |> int)) // TODO ensure unfolds are merged correctly
+                    | actual -> Result.PartialDuplicate actual
             log.Debug("Result: {res}", res')
             return res' }
         let containsMalformedMessage e =
@@ -118,26 +118,28 @@ module Internal =
 #else
                 try let! res = Writer.write log eventsContext stream span' ct
 #endif
-                    return Ok struct (met, res)
-                with e -> return Error struct (met, e) }
+                    return Ok struct (res, met)
+                with e -> return Error struct (e, met) }
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Ok struct (_stats, Writer.Result.Ok pos) ->               struct (streams.RecordWriteProgress(stream, pos, null), false)
-                    | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null), false
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |]), false
-                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |]), false
-                    | Error struct (_stats, exn) ->
+                    | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
+                        let ss = streams.RecordWriteProgress(stream, pos', null)
+                        struct (ss.WritePos, false)
+                    | Ok (Writer.Result.PrefixMissing _, _stats) ->
+                        streams.WritePos(stream), false
+                    | Error struct (exn, _stats) ->
                         let malformed = Writer.classify exn |> Writer.isMalformed
-                        streams.SetMalformed(stream, malformed), malformed
-                let struct (ss, malformed) = applyResultToStreamState res
+                        let ss = streams.SetMalformed(stream, malformed)
+                        ss.WritePos, malformed
+                let struct (writePos, malformed) = applyResultToStreamState res
                 Writer.logTo writerResultLog malformed (stream, res)
-                struct (ss.WritePos, res)
+                struct (res, writePos)
             Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 
 type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(
+    inherit Scheduling.Stats<struct (WriterResult * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>(
         log, statsInterval, stateInterval, ?failThreshold = failThreshold,
         logExternalStats = defaultArg logExternalStats Equinox.CosmosStore.Core.Log.InternalMetrics.dump)
     let mutable okStreams, okEvents, okBytes = HashSet(), 0, 0L
@@ -145,7 +147,7 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with
-        | { stream = stream; result = Ok ((es, bs), res) } ->
+        | { stream = stream; result = Ok (res, (es, bs)) } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -155,7 +157,7 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
             base.RecordOk(message)
-        | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
+        | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es

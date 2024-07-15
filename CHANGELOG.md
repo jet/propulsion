@@ -32,7 +32,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
 - `Propulsion.Tool`: `sync <kafka|stats>` supports `from json` source option [#250](https://github.com/jet/propulsion/pull/250)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
-- `Propulsion.Tool`: `sync cosmos from <cosmos|json>` [#252](https://github.com/jet/propulsion/pull/252)
+- `Propulsion.Tool`: `sync cosmos from <cosmos|json>` [#252](https://github.com/jet/propulsion/pull/252) [#263](https://github.com/jet/propulsion/pull/263)
 
 ### Changed
 
@@ -47,7 +47,6 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Scheduler`: `Struct`/`voption` conversions; buffer reuse  [#157](https://github.com/jet/propulsion/pull/157)
 - `Scheduler`: Replaced `Thead.Sleep` with `Task.WhenAny`; Added Sleep time logging [#161](https://github.com/jet/propulsion/pull/161)
 - `Streams`: Changed dominant `ITimelineEvent` `EventBody` type from `byte[]` to `System.ReadOnlyMemory<byte>` (`Sinks.EventBody`) [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
-- `Streams.SpanResult`: Renamed to `Sinks.StreamResult` [#208](https://github.com/jet/propulsion/pull/208)
 - `Propulsion.CosmosStore`: Changed to target `Equinox.CosmosStore` v `4.0.0` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore.CosmosSource`: Changed parsing to use `System.Text.Json` [#139](https://github.com/jet/propulsion/pull/139)
 - `Propulsion.CosmosStore.CosmosStoreSink`+`CosmosStorePruner`: Exposed `*Stats` [#226](https://github.com/jet/propulsion/pull/226)
@@ -60,6 +59,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Removed
 
 - `Streams.StreamSpan`: Changed from a record to individual arguments of `FsCodec.StreamName` and `Sinks.Event[]` [#169](https://github.com/jet/propulsion/pull/169) [#208](https://github.com/jet/propulsion/pull/208)
+- `Streams.SpanResult`: Replaced with returning an `int64` to reflect the updated position [#263](https://github.com/jet/propulsion/pull/263) [#208](https://github.com/jet/propulsion/pull/208)
 - `Streams`: `statsInterval` is obtained from the `Stats` wherever one is supplied [#208](https://github.com/jet/propulsion/pull/208)
 - `Propulsion.Cosmos`: Should not be in general use - users should port to `Propulsion.CosmosStore3`, then `Propulsion.CosmosStore` [#193](https://github.com/jet/propulsion/pull/193)
 - `Destructurama.FSharp` dependency [#152](https://github.com/jet/propulsion/pull/152)
