@@ -232,7 +232,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
             Some p
         | SubCommand.Stats _ | SubCommand.Sync _ -> None
     let isFileSource = match a.Command.Source with Json _ -> true | _ -> false
-    let parse = a.Filters.CreateStreamFilter() |> Propulsion.CosmosStore.EquinoxSystemTextJsonParser.whereStream
+    let parse = a.Filters.CreateStreamFilter() |> Propulsion.CosmosStore.EquinoxSystemTextJsonParser.eventsAndUnfoldsWhereStream
     let statsInterval, stateInterval = a.StatsInterval, a.StateInterval
     let maxReadAhead = p.GetResult(MaxReadAhead, if isFileSource then 32768 else 2)
     let maxConcurrentProcessors = p.GetResult(MaxWriters, 8)

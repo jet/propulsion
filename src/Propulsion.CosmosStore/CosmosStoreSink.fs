@@ -74,12 +74,8 @@ module Internal =
                        |> Async.executeAsTask ct
 #else
             let unfolds, events = span |> Array.partition _.IsUnfold
-            let mkUnfold baseIndex (compressor, x: IEventData<'t>): Unfold =
-                {   i = baseIndex; t = x.Timestamp
-                    c = x.EventType; d = compressor x.Data; m = compressor x.Meta }
-            let unfolds = unfolds |> Array.map (fun x -> (*Equinox.CosmosStore.Core.Store.Sync.*)mkUnfold i (StreamSpan.toNativeEventBody, x))
             log.Debug("Writing {s}@{i}x{n}+{u}", stream, i, events.Length, unfolds.Length)
-            let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds, ct)
+            let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds |> Array.map mapData, ct)
 #endif
             let res' =
                 match res with
