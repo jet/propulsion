@@ -43,7 +43,7 @@ let quickStart log stats categories handle = async {
     
 let handle stream (events: Propulsion.Sinks.Event[]) = async {
     // ... process the events
-    return Propulsion.Sinks.StreamResult.AllProcessed, () }
+    return (), Propulsion.Sinks.Events.nextIndex events }
     
 quickStart Log.Logger (createStats ()) [| category |] handle
 ```

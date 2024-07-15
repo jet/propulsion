@@ -38,7 +38,7 @@ module private TimelineEvent =
         fun (i, x: FsCodec.IEventData<_>, context: obj) ->
             if i > DateTimeOffsetPosition.factor then invalidArg (nameof i) $"Index may not exceed %d{DateTimeOffsetPosition.factor}"
             FsCodec.Core.TimelineEvent.Create(
-                baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = true, context = context)
+                baseIndex + i, x.EventType, x.Data, x.Meta, x.EventId, x.CorrelationId, x.CausationId, x.Timestamp, isUnfold = false, context = context)
 
 [<Struct; NoComparison; NoEquality>]
 type SourceItem<'F> = { streamName: FsCodec.StreamName; eventData: FsCodec.IEventData<'F>; context: obj }

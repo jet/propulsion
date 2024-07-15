@@ -21,29 +21,29 @@ module Internal =
         type [<NoComparison; NoEquality; RequireQualifiedAccess>] Result =
             | Ok of updatedPos: int64
             | Duplicate of updatedPos: int64
-            | PartialDuplicate of overage: Event[]
-            | PrefixMissing of batch: Event[] * writePos: int64
+            | PartialDuplicate of updatedPos: int64
+            | PrefixMissing of gap: int * actualPos: int64
 
-        let logTo (log: ILogger) (res: FsCodec.StreamName * Result<struct (StreamSpan.Metrics * Result), struct (StreamSpan.Metrics * exn)>) =
+        let logTo (log: ILogger) (res: FsCodec.StreamName * Result<struct (Result * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>) =
             match res with
-            | stream, Ok (_, Result.Ok pos) ->
+            | stream, Ok (Result.Ok pos, _) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Ok (_, Result.Duplicate updatedPos) ->
+            | stream, Ok (Result.Duplicate updatedPos, _) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Ok (_, Result.PartialDuplicate overage) ->
-                log.Information("Requeuing {stream} {pos} ({count} events)", stream, overage[0].Index, overage.Length)
-            | stream, Ok (_, Result.PrefixMissing (batch, pos)) ->
-                log.Information("Waiting   {stream} missing {gap} events ({count} events @ {pos})",
-                                stream, batch[0].Index - pos, batch.Length, batch[0].Index)
-            | stream, Error (_, exn) ->
+            | stream, Ok (Result.PartialDuplicate updatedPos, _) ->
+                log.Information("Requeuing {stream} {pos}", stream, updatedPos)
+            | stream, Ok (Result.PrefixMissing (gap, pos), _) ->
+                log.Information("Waiting   {stream} missing {gap} events before {pos}", stream, gap, pos)
+            | stream, Error (exn, _) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
         let write (log: ILogger) (context: EventStoreContext) stream (span: Event[]) ct = task {
-            log.Debug("Writing {s}@{i}x{n}", stream, span[0].Index, span.Length)
+            let i = StreamSpan.index span
+            log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if EVENTSTORE_LEGACY
-            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _))
+            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (fun span -> span :> _))
 #else
-            let! res = context.Sync(log, stream, span[0].Index - 1L, span |> Array.map (fun span -> span :> _), ct)
+            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (fun span -> span :> _), ct)
 #endif
             let ress =
                 match res with
@@ -51,9 +51,9 @@ module Internal =
                     Result.Ok (pos'.streamVersion + 1L)
                 | GatewaySyncResult.ConflictUnknown (Token.Unpack pos) ->
                     match pos.streamVersion + 1L with
-                    | actual when actual < span[0].Index -> Result.PrefixMissing (span, actual)
-                    | actual when actual >= span[0].Index + span.LongLength -> Result.Duplicate actual
-                    | actual -> Result.PartialDuplicate (span |> Array.skip (actual - span[0].Index |> int))
+                    | actual when actual < i -> Result.PrefixMissing (actual - i |> int, actual)
+                    | actual when actual >= i + span.LongLength -> Result.Duplicate actual
+                    | actual -> Result.PartialDuplicate actual
             log.Debug("Result: {res}", ress)
             return ress }
 
@@ -69,33 +69,36 @@ module Internal =
                 let index = System.Threading.Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
-                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
-                    return Ok struct (met, res)
-                with e -> return Error struct (met, e) }
+                let struct (span, met) = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
+                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span ct
+                    return Ok struct (res, met)
+                with e -> return Error struct (e, met) }
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Ok struct (_stats, Writer.Result.Ok pos) ->               streams.RecordWriteProgress(stream, pos, null)
-                    | Ok (_stats, Writer.Result.Duplicate pos) ->               streams.RecordWriteProgress(stream, pos, null)
-                    | Ok (_stats, Writer.Result.PartialDuplicate overage) ->    streams.RecordWriteProgress(stream, overage[0].Index, [| overage |])
-                    | Ok (_stats, Writer.Result.PrefixMissing (overage, pos)) -> streams.RecordWriteProgress(stream, pos, [| overage |])
-                    | Error struct (_stats, _exn) ->                            streams.SetMalformed(stream, false)
-                let ss = applyResultToStreamState res
+                    | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
+                        let ss = streams.RecordWriteProgress(stream, pos', null)
+                        ss.WritePos
+                    | Ok (Writer.Result.PrefixMissing _, _stats) ->
+                        streams.WritePos(stream)
+                    | Error struct (_stats, _exn) ->
+                        let ss = streams.SetMalformed(stream, false)
+                        ss.WritePos
+                let writePos = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
-                struct (ss.WritePos, res)
+                struct (res, writePos)
             Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 
 type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * WriterResult), struct (StreamSpan.Metrics * exn)>(
+    inherit Scheduling.Stats<struct (WriterResult * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>(
         log, statsInterval, stateInterval, ?failThreshold = failThreshold,
         logExternalStats = defaultArg logExternalStats Log.InternalMetrics.dump)
     let mutable okStreams, okEvents, okBytes, exnCats, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, Stats.Counters(), HashSet(), 0 , 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with
-        | { stream = stream; result = Ok ((es, bs), res) } ->
+        | { stream = stream; result = Ok (res, (es, bs)) } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -105,7 +108,7 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
             base.RecordOk(message)
-        | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
+        | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es

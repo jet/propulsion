@@ -17,36 +17,9 @@ type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
 module Events =
 
     /// The Index of the next event ordinarily expected on the next handler invocation (assuming this invocation handles all successfully)
-    let nextIndex: Event[] -> int64 = Streams.StreamSpan.ver
+    let nextIndex: Event[] -> int64 = Streams.StreamSpan.nextIndex
     /// The Index of the first event as supplied to this handler
-    let index: Event[] -> int64 = Streams.StreamSpan.idx
-
-/// Represents progress attained during the processing of the supplied Events for a given <c>StreamName</c>.
-/// This will be reflected in adjustments to the Write Position for the stream in question.
-/// Incoming <c>StreamEvent</c>s with <c>Index</c>es prior to the Write Position implied by the result are proactively
-/// dropped from incoming buffers, yielding increased throughput due to reduction of redundant processing.
-type StreamResult =
-   /// Indicates no events where processed.
-   /// Handler should be supplied the same events (plus any that arrived in the interim) in the next scheduling cycle.
-   | NoneProcessed
-   /// Indicates all <c>Event</c>s supplied have been processed.
-   /// Write Position should move beyond the last event supplied.
-   | AllProcessed
-   /// Indicates only a subset of the presented events have been processed;
-   /// Write Position should remove <c>count</c> items from the <c>Event</c>s supplied.
-   | PartiallyProcessed of count: int
-   /// Apply an externally observed Version determined by the handler during processing.
-   /// If the Version of the stream is running ahead or behind the current input StreamSpan, this enables one to have
-   /// events that have already been handled be dropped from the scheduler's buffers and/or as they arrive.
-   | OverrideNextIndex of version: int64
-
-module StreamResult =
-
-    let toIndex<'F> (span: FsCodec.ITimelineEvent<'F>[]) = function
-        | NoneProcessed ->              span[0].Index
-        | AllProcessed ->               span[0].Index + span.LongLength // all-but equivalent to Events.nextIndex span
-        | PartiallyProcessed count ->   span[0].Index + int64 count
-        | OverrideNextIndex index ->    index
+    let index: Event[] -> int64 = Streams.StreamSpan.index
 
 /// Internal helpers used to compute buffer sizes for stats
 module Event =
@@ -65,62 +38,60 @@ type StreamState = Propulsion.Streams.Scheduling.Item<EventBody>
 [<AbstractClass; Sealed>]
 type Factory private () =
 
-    /// Project Events using up to <c>maxConcurrentStreams</c> <code>handle</code> functions that yield a StreamResult and an Outcome to be fed to the Stats
+    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a
+    /// <code>handle</code> function that yields an Outcome to be fed to the Stats, and an updated Stream Position
     static member StartConcurrentAsync<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct (StreamResult * 'Outcome)>>,
+            maxConcurrentStreams, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct ('Outcome * int64)>>,
             stats,
             [<O; D null>] ?pendingBufferSize,
             [<O; D null>] ?purgeInterval,
             [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?commitInterval, [<O; D null>] ?ingesterStateInterval) =
-        Streams.Concurrent.Start<'Outcome, EventBody, StreamResult>(
-            log, maxReadAhead, maxConcurrentStreams, handle, StreamResult.toIndex, Event.storedSize, stats,
+        Streams.Concurrent.Start<'Outcome, EventBody>(
+            log, maxReadAhead, maxConcurrentStreams, handle, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
             ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?requireAll = requireAll,
             ?ingesterStateInterval = ingesterStateInterval, ?commitInterval = commitInterval)
 
-    /// Project Events sequentially via a <code>handle</code> function that yields a StreamResult per <c>select</c>ed Item
+    /// Project Events sequentially via a <code>handle</code> function that yields an updated Stream Position and latency per <c>select</c>ed Item
     static member StartBatchedAsync<'Outcome>
         (   log, maxReadAhead,
             select: Func<StreamState seq, StreamState[]>,
-            handle: Func<StreamState[], CancellationToken, Task<seq<struct (TimeSpan * Result<StreamResult, exn>)>>>,
+            handle: Func<StreamState[], CancellationToken, Task<seq<struct (Result<int64, exn> * TimeSpan)>>>,
             stats,
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval,
             [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?commitInterval, [<O; D null>] ?ingesterStateInterval) =
-        let handle items ct = task {
-            let! res = handle.Invoke(items, ct)
-            return seq { for i, (ts, r) in Seq.zip items res -> struct (ts, Result.map (StreamResult.toIndex i.span) r) } }
         Streams.Batched.Start(log, maxReadAhead, select, handle, Event.storedSize, stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
             ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?requireAll = requireAll,
             ?ingesterStateInterval = ingesterStateInterval, ?commitInterval = commitInterval)
 
-    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a <code>handle</code> function
-    /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
+    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a
+    /// <code>handle</code> function that yields an Outcome to be fed to the Stats, and an updated Stream Position
     static member StartConcurrent<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<'Outcome * int64>,
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval,
             [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?commitInterval, [<O; D null>] ?ingesterStateInterval) =
         let handle' stream events ct = task {
-            let! res, outcome = handle stream events |> Async.executeAsTask ct
-            return struct (res, outcome) }
+            let! outcome, pos' = handle stream events |> Async.executeAsTask ct
+            return struct (outcome, pos') }
         Factory.StartConcurrentAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats,
             ?pendingBufferSize = pendingBufferSize, ?purgeInterval = purgeInterval,
             ?wakeForResults = wakeForResults, ?idleDelay = idleDelay, ?requireAll = requireAll,
             ?ingesterStateInterval = ingesterStateInterval, ?commitInterval = commitInterval)
 
-    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a <code>handle</code> function
-    /// Each dispatched handle invocation yields a StreamResult conveying progress, together with an Outcome to be fed to the Stats
+    /// Project Events using up to <c>maxConcurrentStreams</c> concurrent instances of a
+    /// <code>handle</code> function that yields an Outcome to be fed to the Stats, and an updated Stream Position
     /// Like StartConcurrent, but the events supplied to the Handler are constrained by <c>maxBytes</c> and <c>maxEvents</c>
     static member StartConcurrentChunked<'Outcome>
         (   log, maxReadAhead,
-            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<StreamResult * 'Outcome>,
+            maxConcurrentStreams, handle: FsCodec.StreamName -> Event[] -> Async<'Outcome * int64>,
             stats: Sync.Stats<'Outcome>,
             // Default 1 ms
             ?idleDelay,
@@ -133,16 +104,16 @@ type Factory private () =
             // Frequency of jettisoning Write Position state of inactive streams (held by the scheduler for deduplication purposes) to limit memory consumption
             // NOTE: Purging can impair performance, increase write costs or result in duplicate event emissions due to redundant inputs not being deduplicated
             ?purgeInterval) =
-        let handle' s xs ct = task { let! r, o = handle s xs |> Async.executeAsTask ct in return struct (r, o) }
-        Sync.Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', StreamResult.toIndex, stats, Event.renderedSize, Event.storedSize,
+        let handle' s xs ct = task { let! o, pos' = handle s xs |> Async.executeAsTask ct in return struct (o, pos') }
+        Sync.Factory.StartAsync(log, maxReadAhead, maxConcurrentStreams, handle', stats, Event.renderedSize, Event.storedSize,
                                 ?dumpExternalStats = dumpExternalStats, ?idleDelay = idleDelay, ?maxBytes = maxBytes, ?maxEvents = maxEvents, ?purgeInterval = purgeInterval)
 
     /// Project Events by continually <c>select</c>ing and then dispatching a batch of streams to a <code>handle</code> function
-    /// Per handled stream, the result can be either a StreamResult conveying progress, or an exception
+    /// Per handled stream, the result can be either an updated Stream Position, or an exception
     static member StartBatched<'Outcome>
         (   log, maxReadAhead,
             select: StreamState seq -> StreamState[],
-            handle: StreamState[] -> Async<seq<struct (TimeSpan * Result<StreamResult, exn>)>>,
+            handle: StreamState[] -> Async<seq<struct (Result<int64, exn> * TimeSpan)>>,
             stats,
             // Configure max number of batches to buffer within the scheduler; Default: Same as maxReadAhead
             [<O; D null>] ?pendingBufferSize, [<O; D null>] ?purgeInterval,

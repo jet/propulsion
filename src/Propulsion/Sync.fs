@@ -9,7 +9,7 @@ open System.Collections.Generic
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
+    inherit Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics * TimeSpan), struct (exn * StreamSpan.Metrics)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let mutable okStreams, okEvents, okBytes, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, HashSet(), 0, 0L
     let prepareStats = Stats.LatencyStats("prepare")
     override _.DumpStats() =
@@ -24,14 +24,14 @@ type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?
 
     override this.Handle message =
         match message with
-        | { stream = stream; result = Ok ((es, bs), prepareElapsed, outcome) } ->
+        | { stream = stream; result = Ok (outcome, (es, bs), prepareElapsed) } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
             prepareStats.Record prepareElapsed
             base.RecordOk message
             this.HandleOk outcome
-        | { stream = stream; result = Error ((es, bs), Exception.Inner exn) } ->
+        | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
@@ -44,8 +44,7 @@ type Factory private () =
 
     static member StartAsync
         (   log: ILogger, maxReadAhead, maxConcurrentStreams,
-            handle: Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('R * 'Outcome)>>,
-            toIndex: Func<FsCodec.ITimelineEvent<'F>[], 'R, int64>,
+            handle: Func<FsCodec.StreamName, FsCodec.ITimelineEvent<'F>[], CancellationToken, Task<struct ('Outcome * int64)>>,
             stats: Stats<'Outcome>, sliceSize, eventSize,
             ?dumpExternalStats, ?idleDelay, ?maxBytes, ?maxEvents, ?purgeInterval, ?ingesterStateInterval, ?commitInterval)
         : SinkPipeline<Ingestion.Ingester<StreamEvent<'F> seq>> =
@@ -53,25 +52,24 @@ type Factory private () =
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
         let attemptWrite stream (events: FsCodec.ITimelineEvent<'F>[]) ct = task {
-            let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
+            let struct (trimmed, met) = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
             let prepareTs = Stopwatch.timestamp ()
-            try let! res, outcome = handle.Invoke(stream, span', ct)
-                let index' = toIndex.Invoke(span', res)
-                return Ok struct (index', met, Stopwatch.elapsed prepareTs, outcome)
-            with e -> return Error struct (met, e) }
+            try let! outcome, index' = handle.Invoke(stream, trimmed, ct)
+                return Ok struct (outcome, index', met, Stopwatch.elapsed prepareTs)
+            with e -> return Error struct (e, met) }
 
         let interpretProgress _streams (stream: FsCodec.StreamName) = function
-            | Ok struct (i', met, prep, outcome) -> struct (ValueSome i', Ok struct (met, prep, outcome))
-            | Error struct (struct (eventCount, bytesCount) as met, exn: exn) ->
+            | Ok struct (outcome, index', met, prep) -> struct (Ok struct (outcome, met, prep), ValueSome index')
+            | Error struct (exn: exn, (struct (eventCount, bytesCount) as met)) ->
                 log.Warning(exn, "Handling {events:n0}e {bytes:n0}b for {stream} failed, retrying", eventCount, bytesCount, stream)
-                ValueNone, Error struct (met, exn)
+                Error struct (exn, met), ValueNone
 
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretProgress)
         let dumpStreams logStreamStates log =
             logStreamStates eventSize
             match dumpExternalStats with Some f -> f log | None -> ()
         let scheduler =
-            Scheduling.Engine<struct (int64 * StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * TimeSpan * 'Outcome), struct (StreamSpan.Metrics * exn), 'F>
+            Scheduling.Engine<struct ('Outcome * int64 * StreamSpan.Metrics * TimeSpan), struct ('Outcome * StreamSpan.Metrics * TimeSpan), struct (exn * StreamSpan.Metrics), 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,

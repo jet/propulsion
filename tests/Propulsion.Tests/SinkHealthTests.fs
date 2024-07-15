@@ -22,15 +22,15 @@ type Scenario(testOutput) =
     let sid n = FsCodec.StreamName.Internal.trust n
     let stuckSid = sid "a-stuck"
     let failingSid = sid "a-bad"
-    let handle sn _ = async {
+    let handle sn events = async {
         if sn = stuckSid then
             do! Async.Sleep (TimeSpan.FromMilliseconds 50)
-            return (Propulsion.Sinks.StreamResult.NoneProcessed, ())
+            return ((), Propulsion.Sinks.Events.index events)
         elif sn = failingSid then
             return failwith "transient"
         else
             do! Async.Sleep (TimeSpan.FromSeconds 1)
-            return Propulsion.Sinks.StreamResult.AllProcessed, () }
+            return (), Propulsion.Sinks.Events.nextIndex events }
     let sink = Propulsion.Sinks.Factory.StartConcurrent(log, 2, 2, handle, stats)
     let dispose () =
         sink.Stop()
@@ -67,7 +67,7 @@ type Scenario(testOutput) =
                 pe.StuckStreams.Length = 1
                 && pe.FailingStreams.Length = 1
                 && all |> Seq.exists (fun struct (_s, age, _c) -> age > abendThreshold) @>
-        test <@ obj.ReferenceEquals(me, pe) @>
-        test <@ obj.ReferenceEquals(me, sink.Await() |> Async.Catch |> Async.RunSynchronously |> extractHealthCheckExn) @> }
+        test <@ LanguagePrimitives.PhysicalEquality me pe @>
+        test <@ LanguagePrimitives.PhysicalEquality me (sink.Await() |> Async.Catch |> Async.RunSynchronously |> extractHealthCheckExn) @> }
 
     interface IDisposable with member _.Dispose() = dispose ()

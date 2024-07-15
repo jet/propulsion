@@ -204,9 +204,9 @@ type Stats(log: ILogger, statsInterval, stateInterval, logExternalStats) =
             accHam.Clear(); accSpam.Clear()
             accEventTypeLats.Clear()
 
-let private handle isValidEvent stream (events: Propulsion.Sinks.Event[]): Async<_ * Outcome> = async {
+let private handle isValidEvent stream (events: Propulsion.Sinks.Event[]): Async<Outcome * int64> = async {
     let ham, spam = events |> Array.partition isValidEvent
-    return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
+    return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.nextIndex events }
 
 let eofSignalException = System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed"
 let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
@@ -248,7 +248,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events
                                |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
-                return Propulsion.Sinks.StreamResult.AllProcessed, Outcome.render_ stream ham spam 0 }
+                return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.nextIndex events }
             Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats,
                                                      requireAll = requireAll)
         | SubCommand.Sync sa ->
