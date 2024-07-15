@@ -69,8 +69,8 @@ module Internal =
                 let index = System.Threading.Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
-                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
-                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span' ct
+                let struct (span, met) = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
+                try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span ct
                     return Ok struct (res, met)
                 with e -> return Error struct (e, met) }
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =

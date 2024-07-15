@@ -52,9 +52,9 @@ type Factory private () =
         let maxEvents, maxBytes = defaultArg maxEvents 16384, (defaultArg maxBytes (1024 * 1024 - (*fudge*)4096))
 
         let attemptWrite stream (events: FsCodec.ITimelineEvent<'F>[]) ct = task {
-            let struct (met, span') = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
+            let struct (trimmed, met) = StreamSpan.slice<'F> sliceSize (maxEvents, maxBytes) events
             let prepareTs = Stopwatch.timestamp ()
-            try let! outcome, index' = handle.Invoke(stream, span', ct)
+            try let! outcome, index' = handle.Invoke(stream, trimmed, ct)
                 return Ok struct (outcome, index', met, Stopwatch.elapsed prepareTs)
             with e -> return Error struct (e, met) }
 

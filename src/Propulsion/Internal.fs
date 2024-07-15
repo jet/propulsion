@@ -215,10 +215,6 @@ module ValueOption =
     let inline toOption x = match x with ValueSome x -> Some x | ValueNone -> None
     let inline map f x = match x with ValueSome x -> ValueSome (f x) | ValueNone -> ValueNone
 
-module Obj =
-
-    let isSame = LanguagePrimitives.PhysicalEquality
-
 module Seq =
 
     let partition predicate xs =

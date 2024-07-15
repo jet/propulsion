@@ -112,11 +112,11 @@ module Internal =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (256 * 1024)
             let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span ct = task {
-                let struct (met, span') = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
+                let struct (span, met) = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
 #if COSMOSV3
-                try let! res = Writer.write log eventsContext (StreamName.toString stream) span' ct
+                try let! res = Writer.write log eventsContext (StreamName.toString stream) span ct
 #else
-                try let! res = Writer.write log eventsContext stream span' ct
+                try let! res = Writer.write log eventsContext stream span ct
 #endif
                     return Ok struct (res, met)
                 with e -> return Error struct (e, met) }

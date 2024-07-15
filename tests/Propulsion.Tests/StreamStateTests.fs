@@ -50,6 +50,7 @@ let mk_ p c seg uc: FsCodec.ITimelineEvent<string>[] =
        for u in 0..uc-1 -> mk (p + int64 c) $"{p+int64 c}u{u}" true |]
 let mk p c = mk_ p c 0 0
 let merge = StreamSpan.merge
+let isSame = LanguagePrimitives.PhysicalEquality
 let dropBeforeIndex = StreamSpan.dropBeforeIndex
 let is (xs: FsCodec.ITimelineEvent<string>[][]) (res: FsCodec.ITimelineEvent<string>[][]) =
     (xs, res) ||> Seq.forall2 (fun x y -> (Array.isEmpty x && Array.isEmpty y)
@@ -57,11 +58,11 @@ let is (xs: FsCodec.ITimelineEvent<string>[][]) (res: FsCodec.ITimelineEvent<str
 
 let [<Fact>] nothing () =
     let r = merge 0L [| mk 0L 0; mk 0L 0 |]
-    test <@ Obj.isSame null r @>
+    test <@ isSame null r @>
 
 let [<Fact>] synced () =
     let r = merge 1L [| mk 0L 1; mk 0L 0 |]
-    test <@ Obj.isSame null r @>
+    test <@ isSame null r @>
 
 let [<Fact>] ``no overlap`` () =
     let r = merge 0L [| mk 0L 1; mk 2L 2 |]
@@ -123,7 +124,7 @@ let [<Fact>] ``fail 2`` () =
     let r = merge 11613L [| mk 11614L 1; null |]
     test <@ r |> is [| mk 11614L 1 |] @>
 
-let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 Obj.isSame
+let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 isSame
 
 let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds, one per event type`` counts =
     let input = [|

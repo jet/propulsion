@@ -84,24 +84,28 @@ module StreamSpan =
     type Metrics = (struct (int * int))
     let metrics eventSize (xs: FsCodec.ITimelineEvent<'F>[]): Metrics =
         struct (xs.Length, xs |> Seq.sumBy eventSize)
-    let slice<'F> eventSize (maxEvents, maxBytes) (span: FsCodec.ITimelineEvent<'F>[]): struct (Metrics * FsCodec.ITimelineEvent<'F>[]) =
+    let private trimEvents<'F> eventSize (maxEvents, maxBytes) (span: FsCodec.ITimelineEvent<'F>[]) =
         let mutable count, bytes = 0, 0
         let mutable countBudget, bytesBudget = maxEvents, maxBytes
-        let withinLimits x =
+        let withinLimits (x: FsCodec.ITimelineEvent<_>) =
             countBudget <- countBudget - 1
             let eventBytes = eventSize x
             bytesBudget <- bytesBudget - eventBytes
-            // always send at least one event in order to surface the problem and have the stream marked malformed
-            let res = count = 0 || (countBudget >= 0 && bytesBudget >= 0)
-            if res then count <- count + 1; bytes <- bytes + eventBytes
-            res
-        let trimmed = span |> Array.takeWhile withinLimits
+            let fitsAndNotAnUnfold = (countBudget >= 0 && bytesBudget >= 0) && not x.IsUnfold
+            if fitsAndNotAnUnfold then count <- count + 1; bytes <- bytes + eventBytes
+            fitsAndNotAnUnfold
+        let trimmedEvents = span |> Array.takeWhile withinLimits
+        // takeWhile terminated either because it hit the first Unfold, or the size limit
+        // In either case, if the next event is an Unfold, we know it (and any successors) must be associated with that final event
+        if span |> Array.tryItem trimmedEvents.Length |> Option.exists _.IsUnfold then span
+        else trimmedEvents
+    let slice<'F> eventSize limits (span: FsCodec.ITimelineEvent<'F>[]): struct (FsCodec.ITimelineEvent<'F>[] * Metrics) =
         let trimmed =
-            let inline isEvent (x: FsCodec.ITimelineEvent<'F>) = not x.IsUnfold
-            if Obj.isSame (Array.last trimmed) (Array.last span) then trimmed
-            elif trimmed |> Array.exists isEvent then trimmed |> Array.filter isEvent // Remove the unfolds if there's > 0 events
-            else span // We don't have any events, but we never orphan unfolds, even if the limit would imply they should get split
-        metrics eventSize trimmed, trimmed
+            // we must always send one event, even if it exceeds the limit (if the handler throws, the the Stats can categorize the problem to surface it)
+            if span[0].IsUnfold || span.Length = 1 || span[1].IsUnfold then span
+            // If we have 2 or more (non-Unfold) events, then we limit the batch size
+            else trimEvents<'F> eventSize limits span
+        trimmed, metrics eventSize trimmed
 
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
     let inline nextIndex (span: FsCodec.ITimelineEvent<'F>[]) =
@@ -168,7 +172,7 @@ module Buffer =
             if malformed then { write = WritePosMalformed; queue = queue }
             else StreamState<'Format>.Create(write, queue)
         static member Create(write, queue) = { write = (match write with ValueSome x -> x | ValueNone -> WritePosUnknown); queue = queue }
-        member x.IsEmpty = Obj.isSame null x.queue
+        member x.IsEmpty = LanguagePrimitives.PhysicalEquality null x.queue
         member x.EventsSumBy(f) = if x.IsEmpty then 0L else x.queue |> Seq.map (Seq.sumBy f) |> Seq.sum |> int64
         member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
 
