@@ -5,7 +5,7 @@ open Propulsion.Streams
 open Swensen.Unquote
 open Xunit
 
-module FsCodecEx =
+module FsCodec301 = // Not yet merged, https://github.com/jet/FsCodec/pull/123
     open FsCodec
     open System
     /// <summary>An Event or Unfold that's been read from a Store and hence has a defined <c>Index</c> on the Event Timeline.</summary>
@@ -40,7 +40,7 @@ module FsCodecEx =
             member _.CorrelationId = correlationId
             member _.CausationId = causationId
             member _.Timestamp = timestamp
-open FsCodecEx
+open FsCodec301
 
 let canonicalTime = System.DateTimeOffset.UtcNow
 

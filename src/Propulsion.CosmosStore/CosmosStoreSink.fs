@@ -15,8 +15,7 @@ module private Impl =
     type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let private toNativeEventBody (xs: Propulsion.Sinks.EventBody): byte[] = xs.ToArray()
-        let defaultToNative_ = FsCodec.Core.TimelineEvent.Map toNativeEventBody
+        let toNativeEventBody (xs: Propulsion.Sinks.EventBody): byte[] = xs.ToArray()
     // Trimmed edition of what V4 exposes
     module internal Equinox =
         module CosmosStore =
@@ -36,7 +35,7 @@ module private Impl =
         open System.Text.Json
         let toNativeEventBody (x: EventBody): JsonElement =
             if x.IsEmpty then JsonElement()
-            else JsonSerializer.Deserialize<JsonElement>(x.Span)
+            else JsonSerializer.Deserialize(x.Span)
 #endif
 
 module Internal =
@@ -67,17 +66,17 @@ module Internal =
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
             let i = StreamSpan.index span
             let n = StreamSpan.nextIndex span
+            let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
 #if COSMOSV3
             span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds")
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
-            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map (fun x -> StreamSpan.defaultToNative_ x :> _))
+            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map mapData)
                        |> Async.executeAsTask ct
 #else
             let unfolds, events = span |> Array.partition _.IsUnfold
             let mkUnfold baseIndex (compressor, x: IEventData<'t>): Unfold =
                 {   i = baseIndex; t = x.Timestamp
                     c = x.EventType; d = compressor x.Data; m = compressor x.Meta }
-            let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
             let unfolds = unfolds |> Array.map (fun x -> (*Equinox.CosmosStore.Core.Store.Sync.*)mkUnfold i (StreamSpan.toNativeEventBody, x))
             log.Debug("Writing {s}@{i}x{n}+{u}", stream, i, events.Length, unfolds.Length)
             let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds, ct)
