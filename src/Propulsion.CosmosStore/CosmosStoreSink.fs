@@ -151,7 +151,8 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
             | WriterResult.Duplicate _ -> resultDup <- resultDup + 1
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-            base.RecordOk(message)
+            // Plain RecordOk is insufficient as the lack of movement in the index would ordinarily imply it's stalled
+            base.RecordOk(message, progressed = true)
         | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
