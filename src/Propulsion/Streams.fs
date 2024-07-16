@@ -120,11 +120,12 @@ module StreamSpan =
             | xi -> xs |> Array.skip (min - xi |> int)
 
     let merge min (spans: FsCodec.ITimelineEvent<_>[][]) =
-        let candidates = [| for span in spans do
-                                if span <> null then
-                                    match dropBeforeIndex min span with
-                                    | [||] -> ()
-                                    | xs -> xs |]
+        let candidates =
+            [| for span in spans do
+                if span <> null then
+                    match dropBeforeIndex min span with
+                    | [||] -> ()
+                    | xs -> xs |]
         if candidates.Length = 0 then null
         elif candidates.Length = 1 then candidates
         else
