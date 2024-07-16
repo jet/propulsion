@@ -85,20 +85,17 @@ module StreamSpan =
     let metrics eventSize (xs: FsCodec.ITimelineEvent<'F>[]): Metrics =
         struct (xs.Length, xs |> Seq.sumBy eventSize)
     let private trimEvents<'F> eventSize (maxEvents, maxBytes) (span: FsCodec.ITimelineEvent<'F>[]) =
-        let mutable count, bytes = 0, 0
         let mutable countBudget, bytesBudget = maxEvents, maxBytes
-        let withinLimits (x: FsCodec.ITimelineEvent<_>) =
+        let fitsInBudget (x: FsCodec.ITimelineEvent<_>) =
             countBudget <- countBudget - 1
-            let eventBytes = eventSize x
-            bytesBudget <- bytesBudget - eventBytes
-            let fitsAndNotAnUnfold = (countBudget >= 0 && bytesBudget >= 0) && not x.IsUnfold
-            if fitsAndNotAnUnfold then count <- count + 1; bytes <- bytes + eventBytes
-            fitsAndNotAnUnfold
-        let trimmedEvents = span |> Array.takeWhile withinLimits
+            bytesBudget <- bytesBudget - eventSize x
+            (countBudget >= 0 && bytesBudget >= 0 && not x.IsUnfold) // Stop at unfolds; if they belong, we need to supply all
+            || (countBudget = maxEvents - 1) // We need to guarantee to yield at least one Event, even if it's outside of the size limit
+        let trimmedEvents = span |> Array.takeWhile fitsInBudget
         // takeWhile terminated either because it hit the first Unfold, or the size limit
-        // In either case, if the next event is an Unfold, we know it (and any successors) must be associated with that final event
-        if span |> Array.tryItem trimmedEvents.Length |> Option.exists _.IsUnfold then span
-        else trimmedEvents
+        match span |> Array.tryItem trimmedEvents.Length with
+        | Some successor when successor.IsUnfold -> span // If takeWhile stopped on an Unfold we all remaining belong with the preceding event
+        | _ -> trimmedEvents
     let slice<'F> eventSize limits (span: FsCodec.ITimelineEvent<'F>[]): struct (FsCodec.ITimelineEvent<'F>[] * Metrics) =
         let trimmed =
             // we must always send one event, even if it exceeds the limit (if the handler throws, the the Stats can categorize the problem to surface it)
@@ -643,8 +640,7 @@ module Scheduling =
 
         abstract member Handle: Res<Result<'R, 'E>> -> unit
 
-        member private x.RecordOutcomeKind(r, k) =
-            let progressed = r.index' > r.index
+        member private x.RecordOutcomeKind(r, k, progressed) =
             monitor.HandleResult(r.stream, succeeded = OutcomeKind.isOk k, progressed = progressed)
             let kindTag = lats.RecordOutcome(r.stream, k, r.duration)
             if metricsLog.IsEnabled LogEventLevel.Information then
@@ -652,9 +648,10 @@ module Scheduling =
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
                                                              kindTag, r.duration.TotalMilliseconds, progressed)
                 if monitorInterval.IfDueRestart() then monitor.EmitMetrics metricsLog
-        member x.RecordOk(r) = x.RecordOutcomeKind(r, OutcomeKind.Ok)
+        member x.RecordOk(r, progressed) = x.RecordOutcomeKind(r, OutcomeKind.Ok, progressed)
+        member x.RecordOk r = x.RecordOk(r, r.index' > r.index)
         member x.RecordExn(r, k, log, exn) =
-            x.RecordOutcomeKind(r, k)
+            x.RecordOutcomeKind(r, k, progressed = false)
             if OutcomeKind.isException k then
                 x.HandleExn(log, exn)
 
