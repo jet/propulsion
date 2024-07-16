@@ -38,7 +38,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
                                             "NOTE This mode does not make sense to apply unless the ProcessorName is fresh; if the consumer group name is not fresh (and hence items are excluded from the feed), there will inevitably be missing events, and processing will stall. " +
                                             "Default: assume events arrive from the changefeed (and/or the input JSON file) without any gaps or out of order deliveries for any stream."
             | Categorize ->                 "Gather handler latency stats by category"
-            | MaxItems _ ->                 "Controls checkpointing granularity by adjusting the batch size being loaded from the feed. Default: Unlimited"
+            | MaxItems _ ->                 "Limits RU consumption when reading; impacts checkpointing granularity by adjusting the batch size being loaded from the feed. Sync Default (Sync): 9999. Default: Unlimited"
 
             | IncSys ->                     "Include System streams. Default: Exclude Index Streams, identified by a $ prefix."
             | IncCat _ ->                   "Allow Stream Category. Multiple values are combined with OR. Default: include all, subject to Category Deny and Stream Deny rules."
@@ -222,7 +222,8 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
         | Some x, _ -> x
         | None, Json _ -> System.Guid.NewGuid() |> _.ToString("N")
         | None, _ -> p.Raise "ConsumerGroupName is mandatory, unless consuming from a JSON file"
-    let startFromTail, follow, requireAll, maxItems = p.Contains FromTail, p.Contains Follow, p.Contains RequireAll, p.TryGetResult MaxItems
+    let startFromTail, follow, requireAll = p.Contains FromTail, p.Contains Follow, p.Contains RequireAll
+    let maxItems = match a.Command with SubCommand.Sync _ -> p.GetResult(MaxItems, 9999) |> Some | _ -> p.TryGetResult MaxItems
     let producer =
         match a.Command with
         | SubCommand.Kafka a ->
