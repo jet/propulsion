@@ -335,7 +335,7 @@ module Scheduling =
         member _.MarkBusy stream =
             markBusy stream
 
-        member _.RecordProgress(stream, index) =
+        member _.RecordCompleted(stream, index) =
             markNotBusy stream
             markCompleted stream index
 
@@ -842,8 +842,9 @@ module Scheduling =
         let handleResult ({ stream = stream; index = i; event = et; duration = duration; result = r }: InternalRes<_>) =
             match dispatcher.InterpretProgress(streams, stream, r) with
             | Ok (r: 'R), ValueSome index' ->
+                // TODO also need to know what batch we've reached wrt the unfolds
                 batches.MarkStreamProgress(stream, index')
-                streams.RecordProgress(stream, index')
+                streams.RecordCompleted(stream, index')
                 stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = index'; result = Ok r }
             | Ok (r: 'R), ValueNone ->
                 streams.RecordNoProgress(stream)
