@@ -35,7 +35,7 @@ module private Impl =
         open System.Text.Json
         let toNativeEventBody (x: EventBody): JsonElement =
             if x.IsEmpty then JsonElement()
-            else JsonSerializer.Deserialize(x.Span)
+            else JsonSerializer.Deserialize<JsonElement>(x.Span)
 #endif
 
 module Internal =
