@@ -53,8 +53,11 @@ module EquinoxSystemTextJsonParser =
             for x in unfolds do
                 gen true batch.n x }
     let inline tryEnumStreamEvents_ withUnfolds streamFilter jsonDocument: seq<StreamEvent> voption =
-        tryParseEquinoxBatchOrTip streamFilter jsonDocument
-        |> ValueOption.map (fun struct (s, xs, u) -> enumEquinoxCosmosBatchOrTip (if withUnfolds then u else ValueNone) xs |> Seq.map (fun x -> s, x))
+        match tryParseEquinoxBatchOrTip streamFilter jsonDocument with
+        | ValueNone -> ValueNone
+        | ValueSome struct (s, xs, u) -> ValueSome <| seq {
+            for x in enumEquinoxCosmosBatchOrTip (if withUnfolds then u else ValueNone) xs do
+                s, x }
 
     /// Attempts to parse the Events from an Equinox.CosmosStore Batch or Tip Item represented as a JsonDocument
     /// returns ValueNone if it does not bear the hallmarks of a valid Batch, or the streamFilter predicate rejects
