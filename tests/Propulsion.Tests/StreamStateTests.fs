@@ -139,7 +139,7 @@ let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds,
     let input = [|
         let mutable pos = 0L
         let mutable seg = 0
-        for gapOrOverlap, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in (counts : _[]) do
+        for gapOrOverlap: sbyte, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in (counts : _[]) do
             let events = normal % 10
             let unfolds = unfolds % 10
             pos <- max 0L (pos+int64 gapOrOverlap)
