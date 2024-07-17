@@ -76,13 +76,11 @@ module Internal =
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
-                        let ss = streams.RecordWriteProgress(stream, pos', null)
-                        ss.WritePos
+                        streams.SetWritePos(stream, pos')
                     | Ok (Writer.Result.PrefixMissing _, _stats) ->
                         streams.WritePos(stream)
                     | Error struct (_stats, _exn) ->
-                        let ss = streams.SetMalformed(stream, false)
-                        ss.WritePos
+                        streams.MarkMalformed(stream, false)
                 let writePos = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
                 struct (res, writePos)

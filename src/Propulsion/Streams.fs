@@ -161,10 +161,10 @@ module Buffer =
     /// <remarks>Optimized Representation as this is the dominant one in terms of memory usage - takes it from 24b to a cache-friendlier 16b</remarks>
     [<NoComparison; NoEquality; Struct>]
     type StreamState<'Format> = private { write: int64; queue: FsCodec.ITimelineEvent<'Format>[][] } with
+        static member Create(write, queue) = { write = defaultValueArg write WritePosUnknown; queue = queue }
         static member Create(write, queue, malformed) =
             if malformed then { write = WritePosMalformed; queue = queue }
             else StreamState<'Format>.Create(write, queue)
-        static member Create(write, queue) = { write = (match write with ValueSome x -> x | ValueNone -> WritePosUnknown); queue = queue }
         member x.IsEmpty = LanguagePrimitives.PhysicalEquality null x.queue
         member x.EventsSumBy(f) = if x.IsEmpty then 0L else x.queue |> Seq.map (Seq.sumBy f) |> Seq.sum |> int64
         member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
@@ -280,14 +280,12 @@ module Scheduling =
             | ValueSome current ->
                 let updated = StreamState.combine current state
                 states[stream] <- updated
-                updated
+                updated.WritePos
             | ValueNone ->
                 states.Add(stream, state)
-                state
-        let markCompleted stream index =
-            merge stream (StreamState<'Format>.Create(ValueSome index, queue = null, malformed = false)) |> ignore
+                state.WritePos
         let updateWritePos stream isMalformed pos span =
-            merge stream (StreamState<'Format>.Create(pos, span, isMalformed))
+            merge stream (StreamState<'Format>.Create(pos, queue = span, malformed = isMalformed))
         let purge () =
             let mutable purged = 0
             for x in states do
@@ -307,6 +305,8 @@ module Scheduling =
             | _ -> ValueNone
 
         member _.WritePos(stream) = tryGetItem stream |> ValueOption.bind _.WritePos
+        member _.SetWritePos(stream, pos) = updateWritePos stream false (ValueSome pos) null
+        member _.MarkMalformed(stream, isMalformed) = updateWritePos stream isMalformed ValueNone null
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
             // Example scenario: if a write reported nextIndex = 1 (after handling an event with Index 0 but no unfolds yet) then:
@@ -318,10 +318,6 @@ module Scheduling =
         member _.Merge(streams: Streams<'Format>) =
             for kv in streams.States do
                 merge kv.Key kv.Value |> ignore
-        member _.RecordWriteProgress(stream, pos, queue) =
-            merge stream (StreamState<'Format>.Create(ValueSome pos, queue))
-        member _.SetMalformed(stream, isMalformed) =
-            updateWritePos stream isMalformed ValueNone null
         member _.Purge() =
             purge ()
 
@@ -330,15 +326,11 @@ module Scheduling =
             | ValueSome state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
             | _ -> 0L
 
-        member _.MarkBusy stream =
+        member _.LockForWrite stream =
             markBusy stream
-
-        member _.RecordCompleted(stream, index) =
+        member _.Unlock(stream, maybeUpdatedPos) =
             markNotBusy stream
-            markCompleted stream index
-
-        member _.RecordNoProgress stream =
-            markNotBusy stream
+            if ValueOption.isSome maybeUpdatedPos then updateWritePos stream false maybeUpdatedPos null |> ignore
 
         member _.Dump(log: ILogger, totalPurged: int, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
@@ -833,23 +825,21 @@ module Scheduling =
                 |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan })
         let tryDispatch ingestStreams ingestBatches =
             let candidateItems: seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
-            let handleStarted (stream, ts) = stats.HandleStarted(stream, ts); streams.MarkBusy(stream)
+            let handleStarted (stream, ts) = stats.HandleStarted(stream, ts); streams.LockForWrite(stream)
             dispatcher.TryReplenish(candidateItems, handleStarted)
 
         // Ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
         let handleResult ({ stream = stream; index = i; event = et; duration = duration; result = r }: InternalRes<_>) =
             match dispatcher.InterpretProgress(streams, stream, r) with
-            | Ok (r: 'R), ValueSome index' ->
+            | Ok _ as r, ValueSome index' ->
                 // TODO also need to know what batch we've reached wrt the unfolds
                 batches.MarkStreamProgress(stream, index')
-                streams.RecordCompleted(stream, index')
-                stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = index'; result = Ok r }
-            | Ok (r: 'R), ValueNone ->
-                streams.RecordNoProgress(stream)
-                stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = i; result = Ok r }
-            | Error exn, _ ->
-                streams.RecordNoProgress(stream)
-                stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = i; result = Error exn }
+                streams.Unlock(stream, ValueSome index')
+                stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = index'; result = r }
+            | Ok _ as r, ValueNone
+            | (Error _ as r), _ ->
+                streams.Unlock(stream, ValueNone)
+                stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = i; result = r }
         let tryHandleResults () = tryApplyResults handleResult
 
         // Take an incoming batch of events, correlating it against our known stream state to yield a set of remaining work
