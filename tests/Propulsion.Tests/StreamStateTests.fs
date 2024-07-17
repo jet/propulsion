@@ -125,6 +125,14 @@ let [<Fact>] ``fail 2`` () =
     let r = merge 11613L [| mk 11614L 1; null |]
     test <@ r |> is [| mk 11614L 1 |] @>
 
+let [<Fact>] ``merge to strip Events should not strip unfolds 0`` () =
+    let r = merge 0L [| mk_ 0L 0 0 1 |]
+    test <@ r |> is [| mkU 0L 1 |] @>
+
+let [<Fact>] ``merge to strip Events should not strip unfolds`` () =
+    let r = merge 1L [| mk_ 0L 1 0 1 |]
+    test <@ r |> is [| mkU 1L 1 |] @>
+
 let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 isSame
 
 let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds, one per event type`` counts =

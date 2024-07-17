@@ -115,40 +115,31 @@ module StreamSpan =
             match index xs with
             | xi when xi = i -> xs
             | xi -> xs |> Array.skip (i - xi |> int)
-
-    let merge min (spans: FsCodec.ITimelineEvent<_>[][]) =
-        let candidates =
-            [| for span in spans do
-                if span <> null then
-                    match dropBeforeIndex min span with
-                    | [||] -> ()
-                    | xs -> xs |]
-        if candidates.Length = 0 then null
-        elif candidates.Length = 1 then candidates
-        else
-            candidates |> Array.sortInPlaceBy index
-
-            let mutable acc = candidates[0] // buffer first item
-            let mutable buffer = null
-            for i in 1 .. candidates.Length - 1 do
-                let x = candidates[i]
-                let accNext = nextIndex acc
-                if index x > accNext then // Gap
-                    if acc |> Seq.exists (_.IsUnfold >> not) then
-                        if buffer = null then buffer <- ResizeArray(candidates.Length)
-                        buffer.Add(acc |> Array.filter (_.IsUnfold >> not))
-                    acc <- x
-                elif nextIndex x >= accNext then // Overlapping; join
-                    match dropBeforeIndex accNext x with
-                    | [||] -> ()
-                    | news ->
-
-                    acc <- [| yield! acc |> Seq.filter (_.IsUnfold >> not); yield! news |]
-            match acc with
-            | [||] when buffer = null -> null
-            | [||] -> buffer.ToArray()
-            | last when buffer = null -> Array.singleton last
-            | last -> buffer.Add last; buffer.ToArray()
+    let private merge_ xs =
+        xs |> Array.sortInPlaceBy index
+        let mutable outputs, acc = null, xs[0]
+        for x in xs |> Seq.skip 1 do
+            match nextIndex acc with
+            | accNext when index x > accNext -> // Gap
+                if acc |> Seq.exists (_.IsUnfold >> not) then
+                    if outputs = null then outputs <- ResizeArray(xs.Length)
+                    outputs.Add(acc |> Array.filter (_.IsUnfold >> not))
+                acc <- x
+            | accNext when nextIndex x >= accNext -> // Overlapping; join
+                match dropBeforeIndex accNext x with
+                | [||] -> ()
+                | news -> acc <- [| yield! acc |> Seq.filter (_.IsUnfold >> not); yield! news |]
+            | _ -> ()
+        match acc with
+        | [||] when outputs = null -> null
+        | unified when outputs = null -> Array.singleton unified
+        | [||] -> outputs.ToArray()
+        | tail -> outputs.Add tail; outputs.ToArray()
+    let merge min (inputs: FsCodec.ITimelineEvent<_>[][]) =
+        match inputs |> Array.choose (function null -> None | x -> match dropBeforeIndex min x with [||] -> None | xs -> Some xs) with
+        | [||] -> null
+        | [| _ |] as alreadyUnified -> alreadyUnified
+        | xs -> merge_ xs
 
 /// A Single Event from an Ordered stream being supplied for ingestion into the internal data structures
 type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
@@ -176,18 +167,26 @@ module Buffer =
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         member x.CanPurge = x.IsEmpty
+        // member x.EventsAndUnfoldsCount =
+        //     if x.queue = null then 0, 0
+        //     else
+        //         let counts = Seq.concat x.queue |> Seq.countBy _.IsUnfold |> Map
+        //         let countFor value = counts |> Map.tryFind value |> Option.defaultValue 0
+        //         countFor false, countFor true
 
     module StreamState =
 
         let combine (s1: StreamState<_>) (s2: StreamState<_>): StreamState<'Format> =
-            let writePos = max s1.WritePos s2.WritePos
             let malformed = s1.IsMalformed || s2.IsMalformed
-            let any1 = not (isNull s1.queue)
-            let any2 = not (isNull s2.queue)
-            if any1 || any2 then
-                let items = if any1 && any2 then Array.append s1.queue s2.queue elif any1 then s1.queue else s2.queue
-                StreamState<'Format>.Create(writePos, StreamSpan.merge (defaultValueArg writePos 0L) items, malformed)
-            else StreamState<'Format>.Create(writePos, null, malformed)
+            let writePos = max s1.WritePos s2.WritePos
+            let queue =
+                let any1 = not (isNull s1.queue)
+                let any2 = not (isNull s2.queue)
+                if any1 || any2 then
+                    let items = if any1 && any2 then Array.append s1.queue s2.queue elif any1 then s1.queue else s2.queue
+                    StreamSpan.merge (defaultValueArg writePos 0L) items
+                else null
+            StreamState<'Format>.Create(writePos, queue, malformed)
 
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
@@ -305,7 +304,14 @@ module Scheduling =
             | _ -> ValueNone
 
         member _.WritePos(stream) = tryGetItem stream |> ValueOption.bind _.WritePos
-        member _.SetWritePos(stream, pos) = updateWritePos stream false (ValueSome pos) null
+        member _.SetWritePos(stream, pos) =
+            // let count () = tryGetItem stream |> ValueOption.map _.EventsAndUnfoldsCount |> ValueOption.defaultValue (0, 0)
+            // let beforeE, beforeU = count ()
+            let res = updateWritePos stream false (ValueSome pos) null
+            // let afterE, afterU = count ()
+            // if (afterU <> 0 || beforeU <> 0) && afterU <> beforeU then
+            //     Log.Information("Stream {s} before {be}e {bu}u after {ae}e {au}u", stream, beforeE, beforeU, afterE, afterU)
+            res
         member _.MarkMalformed(stream, isMalformed) = updateWritePos stream isMalformed ValueNone null
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
@@ -685,7 +691,7 @@ module Scheduling =
                 for x in pending do
                     // example: when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
                     let mutable requiredIndex = Unchecked.defaultof<_>
-                    if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && requiredIndex <= index then
+                    if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && index >= requiredIndex then
                         x.streamToRequiredIndex.Remove stream |> ignore
 
             member _.Dump(log: ILogger, lel, classify: FsCodec.StreamName -> Stats.Busy.State) =

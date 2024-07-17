@@ -117,8 +117,11 @@ module Internal =
                 with e -> return Error struct (e, met) }
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
-                    | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
+                    | Ok struct (Writer.Result.Ok pos', _stats) ->
                         struct (streams.SetWritePos(stream, pos'), false)
+                    | Ok ((Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
+                        streams.SetWritePos(stream, pos') |> ignore // throw away the events (but not the unfolds)
+                        ValueNone, false // Don't declare progress
                     | Ok (Writer.Result.PrefixMissing _, _stats) ->
                         streams.WritePos(stream), false
                     | Error struct (exn, _stats) ->
