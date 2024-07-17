@@ -99,7 +99,7 @@ module StreamSpan =
     let slice<'F> eventSize limits (span: FsCodec.ITimelineEvent<'F>[]): struct (FsCodec.ITimelineEvent<'F>[] * Metrics) =
         let trimmed =
             // we must always send one event, even if it exceeds the limit (if the handler throws, the the Stats can categorize the problem to surface it)
-            if span[0].IsUnfold || span.Length = 1 || span[1].IsUnfold then span
+            if span.Length = 1 || span[0].IsUnfold || span[1].IsUnfold then span
             // If we have 2 or more (non-Unfold) events, then we limit the batch size
             else trimEvents<'F> eventSize limits span
         trimmed, metrics eventSize trimmed
@@ -107,14 +107,14 @@ module StreamSpan =
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
     let inline nextIndex (span: FsCodec.ITimelineEvent<'F>[]) =
         let l = span[span.Length - 1]
-        if l.IsUnfold then l.Index else l.Index + 1L
-    let inline dropBeforeIndex min = function
+        if l.IsUnfold && span[0].IsUnfold then l.Index else l.Index + 1L
+    let inline dropBeforeIndex i = function
         | [||] as xs -> xs
-        | xs when nextIndex xs < min -> Array.empty
+        | xs when nextIndex xs < i -> Array.empty
         | xs ->
             match index xs with
-            | xi when xi = min -> xs
-            | xi -> xs |> Array.skip (min - xi |> int)
+            | xi when xi = i -> xs
+            | xi -> xs |> Array.skip (i - xi |> int)
 
     let merge min (spans: FsCodec.ITimelineEvent<_>[][]) =
         let candidates =
@@ -128,27 +128,22 @@ module StreamSpan =
         else
             candidates |> Array.sortInPlaceBy index
 
-            // no data buffered -> buffer first item
-            let mutable acc = candidates[0]
+            let mutable acc = candidates[0] // buffer first item
             let mutable buffer = null
             for i in 1 .. candidates.Length - 1 do
                 let x = candidates[i]
-                let xIndex = index x
                 let accNext = nextIndex acc
-                if xIndex > accNext then // Gap
-                    match acc |> Array.filter (_.IsUnfold >> not) with
-                    | [||] -> ()
-                    | eventsOnly ->
+                if index x > accNext then // Gap
+                    if acc |> Seq.exists (_.IsUnfold >> not) then
                         if buffer = null then buffer <- ResizeArray(candidates.Length)
-                        buffer.Add eventsOnly
+                        buffer.Add(acc |> Array.filter (_.IsUnfold >> not))
                     acc <- x
-                // Overlapping, join
-                elif nextIndex x > accNext then
+                elif nextIndex x >= accNext then // Overlapping; join
                     match dropBeforeIndex accNext x with
                     | [||] -> ()
                     | news ->
-                        acc <- [| for x in acc do if not x.IsUnfold then x
-                                  yield! news |]
+
+                    acc <- [| yield! acc |> Seq.filter (_.IsUnfold >> not); yield! news |]
             match acc with
             | [||] when buffer = null -> null
             | [||] -> buffer.ToArray()
@@ -231,7 +226,7 @@ module Buffer =
             let streams, reqs = Streams<'Format>(), Dictionary<FsCodec.StreamName, int64>()
             for struct (stream, event) in streamEvents do
                 streams.Merge(stream, event)
-                match reqs.TryGetValue(stream), event.Index + 1L with
+                match reqs.TryGetValue(stream), if event.IsUnfold then event.Index else event.Index + 1L with
                 | (false, _), required -> reqs[stream] <- required
                 | (true, actual), required when actual < required -> reqs[stream] <- required
                 | (true, _), _ -> () // replayed same or earlier item
@@ -314,8 +309,11 @@ module Scheduling =
         member _.WritePos(stream) = tryGetItem stream |> ValueOption.bind _.WritePos
         member _.WritePositionIsAlreadyBeyond(stream, required) =
             match tryGetItem stream with
-            // Example scenario: if a write reported we reached version 2, and we are ingesting an event that requires 2, then we drop it
-            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | ValueNone -> false
+            // Example scenario: if a write reported nextIndex = 1 (after handling an event with Index 0 but no unfolds yet) then:
+            // we can drop a resend of the event with Index=0 (which will have a required of 1)
+            // we can drop an Unfold with Index=0 (which would not happen, but would have a required of 0)
+            // we can NOT drop an Unfold with Index=1 (which will have a required of 1)
+            | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw > required | ValueNone -> false
             | ValueNone -> false // If the entry has been purged, or we've yet to visit a stream, we can't drop them
         member _.Merge(streams: Streams<'Format>) =
             for kv in streams.States do
