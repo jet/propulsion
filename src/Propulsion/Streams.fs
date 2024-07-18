@@ -493,7 +493,7 @@ module Scheduling =
             let sw = Stopwatch.start()
             member _.RecordResults ts = results <- results + Stopwatch.elapsedTicks ts
             member _.RecordDispatch ts = dispatch <- dispatch + Stopwatch.elapsedTicks ts
-            // If we did not dispatch, we attempt ingestion of streams as a standalone task, but need to add to dispatch time to compensate for calcs below
+            // If we did not dispatch, we attempt ingestion of streams as a standalone task, but need to add to dispatch time to compensate for math below
             member x.RecordDispatchNone ts = x.RecordDispatch ts
             member _.RecordMerge ts = merge <- merge + Stopwatch.elapsedTicks ts
             member _.RecordIngest ts = ingest <- ingest + Stopwatch.elapsedTicks ts
@@ -667,7 +667,7 @@ module Scheduling =
 
     module Progress =
 
-        type [<Struct; NoComparison; NoEquality>] BatchState = { markCompleted: unit -> unit; streamToRequiredIndex: Dictionary<FsCodec.StreamName, int64> }
+        type [<Struct; NoComparison; NoEquality>] BatchState = private { markCompleted: unit -> unit; streamToRequiredIndex: Dictionary<FsCodec.StreamName, int64> }
 
         type ProgressState<'Pos>() =
             let pending = Queue<BatchState>()
@@ -690,6 +690,8 @@ module Scheduling =
             member _.MarkStreamProgress(stream, index) =
                 for x in pending do
                     // example: when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
+                    // NOTE Any unfolds that accompany event 0 will also bear Index 0
+                    // NOTE 2: subsequent updates to Unfolds will bear the same Index of 0 until there is an Event with Index 1
                     let mutable requiredIndex = Unchecked.defaultof<_>
                     if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && index >= requiredIndex then
                         x.streamToRequiredIndex.Remove stream |> ignore
