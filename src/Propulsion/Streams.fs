@@ -50,9 +50,7 @@ module Log =
     /// Attach a property to the captured event record to hold the metric information
     let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent: Serilog.Events.LogEvent): 't voption =
-        let mutable p = Unchecked.defaultof<_>
-        logEvent.Properties.TryGetValue(key, &p) |> ignore
-        match p with Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
+        match logEvent.Properties.TryGetValue key with true, Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
     let [<Literal>] GroupTag = "group"
     let [<return: Struct>] (|MetricEvent|_|) logEvent =
         match tryGetScalar<Metric> PropertyTag logEvent with
@@ -191,11 +189,11 @@ module Buffer =
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
         let merge stream (state: StreamState<_>) =
-            let mutable current = Unchecked.defaultof<_>
-            if states.TryGetValue(stream, &current) then states[stream] <- StreamState.combine current state
-            else states.Add(stream, state)
+            match states.TryGetValue stream with
+            | true, current -> states[stream] <- StreamState.combine current state
+            | false, _ -> states.Add(stream, state)
 
-        member _.Merge(stream, event: FsCodec.ITimelineEvent<'Format>) =
+        member _.MergeEvent(stream, event: FsCodec.ITimelineEvent<'Format>) =
             merge stream (StreamState<'Format>.Create(ValueNone, [| [| event |] |]))
 
         member _.States = states :> seq<KeyValuePair<FsCodec.StreamName, StreamState<'Format>>>
@@ -271,16 +269,13 @@ module Scheduling =
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
 
-        let tryGetItem stream =
-            let mutable x = Unchecked.defaultof<_>
-            if states.TryGetValue(stream, &x) then ValueSome x else ValueNone
         let merge stream (state: StreamState<_>) =
-            match tryGetItem stream with
-            | ValueSome current ->
+            match states.TryGetValue stream with
+            | true, current ->
                 let updated = StreamState.combine current state
                 states[stream] <- updated
                 updated.WritePos
-            | ValueNone ->
+            | false, _ ->
                 states.Add(stream, state)
                 state.WritePos
         let updateWritePos stream isMalformed pos span =
@@ -299,11 +294,12 @@ module Scheduling =
         let markNotBusy stream = busy.Remove stream |> ignore
 
         member _.ChooseDispatchable(s: FsCodec.StreamName, requireAll): StreamState<'Format> voption =
-            match tryGetItem s with
-            | ValueSome ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
+            match states.TryGetValue s with
+            | true, ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
-        member _.WritePos(stream) = tryGetItem stream |> ValueOption.bind _.WritePos
+        member _.WritePos(stream) = match states.TryGetValue stream with true, x -> x.WritePos | _ -> ValueNone
+
         member _.SetWritePos(stream, pos) =
             // let count () = tryGetItem stream |> ValueOption.map _.EventsAndUnfoldsCount |> ValueOption.defaultValue (0, 0)
             // let beforeE, beforeU = count ()
@@ -328,8 +324,8 @@ module Scheduling =
             purge ()
 
         member _.HeadSpanSizeBy(f: _ -> int) stream =
-            match tryGetItem stream with
-            | ValueSome state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
+            match states.TryGetValue stream with
+            | true, state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
             | _ -> 0L
 
         member _.LockForWrite stream =
@@ -436,9 +432,9 @@ module Scheduling =
                 let state = Dictionary<FsCodec.StreamName, StreamState>()
                 member _.HandleResult(sn, isStuck, startTs) =
                     if not isStuck then state.Remove sn |> ignore
-                    else let mutable v = Unchecked.defaultof<_>
-                         if state.TryGetValue(sn, &v) then v.count <- v.count + 1
-                         else state.Add(sn, { ts = startTs; count = 1 })
+                    else match state.TryGetValue sn with
+                         | true, v -> v.count <- v.count + 1
+                         | false, _ -> state.Add(sn, { ts = startTs; count = 1 })
                 member _.State = walkAges state |> renderState
                 member _.Stats = renderStats state
                 member _.Contains sn = state.ContainsKey sn
@@ -692,9 +688,10 @@ module Scheduling =
                     // example: when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
                     // NOTE Any unfolds that accompany event 0 will also bear Index 0
                     // NOTE 2: subsequent updates to Unfolds will bear the same Index of 0 until there is an Event with Index 1
-                    let mutable requiredIndex = Unchecked.defaultof<_>
-                    if x.streamToRequiredIndex.TryGetValue(stream, &requiredIndex) && index >= requiredIndex then
+                    match x.streamToRequiredIndex.TryGetValue stream with
+                    | true, requiredIndex when index >= requiredIndex ->
                         x.streamToRequiredIndex.Remove stream |> ignore
+                    | _ -> ()
 
             member _.Dump(log: ILogger, lel, classify: FsCodec.StreamName -> Stats.Busy.State) =
                 if log.IsEnabled lel && pending.Count <> 0 then
