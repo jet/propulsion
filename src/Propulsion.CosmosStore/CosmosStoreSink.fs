@@ -121,7 +121,7 @@ module Internal =
                         struct (streams.SetWritePos(stream, pos'), false)
                     | Ok ((Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
                         streams.SetWritePos(stream, pos') |> ignore // throw away the events (but not the unfolds)
-                        ValueNone, false // Don't declare progress
+                        ValueNone, false // Don't declare progress yet, until any unfolds have been handled
                     | Ok (Writer.Result.PrefixMissing _, _stats) ->
                         streams.WritePos(stream), false
                     | Error struct (exn, _stats) ->
