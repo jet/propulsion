@@ -7,7 +7,11 @@ open System.Collections.Generic
 open Xunit
 
 let sn x = StreamName.compose "test" [| x |]
-let mkDictionary xs = Dictionary<StreamName,int64>(dict xs)
+let mkDictionary xs = Dictionary(xs |> Seq.map (fun (k, v) -> k, Propulsion.Streams.Buffer.ProgressRequirement.ofPos v) |> dict)
+
+type ProgressState<'T> with
+    member x.MarkStreamProgress(s, i) = x.RemoveAttainedRequirements(s, (i, Propulsion.Streams.Buffer.Revision.initial))
+    member x.AppendBatch(s, i) = x.IngestBatch(s, i)
 
 let [<Fact>] ``Empty has zero streams pending or progress to write`` () =
     let sut = StreamsPrioritizer(None)

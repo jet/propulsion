@@ -65,7 +65,7 @@ module Internal =
             let writerResultLog = log.ForContext<Writer.Result>()
             let mutable robin = 0
 
-            let attemptWrite stream span ct = task {
+            let attemptWrite stream span _revision ct = task {
                 let index = System.Threading.Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
@@ -76,15 +76,15 @@ module Internal =
             let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
                 let applyResultToStreamState = function
                     | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
-                        streams.SetWritePos(stream, pos')
+                        streams.TrimEventsPriorTo(stream, pos')
                     | Ok (Writer.Result.PrefixMissing _, _stats) ->
-                        streams.WritePos(stream)
+                        ValueNone
                     | Error struct (_stats, _exn) ->
                         streams.MarkMalformed(stream, false)
                 let writePos = applyResultToStreamState res
                 Writer.logTo writerResultLog (stream, res)
-                struct (res, writePos)
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretProgress)
+                struct (res, writePos |> ValueOption.map Buffer.HandlerProgress.ofPos)
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, project = attemptWrite, interpretProgress = interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 
@@ -96,7 +96,7 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with
-        | { stream = stream; result = Ok (res, (es, bs)) } ->
+        | { stream = stream; result = Ok (res, (es, us, bs)) } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -105,8 +105,8 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
             | WriterResult.Duplicate _ -> resultDup <- resultDup + 1
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-            base.RecordOk(message)
-        | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
+            base.RecordOk(message, force = (us <> 0))
+        | { stream = stream; result = Error (Exception.Inner exn, (es, _us, bs)) } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
