@@ -60,11 +60,9 @@ type Factory private () =
                 return Ok struct (outcome, Buffer.HandlerProgress.ofMetricsAndPos revision met index', met, Stopwatch.elapsed prepareTs)
             with e -> return Error struct (e, met) }
 
-        let interpretProgress _streams (stream: FsCodec.StreamName) = function
+        let interpretProgress _streams _stream = function
             | Ok struct (outcome, progress, met: StreamSpan.Metrics, prep) -> struct (Ok struct (outcome, met, prep), ValueSome progress)
-            | Error struct (exn: exn, (eventCount, unfoldCount, bytesCount as met: StreamSpan.Metrics)) ->
-                log.Warning(exn, "Handling {events:n0}e {unfolds:n0}u {bytes:n0}b for {stream} failed, retrying", eventCount, unfoldCount, bytesCount, stream)
-                Error struct (exn, met), ValueNone
+            | Error struct (exn: exn, met) -> Error struct (exn, met), ValueNone
 
         let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretProgress)
         let dumpStreams logStreamStates log =

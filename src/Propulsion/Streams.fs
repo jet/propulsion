@@ -1151,7 +1151,7 @@ type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval,
             exnUnfolds <- exnUnfolds + us
             exnBytes <- exnBytes + int64 bs
             resultExn <- resultExn + 1
-            base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("index", index).ForContext("eventType", et).ForContext("count", es).ForContext("unfolds", us).ForContext("duration", duration), exn)
+            base.RecordExn(res, this.Classify exn, log.ForContext("stream", stream).ForContext("index", index).ForContext("eventType", et).ForContext("events", es).ForContext("unfolds", us).ForContext("duration", duration), exn)
 
     abstract member HandleOk: outcome: 'Outcome -> unit
 
