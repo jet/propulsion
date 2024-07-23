@@ -320,7 +320,6 @@ module Scheduling =
     open Buffer
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
-
         let merge stream (state: StreamState<_>) =
             match states.TryGetValue stream with
             | true, current ->
@@ -330,9 +329,15 @@ module Scheduling =
             | false, _ ->
                 states.Add(stream, state)
                 state
-        let updateWritePos stream isMalformed pos span =
-            merge stream (StreamState<'Format>.Create(pos, queue = span, revision = Revision.initial, malformed = isMalformed)) |> _.WritePos
-
+        let updateStreamState stream = function
+            | Error malformed ->
+                // Flag that the data at the head of the stream is triggering a non-transient error condition from the handler, preventing any further handler dispatches for `stream`
+                merge stream (StreamState<'Format>.Create(write = ValueNone, queue = null, revision = Revision.initial, malformed = malformed)) |> ignore
+            | Ok (updatedPos, _dispatchedRevision as up: HandlerProgress)  ->
+                // Ensure we have a position (in case it got purged); Drop any events or unfolds implied by updatedPos
+                merge stream (StreamState<'Format>.Create(ValueSome updatedPos, queue = null, revision = Revision.initial, malformed = false))
+                // Strip unfolds out of the queue if the handler reported the position as unchanged, but the unfolds were included in the invocation
+                |> StreamState.tryTrimUnfoldsIffPosAndRevisionStill up |> ValueOption.iter (fun trimmed -> states[ stream ] <- trimmed)
         let purge () =
             let mutable purged = 0
             for x in states do
@@ -361,24 +366,14 @@ module Scheduling =
             | true, ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
-        /// Removes events based on an attained write position
-        member _.TrimEventsPriorTo(stream, pos) = updateWritePos stream false (ValueSome pos) null
-        /// Flags that the data at the head of the stream is triggering a non-transient error condition from the handler, preventing any further handler dispatches for `stream`
-        member _.MarkMalformed(stream, isMalformed) = updateWritePos stream isMalformed ValueNone null
         member _.Merge(buffered: Streams<'Format>) = for kv in buffered.States do merge kv.Key kv.Value |> ignore
         member _.Purge() = purge ()
 
         member _.LockForWrite stream =
             markBusy stream
-        member _.DropHandledEventsAndUnlock(stream, maybeUpdatedPosAndDispatchedUnfoldsRevision) =
-            match maybeUpdatedPosAndDispatchedUnfoldsRevision with
-            | ValueNone -> ()
-            | ValueSome (updatedPos, _dispatchedRevision as up: HandlerProgress)  ->
-                // Ensure we have a position (in case it got purged); Drop any events or unfolds implied by updatedPos
-                let ss = merge stream (StreamState<'Format>.Create(ValueSome updatedPos, queue = null, revision = Revision.initial, malformed = false))
-                // Strip unfolds out of the queue if the handler reported the position as unchanged, but the unfolds were included in the invocation
-                ss |> StreamState.tryTrimUnfoldsIffPosAndRevisionStill up |> ValueOption.iter (fun trimmed -> states[ stream ] <- trimmed)
-
+        member _.DropHandledEventsAndUnlock(stream, outcome) =
+            updateStreamState stream outcome
+            markNotBusy stream
         member _.Dump(log: ILogger, totalPurged: int, eventSize) =
             let mutable (busyCount, busyE, busyB), (ready, readyE, readyB), synced = (0, 0, 0L), (0, 0, 0L), 0
             let mutable (waiting, waitingE, waitingB), (malformed, malformedE, malformedB) = (0, 0, 0L), (0, 0, 0L)
@@ -688,7 +683,7 @@ module Scheduling =
                 (metricsLog |> Log.withMetric m).Information("Outcome {kind} in {ms:n0}ms, progressed: {progressed}",
                                                              kindTag, r.duration.TotalMilliseconds, progressed)
                 if monitorInterval.IfDueRestart() then monitor.EmitMetrics metricsLog
-        member x.RecordOk(r, ?force) = x.RecordOutcomeKind(r, OutcomeKind.Ok, r.index' > r.index || defaultArg force false)
+        member x.RecordOk(r, force) = x.RecordOutcomeKind(r, OutcomeKind.Ok, r.index' > r.index || force)
         member x.RecordExn(r, k, log, exn) =
             x.RecordOutcomeKind(r, k, progressed = false)
             if OutcomeKind.isException k then
@@ -796,10 +791,11 @@ module Scheduling =
         abstract member HasCapacity: bool with get
         abstract member AwaitCapacity: CancellationToken -> Task
         abstract member TryReplenish: pending: seq<Item<'F>> * handleStarted: (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
-        abstract member InterpretProgress: StreamStates<'F> * FsCodec.StreamName * Result<'P, 'E> -> struct (Result<'R, 'E> * HandlerProgress voption)
+        abstract member InterpretProgress: Result<'P, 'E> -> ResProgressAndMalformed<Result<'R, 'E>>
     and [<Struct; NoComparison; NoEquality>]
         Item<'Format> = { stream: FsCodec.StreamName; nextIndex: int64 voption; span: FsCodec.ITimelineEvent<'Format>[]; revision: Revision }
     and [<Struct; NoComparison; NoEquality>] InternalRes<'R> = { stream: FsCodec.StreamName; index: int64; event: string; duration: TimeSpan; result: 'R }
+    and ResProgressAndMalformed<'O> = (struct ('O * Buffer.HandlerProgress voption * bool))
     module InternalRes =
         let inline create (i: Item<_>, d, r) =
             let h = i.span[0]
@@ -878,14 +874,14 @@ module Scheduling =
 
         // Ingest information to be gleaned from processing the results into `streams` (i.e. remove stream requirements as they are completed)
         let handleResult ({ stream = stream; index = i; event = et; duration = duration; result = r }: InternalRes<_>) =
-            match dispatcher.InterpretProgress(streams, stream, r) with
-            | Ok _ as r, ValueSome (index', _ as updatedPosAndDispatchedRevision) ->
+            match dispatcher.InterpretProgress r with
+            | Ok _ as r, ValueSome (index', _ as updatedPosAndDispatchedRevision), _malformed ->
                 batches.RemoveAttainedRequirements(stream, updatedPosAndDispatchedRevision)
-                streams.DropHandledEventsAndUnlock(stream, ValueSome updatedPosAndDispatchedRevision)
+                streams.DropHandledEventsAndUnlock(stream, Ok updatedPosAndDispatchedRevision)
                 stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = index'; result = r }
-            | Ok _ as r, ValueNone
-            | (Error _ as r), _ ->
-                streams.DropHandledEventsAndUnlock(stream, ValueNone)
+            | Ok _ as r, ValueNone, malformed
+            | (Error _ as r), _, malformed ->
+                streams.DropHandledEventsAndUnlock(stream, Error malformed)
                 stats.Handle { duration = duration; stream = stream; index = i; event = et; index' = i; result = r }
         let tryHandleResults () = tryApplyResults handleResult
 
@@ -1046,12 +1042,12 @@ module Dispatcher =
     type Concurrent<'P, 'R, 'E, 'F> internal
         (   inner: ItemDispatcher<Result<'P, 'E>, 'F>,
             project: struct (int64 * Scheduling.Item<'F>) -> CancellationToken -> Task<Scheduling.InternalRes<Result<'P, 'E>>>,
-            interpretProgress: Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Result<'P, 'E> -> struct (Result<'R, 'E> * Buffer.HandlerProgress voption)) =
+            interpretProgress: Result<'P, 'E> -> Scheduling.ResProgressAndMalformed<Result<'R, 'E>>) =
         static member Create
             (   maxDop,
                 // NOTE `project` must not throw under any circumstances, or the exception will go unobserved, and DOP will leak in the dispatcher
                 project: FsCodec.StreamName -> FsCodec.ITimelineEvent<'F>[] -> Buffer.Revision -> CancellationToken -> Task<Result<'P, 'E>>,
-                interpretProgress: Scheduling.StreamStates<'F> -> FsCodec.StreamName -> Result<'P, 'E> -> struct (Result<'R, 'E> * Buffer.HandlerProgress voption)) =
+                interpretProgress: Result<'P, 'E> -> Scheduling.ResProgressAndMalformed<Result<'R, 'E>>) =
             let project struct (startTs, item: Scheduling.Item<'F>) (ct: CancellationToken) = task {
                 let! res = project item.stream item.span item.revision ct
                 return Scheduling.InternalRes.create (item, Stopwatch.elapsed startTs, res) }
@@ -1061,11 +1057,11 @@ module Dispatcher =
                 let struct (span: FsCodec.ITimelineEvent<'F>[], met) = prepare.Invoke(stream, span)
                 try let! struct (outcome, index') = handle.Invoke(stream, span, ct)
                     return Ok struct (outcome, Buffer.HandlerProgress.ofMetricsAndPos revision met index', met)
-                with e -> return Error struct (e, met) }
-            let interpretProgress (_streams: Scheduling.StreamStates<'F>) _stream = function
-                | Ok struct (outcome, hp, met) -> struct (Ok struct (outcome, met), ValueSome hp)
-                | Error struct (exn, met) -> Error struct (exn, met), ValueNone
-            Concurrent<_, _, _, 'F>.Create(maxDop, project, interpretProgress)
+                with e -> return Error struct (e, false, met) }
+            let interpretProgress = function
+                | Ok struct (outcome, hp, met) -> struct (Ok struct (outcome, met), ValueSome hp, false)
+                | Error struct (exn, malformed, met) -> Error struct (exn, malformed, met), ValueNone, malformed
+            Concurrent<_, _, _, 'F>.Create(maxDop, project, interpretProgress = interpretProgress)
         interface Scheduling.IDispatcher<'P, 'R, 'E, 'F> with
             [<CLIEvent>] override _.Result = inner.Result
             override _.Pump ct = inner.Pump ct
@@ -1073,16 +1069,19 @@ module Dispatcher =
             override _.HasCapacity = inner.HasCapacity
             override _.AwaitCapacity(ct) = inner.AwaitCapacity(ct)
             override _.TryReplenish(pending, handleStarted) = inner.TryReplenish(pending, handleStarted, project)
-            override _.InterpretProgress(streams, stream, res) = interpretProgress streams stream res
+            override _.InterpretProgress res = interpretProgress res
 
+
+    type ResProgressAndMetrics<'O> = (struct ('O * Buffer.HandlerProgress voption * StreamSpan.Metrics))
+    type ExnAndMetrics = (struct(exn * bool * StreamSpan.Metrics))
+    type NextIndexAndMetrics = (struct(int64 * StreamSpan.Metrics))
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
         (   select: Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
             // NOTE `handle` must not throw under any circumstances, or the exception will go unobserved
-            handle: Scheduling.Item<'F>[] -> CancellationToken ->
-                    Task<Scheduling.InternalRes<Result<struct (int64 * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>>[]>) =
+            handle: Scheduling.Item<'F>[] -> CancellationToken -> Task<Scheduling.InternalRes<Result<NextIndexAndMetrics, ExnAndMetrics>>[]>) =
         let inner = DopDispatcher 1
-        let result = Event<Scheduling.InternalRes<Result<struct (int64 * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>>>()
+        let result = Event<Scheduling.InternalRes<Result<NextIndexAndMetrics, ExnAndMetrics>>>()
 
         // On each iteration, we offer the ordered work queue to the selector
         // we propagate the selected streams to the handler
@@ -1098,7 +1097,7 @@ module Dispatcher =
                 hasCapacity <- false
             struct (dispatched, hasCapacity)
 
-        interface Scheduling.IDispatcher<struct (int64 * StreamSpan.Metrics), struct (unit * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics), 'F> with
+        interface Scheduling.IDispatcher<NextIndexAndMetrics, struct (unit * StreamSpan.Metrics), ExnAndMetrics, 'F> with
             [<CLIEvent>] override _.Result = result.Publish
             override _.Pump ct = task {
                 use _ = inner.Result.Subscribe(Array.iter result.Trigger)
@@ -1107,15 +1106,15 @@ module Dispatcher =
             override _.HasCapacity = inner.HasCapacity
             override _.AwaitCapacity(ct) = inner.AwaitButRelease(ct)
             override _.TryReplenish(pending, handleStarted) = trySelect pending handleStarted
-            override _.InterpretProgress(_streams: Scheduling.StreamStates<_>, _stream: FsCodec.StreamName, res: Result<_, _>) =
+            override _.InterpretProgress(res: Result<_, _>) =
                 match res with
-                | Ok (pos', met) -> Ok ((), met), ValueSome (Buffer.HandlerProgress.ofPos pos')
-                | Error (exn, met) -> Error (exn, met), ValueNone
+                | Ok (pos', met) -> Ok ((), met), ValueSome (Buffer.HandlerProgress.ofPos pos'), false
+                | Error (exn, malformed, met) -> Error (exn, malformed, met), ValueNone, malformed
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval,
                      [<O; D null>] ?failThreshold, [<O; D null>] ?abendThreshold, [<O; D null>] ?logExternalStats) =
-    inherit Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>(
+    inherit Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics), Dispatcher.ExnAndMetrics>(
         log, statsInterval, statesInterval, ?failThreshold = failThreshold, ?abendThreshold = abendThreshold, ?logExternalStats = logExternalStats)
     let mutable okStreams, okEvents, okUnfolds, okBytes, exnStreams, exnCats, exnEvents, exnUnfolds, exnBytes = HashSet(), 0, 0, 0L, HashSet(), Stats.Counters(), 0, 0, 0L
     let mutable resultOk, resultExn = 0, 0
@@ -1142,9 +1141,9 @@ type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval,
             okUnfolds <- okUnfolds + us
             okBytes <- okBytes + int64 bs
             resultOk <- resultOk + 1
-            base.RecordOk(res, force = (us <> 0))
+            base.RecordOk(res, us <> 0)
             this.HandleOk outcome
-        | { duration = duration; stream = stream; index = index; event = et; result = Error (Exception.Inner exn, (es, us, bs)) } ->
+        | { duration = duration; stream = stream; index = index; event = et; result = Error (Exception.Inner exn, _malformed, (es, us, bs)) } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
@@ -1243,17 +1242,17 @@ type Batched private () =
         (   log: ILogger, maxReadAhead,
             select: Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
             handle: Func<Scheduling.Item<'F>[], CancellationToken, Task<seq<struct (Result<int64, exn> * TimeSpan)>>>,
-            eventSize, stats: Scheduling.Stats<_, _>,
+            eventSize, stats: Scheduling.Stats<struct (unit * StreamSpan.Metrics), Dispatcher.ExnAndMetrics>,
             [<O; D null>] ?pendingBufferSize,
             [<O; D null>] ?purgeInterval, [<O; D null>] ?wakeForResults, [<O; D null>] ?idleDelay, [<O; D null>] ?requireAll,
             [<O; D null>] ?ingesterStateInterval, [<O; D null>] ?commitInterval)
         : Propulsion.SinkPipeline<Propulsion.Ingestion.Ingester<StreamEvent<'F> seq>> =
         let handle (items: Scheduling.Item<'F>[]) ct
-            : Task<Scheduling.InternalRes<Result<struct (int64 * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>>[]> = task {
+            : Task<Scheduling.InternalRes<Result<Dispatcher.NextIndexAndMetrics, Dispatcher.ExnAndMetrics>>[]> = task {
             let start = Stopwatch.timestamp ()
             let err ts e (x: Scheduling.Item<_>) =
                 let met = StreamSpan.metrics eventSize x.span
-                Scheduling.InternalRes.create (x, ts, Error struct (e, met))
+                Scheduling.InternalRes.create (x, ts, Error struct (e, false, met))
             try let! results = handle.Invoke(items, ct)
                 return Array.ofSeq (Seq.zip items results |> Seq.map (function
                     | item, (Ok index', ts) ->

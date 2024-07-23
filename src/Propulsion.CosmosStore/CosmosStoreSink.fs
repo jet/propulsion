@@ -49,17 +49,16 @@ module Internal =
             | Duplicate of updatedPos: int64
             | PartialDuplicate of updatedPos: int64
             | PrefixMissing of gap: int * actualPos: int64
-        let logTo (log: ILogger) malformed (res: StreamName * Result<struct (Result * StreamSpan.Metrics * Buffer.Revision), struct (exn * StreamSpan.Metrics)>) =
-            match res with
-            | stream, Ok (Result.Ok pos, _, _) ->
+        let logTo (log: ILogger) (stream: FsCodec.StreamName): Result<Dispatcher.ResProgressAndMetrics<Result>, Dispatcher.ExnAndMetrics> -> unit = function
+            | Ok (Result.Ok pos, _, _) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Ok (Result.Duplicate updatedPos, _, _) ->
+            | Ok (Result.Duplicate updatedPos, _, _) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Ok (Result.PartialDuplicate updatedPos, _, _) ->
+            | Ok (Result.PartialDuplicate updatedPos, _, _) ->
                 log.Information("Requeuing {stream} {pos}", stream, updatedPos)
-            | stream, Ok (Result.PrefixMissing (gap, pos), _, _) ->
+            | Ok (Result.PrefixMissing (gap, pos), _, _) ->
                 log.Information("Waiting   {stream} missing {gap} events before {pos}", stream, gap, pos)
-            | stream, Error (exn, _) ->
+            | Error (exn, malformed, _) ->
                 let level = if malformed then LogEventLevel.Warning else Events.LogEventLevel.Information
                 log.Write(level, exn, "Writing   {stream} failed, retrying", stream)
 
@@ -103,48 +102,39 @@ module Internal =
 
     type Dispatcher =
 
-        static member Create(log: ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
+        static member Create(storeLog: ILogger, eventsContext, itemDispatcher, ?maxEvents, ?maxBytes) =
             let maxEvents, maxBytes = defaultArg maxEvents 16384, defaultArg maxBytes (256 * 1024)
-            let writerResultLog = log.ForContext<Writer.Result>()
             let attemptWrite stream span revision ct = task {
                 let struct (trimmed, met) = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
 #if COSMOSV3
-                try let! res = Writer.write log eventsContext (StreamName.toString stream) trimmed ct
+                try let! wr = Writer.write storeLog eventsContext (StreamName.toString stream) trimmed ct
 #else
-                try let! res = Writer.write log eventsContext stream trimmed ct
+                try let! wr = Writer.write storeLog eventsContext stream trimmed ct
 #endif
-                    return Ok struct (res, met, revision)
-                with e -> return Error struct (e, met) }
-            let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
-                let applyResultToStreamState = function
-                    | Ok struct (Writer.Result.Ok pos', met, revision) ->
-                        streams.TrimEventsPriorTo(stream, pos') |> ignore
-                        struct (Buffer.HandlerProgress.ofMetricsAndPos revision met pos' |> ValueSome, false)
-                    | Ok ((Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _met, _revision) ->
-                        streams.TrimEventsPriorTo(stream, pos') |> ValueOption.map Buffer.HandlerProgress.ofPos, false // Trim any events that conflict with stuff already in the store
-                    | Ok (Writer.Result.PrefixMissing _, _met, _revision) ->
-                        ValueNone, false
-                    | Error struct (exn, _met) ->
-                        let malformed = Writer.classify exn |> Writer.isMalformed
-                        streams.MarkMalformed(stream, malformed) |> ignore
-                        ValueNone, malformed
-                let struct (handlerProgress, malformed) = applyResultToStreamState res
-                Writer.logTo writerResultLog malformed (stream, res)
-                struct (res, handlerProgress)
+                    let hp = wr |> function
+                        | Writer.Result.Ok pos' -> Buffer.HandlerProgress.ofMetricsAndPos revision met pos' |> ValueSome
+                        | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos' -> Buffer.HandlerProgress.ofPos pos' |> ValueSome
+                        | Writer.Result.PrefixMissing _ -> ValueNone
+                    return Ok struct (wr, hp, met)
+                with e -> return Error struct (e, Writer.classify e |> Writer.isMalformed, met) }
+            let interpretProgress = function
+                | Ok struct (_wr, hp, _met) as res -> struct (res, hp, false)
+                | Error struct (_exn, malformed, _met) as res -> res, ValueNone, malformed
             Dispatcher.Concurrent<_, _, _, _>.Create(itemDispatcher, attemptWrite, interpretProgress = interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 
 type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
-    inherit Scheduling.Stats<struct (WriterResult * StreamSpan.Metrics * Buffer.Revision), struct (exn * StreamSpan.Metrics)>(
+    inherit Scheduling.Stats<Dispatcher.ResProgressAndMetrics<WriterResult>, Dispatcher.ExnAndMetrics>(
         log, statsInterval, stateInterval, ?failThreshold = failThreshold,
         logExternalStats = defaultArg logExternalStats Equinox.CosmosStore.Core.Log.InternalMetrics.dump)
+    let writerResultLog = log.ForContext<WriterResult>()
     let mutable okStreams, okEvents, okUnfolds, okBytes = HashSet(), 0, 0, 0L
     let mutable exnCats, exnStreams, exnEvents, exnUnfolds, exnBytes = Stats.Counters(), HashSet(), 0, 0, 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with
-        | { stream = stream; result = Ok (res, (es, us, bs), _revision) } ->
+        | { stream = stream; result = Ok (res, _hp, (es, us, bs)) as r } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okUnfolds <- okUnfolds + us
@@ -154,8 +144,9 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
             | WriterResult.Duplicate _ -> resultDup <- resultDup + 1
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-            base.RecordOk(message, force = (us <> 0))
-        | { stream = stream; result = Error (Exception.Inner exn, (es, us, bs)) } ->
+            Internal.Writer.logTo writerResultLog stream r
+            base.RecordOk(message, us <> 0)
+        | { stream = stream; result = Error (Exception.Inner exn, _malformed, (es, us, bs)) as r } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
@@ -169,6 +160,7 @@ type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D nul
                 | Internal.Writer.ResultKind.TooLarge ->    OutcomeKind.Tagged "tooLarge"
                 | Internal.Writer.ResultKind.Malformed ->   OutcomeKind.Tagged "malformed"
                 | Internal.Writer.ResultKind.Other ->       OutcomeKind.Exn
+            Internal.Writer.logTo writerResultLog stream r
             base.RecordExn(message, kind, log.ForContext("stream", stream).ForContext("events", es).ForContext("unfolds", us), exn)
     override _.DumpStats() =
         let results = resultOk + resultDup + resultPartialDup + resultPrefix

@@ -9,7 +9,7 @@ open System.Collections.Generic
 
 [<AbstractClass>]
 type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold) =
-    inherit Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics * TimeSpan), struct (exn * StreamSpan.Metrics)>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
+    inherit Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics * TimeSpan), Dispatcher.ExnAndMetrics>(log, statsInterval, stateInterval, ?failThreshold = failThreshold)
     let mutable okStreams, okEvents, okUnfolds, okBytes, exnStreams, exnEvents, exnUnfolds, exnBytes = HashSet(), 0, 0, 0L, HashSet(), 0, 0, 0L
     let prepareStats = Stats.LatencyStats("prepare")
     override _.DumpStats() =
@@ -30,9 +30,9 @@ type Stats<'Outcome>(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?
             okUnfolds <- okUnfolds + us
             okBytes <- okBytes + int64 bs
             prepareStats.Record prepareElapsed
-            base.RecordOk(message, force = (us <> 0))
+            base.RecordOk(message, us <> 0)
             this.HandleOk outcome
-        | { stream = stream; result = Error (Exception.Inner exn, (es, us, bs)) } ->
+        | { stream = stream; result = Error (Exception.Inner exn, _malformed, (es, us, bs)) } ->
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnUnfolds <- exnUnfolds + us
@@ -58,18 +58,18 @@ type Factory private () =
             let prepareTs = Stopwatch.timestamp ()
             try let! outcome, index' = handle.Invoke(stream, trimmed, ct)
                 return Ok struct (outcome, Buffer.HandlerProgress.ofMetricsAndPos revision met index', met, Stopwatch.elapsed prepareTs)
-            with e -> return Error struct (e, met) }
+            with e -> return Error struct (e, false, met) }
 
-        let interpretProgress _streams _stream = function
-            | Ok struct (outcome, progress, met: StreamSpan.Metrics, prep) -> struct (Ok struct (outcome, met, prep), ValueSome progress)
-            | Error struct (exn: exn, met) -> Error struct (exn, met), ValueNone
+        let interpretProgress = function
+            | Ok struct (outcome, hp, met: StreamSpan.Metrics, prep) -> struct (Ok struct (outcome, met, prep), ValueSome hp, false)
+            | Error struct (exn: exn, malformed, met) -> Error struct (exn, malformed, met), ValueNone, malformed
 
-        let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretProgress)
+        let dispatcher: Scheduling.IDispatcher<_, _, _, _> = Dispatcher.Concurrent<_, _, _, _>.Create(maxConcurrentStreams, attemptWrite, interpretProgress = interpretProgress)
         let dumpStreams logStreamStates log =
             logStreamStates eventSize
             match dumpExternalStats with Some f -> f log | None -> ()
         let scheduler =
-            Scheduling.Engine<struct ('Outcome * Buffer.HandlerProgress * StreamSpan.Metrics * TimeSpan), struct ('Outcome * StreamSpan.Metrics * TimeSpan), struct (exn * StreamSpan.Metrics), 'F>
+            Scheduling.Engine<struct ('Outcome * Buffer.HandlerProgress * StreamSpan.Metrics * TimeSpan), struct ('Outcome * StreamSpan.Metrics * TimeSpan), Dispatcher.ExnAndMetrics, 'F>
                 (dispatcher, stats, dumpStreams, pendingBufferSize = maxReadAhead, ?idleDelay = idleDelay, ?purgeInterval = purgeInterval)
 
         Factory.Start(log, scheduler.Pump, maxReadAhead, scheduler,
