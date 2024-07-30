@@ -50,7 +50,7 @@ module Internal =
                     Result.Ok (pos'.streamVersion + 1L)
                 | GatewaySyncResult.ConflictUnknown (Token.Unpack pos) ->
                     match pos.streamVersion + 1L with
-                    | actual when actual < i -> Result.PrefixMissing (actual - i |> int, actual)
+                    | actual when actual < i -> Result.PrefixMissing (i - actual |> int, actual)
                     | actual when actual >= i + span.LongLength -> Result.Duplicate actual
                     | actual -> Result.PartialDuplicate actual
             log.Debug("Result: {res}", res')

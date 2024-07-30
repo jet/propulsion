@@ -260,7 +260,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                                                      requireAll = requireAll)
         | SubCommand.Sync sa ->
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
-            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval,
+            let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, storeLog = Metrics.log,
                                                                     logExternalStats = dumpStoreStats, Categorize = a.Categorize)
             Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
                                                          maxBytes = sa.MaxBytes, requireAll = requireAll,

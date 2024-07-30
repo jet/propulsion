@@ -81,7 +81,7 @@ module Internal =
                 | AppendResult.Ok pos -> Result.Ok pos.index
                 | AppendResult.Conflict (pos, _) | AppendResult.ConflictUnknown pos ->
                     match pos.index with
-                    | actual when actual < i -> Result.PrefixMissing (actual - i |> int, actual)
+                    | actual when actual < i -> Result.PrefixMissing (i - actual |> int, actual)
                     | actual when actual >= n -> Result.Duplicate actual
                     | actual -> Result.PartialDuplicate actual
             log.Debug("Result: {res}", res')
@@ -124,11 +124,11 @@ module Internal =
 
 type WriterResult = Internal.Writer.Result
 
-type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
+type CosmosStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>]?storeLog, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
     inherit Scheduling.Stats<Dispatcher.ResProgressAndMetrics<WriterResult>, Dispatcher.ExnAndMetrics>(
         log, statsInterval, stateInterval, ?failThreshold = failThreshold,
         logExternalStats = defaultArg logExternalStats Equinox.CosmosStore.Core.Log.InternalMetrics.dump)
-    let writerResultLog = log.ForContext<WriterResult>()
+    let writerResultLog = (defaultArg storeLog log).ForContext<WriterResult>()
     let mutable okStreams, okEvents, okUnfolds, okBytes = HashSet(), 0, 0, 0L
     let mutable exnCats, exnStreams, exnEvents, exnUnfolds, exnBytes = Stats.Counters(), HashSet(), 0, 0, 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
