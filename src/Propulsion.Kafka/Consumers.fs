@@ -393,7 +393,7 @@ type Factory private () =
             //   new ones that arrived while the handler was processing are then eligible for retry purposes in the next dispatch cycle)
             handle: StreamState[] -> Async<seq<struct (Result<int64, exn> * TimeSpan)>>,
             // The responses from each <c>handle</c> invocation are passed to <c>stats</c> for periodic emission
-            stats,
+            stats: Propulsion.Streams.Stats<unit>,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
         let handle' xs ct = handle xs |> Async.executeAsTask ct
         Factory.StartBatchedAsync<'Info>(log, config, consumeResultToInfo, infoToStreamEvents, select, handle', stats,

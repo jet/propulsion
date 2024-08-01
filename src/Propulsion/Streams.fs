@@ -50,9 +50,7 @@ module Log =
     /// Attach a property to the captured event record to hold the metric information
     let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
     let tryGetScalar<'t> key (logEvent: Serilog.Events.LogEvent): 't voption =
-        let mutable p = Unchecked.defaultof<_>
-        logEvent.Properties.TryGetValue(key, &p) |> ignore
-        match p with Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
+        match logEvent.Properties.TryGetValue key with true, Log.ScalarValue (:? 't as e) -> ValueSome e | _ -> ValueNone
     let [<Literal>] GroupTag = "group"
     let [<return: Struct>] (|MetricEvent|_|) logEvent =
         match tryGetScalar<Metric> PropertyTag logEvent with
@@ -180,13 +178,12 @@ module Buffer =
         member x.QueuedIsAtWritePos = match x.write with WritePosUnknown -> x.QueuePos = 0L | w -> w = x.QueuePos
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
-        member x.CanPurge = x.IsEmpty
 
     module StreamState =
 
         let combine (s1: StreamState<_>) (s2: StreamState<_>): StreamState<'Format> =
-            let writePos = max s1.WritePos s2.WritePos
             let malformed = s1.IsMalformed || s2.IsMalformed
+            let writePos = max s1.WritePos s2.WritePos
             let any1 = not (isNull s1.queue)
             let any2 = not (isNull s2.queue)
             if any1 || any2 then
@@ -197,14 +194,13 @@ module Buffer =
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
         let merge stream (state: StreamState<_>) =
-            let mutable current = Unchecked.defaultof<_>
-            if states.TryGetValue(stream, &current) then states[stream] <- StreamState.combine current state
-            else states.Add(stream, state)
+            match states.TryGetValue stream with
+            | true, current -> states[stream] <- StreamState.combine current state
+            | false, _ -> states.Add(stream, state)
 
+        member internal _.States = states :> seq<KeyValuePair<FsCodec.StreamName, StreamState<'Format>>>
         member _.Merge(stream, event: FsCodec.ITimelineEvent<'Format>) =
             merge stream (StreamState<'Format>.Create(ValueNone, [| [| event |] |]))
-
-        member _.States = states :> seq<KeyValuePair<FsCodec.StreamName, StreamState<'Format>>>
         member _.Merge(other: Streams<'Format>) = for x in other.States do merge x.Key x.Value
 
         member _.Dump(log: ILogger, estimateSize, categorize) =
@@ -216,7 +212,7 @@ module Buffer =
                     waitingCats.Ingest(categorize stream)
                     if sz <> 0L then
                         let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.WritePos 0L
-                        waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].Length, (sz + 512L) / 1024L)
+                        waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.HeadSpan.Length, (sz + 512L) / 1024L)
                     waiting <- waiting + 1
                     waitingE <- waitingE + state.EventsCount
                     waitingB <- waitingB + sz
@@ -273,7 +269,6 @@ type HealthCheckException(oldestStuck, oldestFailing, stuckStreams, failingStrea
 module Scheduling =
 
     open Buffer
-
     type StreamStates<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
 
@@ -281,12 +276,12 @@ module Scheduling =
             let mutable x = Unchecked.defaultof<_>
             if states.TryGetValue(stream, &x) then ValueSome x else ValueNone
         let merge stream (state: StreamState<_>) =
-            match tryGetItem stream with
-            | ValueSome current ->
+            match states.TryGetValue stream with
+            | true, current ->
                 let updated = StreamState.combine current state
                 states[stream] <- updated
                 updated
-            | ValueNone ->
+            | false, _ ->
                 states.Add(stream, state)
                 state
         let markCompleted stream index =
@@ -297,8 +292,8 @@ module Scheduling =
             let mutable purged = 0
             for x in states do
                 let streamState = x.Value
-                if streamState.CanPurge then
-                    states.Remove x.Key |> ignore // Safe to do while iterating on netcore >=3.0
+                if streamState.IsEmpty then
+                    states.Remove x.Key |> ignore // Safe to do while iterating on netcore >= 3.0
                     purged <- purged + 1
             states.Count, purged
 
@@ -306,9 +301,14 @@ module Scheduling =
         let markBusy stream = busy.Add stream |> ignore
         let markNotBusy stream = busy.Remove stream |> ignore
 
+        member _.HeadSpanSizeBy(f: _ -> int) stream =
+            match states.TryGetValue stream with
+            | true, state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
+            | _ -> 0L
+
         member _.ChooseDispatchable(s: FsCodec.StreamName, requireAll): StreamState<'Format> voption =
-            match tryGetItem s with
-            | ValueSome ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
+            match states.TryGetValue s with
+            | true, ss when not ss.IsEmpty && not ss.IsMalformed && (not requireAll || ss.QueuedIsAtWritePos) && not (busy.Contains s) -> ValueSome ss
             | _ -> ValueNone
 
         member _.WritePos(stream) = tryGetItem stream |> ValueOption.bind _.WritePos
@@ -317,20 +317,12 @@ module Scheduling =
             // Example scenario: if a write reported we reached version 2, and we are ingesting an event that requires 2, then we drop it
             | ValueSome ss -> match ss.WritePos with ValueSome cw -> cw >= required | ValueNone -> false
             | ValueNone -> false // If the entry has been purged, or we've yet to visit a stream, we can't drop them
-        member _.Merge(streams: Streams<'Format>) =
-            for kv in streams.States do
-                merge kv.Key kv.Value |> ignore
+        member _.Merge(buffered: Streams<'Format>) = for kv in buffered.States do merge kv.Key kv.Value |> ignore
         member _.RecordWriteProgress(stream, pos, queue) =
             merge stream (StreamState<'Format>.Create(ValueSome pos, queue))
         member _.SetMalformed(stream, isMalformed) =
             updateWritePos stream isMalformed ValueNone null
-        member _.Purge() =
-            purge ()
-
-        member _.HeadSpanSizeBy(f: _ -> int) stream =
-            match tryGetItem stream with
-            | ValueSome state when not state.IsEmpty -> state.HeadSpan |> Array.sumBy f |> int64
-            | _ -> 0L
+        member _.Purge() = purge ()
 
         member _.MarkBusy stream =
             markBusy stream
@@ -358,7 +350,8 @@ module Scheduling =
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
                 else
-                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.QueuePos state.HeadSpan.Length
+                    let cat = StreamName.categorize stream
+                    let label = let hs = state.HeadSpan in sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (StreamSpan.index hs) hs.Length
                     if state.IsMalformed then
                         malformedCats.Ingest(cat)
                         malformedStreams.Ingest(label, Log.miB sz |> int64)
@@ -440,9 +433,9 @@ module Scheduling =
                 let state = Dictionary<FsCodec.StreamName, StreamState>()
                 member _.HandleResult(sn, isStuck, startTs) =
                     if not isStuck then state.Remove sn |> ignore
-                    else let mutable v = Unchecked.defaultof<_>
-                         if state.TryGetValue(sn, &v) then v.count <- v.count + 1
-                         else state.Add(sn, { ts = startTs; count = 1 })
+                    else match state.TryGetValue sn with
+                         | true, v -> v.count <- v.count + 1
+                         | false, _ -> state.Add(sn, { ts = startTs; count = 1 })
                 member _.State = walkAges state |> renderState
                 member _.Stats = renderStats state
                 member _.Contains sn = state.ContainsKey sn
@@ -497,8 +490,6 @@ module Scheduling =
             let sw = Stopwatch.start()
             member _.RecordResults ts = results <- results + Stopwatch.elapsedTicks ts
             member _.RecordDispatch ts = dispatch <- dispatch + Stopwatch.elapsedTicks ts
-            // If we did not dispatch, we attempt ingestion of streams as a standalone task, but need to add to dispatch time to compensate for calcs below
-            member x.RecordDispatchNone ts = x.RecordDispatch ts
             member _.RecordMerge ts = merge <- merge + Stopwatch.elapsedTicks ts
             member _.RecordIngest ts = ingest <- ingest + Stopwatch.elapsedTicks ts
             member _.RecordStats ts = stats <- stats + Stopwatch.elapsedTicks ts
@@ -677,9 +668,9 @@ module Scheduling =
             let pending = Queue<BatchState>()
 
             let trim () =
-                while pending.Count <> 0 && pending.Peek().streamToRequiredIndex.Count = 0 do
-                    let batch = pending.Dequeue()
-                    batch.markCompleted ()
+                let mutable batch = Unchecked.defaultof<_>
+                while pending.TryPeek &batch && batch.streamToRequiredIndex.Count = 0 do
+                    pending.Dequeue().markCompleted ()
             member _.RunningCount = pending.Count
             member _.EnumPending(): seq<BatchState> =
                 trim ()
@@ -908,30 +899,29 @@ module Scheduling =
                                          with e -> abend e })
             let inline ts () = Stopwatch.timestamp ()
             let t = stats.Timers
-            let processResults () = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
+            let tryHandleResults () = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
             let ingestStreams () = let ts, r = ts (), applyStreams streams.Merge in t.RecordMerge ts; r
             let ingestBatches () = let ts, b = ts (), ingestBatch () in t.RecordIngest ts; b
-            let ingestStreamsOnly () = let ts = ts () in let r = ingestStreams () in t.RecordDispatchNone ts; r
+            let tryIngestStreamsInLieuOfDispatch () = let ts = ts () in let r = ingestStreams () in t.RecordDispatch ts; r
+            let tryDispatch () = let ts = ts () in let r = tryDispatch (ingestStreams >> ignore) ingestBatches in t.RecordDispatch ts; r
 
             let mutable exiting = false
             while not exiting do
                 exiting <- ct.IsCancellationRequested
                 // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                let processedResults = processResults ()
+                let processedResults = tryHandleResults ()
                 // 2. top up provisioning of writers queue
                 // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
                 // Where there is insufficient work in the queue, we trigger ingestion of batches as needed
-                let struct (dispatched, hasCapacity) =
-                    if not dispatcher.HasCapacity then struct ((*dispatched*)false, (*hasCapacity*)false)
-                    else let ts = ts () in let r = tryDispatch (ingestStreams >> ignore) ingestBatches in t.RecordDispatch ts; r
+                let struct (dispatched, hasCapacity) = if not dispatcher.HasCapacity then false, false else tryDispatch ()
                 // 3. Report the stats per stats interval
                 let statsTs = ts ()
                 if exiting then
-                    processResults () |> ignore
+                    tryHandleResults () |> ignore
                     batches.EnumPending() |> ignore
                 recordAndPeriodicallyLogStats exiting abend; t.RecordStats statsTs
                 // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
-                let idle = not processedResults && not dispatched && not (ingestStreamsOnly ())
+                let idle = not processedResults && not dispatched && not (tryIngestStreamsInLieuOfDispatch ())
                 if idle && not exiting then
                     let sleepTs = ts ()
                     do! Task.runWithCancellation ct (fun ct ->

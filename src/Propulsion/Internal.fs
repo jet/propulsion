@@ -227,7 +227,7 @@ module Seq =
     let tryPickV f (xs: _ seq) =
         use e = xs.GetEnumerator()
         let mutable res = ValueNone
-        while (ValueOption.isNone res && e.MoveNext()) do
+        while ValueOption.isNone res && e.MoveNext() do
             res <- f e.Current
         res
     let inline chooseV f xs = seq { for x in xs do match f x with ValueSome v -> yield v | ValueNone -> () }

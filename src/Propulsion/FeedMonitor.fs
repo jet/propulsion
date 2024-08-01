@@ -83,10 +83,10 @@ and FeedMonitor(log: Serilog.ILogger, fetchPositions: unit -> struct (TrancheId 
             match waitMode with
             | OriginalWorkOnly ->   log.Information("FeedMonitor {totalTime} Awaiting {starting} Checkpoint {completed}",
                                                     TimeSpan.humanize elapsed, startReadPositions, completed)
-            | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime:n1}s Awaiting Running. Tails {current} Start {starting} Completed {completed}",
+            | IncludeSubsequent ->  log.Information("FeedMonitor {totalTime} Awaiting Running. Tails {current} Start {starting} Completed {completed}",
                                                     TimeSpan.humanize elapsed, currentRead, startReadPositions, completed)
             | AwaitFullyCaughtUp -> let draining = current |> choose (fun v -> if TranchePosition.isDrained v then ValueNone else ValueSome ()) |> Array.map ValueTuple.fst
-                                    log.Information("FeedMonitor {totalTime:n1}s Awaiting Tails {tranches}. Tails {current} Start {starting} Completed {completed}",
+                                    log.Information("FeedMonitor {totalTime} Awaiting Tails {tranches}. Tails {current} Start {starting} Completed {completed}",
                                                     TimeSpan.humanize elapsed, draining, currentRead, startReadPositions, completed)
         let busy () =
             let current = fetchPositions ()
