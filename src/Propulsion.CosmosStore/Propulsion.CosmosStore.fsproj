@@ -21,7 +21,7 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
-    <PackageReference Include="Equinox.CosmosStore" Version="4.1.0-alpha.14" />
+    <PackageReference Include="Equinox.CosmosStore" Version="4.1.0-alpha.15" />
     <PackageReference Include="FsCodec.SystemTextJson" Version="3.0.0" />
   </ItemGroup>
 
