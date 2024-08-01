@@ -17,7 +17,7 @@ type Codec<'E> = FsCodec.IEventCodec<'E, EventBody, unit>
 module Events =
 
     /// The Index of the next event ordinarily expected on the next handler invocation (assuming this invocation handles all successfully)
-    let nextIndex: Event[] -> int64 = Streams.StreamSpan.nextIndex
+    let next: Event[] -> int64 = Streams.StreamSpan.next
     /// The Index of the first event as supplied to this handler
     let index: Event[] -> int64 = Streams.StreamSpan.index
 

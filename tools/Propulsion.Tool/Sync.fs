@@ -209,7 +209,7 @@ type Stats(log: ILogger, statsInterval, stateInterval, logExternalStats) =
 
 let private handle isValidEvent stream (events: Propulsion.Sinks.Event[]): Async<Outcome * int64> = async {
     let ham, spam = events |> Array.partition isValidEvent
-    return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.nextIndex events }
+    return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.next events }
 
 let eofSignalException = System.Threading.Tasks.TaskCanceledException "Stopping; FeedMonitor wait completed"
 let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
@@ -255,14 +255,14 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                     let json = Propulsion.Codec.NewtonsoftJson.RenderedSpan.ofStreamSpan stream events
                                |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
-                return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.nextIndex events }
+                return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.next events }
             Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats,
                                                      requireAll = requireAll)
         | SubCommand.Sync sa ->
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
             let stats = Propulsion.CosmosStore.CosmosStoreSinkStats(Log.Logger, statsInterval, stateInterval, storeLog = Metrics.log,
                                                                     logExternalStats = dumpStoreStats, Categorize = a.Categorize)
-            Propulsion.CosmosStore.CosmosStoreSink.Start(Metrics.log, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
+            Propulsion.CosmosStore.CosmosStoreSink.Start(Log.Logger, maxReadAhead, eventsContext, maxConcurrentProcessors, stats,
                                                          maxBytes = sa.MaxBytes, requireAll = requireAll,
                                                          ?purgeInterval = if requireAll then None else Some (TimeSpan.hours 1))
     let source =

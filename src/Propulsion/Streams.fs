@@ -106,41 +106,44 @@ module StreamSpan =
         trimmed, metrics eventSize trimmed
 
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
-    let inline nextIndex (span: FsCodec.ITimelineEvent<'F>[]) =
-        let l = span[span.Length - 1]
-        if l.IsUnfold && span[0].IsUnfold then l.Index else l.Index + 1L
-    let inline dropBeforeIndex i = function
+    let inline next (span: FsCodec.ITimelineEvent<'F>[]) = let l = span[span.Length - 1] in if l.IsUnfold then l.Index else l.Index + 1L
+    let inline dropBefore i = function
         | [||] as xs -> xs
-        | xs when nextIndex xs < i -> Array.empty
+        | xs when next xs < i -> Array.empty
         | xs ->
             match index xs with
             | xi when xi = i -> xs
             | xi -> xs |> Array.skip (i - xi |> int)
-    let private merge_ xs =
+    let private coalesce xs =
         xs |> Array.sortInPlaceBy index
         let mutable outputs, acc = null, xs[0]
         for x in xs |> Seq.skip 1 do
-            match nextIndex acc with
+            match next acc with
             | accNext when index x > accNext -> // Gap
                 if acc |> Seq.exists (_.IsUnfold >> not) then
                     if outputs = null then outputs <- ResizeArray(xs.Length)
                     outputs.Add(acc |> Array.filter (_.IsUnfold >> not))
                 acc <- x
-            | accNext when nextIndex x >= accNext -> // Overlapping; join
-                match dropBeforeIndex accNext x with
+            | accNext when next x >= accNext -> // Overlapping; join
+                match dropBefore accNext x with
                 | [||] -> ()
                 | news -> acc <- [| yield! acc |> Seq.filter (_.IsUnfold >> not); yield! news |]
             | _ -> ()
         match acc with
         | [||] when outputs = null -> null
-        | unified when outputs = null -> Array.singleton unified
         | [||] -> outputs.ToArray()
+        | unified when outputs = null -> Array.singleton unified
         | tail -> outputs.Add tail; outputs.ToArray()
-    let merge min (inputs: FsCodec.ITimelineEvent<_>[][]) =
-        match inputs |> Array.choose (function null -> None | x -> match dropBeforeIndex min x with [||] -> None | xs -> Some xs) with
+    let private normalize (inputs: FsCodec.ITimelineEvent<_>[][]) =
+        match inputs |> Array.filter (function null | [||] -> false | _ -> true) with
         | [||] -> null
         | [| _ |] as alreadyUnified -> alreadyUnified
-        | xs -> merge_ xs
+        | multiple -> coalesce multiple
+    let merge min (inputs: FsCodec.ITimelineEvent<_>[][]) =
+        inputs |> Array.map (dropBefore min) |> normalize
+    let stripUnfolds (xq: FsCodec.ITimelineEvent<_>[][]) =
+        if xq = null then xq
+        else xq |> Array.map (Array.filter (fun x -> not x.IsUnfold)) |> normalize
 
 /// A Single Event from an Ordered stream being supplied for ingestion into the internal data structures
 type StreamEvent<'Format> = (struct (FsCodec.StreamName * FsCodec.ITimelineEvent<'Format>))
@@ -157,18 +160,6 @@ module Buffer =
     module HandlerProgress =
         let ofPos pos: HandlerProgress = (pos, Revision.initial)
         let ofMetricsAndPos revision ((_es, us, _bs): StreamSpan.Metrics) pos: HandlerProgress = if us <> 0 then (pos, revision) else ofPos pos
-    type ProgressRequirement = (struct (int64 * Revision voption))
-    module ProgressRequirement =
-        let ofPos pos: ProgressRequirement = pos, ValueNone
-        let ofPosUnfoldRevision pos rev: ProgressRequirement = pos, ValueSome rev
-        // example: when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
-        // NOTE Any unfolds that accompany event 0 will also bear Index 0
-        // NOTE 2: subsequent updates to Unfolds will bear the same Index of 0 until there is an Event with Index 1
-        let isSatisfiedBy ((updatedPos, dispatchedRevision): HandlerProgress): ProgressRequirement -> bool = function
-            | xPos, _ when updatedPos > xPos -> true
-            | xPos, ValueNone -> updatedPos = xPos
-            | xPos, ValueSome xRev when updatedPos = xPos -> dispatchedRevision >= xRev
-            | _ -> false
 
     let [<Literal>] WritePosUnknown = -2L // sentinel value for write position signifying `None` (no write position yet established)
     let [<Literal>] WritePosMalformed = -3L // sentinel value for malformed data
@@ -179,35 +170,39 @@ module Buffer =
         static member Create(write, queue, revision) = { write = defaultValueArg write WritePosUnknown; revision = revision; queue = queue }
         static member Create(write, queue, revision, malformed) = StreamState<'Format>.Create((if malformed then ValueSome WritePosMalformed else write), queue, revision)
         member x.IsEmpty = LanguagePrimitives.PhysicalEquality null x.queue
-        member x.EventsSumBy(f) = if x.IsEmpty then 0L else x.queue |> Seq.map (Seq.sumBy f) |> Seq.sum |> int64
-        member x.EventsCount = if x.IsEmpty then 0 else x.queue |> Seq.sumBy Array.length
+        member x.EventsSumBy(f) = x.queue |> Seq.map (Seq.sumBy f) |> Seq.sum |> int64
+        member x.EventsCount = x.queue |> Seq.sumBy Array.length
 
         member x.HeadSpan = x.queue[0]
-        member x.QueuePos = x.HeadSpan[0].Index
         member x.IsMalformed = not x.IsEmpty && WritePosMalformed = x.write
-        member x.QueuedIsAtWritePos = match x.write with WritePosUnknown -> x.QueuePos = 0L | w -> w = x.QueuePos
+        member x.QueuedIsAtWritePos = match x.write with WritePosUnknown -> x.HeadSpan[0].Index = 0L | w -> w = x.HeadSpan[0].Index
 
         member x.WritePos = match x.write with WritePosUnknown | WritePosMalformed -> ValueNone | w -> ValueSome w
         // Count of number of times the the Unfolds held in the queue have changed (typically due to events such as the CosmosDB ChangeFeed delivering a new edition of an Item)
         member x.QueueRevision = x.revision
-        member x.ToProgressRequirement(index, hadUnfold): ProgressRequirement voption =
-            // If there's nothing queued, then there's nothing to do
-            if x.IsEmpty then ValueNone else
-
-            // If the write position is already beyond the requirement, there's no need to inspect the actual queue
-            match x.WritePos with
-            | ValueSome wp when wp > index || (wp = index && not hadUnfold) -> ValueNone
-            | _ ->
-
+        member x.TailHasUnfoldAtIndex(index) =
             let tailSpan = x.queue |> Array.last
             let tailEvent = tailSpan |> Array.last
+            tailEvent.IsUnfold && tailEvent.Index = index
 
-            // if there's an event after the required position, then the Unfolds will have been dropped
-            if tailEvent.Index > index then ProgressRequirement.ofPos (index + 1L) |> ValueSome
-            // if there's an unfold, then we'll know we're covered when either that, a newer equivalent, or a successor event has been ingested
-            elif hadUnfold && tailEvent.IsUnfold && tailEvent.Index = index then ProgressRequirement.ofPosUnfoldRevision index x.revision |> ValueSome
-            // Otherwise (if the tail does not have unfolds and/or the batch didnt have an unfold), we can count on it being covered when the event has been ingested
-            else ProgressRequirement.ofPos index |> ValueSome
+    type ProgressRequirement = (struct (int64 * Revision voption))
+    // example: when we reach position 1 on the stream (having handled event 0), and the required position was 1, we remove the requirement
+    // NOTE Any unfolds that accompany event 0 will also bear Index 0
+    // NOTE 2: subsequent updates to Unfolds will bear the same Index of 0 until there is an Event with Index 1
+    module ProgressRequirement =
+        let ofPos pos: ProgressRequirement = pos, ValueNone
+        let ofPosUnfoldRevision pos rev: ProgressRequirement = pos, ValueSome rev
+        let isSatisfiedBy ((updatedPos, dispatchedRevision): HandlerProgress): ProgressRequirement -> bool = function
+            | xPos, _ when updatedPos > xPos -> true
+            | xPos, ValueNone -> updatedPos = xPos
+            | xPos, ValueSome xRev when updatedPos = xPos -> dispatchedRevision >= xRev
+            | _ -> false
+        let inline compute index hadUnfold (x: StreamState<'Format>): ProgressRequirement voption =
+            // If the queue is empty, or the write position is already beyond the requirement, it has already been handled
+            if x.IsEmpty || x.WritePos |> ValueOption.exists (fun wp -> wp > index) then ValueNone
+            // If there's an unfold at the tail, we can't checkpoint until it's been handled, a fresher unfold has been handled, or a successor event has moved the position past it
+            elif hadUnfold && x.TailHasUnfoldAtIndex index then ofPosUnfoldRevision index x.QueueRevision |> ValueSome
+            else ofPos index |> ValueSome
 
     module StreamState =
 
@@ -232,8 +227,7 @@ module Buffer =
             StreamState<'Format>.Create(writePos, queue, revision, malformed)
         let tryTrimUnfoldsIffPosAndRevisionStill ((pos, revision): HandlerProgress) ({ write = xw; revision = xr; queue = xq } as x) =
             if xw <> pos || xr <> revision then ValueNone
-            elif xq = null then ValueSome { x with revision = Revision.increment xr }
-            else ValueSome { x with revision = Revision.increment xr; queue = xq |> Array.map (Array.filter (fun x -> not x.IsUnfold)) }
+            else ValueSome { x with revision = Revision.increment xr; queue = StreamSpan.stripUnfolds xq }
 
     type Streams<'Format>() =
         let states = Dictionary<FsCodec.StreamName, StreamState<'Format>>()
@@ -244,7 +238,7 @@ module Buffer =
 
         member internal _.States = states :> seq<KeyValuePair<FsCodec.StreamName, StreamState<'Format>>>
         member _.Merge(other: Streams<'Format>) = for x in other.States do merge x.Key x.Value
-        member _.Merge(stream, event: FsCodec.ITimelineEvent<'Format>) = merge stream (StreamState<'Format>.Create(ValueNone, [| [| event |] |], Revision.initial))
+        member _.Merge(stream, events: FsCodec.ITimelineEvent<'Format>[]) = merge stream (StreamState<'Format>.Create(ValueNone, [| events |], Revision.initial))
 
         member _.Dump(log: ILogger, estimateSize, categorize) =
             let mutable waiting, waitingE, waitingB = 0, 0, 0L
@@ -255,7 +249,7 @@ module Buffer =
                     waitingCats.Ingest(categorize stream)
                     if sz <> 0L then
                         let sn, wp = FsCodec.StreamName.toString stream, defaultValueArg state.WritePos 0L
-                        waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.queue[0].Length, (sz + 512L) / 1024L)
+                        waitingStreams.Ingest(sprintf "%s@%dx%d" sn wp state.HeadSpan.Length, (sz + 512L) / 1024L)
                     waiting <- waiting + 1
                     waitingE <- waitingE + state.EventsCount
                     waitingB <- waitingB + sz
@@ -268,16 +262,25 @@ module Buffer =
     type Batch private (onCompletion, reqs: Dictionary<FsCodec.StreamName, int64>, unfoldReqs: ISet<FsCodec.StreamName>) =
         static member Create(onCompletion, streamEvents: StreamEvent<'Format> seq) =
             let streams, reqs, unfoldReqs = Streams<'Format>(), Dictionary<FsCodec.StreamName, int64>(), HashSet<FsCodec.StreamName>()
-            for struct (stream, event) in streamEvents do
-                streams.Merge(stream, event)
-                let syncUnfoldReq () = (if event.IsUnfold then unfoldReqs.Add stream else unfoldReqs.Remove stream) |> ignore
-                match reqs.TryGetValue(stream), if event.IsUnfold then event.Index else event.Index + 1L with
-                | (false, _), required -> reqs[stream] <- required; syncUnfoldReq ()
-                | (true, actual), required when actual < required -> reqs[stream] <- required; syncUnfoldReq ()
-                | (true, actual), required when actual = required && event.IsUnfold -> syncUnfoldReq ()
-                | (true, _), _ -> () // replayed same or earlier item
+            for struct (stream, eventsAndUnfolds) in streamEvents |> ValueTuple.groupWith Seq.toArray do
+                let unfolds, events = eventsAndUnfolds |> Array.partition _.IsUnfold
+                let mutable hwm = -1L
+                // for events, we tolerate mis-ordered items within a batch (but they should not be there and this only makes sense for requireAll mode)
+                for event in events do
+                    let asBatch = [| event |]
+                    streams.Merge(stream, asBatch)
+                    hwm <- asBatch |> StreamSpan.next |> max hwm
+                match unfolds with
+                | [||] -> ()
+                | unfolds ->
+                    unfoldReqs.Add stream |> ignore
+                    let next = unfolds |> StreamSpan.next
+                    // Drop all but the last set
+                    let unfolds = unfolds |> Array.filter (fun x -> x.Index = next)
+                    hwm <- max hwm next
+                    streams.Merge(stream, unfolds)
+                reqs.Add(stream, hwm)
             struct (streams, Batch(onCompletion, reqs, unfoldReqs))
-
         member val OnCompletion = onCompletion
         member val StreamsCount = reqs.Count
         member val Reqs = reqs :> seq<KeyValuePair<FsCodec.StreamName, int64>>
@@ -351,7 +354,7 @@ module Scheduling =
         member _.ToProgressRequirement(stream, index, hadUnfold): ProgressRequirement voption =
             match states.TryGetValue stream with
             | false, _ -> ValueNone // if there's no state for the stream, then it's all already written (and purged)
-            | true, ss -> ss.ToProgressRequirement(index, hadUnfold)
+            | true, ss -> ProgressRequirement.compute index hadUnfold ss
 
         member _.HeadSpanSizeBy(f: _ -> int) stream =
             match states.TryGetValue stream with
@@ -387,7 +390,8 @@ module Scheduling =
                     busyB <- busyB + sz
                     busyE <- busyE + state.EventsCount
                 else
-                    let cat, label = StreamName.categorize stream, sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) state.QueuePos state.HeadSpan.Length
+                    let cat = StreamName.categorize stream
+                    let label = let hs = state.HeadSpan in sprintf "%s@%dx%d" (FsCodec.StreamName.toString stream) (StreamSpan.index hs) hs.Length
                     if state.IsMalformed then
                         malformedCats.Ingest(cat)
                         malformedStreams.Ingest(label, Log.miB sz |> int64)
@@ -526,8 +530,6 @@ module Scheduling =
             let sw = Stopwatch.start()
             member _.RecordResults ts = results <- results + Stopwatch.elapsedTicks ts
             member _.RecordDispatch ts = dispatch <- dispatch + Stopwatch.elapsedTicks ts
-            // If we did not dispatch, we attempt ingestion of streams as a standalone task, but need to add to dispatch time to compensate for math below
-            member x.RecordDispatchNone ts = x.RecordDispatch ts
             member _.RecordMerge ts = merge <- merge + Stopwatch.elapsedTicks ts
             member _.RecordIngest ts = ingest <- ingest + Stopwatch.elapsedTicks ts
             member _.RecordStats ts = stats <- stats + Stopwatch.elapsedTicks ts
@@ -708,9 +710,9 @@ module Scheduling =
             let pending = Queue<BatchState>()
 
             let trim () =
-                while pending.Count <> 0 && pending.Peek().reqs.Count = 0 do
-                    let batch = pending.Dequeue()
-                    batch.markCompleted ()
+                let mutable batch = Unchecked.defaultof<_>
+                while pending.TryPeek &batch && batch.reqs.Count = 0 do
+                    pending.Dequeue().markCompleted ()
             member _.RunningCount = pending.Count
             member _.EnumPending(): seq<BatchState> =
                 trim ()
@@ -791,7 +793,7 @@ module Scheduling =
         abstract member TryReplenish: pending: seq<Item<'F>> * handleStarted: (FsCodec.StreamName * int64 -> unit) -> struct (bool * bool)
         abstract member InterpretProgress: Result<'P, 'E> -> ResProgressAndMalformed<Result<'R, 'E>>
     and [<Struct; NoComparison; NoEquality>]
-        Item<'Format> = { stream: FsCodec.StreamName; nextIndex: int64 voption; span: FsCodec.ITimelineEvent<'Format>[]; revision: Revision }
+        Item<'Format> = { stream: FsCodec.StreamName; writePos: int64 voption; span: FsCodec.ITimelineEvent<'Format>[]; revision: Revision }
     and [<Struct; NoComparison; NoEquality>] InternalRes<'R> = { stream: FsCodec.StreamName; index: int64; event: string; duration: TimeSpan; result: 'R }
     and ResProgressAndMalformed<'O> = (struct ('O * Buffer.HandlerProgress voption * bool))
     module InternalRes =
@@ -848,27 +850,19 @@ module Scheduling =
         let batches = Progress.ProgressState()
         let batchesWaitingAndRunning () = struct (waitingCount (), batches.RunningCount)
         // Enumerates the active batches; when the caller pulls beyond that, more get ingested on the fly
-        let enumBatches ingestStreams ingestBatches = seq {
+        let enumBatches tryIngestBatch = seq {
             yield! batches.EnumPending()
-            // TODO integrate this to guarantee ordering
-            ingestStreams ()
             // We'll get here as soon as the dispatching process has exhausted the currently queued items
-            match ingestBatches () with
-            | [||] -> () // Nothing more available
-            | freshlyAddedBatches ->
-                // we've just enqueued fresh batches
-                // hence we need to ingest events potentially added since first call to guarantee we have all the events on which the batches depend
-                ingestStreams ()
-                yield! freshlyAddedBatches }
+            let mutable cont = true in while cont do match tryIngestBatch () with ValueSome x -> yield x | ValueNone -> cont <- false }
         let priority = Progress.StreamsPrioritizer(prioritizeStreamsBy |> Option.map streams.HeadSpanSizeBy)
         let chooseDispatchable =
             let requireAll = defaultArg requireAll false
             if requireAll && Option.isSome purgeInterval then invalidArg (nameof requireAll) "Cannot be combined with a purgeInterval"
             fun stream ->
                 streams.ChooseDispatchable(stream, requireAll)
-                |> ValueOption.map (fun ss -> { stream = stream; nextIndex = ss.WritePos; span = ss.HeadSpan; revision = ss.QueueRevision })
-        let tryDispatch ingestStreams ingestBatches =
-            let candidateItems: seq<Item<_>> = enumBatches ingestStreams ingestBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
+                |> ValueOption.map (fun ss -> { stream = stream; writePos = ss.WritePos; span = ss.HeadSpan; revision = ss.QueueRevision })
+        let tryDispatch enumBatches =
+            let candidateItems: seq<Item<_>> = enumBatches |> priority.CollectStreams |> Seq.chooseV chooseDispatchable
             let handleStarted (stream, ts) = stats.HandleStarted(stream, ts); streams.LockForWrite(stream)
             dispatcher.TryReplenish(candidateItems, handleStarted)
 
@@ -902,7 +896,7 @@ module Scheduling =
                 batch.OnCompletion ()
                 stats.RecordBatchCompletion()
             batches.IngestBatch(onCompletion, reqs)
-        let ingestBatch () = [| match tryPending () |> ValueOption.bind ingest with ValueSome b -> b | ValueNone -> () |]
+        let tryIngestBatch ingestStreams () = tryPending () |> ValueOption.bind (fun b -> ingestStreams (); ingest b)
 
         let recordAndPeriodicallyLogStats exiting abend =
             if stats.RecordStats() || exiting then
@@ -942,30 +936,30 @@ module Scheduling =
                                          with e -> abend e })
             let inline ts () = Stopwatch.timestamp ()
             let t = stats.Timers
-            let processResults () = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
-            let ingestStreams () = let ts, r = ts (), applyStreams streams.Merge in t.RecordMerge ts; r
-            let ingestBatches () = let ts, b = ts (), ingestBatch () in t.RecordIngest ts; b
-            let ingestStreamsOnly () = let ts = ts () in let r = ingestStreams () in t.RecordDispatchNone ts; r
+            let tryHandleResults () = let ts = ts () in let r = tryHandleResults () in t.RecordResults ts; r
+            // NOTE Timers subtracts merge time from dispatch time, so callers (inc ingestStreamsInLieuOfDispatch) *must* RecordDispatch the gross time
+            let mergeStreams_ () = let ts, r = ts (), applyStreams streams.Merge in t.RecordMerge ts; r
+            let tryIngestStreamsInLieuOfDispatch () = let ts = ts () in let r = mergeStreams_ () in t.RecordDispatch ts; r
+            let tryIngestBatch () = let ts, b = ts (), tryIngestBatch (mergeStreams_ >> ignore) () in t.RecordIngest ts; b
+            let tryDispatch () = let ts = ts () in let r = tryDispatch (enumBatches tryIngestBatch) in t.RecordDispatch ts; r
 
             let mutable exiting = false
             while not exiting do
                 exiting <- ct.IsCancellationRequested
                 // 1. propagate write write outcomes to buffer (can mark batches completed etc)
-                let processedResults = processResults ()
+                let processedResults = tryHandleResults ()
                 // 2. top up provisioning of writers queue
                 // On each iteration, we try to fill the in-flight queue, taking the oldest and/or heaviest streams first
                 // Where there is insufficient work in the queue, we trigger ingestion of batches as needed
-                let struct (dispatched, hasCapacity) =
-                    if not dispatcher.HasCapacity then struct ((*dispatched*)false, (*hasCapacity*)false)
-                    else let ts = ts () in let r = tryDispatch (ingestStreams >> ignore) ingestBatches in t.RecordDispatch ts; r
+                let struct (dispatched, hasCapacity) = if not dispatcher.HasCapacity then false, false else tryDispatch ()
                 // 3. Report the stats per stats interval
                 let statsTs = ts ()
                 if exiting then
-                    processResults () |> ignore
+                    tryHandleResults () |> ignore
                     batches.EnumPending() |> ignore
                 recordAndPeriodicallyLogStats exiting abend; t.RecordStats statsTs
                 // 4. Do a minimal sleep so we don't run completely hot when empty (unless we did something non-trivial)
-                let idle = not processedResults && not dispatched && not (ingestStreamsOnly ())
+                let idle = not processedResults && not dispatched && not (tryIngestStreamsInLieuOfDispatch ())
                 if idle && not exiting then
                     let sleepTs = ts ()
                     do! Task.runWithCancellation ct (fun ct ->
