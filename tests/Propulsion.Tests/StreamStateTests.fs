@@ -5,47 +5,10 @@ open Propulsion.Streams
 open Swensen.Unquote
 open Xunit
 
-module FsCodec301 = // Not yet merged, https://github.com/jet/FsCodec/pull/123
-    open FsCodec
-    open System
-    /// <summary>An Event or Unfold that's been read from a Store and hence has a defined <c>Index</c> on the Event Timeline.</summary>
-    [<NoComparison; NoEquality>]
-    type TimelineEvent2<'Format>(index, eventType, data, meta, eventId, correlationId, causationId, timestamp, isUnfold, context, size) =
-
-        static member Create(index, eventType, data, ?meta, ?eventId, ?correlationId, ?causationId, ?timestamp, ?isUnfold, ?context, ?size): ITimelineEvent<'Format> =
-            let isUnfold = defaultArg isUnfold false
-            let meta =     match meta      with Some x -> x   | None -> Unchecked.defaultof<_>
-            let eventId =  match eventId   with Some x -> x   | None -> Guid.Empty
-            let ts =       match timestamp with Some ts -> ts | None -> DateTimeOffset.UtcNow
-            let size =     defaultArg size 0
-            TimelineEvent2(index, eventType, data, meta, eventId, Option.toObj correlationId, Option.toObj causationId, ts, isUnfold, Option.toObj context, size) :> _
-
-        static member Create(index, inner: IEventData<'Format>, ?isUnfold, ?context, ?size): ITimelineEvent<'Format> =
-            let isUnfold = defaultArg isUnfold false
-            let size =     defaultArg size 0
-            TimelineEvent2(index, inner.EventType, inner.Data, inner.Meta, inner.EventId, inner.CorrelationId, inner.CausationId, inner.Timestamp, isUnfold, Option.toObj context, size) :> _
-
-        override _.ToString() =
-            let t = if isUnfold then "Unfold" else "Event"
-            $"{t} {eventType} @{index} {context}"
-        interface ITimelineEvent<'Format> with
-            member _.Index = index
-            member _.IsUnfold = isUnfold
-            member _.Context = context
-            member _.Size = size
-            member _.EventType = eventType
-            member _.Data = data
-            member _.Meta = meta
-            member _.EventId = eventId
-            member _.CorrelationId = correlationId
-            member _.CausationId = causationId
-            member _.Timestamp = timestamp
-open FsCodec301
-
 let canonicalTime = System.DateTimeOffset.UtcNow
 
 let mk_ p c seg uc: FsCodec.ITimelineEvent<string>[] =
-    let mk id et isUnfold = TimelineEvent2.Create(id, et, null, timestamp = canonicalTime, isUnfold = isUnfold, context = seg)
+    let mk id et isUnfold = FsCodec.Core.TimelineEvent.Create(id, et, null, timestamp = canonicalTime, isUnfold = isUnfold, context = seg)
     [| for x in 0..c-1 -> mk (p + int64 x) (p + int64 x |> string) false
        for u in 0..uc-1 -> mk (p + int64 c) $"{p+int64 c}u{u}" true |]
 let mk p c = mk_ p c 0 0
