@@ -24,17 +24,16 @@ module Internal =
             | PartialDuplicate of updatedPos: int64
             | PrefixMissing of gap: int * actualPos: int64
 
-        let logTo (log: ILogger) (res: FsCodec.StreamName * Result<struct (Result * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>) =
-            match res with
-            | stream, Ok (Result.Ok pos, _) ->
+        let logTo (log: ILogger) (stream: FsCodec.StreamName): Result<Dispatcher.ResProgressAndMetrics<Result>, Dispatcher.ExnAndMetrics> -> unit = function
+            | Ok (Result.Ok pos, _, _) ->
                 log.Information("Wrote     {stream} up to {pos}", stream, pos)
-            | stream, Ok (Result.Duplicate updatedPos, _) ->
+            | Ok (Result.Duplicate updatedPos, _, _) ->
                 log.Information("Ignored   {stream} (synced up to {pos})", stream, updatedPos)
-            | stream, Ok (Result.PartialDuplicate updatedPos, _) ->
+            | Ok (Result.PartialDuplicate updatedPos, _, _) ->
                 log.Information("Requeuing {stream} {pos}", stream, updatedPos)
-            | stream, Ok (Result.PrefixMissing (gap, pos), _) ->
+            | Ok (Result.PrefixMissing (gap, pos), _, _) ->
                 log.Information("Waiting   {stream} missing {gap} events before {pos}", stream, gap, pos)
-            | stream, Error (exn, _) ->
+            | Error (exn, _, _) ->
                 log.Warning(exn,"Writing   {stream} failed, retrying", stream)
 
         let write (log: ILogger) (context: EventStoreContext) stream (span: Event[]) ct = task {
@@ -45,60 +44,53 @@ module Internal =
 #else
             let! res = context.Sync(log, stream, i - 1L, span |> Array.map (fun span -> span :> _), ct)
 #endif
-            let ress =
+            let res' =
                 match res with
                 | GatewaySyncResult.Written (Token.Unpack pos') ->
                     Result.Ok (pos'.streamVersion + 1L)
                 | GatewaySyncResult.ConflictUnknown (Token.Unpack pos) ->
                     match pos.streamVersion + 1L with
-                    | actual when actual < i -> Result.PrefixMissing (actual - i |> int, actual)
+                    | actual when actual < i -> Result.PrefixMissing (i - actual |> int, actual)
                     | actual when actual >= i + span.LongLength -> Result.Duplicate actual
                     | actual -> Result.PartialDuplicate actual
-            log.Debug("Result: {res}", ress)
-            return ress }
+            log.Debug("Result: {res}", res')
+            return res' }
 
         type [<RequireQualifiedAccess>] ResultKind = TimedOut | Other
 
     type Dispatcher =
 
-        static member Create(log: ILogger, storeLog, connections: _[], maxDop) =
-            let writerResultLog = log.ForContext<Writer.Result>()
+        static member Create(storeLog, connections: _[], maxDop) =
             let mutable robin = 0
 
-            let attemptWrite stream span ct = task {
+            let attemptWrite stream span _revision ct = task {
                 let index = System.Threading.Interlocked.Increment(&robin) % connections.Length
                 let selectedConnection = connections[index]
                 let maxEvents, maxBytes = 65536, 4 * 1024 * 1024 - (*fudge*)4096
                 let struct (span, met) = StreamSpan.slice Event.renderedSize (maxEvents, maxBytes) span
                 try let! res = Writer.write storeLog selectedConnection (FsCodec.StreamName.toString stream) span ct
-                    return Ok struct (res, met)
-                with e -> return Error struct (e, met) }
-            let interpretProgress (streams: Scheduling.StreamStates<_>) stream res =
-                let applyResultToStreamState = function
-                    | Ok struct ((Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos'), _stats) ->
-                        let ss = streams.RecordWriteProgress(stream, pos', null)
-                        ss.WritePos
-                    | Ok (Writer.Result.PrefixMissing _, _stats) ->
-                        streams.WritePos(stream)
-                    | Error struct (_stats, _exn) ->
-                        let ss = streams.SetMalformed(stream, false)
-                        ss.WritePos
-                let writePos = applyResultToStreamState res
-                Writer.logTo writerResultLog (stream, res)
-                struct (res, writePos)
-            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, attemptWrite, interpretProgress)
+                    let hp = res |> function
+                        | Writer.Result.Ok pos' | Writer.Result.Duplicate pos' | Writer.Result.PartialDuplicate pos' -> Buffer.HandlerProgress.ofPos pos' |> ValueSome
+                        | Writer.Result.PrefixMissing _ -> ValueNone
+                    return Ok struct (res, hp, met)
+                with e -> return Error struct (e, false, met) }
+            let interpretProgress = function
+                | Ok struct (_res, hp, _met) as res -> struct (res, hp, false)
+                | Error struct (_exn, malformed, _met) as res -> res, ValueNone, malformed
+            Dispatcher.Concurrent<_, _, _, _>.Create(maxDop, project = attemptWrite, interpretProgress = interpretProgress)
 
 type WriterResult = Internal.Writer.Result
 
 type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null>] ?failThreshold, [<O; D null>] ?logExternalStats) =
-    inherit Scheduling.Stats<struct (WriterResult * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>(
+    inherit Scheduling.Stats<Dispatcher.ResProgressAndMetrics<WriterResult>, Dispatcher.ExnAndMetrics>(
         log, statsInterval, stateInterval, ?failThreshold = failThreshold,
         logExternalStats = defaultArg logExternalStats Log.InternalMetrics.dump)
+    let writerResultLog = log.ForContext<WriterResult>()
     let mutable okStreams, okEvents, okBytes, exnCats, exnStreams, exnEvents, exnBytes = HashSet(), 0, 0L, Stats.Counters(), HashSet(), 0 , 0L
     let mutable resultOk, resultDup, resultPartialDup, resultPrefix, resultExn = 0, 0, 0, 0, 0
     override _.Handle message =
         match message with
-        | { stream = stream; result = Ok (res, (es, bs)) } ->
+        | { stream = stream; result = Ok (res, _hp, (es, us, bs)) as r } ->
             okStreams.Add stream |> ignore
             okEvents <- okEvents + es
             okBytes <- okBytes + int64 bs
@@ -107,13 +99,15 @@ type EventStoreSinkStats(log: ILogger, statsInterval, stateInterval, [<O; D null
             | WriterResult.Duplicate _ -> resultDup <- resultDup + 1
             | WriterResult.PartialDuplicate _ -> resultPartialDup <- resultPartialDup + 1
             | WriterResult.PrefixMissing _ -> resultPrefix <- resultPrefix + 1
-            base.RecordOk(message)
-        | { stream = stream; result = Error (Exception.Inner exn, (es, bs)) } ->
+            Internal.Writer.logTo writerResultLog stream r
+            base.RecordOk(message, us <> 0)
+        | { stream = stream; result = Error (Exception.Inner exn, _malformed, (es, _us, bs)) as r } ->
             exnCats.Ingest(StreamName.categorize stream)
             exnStreams.Add stream |> ignore
             exnEvents <- exnEvents + es
             exnBytes <- exnBytes + int64 bs
             resultExn <- resultExn + 1
+            Internal.Writer.logTo writerResultLog stream r
             base.RecordExn(message, OutcomeKind.classify exn, log.ForContext("stream", stream).ForContext("events", es), exn)
     override _.DumpStats() =
         let results = resultOk + resultDup + resultPartialDup + resultPrefix
@@ -141,7 +135,7 @@ type EventStoreSink =
             // Tune the sleep time when there are no items to schedule or responses to process. Default 1ms.
             ?idleDelay,
             ?ingesterStateInterval, ?commitInterval): SinkPipeline =
-        let dispatcher = Internal.Dispatcher.Create(log, storeLog, connections, maxConcurrentStreams)
+        let dispatcher = Internal.Dispatcher.Create(storeLog, connections, maxConcurrentStreams)
         let scheduler =
             let dumpStreams logStreamStates _log = logStreamStates Event.storedSize
             Scheduling.Engine(dispatcher, stats, dumpStreams, pendingBufferSize = 5, ?purgeInterval = purgeInterval, ?idleDelay = idleDelay)

@@ -12,6 +12,7 @@ let mk_ p c seg uc: FsCodec.ITimelineEvent<string>[] =
     [| for x in 0..c-1 -> mk (p + int64 x) (p + int64 x |> string) false
        for u in 0..uc-1 -> mk (p + int64 c) $"{p+int64 c}u{u}" true |]
 let mk p c = mk_ p c 0 0
+let mkU p uc = mk_ p 0 0 uc
 let isSame = LanguagePrimitives.PhysicalEquality
 let is (xs: FsCodec.ITimelineEvent<string>[][]) (res: FsCodec.ITimelineEvent<string>[][]) =
     (xs, res) ||> Seq.forall2 (fun x y -> (Array.isEmpty x && Array.isEmpty y)
@@ -42,59 +43,80 @@ let [<Fact>] adjacent () =
     test <@ r |> is [| mk 0L 3 |] @>
 
 let [<Fact>] ``adjacent to min`` () =
-    let r = Array.map (StreamSpan.dropBefore 2L) [| mk 0L 1; mk 1L 2 |]
-    test <@ r |> is [| [||]; mk 2L 1 |] @>
+    let r = Array.map (StreamSpan.dropBefore 2L) [| mk 0L 1; mk 1L 2; mkU 1L 1; mkU 2L 2 |]
+    test <@ r |> is [| [||]; mk 2L 1; [||]; mkU 2L 2 |] @>
 
 let [<Fact>] ``adjacent to min merge`` () =
-    let r = StreamSpan.merge 2L [| mk 0L 1; mk 1L 2 |]
-    test <@ r |> is [| mk 2L 1 |] @>
+    let r = StreamSpan.merge 2L [| mk 0L 1; mk 1L 2; mkU 2L 2 |]
+    test <@ r |> is [| [| yield! mk 2L 1; yield! mkU 2L 2 |] |] @>
 
 let [<Fact>] ``adjacent to min no overlap`` () =
-    let r = StreamSpan.merge 2L [| mk 0L 1; mk 2L 1 |]
+    let r = StreamSpan.merge 2L [| mk_ 0L 2 0 1; mk 2L 1 |]
     test <@ r |> is [| mk 2L 1|] @>
 
 let [<Fact>] ``adjacent trim`` () =
-    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mk 2L 2 |]
-    test <@ r |> is [| mk 1L 1; mk 2L 2 |] @>
+    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mk 2L 2; mkU 2L 2 |]
+    test <@ r |> is [| mk 1L 1; mk 2L 2; mkU 2L 2 |] @>
 
 let [<Fact>] ``adjacent trim merge`` () =
     let r = StreamSpan.merge 1L [| mk 0L 2; mk 2L 2 |]
     test <@ r |> is [| mk 1L 3 |] @>
 
 let [<Fact>] ``adjacent trim append`` () =
-    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mk 2L 2; mk 5L 1 |]
-    test <@ r |> is [| mk 1L 1; mk 2L 2; mk 5L 1 |] @>
+    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mkU 1L 1; mk 2L 2; mk 5L 1 |]
+    test <@ r |> is [| mk 1L 1; mkU 1L 1; mk 2L 2; mk 5L 1 |] @>
 
 let [<Fact>] ``adjacent trim append merge`` () =
     let r = StreamSpan.merge 1L [| mk 0L 2; mk 2L 2; mk 5L 1|]
     test <@ r |> is [| mk 1L 3; mk 5L 1 |] @>
 
 let [<Fact>] ``mixed adjacent trim append`` () =
-    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mk 5L 1; mk 2L 2 |]
-    test <@ r |> is [| mk 1L 1; mk 5L 1; mk 2L 2 |] @>
+    let r = Array.map (StreamSpan.dropBefore 1L) [| mk 0L 2; mk 5L 1; mk 2L 2; mk_ 0L 2 0 2; mk_ 2L 2 0 2 |]
+    test <@ r |> is [| mk 1L 1; mk 5L 1; mk 2L 2; mk_ 1L 1 0 2; mk_ 2L 2 0 2 |] @>
 
 let [<Fact>] ``mixed adjacent trim append merge`` () =
-    let r = StreamSpan.merge 1L [| mk 0L 2; mk 5L 1; mk 2L 2|]
+    let r = StreamSpan.merge 1L [| mk 0L 2; mk 5L 1; mk 2L 2; mkU 4L 2 |]
     test <@ r |> is [| mk 1L 3; mk 5L 1 |] @>
 
 let [<Fact>] fail () =
-    let r = StreamSpan.merge 11614L [| null; mk 11614L 1 |]
+    let r = StreamSpan.merge 11614L [| [||]; mk 11614L 1 |]
     test <@ r |> is [| mk 11614L 1 |] @>
 
 let [<Fact>] ``fail 2`` () =
-    let r = StreamSpan.merge 11613L [| mk 11614L 1; null |]
+    let r = StreamSpan.merge 11613L [| mk 11614L 1; [||] |]
     test <@ r |> is [| mk 11614L 1 |] @>
 
+let [<Fact>] ``merge to strip Events should not strip unfold`` () =
+    let r = StreamSpan.merge 0L [| mk_ 0L 0 0 1 |]
+    test <@ r |> is [| mkU 0L 1 |] @>
+
+let [<Fact>] ``merge to strip Events should not strip unfolds`` () =
+    let r = StreamSpan.merge 0L [| mk_ 0L 0 0 2 |]
+    test <@ r |> is [| mkU 0L 2 |] @>
+
+let [<Fact>] ``merge to strip Events should retain at non-0`` () =
+    let r = StreamSpan.merge 1L [| mk_ 0L 1 0 1 |]
+    test <@ r |> is [| mkU 1L 1 |] @>
+
 let (===) (xs: 't seq) (ys: 't seq) = (xs, ys) ||> Seq.forall2 isSame
+
+let [<Fact>] ``strip merge should retain last unfolds`` () =
+    let r = StreamSpan.merge 0L [| mk_ 0L 0 2 1; mkU 0L 2 |]
+    test <@ r |> is [| mk_ 0L 0 2 2 |] @>
+
+let [<Fact>] ``nextIndex u`` () =
+    1L =! StreamSpan.next (mk_ 0L 1 0 1)
+let [<Fact>] ``nextIndex E`` () =
+    1L =! StreamSpan.next (mk 0L 1)
 
 let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds, one per event type`` counts =
     let input = [|
         let mutable pos = 0L
         let mutable seg = 0
-        for gapOrOverlap, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in (counts : _[]) do
+        for gapOrOverlap: sbyte, FsCheck.NonNegativeInt normal, FsCheck.NonNegativeInt unfolds in (counts : _[]) do
             let events = normal % 10
             let unfolds = unfolds % 10
-            pos <- if gapOrOverlap < 0uy then max 0L (pos+int64 gapOrOverlap) else pos + int64 gapOrOverlap
+            pos <- max 0L (pos+int64 gapOrOverlap)
             yield mk_ pos events seg unfolds
             pos <- pos + int64 events
             seg <- seg + 1 |]
@@ -120,9 +142,9 @@ let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds,
     test <@ unfolds |> Array.groupBy _.EventType |> Array.forall (fun (_et, xs) -> xs.Length = 1) @>
     // Unfolds are always for the same Index (as preceding ones are invalidated by any newer event)
     test <@ unfolds |> Array.forall (fun x -> x.Index = (Array.last all).Index) @>
-    // Version that Unfolds pertain to must always be > final event Index
+    // Version that Unfolds pertain to must always be >= final event Index
     test <@ match events |> Array.tryLast, unfolds |> Array.tryLast with
-            | Some le, Some lu -> lu.Index > le.Index
+            | Some le, Some lu -> lu.Index >= le.Index
             | _ -> true @>
 
     // resulting span sequence must be monotonic, with a gap of at least 1 in the Index ranges per span
@@ -140,6 +162,13 @@ let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds,
         let uc = unbox<int> u.Context
         let newerUnfolds = Seq.concat input |> Seq.filter (fun x -> x.IsUnfold && x.Index = u.Index && unbox<int> x.Context > uc)
         test <@ newerUnfolds === [||] || uc = -1 @>
+        // all unfolds that got merged as part of the same Span should be retained, and not have been reordered
+        let outUnf = res |> Array.last |> Array.filter _.IsUnfold
+        let unfSeg = trap <@ outUnf |> Seq.map _.Context |> Seq.cast<int> |> Seq.distinct |> Seq.exactlyOne @>
+        let inUnf = input |> Seq.concat |> Seq.filter (fun x -> x.IsUnfold && unbox<int> x.Context = unfSeg) |> Seq.toArray
+        if inUnf.Length <> outUnf.Length then
+            printf "here"
+        test <@ Array.forall2 isSame inUnf outUnf @>
     | _ -> ()
     // TODO verify that slice never orphans unfolds
 

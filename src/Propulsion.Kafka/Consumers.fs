@@ -182,7 +182,7 @@ module Core =
         static member Start<'Info, 'Outcome>
             (   log: ILogger, config: KafkaConsumerConfig, consumeResultToInfo, infoToStreamEvents,
                 prepare, maxDop, handle: Func<FsCodec.StreamName, Event[], CancellationToken, Task<struct ('Outcome * int64)>>,
-                stats: Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>,
+                stats: Scheduling.Stats<struct ('Outcome * StreamSpan.Metrics), Dispatcher.ExnAndMetrics>,
                 ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
             let dumpStreams logStreamStates log =
                 logExternalState |> Option.iter (fun f -> f log)
@@ -346,11 +346,11 @@ type Factory private () =
             select, handle: Func<Scheduling.Item<_>[], CancellationToken, Task<seq<struct (Result<int64, exn> * TimeSpan)>>>, stats,
             ?logExternalState, ?purgeInterval, ?wakeForResults, ?idleDelay) =
         let handle (items: Scheduling.Item<EventBody>[]) ct
-            : Task<Scheduling.InternalRes<Result<struct (int64 * StreamSpan.Metrics), struct (exn * StreamSpan.Metrics)>>[]> = task {
+            : Task<Scheduling.InternalRes<Result<Dispatcher.NextIndexAndMetrics, Dispatcher.ExnAndMetrics>>[]> = task {
             let start = Stopwatch.timestamp ()
             let inline err ts e (x: Scheduling.Item<_>) =
                 let met = StreamSpan.metrics Event.renderedSize x.span
-                Scheduling.InternalRes.create (x, ts, Result.Error struct (e, met))
+                Scheduling.InternalRes.create (x, ts, Result.Error struct (e, false, met))
             try let! results = handle.Invoke(items, ct)
                 return Array.ofSeq (Seq.zip items results |> Seq.map (function
                     | item, (Ok index', ts) ->
