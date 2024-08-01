@@ -32,7 +32,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 - `Propulsion.Tool`: `checkpoint` commandline option; enables viewing or overriding checkpoints [#141](https://github.com/jet/propulsion/pull/141)
 - `Propulsion.Tool`: `sync <kafka|stats>` supports `from json` source option [#250](https://github.com/jet/propulsion/pull/250)
 - `Propulsion.Tool`: Add support for [autoscaling throughput](https://docs.microsoft.com/en-us/azure/cosmos-db/provision-throughput-autoscale) of Cosmos containers and databases [#142](https://github.com/jet/propulsion/pull/142) :pray: [@brihadish](https://github.com/brihadish)
-- `Propulsion.Tool`: `sync cosmos from <cosmos|json>` [#252](https://github.com/jet/propulsion/pull/252)
+- `Propulsion.Tool`: `sync cosmos from <cosmos|json>` [#252](https://github.com/jet/propulsion/pull/252) [#263](https://github.com/jet/propulsion/pull/263)
 
 ### Changed
 

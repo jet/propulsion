@@ -72,8 +72,9 @@ module Internal =
             let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map mapData)
                        |> Async.executeAsTask ct
 #else
-            span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore does not [yet] support ingesting unfolds")
-            let! res = ctx.Sync(stream, { index = i; etag = None }, span |> Array.map mapData, ct)
+            let unfolds, events = span |> Array.partition _.IsUnfold
+            log.Debug("Writing {s}@{i}x{n}+{u}", stream, i, events.Length, unfolds.Length)
+            let! res = ctx.Sync(stream, { index = i; etag = None }, events |> Array.map mapData, unfolds |> Array.map mapData, ct)
 #endif
             let res' =
                 match res with
