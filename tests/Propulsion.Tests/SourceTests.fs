@@ -14,7 +14,7 @@ type Scenario(testOutput) =
     let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
                   with member _.HandleOk x = ()
                        member _.HandleExn(log, x) = () }
-    let handle _ _ _ = task { return struct (Propulsion.Sinks.StreamResult.AllProcessed, ()) }
+    let handle _ events _ = task { return struct ((), Propulsion.Sinks.Events.next events) }
     let sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats)
     let dispose () =
         sink.Stop()

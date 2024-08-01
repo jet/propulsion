@@ -20,9 +20,7 @@ module Log =
     /// Attach a property to the captured event record to hold the metric information
     let internal withMetric (value: Metric) = Log.withScalarProperty PropertyTag value
     let [<return: Struct>] (|MetricEvent|_|) (logEvent: Serilog.Events.LogEvent): Metric voption =
-        let mutable p = Unchecked.defaultof<_>
-        logEvent.Properties.TryGetValue(PropertyTag, &p) |> ignore
-        match p with Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
+        match logEvent.Properties.TryGetValue PropertyTag with true, Log.ScalarValue (:? Metric as e) -> ValueSome e | _ -> ValueNone
 
 [<NoComparison; NoEquality>]
 type ChangeFeedContext = { group: string; rangeId: int; epoch: int64; timestamp: DateTime; requestCharge: float }

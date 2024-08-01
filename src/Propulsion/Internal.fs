@@ -208,6 +208,9 @@ module ValueTuple =
     let inline snd struct (_f, s) = s
     let inline ofKvp (x: System.Collections.Generic.KeyValuePair<_, _>) = struct (x.Key, x.Value)
     let inline toKvp struct (k, v) = System.Collections.Generic.KeyValuePair(k, v)
+    let inline groupWith ([<InlineIfLambda>] f) xs =
+        Seq.groupBy fst xs
+        |> Seq.map (fun (k, xs) -> struct (k, xs |> Seq.map snd |> f))
 
 module ValueOption =
 
@@ -227,7 +230,7 @@ module Seq =
     let tryPickV f (xs: _ seq) =
         use e = xs.GetEnumerator()
         let mutable res = ValueNone
-        while (ValueOption.isNone res && e.MoveNext()) do
+        while ValueOption.isNone res && e.MoveNext() do
             res <- f e.Current
         res
     let inline chooseV f xs = seq { for x in xs do match f x with ValueSome v -> yield v | ValueNone -> () }
