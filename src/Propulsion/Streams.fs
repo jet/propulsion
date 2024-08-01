@@ -1062,10 +1062,10 @@ module Dispatcher =
             override _.TryReplenish(pending, handleStarted) = inner.TryReplenish(pending, handleStarted, project)
             override _.InterpretProgress res = interpretProgress res
 
-
     type ResProgressAndMetrics<'O> = (struct ('O * Buffer.HandlerProgress voption * StreamSpan.Metrics))
     type ExnAndMetrics = (struct(exn * bool * StreamSpan.Metrics))
     type NextIndexAndMetrics = (struct(int64 * StreamSpan.Metrics))
+
     /// Implementation of IDispatcher that allows a supplied handler select work and declare completion based on arbitrarily defined criteria
     type Batched<'F>
         (   select: Func<Scheduling.Item<'F> seq, Scheduling.Item<'F>[]>,
