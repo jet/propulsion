@@ -65,7 +65,7 @@ module Internal =
 
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
             let i = StreamSpan.index span
-            let n = StreamSpan.nextIndex span
+            let n = StreamSpan.next span
             span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds")
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
             let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody

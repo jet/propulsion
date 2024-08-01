@@ -103,22 +103,21 @@ module StreamSpan =
         trimmed, metrics eventSize trimmed
 
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
-    let inline nextIndex (span: FsCodec.ITimelineEvent<'F>[]) =
+    let inline next (span: FsCodec.ITimelineEvent<'F>[]) =
         let l = span[span.Length - 1]
         if l.IsUnfold then l.Index else l.Index + 1L
-    let inline dropBeforeIndex min = function
+    let inline dropBefore min = function
         | [||] as xs -> xs
-        | xs when nextIndex xs < min -> Array.empty
+        | xs when next xs < min -> Array.empty
         | xs ->
             match index xs with
             | xi when xi = min -> xs
             | xi -> xs |> Array.skip (min - xi |> int)
-
     let merge min (spans: FsCodec.ITimelineEvent<_>[][]) =
         let candidates =
             [| for span in spans do
                 if span <> null then
-                    match dropBeforeIndex min span with
+                    match dropBefore min span with
                     | [||] -> ()
                     | xs -> xs |]
         if candidates.Length = 0 then null
@@ -132,7 +131,7 @@ module StreamSpan =
             for i in 1 .. candidates.Length - 1 do
                 let x = candidates[i]
                 let xIndex = index x
-                let accNext = nextIndex acc
+                let accNext = next acc
                 if xIndex > accNext then // Gap
                     match acc |> Array.filter (_.IsUnfold >> not) with
                     | [||] -> ()
@@ -141,8 +140,8 @@ module StreamSpan =
                         buffer.Add eventsOnly
                     acc <- x
                 // Overlapping, join
-                elif nextIndex x > accNext then
-                    match dropBeforeIndex accNext x with
+                elif next x > accNext then
+                    match dropBefore accNext x with
                     | [||] -> ()
                     | news ->
                         acc <- [| for x in acc do if not x.IsUnfold then x

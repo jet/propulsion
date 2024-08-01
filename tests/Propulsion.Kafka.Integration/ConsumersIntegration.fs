@@ -127,7 +127,7 @@ module Helpers =
                       do! handler (getConsumer()) (deserialize consumerId event)
                 (log: ILogger).Information("BATCHED CONSUMER Handled {c} events in {l} streams", c, streams.Length)
                 let ts = Stopwatch.elapsed ts
-                return seq { for x in streams -> struct (Ok (Propulsion.Sinks.Events.nextIndex x.span), ts) } }
+                return seq { for x in streams -> struct (Ok (Propulsion.Sinks.Events.next x.span), ts) } }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =
@@ -165,7 +165,7 @@ module Helpers =
             let handle _ (span: Propulsion.Sinks.Event[]) = async {
                 for event in span do
                     do! handler (getConsumer()) (deserialize consumerId event)
-                return (), Propulsion.Sinks.Events.nextIndex span }
+                return (), Propulsion.Sinks.Events.next span }
             let stats = Stats(log, TimeSpan.FromSeconds 5.,TimeSpan.FromSeconds 5.)
             let messageIndexes = StreamNameSequenceGenerator()
             let consumer =

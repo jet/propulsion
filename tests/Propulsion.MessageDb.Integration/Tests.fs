@@ -84,7 +84,7 @@ let ``It processes events for a category`` () = task {
         test <@ Array.chooseV Simple.codec.Decode events |> Array.forall ((=) (Simple.Hello { name = "world" })) @>
         if handled.Count >= 2000 then
             stop ()
-        return struct ((), Propulsion.Sinks.Events.nextIndex events) }
+        return struct ((), Propulsion.Sinks.Events.next events) }
     use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats)
     let source = MessageDbSource(
         log, TimeSpan.FromMinutes 1,
@@ -132,7 +132,7 @@ let ``It doesn't read the tail event again`` () = task {
     let stats = stats log
 
     let handle _ events _ = task {
-        return struct ((), Propulsion.Sinks.Events.nextIndex events) }
+        return struct ((), Propulsion.Sinks.Events.next events) }
     use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 1, handle, stats)
     let batchSize = 10
     let source = MessageDbSource(

@@ -30,7 +30,7 @@ type Scenario(testOutput) =
             return failwith "transient"
         else
             do! Async.Sleep (TimeSpan.FromSeconds 1)
-            return (), Propulsion.Sinks.Events.nextIndex events }
+            return (), Propulsion.Sinks.Events.next events }
     let sink = Propulsion.Sinks.Factory.StartConcurrent(log, 2, 2, handle, stats)
     let dispose () =
         sink.Stop()

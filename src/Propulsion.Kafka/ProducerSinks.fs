@@ -45,7 +45,7 @@ type StreamsProducerSink =
                     | _ -> ()
                     do! producer.Produce(key, message, ct = ct)
                 | ValueNone -> ()
-                return struct (outcome, Events.nextIndex span)
+                return struct (outcome, Events.next span)
             }
             Sync.Factory.StartAsync
                 (   log, maxReadAhead, maxConcurrentStreams, handle,
