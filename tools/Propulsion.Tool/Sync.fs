@@ -305,7 +305,7 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
         if follow then
             source.AwaitWithStopOnCancellation()
         else async {
-            let initialWait = TimeSpan.seconds 10
+            let initialWait = TimeSpan.seconds 30
             do! source.Monitor.AwaitCompletion(initialWait, awaitFullyCaughtUp = true, logInterval = statsInterval / 2.) |> Async.ofTask
             source.Stop()
             do! source.Await() // Let it emit the stats
