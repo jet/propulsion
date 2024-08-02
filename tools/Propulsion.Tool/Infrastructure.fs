@@ -21,7 +21,7 @@ module EnvVar =
 module Sinks =
 
     let equinoxMetricsOnly (l: LoggerConfiguration) =
-        l.WriteTo.Sink(Equinox.CosmosStore.Core.Log.InternalMetrics.Stats.LogSink())
+        l.WriteTo.Sink(Equinox.CosmosStore.Core.Log.InternalMetrics.Stats.LogSink(categorize = true))
          .WriteTo.Sink(Equinox.DynamoStore.Core.Log.InternalMetrics.Stats.LogSink())
     let console verbose (configuration: LoggerConfiguration) =
         let outputTemplate =
@@ -64,7 +64,7 @@ type Logging() =
     module CosmosStoreConnector =
 
         let private get (role: string) (client: Microsoft.Azure.Cosmos.CosmosClient) databaseId containerId =
-            Log.Information("CosmosDB {role} Database {database} Container {container}", role, databaseId, containerId)
+            Log.Information("CosmosDB {role} {database}/{container}", role, databaseId, containerId)
             client.GetDatabase(databaseId).GetContainer(containerId)
         let getSource = get "Source"
         let getLeases = get "Leases"
@@ -74,7 +74,7 @@ type Logging() =
     type Equinox.CosmosStore.CosmosStoreContext with
 
         member x.LogConfiguration(role, databaseId: string, containerId: string) =
-            Log.Information("CosmosStore {role:l} {db}/{container} Tip maxEvents {maxEvents} maxSize {maxJsonLen} Query maxItems {queryMaxItems}",
+            Log.Information("CosmosStore {role:l} {database}/{container} Tip maxEvents {maxEvents} maxSize {maxJsonLen} Query maxItems {queryMaxItems}",
                             role, databaseId, containerId, x.TipOptions.MaxEvents, x.TipOptions.MaxJsonLength, x.QueryOptions.MaxItems)
 
     type Equinox.CosmosStore.CosmosStoreClient with
@@ -89,7 +89,7 @@ type Logging() =
         member private x.LogConfiguration(role, databaseId: string, containers: string[]) =
             let o = x.Options
             let timeout, retries429, timeout429 = o.RequestTimeout, o.MaxRetryAttemptsOnRateLimitedRequests, o.MaxRetryWaitTimeOnRateLimitedRequests
-            Log.Information("CosmosDB {role} {mode} {endpointUri} {db} {containers} timeout {timeout}s Throttling retries {retries}, max wait {maxRetryWaitTime}s",
+            Log.Information("CosmosDB {role} {mode} {endpointUri} {database}/{containers} timeout {timeout}s Retries {retries}<{maxRetryWaitTime}s",
                             role, o.ConnectionMode, x.Endpoint, databaseId, containers, timeout.TotalSeconds, retries429, let t = timeout429.Value in t.TotalSeconds)
         member private x.CreateAndInitialize(role, databaseId, containers) =
             x.LogConfiguration(role, databaseId, containers)
