@@ -117,8 +117,12 @@ and [<NoEquality; NoComparison; RequireSubcommand>] CosmosParameters =
     | [<CliPrefix(CliPrefix.None); Last>]   From of ParseResults<SourceParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
-            | Connection _ ->               "specify a connection string for the destination Cosmos account. Default (if Cosmos): Same as Source"
-            | Database _ ->                 "specify a database name for store. Default (if Cosmos): Same as Source"
+            | Connection _ ->               $"""specify a connection string for the destination Cosmos account.
+                                            Default (From Cosmos): Same as Source.
+                                            Default (From Json): optional if environment variable {Args.Configuration.Cosmos.CONNECTION} specified"""
+            | Database _ ->                 $"""specify a database name for store.
+                                            Default (From Cosmos): Same as Source.
+                                            Default (From Json): optional if environment variable {Args.Configuration.Cosmos.DATABASE} specified"""
             | Container _ ->                "specify a container name for store."
             | LeaseContainerId _ ->         "store leases in Sync target DB (default: use `-aux` adjacent to the Source Container). Enables the Source to be read via a ReadOnly connection string."
             | Timeout _ ->                  "specify operation timeout in seconds. Default: 5."
@@ -130,7 +134,7 @@ and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
     let source =                            SourceArguments(c, p.GetResult CosmosParameters.From)
     let connection =                        match source.Store with
                                             | Cosmos c -> p.GetResult(Connection, fun () -> c.Connection)
-                                            | Json _ -> p.GetResult Connection
+                                            | Json _ -> p.GetResult(Connection, fun () -> c.CosmosConnection)
                                             | x -> p.Raise $"unexpected subcommand %A{x}"
     let connector =
         let timeout =                       p.GetResult(Timeout, 5) |> TimeSpan.seconds
@@ -139,7 +143,7 @@ and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
         Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, timeout, retries, maxRetryWaitTime)
     let database =                          match source.Store with
                                             | Cosmos c -> p.GetResult(Database, fun () -> c.Database)
-                                            | Json _ -> p.GetResult Database
+                                            | Json _ -> p.GetResult(Database, fun () -> c.CosmosDatabase)
                                             | x -> p.Raise $"unexpected subcommand %A{x}"
     let container =                         p.GetResult Container
     member val Source =                     source
