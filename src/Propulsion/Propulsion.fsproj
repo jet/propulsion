@@ -6,7 +6,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <!-- NOTE FSharp.Core dep is implies by what `FSharp.Control.TaskSeq` dictates; see below -->
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-<!--    <PackageValidationBaselineVersion>3.0.0-rc.14</PackageValidationBaselineVersion>-->
+    <PackageValidationBaselineVersion>3.0.0-rc.14.3</PackageValidationBaselineVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,14 +19,14 @@
     <Compile Include="Streams.fs" />
     <Compile Include="Sync.fs" />
     <Compile Include="Sinks.fs" />
-    <Compile Include="Feed.fs" />
-    <Compile Include="FeedMonitor.fs" />
-    <Compile Include="FeedReader.fs" />
-    <Compile Include="FeedSource.fs" />
-    <Compile Include="SinglePassFeedSource.fs" />
-    <Compile Include="JsonSource.fs" />
-    <Compile Include="PeriodicSource.fs" />
     <Compile Include="StreamFilter.fs" />
+    <Compile Include="Feed\Feed.fs" />
+    <Compile Include="Feed\FeedMonitor.fs" />
+    <Compile Include="Feed\FeedReader.fs" />
+    <Compile Include="Feed\FeedSource.fs" />
+    <Compile Include="Feed\SinglePassFeedSource.fs" />
+    <Compile Include="Feed\JsonSource.fs" />
+    <Compile Include="Feed\PeriodicSource.fs" />
   </ItemGroup>
 
   <ItemGroup>
