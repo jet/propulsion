@@ -5,7 +5,6 @@ open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
 open System
-open System.Collections.Generic
 
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
@@ -169,7 +168,7 @@ type FeedSource
             let readTs = Stopwatch.timestamp ()
             let! page = readPage.Invoke(trancheId, pos, ct)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail }: Core.Batch<_>)) }
+            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail }: Batch<_>)) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                            readPage: Func<TrancheId, Position, CancellationToken, Task<Page<Propulsion.Sinks.EventBody>>>, ct): Task<unit> =

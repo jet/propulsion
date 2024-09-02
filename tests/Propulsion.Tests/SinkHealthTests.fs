@@ -40,7 +40,7 @@ type Scenario(testOutput) =
         [|  sid "a-ok", mk 0 "EventType"
             failingSid, mk 0 "EventType"
             stuckSid, mk 0 "EventType"  |]
-    let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = items; isTail = true; checkpoint = Unchecked.defaultof<_> }: Core.Batch<_>))
+    let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = items; isTail = true; checkpoint = Unchecked.defaultof<_> }: Batch<_>))
 
     let extractHealthCheckExn (ex: Choice<_, exn>) =
         trap <@ match ex with
@@ -49,7 +49,7 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let run () = async {
-        let source = Propulsion.Feed.SinglePassFeedSource(log, TimeSpan.FromSeconds 5, SourceId.parse "sid", crawl, checkpoints, sink, string)
+        let source = SinglePassFeedSource(log, TimeSpan.FromSeconds 5, SourceId.parse "sid", crawl, checkpoints, sink, string)
         let src = source.Start(fun _ct -> task { return [| TrancheId.parse "tid" |] })
         let! monEx = src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Propulsion.Internal.Async.ofTask |> Async.Catch
         let me = extractHealthCheckExn monEx

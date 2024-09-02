@@ -19,7 +19,7 @@ module private Impl =
                            if streamFilter sn then Some struct (sn, msg) else None)
         let! items = if not withData then task { return filtered |> Seq.map (toStreamEvent null) |> Array.ofSeq }
                      else filtered |> Seq.map readWithDataAsStreamEvent |> Propulsion.Internal.Task.sequential ct
-        return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd }: Propulsion.Feed.Core.Batch<_>)  }
+        return ({ checkpoint = Propulsion.Feed.Position.parse page.NextPosition; items = items; isTail = page.IsEnd }: Propulsion.Feed.Batch<_>)  }
 
     let readTailPositionForTranche (store: SqlStreamStore.IStreamStore) _trancheId ct = task {
         let! lastEventPos = store.ReadHeadPosition(ct)

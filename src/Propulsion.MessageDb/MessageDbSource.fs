@@ -53,7 +53,7 @@ module Internal =
             let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
-        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Core.Batch<_>> = task {
+        member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Batch<_>> = task {
             use! conn = connect ct
             use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
@@ -61,7 +61,7 @@ module Internal =
             let events = [| while reader.Read() do parseRow reader |]
 
             let checkpoint = match Array.tryLast events with Some (_, ev) -> unbox<int64> ev.Context | None -> fromPositionInclusive
-            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 }: Core.Batch<_>) }
+            return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 }: Batch<_>) }
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct): Task<int64 voption> = task {
             use! conn = connect ct
@@ -70,7 +70,7 @@ module Internal =
             use! reader = command.ExecuteReaderAsync(ct)
             return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-    let internal readBatch batchSize (store: MessageDbCategoryClient) struct (category, pos, ct): Task<Core.Batch<_>> =
+    let internal readBatch batchSize (store: MessageDbCategoryClient) struct (category, pos, ct): Task<Batch<_>> =
         let positionInclusive = Position.toInt64 pos
         store.ReadCategoryMessages(category, positionInclusive, batchSize, ct)
 
