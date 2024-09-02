@@ -4,7 +4,9 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <PackageValidationBaselineVersion>3.0.0-rc.14</PackageValidationBaselineVersion>
+    <!-- NOTE FSharp.Core dep is implies by what `FSharp.Control.TaskSeq` dictates; see below -->
+    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+<!--    <PackageValidationBaselineVersion>3.0.0-rc.14</PackageValidationBaselineVersion>-->
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,20 +21,21 @@
     <Compile Include="Sinks.fs" />
     <Compile Include="Feed.fs" />
     <Compile Include="FeedMonitor.fs" />
-    <Compile Include="PropulsionPrometheus.fs" />
+    <Compile Include="FeedReader.fs" />
+    <Compile Include="FeedSource.fs" />
+    <Compile Include="SinglePassFeedSource.fs" />
+    <Compile Include="JsonSource.fs" />
+    <Compile Include="PeriodicSource.fs" />
     <Compile Include="StreamFilter.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
-    <!-- Exclude FSharp.Core.xml due to temporarly malformed state -->
-    <PackageReference Include="FSharp.Core" Version="6.0.0" ExcludeAssets="contentfiles" />
-
     <PackageReference Include="FsCodec" Version="3.0.0" />
+    <!-- NOTE this transitively implies a min FSharp.Core 6.0.1 dependency (was 6.0.0 before) -->
+    <PackageReference Include="FSharp.Control.TaskSeq" Version="0.4.0" />
     <PackageReference Include="MathNet.Numerics" Version="4.15.0" />
-    <!--    NB TEMP; needs to be shipped out-->
-    <PackageReference Include="prometheus-net" Version="3.6.0" />
     <PackageReference Include="Serilog" Version="2.7.1" />
   </ItemGroup>
 

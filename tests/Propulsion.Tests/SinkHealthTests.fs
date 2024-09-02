@@ -49,7 +49,7 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let run () = async {
-        let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromSeconds 5, SourceId.parse "sid", crawl, checkpoints, sink, string)
+        let source = Propulsion.Feed.SinglePassFeedSource(log, TimeSpan.FromSeconds 5, SourceId.parse "sid", crawl, checkpoints, sink, string)
         let src = source.Start(fun _ct -> task { return [| TrancheId.parse "tid" |] })
         let! monEx = src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Propulsion.Internal.Async.ofTask |> Async.Catch
         let me = extractHealthCheckExn monEx

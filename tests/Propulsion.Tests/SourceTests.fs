@@ -39,7 +39,7 @@ type Scenario(testOutput) =
     [<Theory; InlineData true; InlineData false>]
     let SinglePassFeedSource withWait = async {
         let crawl _ _ _ = TaskSeq.singleton <| struct (TimeSpan.FromSeconds 0.1, ({ items = Array.empty; isTail = true; checkpoint = Unchecked.defaultof<_> }: Core.Batch<_>))
-        let source = Propulsion.Feed.Core.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
+        let source = Propulsion.Feed.SinglePassFeedSource(log, TimeSpan.FromMinutes 1, SourceId.parse "sid", crawl, checkpoints, sink, string)
         use src = source.Start(fun _ct -> task { return [| TrancheId.parse "tid" |] })
         // SinglePassFeedSource completion includes Waiting for Completion of all Batches on all Tranches and Flushing of Checkpoints
         // Hence waiting with the Monitor is not actually necessary (though it provides progress logging which otherwise would be less thorough)
