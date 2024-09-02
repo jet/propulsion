@@ -37,7 +37,7 @@ type [<Sealed; AbstractClass>] JsonSource private () =
                     let lineNo = int64 i + 1L
                     try let items = if isEof then Array.empty
                                     else System.Text.Json.JsonDocument.Parse line |> parseFeedDoc |> Seq.toArray
-                        struct (System.TimeSpan.Zero, ({ items = items; isTail = isEof; checkpoint = Position.parse lineNo }: Core.Batch<_>))
+                        struct (System.TimeSpan.Zero, ({ items = items; isTail = isEof; checkpoint = Position.parse lineNo }: Batch<_>))
                     with e -> raise <| exn($"File Parse error on L{lineNo}: '{line.Substring(0, 200)}'", e) }
-        let source = Propulsion.Feed.Core.SinglePassFeedSource(log, statsInterval, sourceId, crawl, checkpoints, sink, string)
+        let source = SinglePassFeedSource(log, statsInterval, sourceId, crawl, checkpoints, sink, string)
         source.Start(fun _ct -> task { return [| TrancheId.parse "0" |] })

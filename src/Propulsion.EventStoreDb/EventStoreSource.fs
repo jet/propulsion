@@ -17,7 +17,7 @@ module private Impl =
         let pos = let p = pos |> Propulsion.Feed.Position.toInt64 |> uint64 in Position(p, p)
         let res = store.ReadAllAsync(Direction.Forwards, pos, batchSize, withData, cancellationToken = ct)
         let! batch = res |> TaskSeq.map _.Event |> TaskSeq.toArrayAsync
-        return ({ checkpoint = checkpointPos batch; items = toItems streamFilter batch; isTail = batch.LongLength <> batchSize }: Propulsion.Feed.Core.Batch<_>) }
+        return ({ checkpoint = checkpointPos batch; items = toItems streamFilter batch; isTail = batch.LongLength <> batchSize }: Propulsion.Feed.Batch<_>) }
 
     // @scarvel8: event_global_position = 256 x 1024 x 1024 x chunk_number + chunk_header_size (128) + event_position_offset_in_chunk
     let private chunk (pos: Position) = uint64 pos.CommitPosition >>> 28

@@ -5,7 +5,6 @@ open Propulsion
 open Propulsion.Feed
 open Propulsion.Internal
 open System
-open System.Collections.Generic
 
 /// Drives reading and checkpointing for a set of feeds (tranches) of a custom source feed
 type FeedSourceBase internal
@@ -124,21 +123,6 @@ type AllFeedSource
     member x.Start() =
         base.Start(x.Pump)
 
-/// Drives reading from the Source, stopping when the Tail of each of the Tranches has been reached
-type SinglePassFeedSource
-    (   log: Serilog.ILogger, statsInterval: TimeSpan,
-        sourceId,
-        crawl: Func<TrancheId, Position, CancellationToken, IAsyncEnumerable<struct (TimeSpan * Batch<_>)>>,
-        checkpoints: IFeedCheckpointStore, sink: Propulsion.Sinks.SinkPipeline,
-        ?renderPos, ?logReadFailure, ?readFailureSleepInterval, ?logCommitFailure) =
-    inherit TailingFeedSource(log, statsInterval, sourceId, (*tailSleepInterval*)TimeSpan.Zero, checkpoints, (*establishOrigin*)None, sink, defaultArg renderPos string,
-                              crawl,
-                              ?logReadFailure = logReadFailure, ?readFailureSleepInterval = readFailureSleepInterval, ?logCommitFailure = logCommitFailure,
-                              readersStopAtTail = true)
-
-    member x.Start(readTranches) =
-        base.Start(fun ct -> x.Pump(readTranches, ct))
-
 module Categories =
 
     let private startsWith (prefix: string) (s: FsCodec.StreamName) = (FsCodec.StreamName.toString s).StartsWith(prefix)
@@ -184,7 +168,7 @@ type FeedSource
             let readTs = Stopwatch.timestamp ()
             let! page = readPage.Invoke(trancheId, pos, ct)
             let items' = page.items |> Array.map (fun x -> struct (streamName, x))
-            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail }: Core.Batch<_>)) }
+            yield struct (Stopwatch.elapsed readTs, ({ items = items'; checkpoint = page.checkpoint; isTail = page.isTail }: Batch<_>)) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                            readPage: Func<TrancheId, Position, CancellationToken, Task<Page<Propulsion.Sinks.EventBody>>>, ct): Task<unit> =

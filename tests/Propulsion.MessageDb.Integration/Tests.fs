@@ -6,7 +6,6 @@ open Propulsion.Internal
 open Propulsion.MessageDb
 open Swensen.Unquote
 open System
-open System.Collections.Generic
 open System.Diagnostics
 open Xunit
 
@@ -76,7 +75,7 @@ let ``It processes events for a category`` () = task {
     let! checkpoints = makeCheckpoints consumerGroup
     let stats = stats log
     let mutable stop = ignore
-    let handled = HashSet<_>()
+    let handled = System.Collections.Generic.HashSet<_>()
     let handle stream (events: Propulsion.Sinks.Event[]) _ct = task {
         lock handled (fun _ ->
            for evt in events do

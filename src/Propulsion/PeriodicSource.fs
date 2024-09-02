@@ -7,7 +7,6 @@ namespace Propulsion.Feed
 open FSharp.Control // taskSeq
 open Propulsion.Internal
 open System
-open System.Collections.Generic
 
 /// Int64.MaxValue = 9223372036854775807
 /// ([datetimeoffset]::FromUnixTimeSeconds(9223372036854775807 / 1000000000)) is in 2262
@@ -55,7 +54,7 @@ type PeriodicSource
                                 defaultArg renderPos DateTimeOffsetPosition.render, defaultArg shutdownTimeout (TimeSpan.seconds 5))
 
     // We don't want to checkpoint for real until we know the scheduler has handled the full set of pages in the crawl.
-    let crawlInternal (read: Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct: IAsyncEnumerable<struct (TimeSpan * Core.Batch<_>)> = taskSeq {
+    let crawlInternal (read: Func<_, IAsyncEnumerable<struct (_ * _)>>) trancheId (_wasLast, position) ct: IAsyncEnumerable<struct (TimeSpan * Batch<_>)> = taskSeq {
         let startDate = DateTimeOffsetPosition.getDateTimeOffset position
         let dueDate = startDate + refreshInterval
         match dueDate - DateTimeOffset.UtcNow with
@@ -83,14 +82,14 @@ type PeriodicSource
                 let items = Array.zeroCreate ready
                 buffer.CopyTo(0, items, 0, ready)
                 buffer.RemoveRange(0, ready)
-                yield struct (elapsed, ({ items = items; checkpoint = position; isTail = false }: Core.Batch<_>))
+                yield struct (elapsed, ({ items = items; checkpoint = position; isTail = false }: Batch<_>))
                 elapsed <- TimeSpan.Zero
             | _ -> ()
         let items, checkpoint =
             match buffer.ToArray() with
             | [||] as noItems -> noItems, basePosition
             | finalItem -> finalItem, let struct (_s, e) = Array.last finalItem in e |> Core.TimelineEvent.toCheckpointPosition
-        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true }: Core.Batch<_>) }
+        yield elapsed, ({ items = items; checkpoint = checkpoint; isTail = true }: Batch<_>) }
 
     member internal _.Pump(readTranches: Func<CancellationToken, Task<TrancheId[]>>,
                            // The <c>TaskSeq</c> is expected to manage its own resilience strategy (retries etc). <br/>

@@ -8,22 +8,19 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="FeedReader.fs" />
-        <Compile Include="FeedSource.fs" />
-        <Compile Include="JsonSource.fs" />
-        <Compile Include="PeriodicSource.fs" />
+        <Compile Include="PropulsionPrometheus.fs" />
         <Compile Include="FeedPrometheus.fs" />
     </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
-
-        <PackageReference Include="FSharp.Control.TaskSeq" Version="0.4.0" />
+        
+        <PackageReference Include="prometheus-net" Version="3.6.0" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Condition=" '$(Configuration)' == 'Debug' " Include="..\Propulsion\Propulsion.fsproj" />
-        <PackageReference Condition=" '$(Configuration)' == 'Release' " Include="Propulsion" Version="[3.0.0-rc.14, 4.0.0)" />
+        <ProjectReference Condition=" '$(PinnedBaselineRootPackage)' == '' " Include="..\Propulsion\Propulsion.fsproj" />
+        <PackageReference Condition=" '$(PinnedBaselineRootPackage)' != '' " Include="Propulsion" Version="$(PinnedBaselineRootPackage)" />
     </ItemGroup>
 
 </Project>

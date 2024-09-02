@@ -90,6 +90,7 @@ module Exception =
     let [<return: Struct>] (|Log|_|) log (e: exn) = log e; ValueNone
 
 type CancellationToken = System.Threading.CancellationToken
+type IAsyncEnumerable<'T> = System.Collections.Generic.IAsyncEnumerable<'T>
 type Task = System.Threading.Tasks.Task
 type Task<'T> = System.Threading.Tasks.Task<'T>
 open System.Threading.Tasks
@@ -156,9 +157,7 @@ module Task =
         parallel_ 1 ct xs
     let parallelUnlimited ct xs: Task<'t []> =
         parallel_ 0 ct xs
-    let inline ignore<'T> (a: Task<'T>): Task<unit> = task {
-        let! _ = a
-        return () }
+    let inline ignore<'T> (a: Task<'T>): Task<unit> = task { let! _ = a in return () }
     let ofUnitTask (x: Task): Task<unit> = task { return! x }
     let periodically (f: CancellationToken -> Task<unit>) interval (ct: CancellationToken) = task {
         let t = new System.Threading.PeriodicTimer(interval) // no use as ct will Dispose

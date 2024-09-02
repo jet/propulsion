@@ -36,7 +36,7 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.SqlStreamStore",
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.CosmosStore", "src\Propulsion.CosmosStore\Propulsion.CosmosStore.fsproj", "{356294D8-DF59-4903-9A9C-03F0F459B2A3}"
 EndProject
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.Feed", "src\Propulsion.Feed\Propulsion.Feed.fsproj", "{B6C1C225-940C-425C-A2F7-A728AEBFCB31}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.Prometheus", "src\Propulsion.Prometheus\Propulsion.Prometheus.fsproj", "{B6C1C225-940C-425C-A2F7-A728AEBFCB31}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Propulsion.CosmosStore3", "src\Propulsion.CosmosStore3\Propulsion.CosmosStore3.fsproj", "{8A2D7DDF-ED05-4871-A2B1-66D22A581C95}"
 EndProject

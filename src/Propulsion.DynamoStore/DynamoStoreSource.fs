@@ -32,7 +32,7 @@ module private Impl =
         | Exceptions.ProvisionedThroughputExceeded when not force -> ()
         | e -> storeLog.Warning(e, "DynamoStoreSource commit failure")
 
-    let mkBatch position isTail items: Propulsion.Feed.Core.Batch<Propulsion.Sinks.EventBody> =
+    let mkBatch position isTail items: Propulsion.Feed.Batch<Propulsion.Sinks.EventBody> =
         { items = items; checkpoint = position; isTail = isTail }
     let sliceBatch epochId offset items =
         mkBatch (Checkpoint.positionOfEpochAndOffset epochId offset) false items

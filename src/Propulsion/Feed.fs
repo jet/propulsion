@@ -33,3 +33,12 @@ type IFeedCheckpointStore =
     /// Determines the starting position, and checkpointing frequency for a given tranche
     abstract member Start: source: SourceId * tranche: TrancheId * establishOrigin: Func<CancellationToken, Task<Position>> option * ct: CancellationToken -> Task<Position>
     abstract member Commit: source: SourceId * tranche: TrancheId * pos: Position * CancellationToken -> Task
+
+[<NoComparison; NoEquality>]
+type Batch<'F> =
+    {   items: Propulsion.Streams.StreamEvent<'F>[]
+        /// Next computed read position (inclusive). Checkpoint stores treat absence of a value as `Position.initial` (= `0`)
+        checkpoint: Position
+        /// Indicates whether the end of a feed has been reached (a batch being empty does not necessarily imply that)
+        /// Implies tail sleep delay. May trigger completion of `Monitor.AwaitCompletion`
+        isTail: bool }

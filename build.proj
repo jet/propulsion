@@ -20,10 +20,10 @@
     <Exec Command="dotnet pack src/Propulsion.DynamoStore.Lambda $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.DynamoStore.Notifier $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.EventStoreDb $(Cfg) $(PackOptions)" />
-    <Exec Command="dotnet pack src/Propulsion.Feed $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.Kafka $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.MemoryStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.MessageDb $(Cfg) $(PackOptions)" />
+    <Exec Command="dotnet pack src/Propulsion.Prometheus $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack src/Propulsion.SqlStreamStore $(Cfg) $(PackOptions)" />
     <Exec Command="dotnet pack tools/Propulsion.Tool $(Cfg) $(PackOptions)" />
     
