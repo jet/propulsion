@@ -36,11 +36,11 @@ type StreamFilter([<Optional>] allowCats, [<Optional>] denyCats, [<Optional>] al
         let denyCats = if includeSystem_ then denyCats else Array.append denyCats [| "^\$" |]
         let allowSns, denySns = match allowSns, denySns with [||], [||] -> [|".*"|], [||] | x -> x
         let allowEts, denyEts = match allowEts, denyEts with [||], [||] -> [|".*"|], [||] | x -> x
-        log.Value.Information("Categories ☑️ {@allowCats} 🚫{@denyCats} Streams ☑️ {@allowStreams} 🚫{denyStreams} Events ☑️ {allowEts} 🚫{@denyEts}",
+        log.Value.Information("Categories ✅{@allowCats} 🚫{@denyCats} Streams ✅{@allowStreams} 🚫{denyStreams} Events ✅{allowEts} 🚫{@denyEts}",
                               asRe allowCats, asRe denyCats, asRe allowSns, asRe denySns, asRe allowEts, asRe denyEts)
         fun sn ->
             validCat sn
             && validStream sn
             && (includeSystem || isTransactionalStream sn)
 
-    member val EventFilter = filter (fun (x: Propulsion.Sinks.Event) -> x.EventType) (allowEts, denyEts)
+    member _.CreateEventFilter<'EventBody>() = filter (fun (x: FsCodec.ITimelineEvent<'EventBody>) -> x.EventType) (allowEts, denyEts)

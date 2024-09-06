@@ -6,7 +6,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <!-- NOTE FSharp.Core dep is implies by what `FSharp.Control.TaskSeq` dictates; see below -->
     <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
-    <PackageValidationBaselineVersion>3.0.0-rc.14.3</PackageValidationBaselineVersion>
+<!--    <PackageValidationBaselineVersion>3.0.0-rc.14.3</PackageValidationBaselineVersion>-->
   </PropertyGroup>
 
   <ItemGroup>

@@ -260,7 +260,8 @@ let run appName (c: Args.Configuration, p: ParseResults<Parameters>) = async {
                                |> Propulsion.Codec.NewtonsoftJson.Serdes.Serialize
                     do! producer.ProduceAsync(FsCodec.StreamName.toString stream, json) |> Async.Ignore
                 return Outcome.render_ stream ham spam 0, Propulsion.Sinks.Events.next events }
-            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle a.Filters.EventFilter, stats,
+            let eventFilter = a.Filters.CreateEventFilter()
+            Propulsion.Sinks.Factory.StartConcurrent(Log.Logger, maxReadAhead, maxConcurrentProcessors, handle eventFilter, stats,
                                                      requireAll = requireAll)
         | SubCommand.Sync sa ->
             let eventsContext = sa.ConnectEvents() |> Async.RunSynchronously
