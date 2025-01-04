@@ -32,7 +32,7 @@ module private Impl =
 #else
     module StreamSpan =
 
-        let toNativeEventBody (x: EventBody): Equinox.CosmosStore.Core.EncodedBody = FsCodec.SystemTextJson.Encoding.OfEncodedUtf8 x
+        let toNativeEventBody (x: EventBody): Equinox.CosmosStore.Core.EncodedBody = FsCodec.SystemTextJson.Encoding.OfUtf8Encoded x
 #endif
 
 module Internal =

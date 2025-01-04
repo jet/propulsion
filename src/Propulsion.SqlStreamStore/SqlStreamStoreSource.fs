@@ -1,14 +1,12 @@
 namespace Propulsion.SqlStreamStore
 
-module EncodedBody = let bytes ((_t, d): FsCodec.EncodedBody) = d.Length
-
 module private Impl =
 
     let private toStreamEvent (dataJson: string) struct (sn, msg: SqlStreamStore.Streams.StreamMessage): Propulsion.Sinks.StreamEvent =
         let c = msg.Type
         let d = dataJson |> NotNull.map System.Text.Encoding.UTF8.GetBytes |> FsCodec.Encoding.OfBlob
         let m = msg.JsonMetadata |> NotNull.map System.Text.Encoding.UTF8.GetBytes |> FsCodec.Encoding.OfBlob
-        let sz = c.Length + EncodedBody.bytes d + EncodedBody.bytes m
+        let sz = c.Length + FsCodec.Encoding.ByteCount d + FsCodec.Encoding.ByteCount m
         sn, FsCodec.Core.TimelineEvent.Create(msg.StreamVersion, c, d, m, msg.MessageId, timestamp = System.DateTimeOffset(msg.CreatedUtc), size = sz)
     let private readWithDataAsStreamEvent (struct (_sn, msg: SqlStreamStore.Streams.StreamMessage) as m) ct = task {
         let! json = msg.GetJsonData(ct)
