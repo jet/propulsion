@@ -5,7 +5,7 @@ open Propulsion.Internal
 open System
 
 /// Canonical Data/Meta type supplied by the majority of Sources
-type EventBody = ReadOnlyMemory<byte>
+type EventBody = FsCodec.EncodedBody
 
 /// Timeline Event with Data/Meta in the default format
 type Event = FsCodec.ITimelineEvent<EventBody>

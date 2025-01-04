@@ -12,7 +12,6 @@ module EquinoxSystemTextJsonParser =
 
     type System.Text.Json.JsonElement with
         member x.Cast<'T>() = System.Text.Json.JsonSerializer.Deserialize<'T>(x)
-        member x.ToSinkEventBody() = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes x |> System.ReadOnlyMemory
 
     type System.Text.Json.JsonDocument with member x.Cast<'T>() = x.RootElement.Cast<'T>()
     let timestamp (doc: System.Text.Json.JsonDocument) =
@@ -38,12 +37,13 @@ module EquinoxSystemTextJsonParser =
     /// Enumerates the Events and/or Unfolds represented within an Equinox.CosmosStore Batch or Tip Item
     let enumEquinoxCosmosBatchOrTip (u: System.Text.Json.JsonElement voption) (batch: Batch): Event seq =
         let inline gen isUnfold i (x: Equinox.CosmosStore.Core.Event) =
-            let d = x.d.ToSinkEventBody()
-            let m = x.m.ToSinkEventBody()
+            let d = EncodedBody.ofUnfoldBody (x.D, x.d) |> FsCodec.SystemTextJson.Encoding.ToEncodedUtf8
+            let m = EncodedBody.ofUnfoldBody (x.M, x.m) |> FsCodec.SystemTextJson.Encoding.ToEncodedUtf8
             let inline len s = if isNull s then 0 else String.length s
+            let size = x.c.Length + FsCodec.Encoding.ByteCount d + FsCodec.Encoding.ByteCount m
+                       + len x.correlationId + len x.causationId + 80
             FsCodec.Core.TimelineEvent.Create(i, x.c, d, m, timestamp = x.t,
-                                              size = x.c.Length + d.Length + m.Length + len x.correlationId + len x.causationId + 80,
-                                              correlationId = x.correlationId, causationId = x.causationId, isUnfold = isUnfold)
+                                              size = size, correlationId = x.correlationId, causationId = x.causationId, isUnfold = isUnfold)
         let events = batch.e |> Seq.mapi (fun offset -> gen false (batch.i + int64 offset))
         // an Unfold won't have a corr/cause id, but that's OK - can't use Tip type as don't want to expand compressed form etc
         match u |> ValueOption.map (fun u -> u.Cast<Equinox.CosmosStore.Core.Event[]>()) with
@@ -87,8 +87,6 @@ module EquinoxNewtonsoftParser =
     type Newtonsoft.Json.Linq.JObject with
         member document.Cast<'T>() =
             document.ToObject<'T>()
-    type Batch with
-        member _.MapData x = x
 
     let timestamp (doc: Newtonsoft.Json.Linq.JObject) =
         let unixEpoch = System.DateTime.UnixEpoch
@@ -101,7 +99,7 @@ module EquinoxNewtonsoftParser =
     /// Enumerates the events represented within a batch
     let enumEquinoxCosmosEvents (batch: Batch): StreamEvent seq =
         let streamName = FsCodec.StreamName.parse batch.p // we expect all Equinox data to adhere to "{category}-{streamId}" form (or we'll throw)
-        batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, batch.MapData x.d, batch.MapData x.m, timestamp=x.t))
+        batch.e |> Seq.mapi (fun offset x -> streamName, FsCodec.Core.TimelineEvent.Create(batch.i + int64 offset, x.c, FsCodec.Encoding.OfBlob x.d, FsCodec.Encoding.OfBlob x.m, timestamp = x.t))
 
     /// Collects all events with a Document [typically obtained via the CosmosDb ChangeFeed] that potentially represents an Equinox.Cosmos event-batch
     let enumStreamEvents d: StreamEvent seq =

@@ -50,7 +50,7 @@ module private Impl =
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
             let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
-            let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
+            let totalEvents = all |> Array.sumBy _.c.Length
             let mutable chosenEvents = 0
             let chooseStream (span: AppendsEpoch.Events.StreamSpan) =
                 match maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) with
@@ -84,7 +84,7 @@ module private Impl =
                     | true, (items: FsCodec.ITimelineEvent<_>[]) ->
                         // NOTE this could throw if a span has been indexed, but the stream read is from a replica that does not yet have it
                         //      the exception in that case will trigger a safe re-read from the last saved read position that a consumer has forwarded
-                        // TOCONSIDER revise logic to share session key etc to rule this out
+                        // TOCONSIDER revise logic to share session key etc. to rule this out
                         let events = Array.sub items (span.i - items[0].Index |> int) span.c.Length
                         for e in events -> struct (IndexStreamId.toStreamName span.p, e) |] }
         let mutable prevLoaded, batchIndex = 0L, 0
@@ -123,13 +123,12 @@ type EventLoadMode =
                   * /// Defines the Context to use when loading the Event Data/Meta
                   storeContext: DynamoStoreContext
 module internal EventLoadMode =
-    let private mapTimelineEvent = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Compression.EncodedToUtf8)
     let private withData (eventsContext: Equinox.DynamoStore.Core.EventsContext) streamFilter =
         fun sn (i, cs: string[]) ->
             if streamFilter sn then
                 ValueSome (fun ct -> task {
                     let! events = eventsContext.Read(sn, ct, i, maxCount = cs.Length)
-                    return events |> Array.map mapTimelineEvent })
+                    return events })
             else ValueNone
     let private withoutData streamFilter =
         fun sn (i, cs) ->

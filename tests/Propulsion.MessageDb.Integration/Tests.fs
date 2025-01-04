@@ -14,7 +14,7 @@ module Simple =
     type Event =
         | Hello of Hello
         interface TypeShape.UnionContract.IUnionContract
-    let codec = FsCodec.SystemTextJson.Codec.Create<Event>()
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Encoder.Uncompressed
 
 let createStreamMessage streamName =
     let cmd = NpgsqlBatchCommand()

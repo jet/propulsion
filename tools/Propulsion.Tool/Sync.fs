@@ -137,10 +137,9 @@ and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
                                             | Json _ -> p.GetResult(Connection, fun () -> c.CosmosConnection)
                                             | x -> p.Raise $"unexpected subcommand %A{x}"
     let connector =
-        let timeout =                       p.GetResult(Timeout, 5) |> TimeSpan.seconds
         let retries =                       p.GetResult(Retries, 2)
         let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5) |> TimeSpan.seconds
-        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, timeout, retries, maxRetryWaitTime)
+        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, retries, maxRetryWaitTime)
     let database =                          match source.Store with
                                             | Cosmos c -> p.GetResult(Database, fun () -> c.Database)
                                             | Json _ -> p.GetResult(Database, fun () -> c.CosmosDatabase)

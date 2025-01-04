@@ -32,18 +32,18 @@ module Internal =
         do! conn.OpenAsync(ct)
         return conn }
 
-    let private jsonNull = ReadOnlyMemory(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(null))
+    let private jsonNull = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes null
 
     type System.Data.Common.DbDataReader with
         member reader.GetJson idx =
             if reader.IsDBNull(idx) then jsonNull
-            else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes |> ReadOnlyMemory
+            else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes
 
     type MessageDbCategoryClient(connectionString) =
         let connect = createConnectionAndOpen connectionString
         let parseRow (reader: System.Data.Common.DbDataReader) =
-            let et, data, meta = reader.GetString(1), reader.GetJson 2, reader.GetJson 3
-            let sz = data.Length + meta.Length + et.Length
+            let et, data, meta = reader.GetString(1), reader.GetJson 2 |> FsCodec.Encoding.OfBlob, reader.GetJson 3 |> FsCodec.Encoding.OfBlob
+            let sz = FsCodec.Encoding.ByteCount data + FsCodec.Encoding.ByteCount meta + et.Length
             let event = FsCodec.Core.TimelineEvent.Create(
                 index = reader.GetInt64(0), // index within the stream, 0 based
                 eventType = et, data = data, meta = meta, eventId = reader.GetGuid(4),

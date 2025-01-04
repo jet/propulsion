@@ -43,7 +43,7 @@ module Events =
     let codec = FsCodec.Box.Codec.Create<Event>()
 #else
 #if DYNAMOSTORE
-    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Compression.EncodeUncompressed
+    let codec = FsCodec.SystemTextJson.Codec.Create<Event>() |> FsCodec.Encoder.Uncompressed
 #else
 #if !COSMOSV3
     let codec = FsCodec.SystemTextJson.CodecJsonElement.Create<Event>()
@@ -193,7 +193,7 @@ module CosmosStore =
 
     let accessStrategy = AccessStrategy.Custom (Fold.isOrigin, Fold.transmute)
     let create log (consumerGroupName, defaultCheckpointFrequency) (context, cache) =
-        let cat = CosmosStoreCategory(context, Stream.Category, Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
+        let cat = CosmosStoreCategory(context, Stream.Category, FsCodec.SystemTextJson.Encoder.Compressed Events.codec, Fold.fold, Fold.initial, accessStrategy, cacheStrategy cache)
         let resolve = Equinox.Decider.forStream log cat
         Service(Stream.id >> resolve, consumerGroupName, defaultCheckpointFrequency)
 #else

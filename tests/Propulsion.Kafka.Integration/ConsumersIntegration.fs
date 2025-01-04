@@ -96,7 +96,7 @@ module Helpers =
     }
 
     let deserialize consumerId (e: ITimelineEvent<Propulsion.Sinks.EventBody>): ConsumedTestMessage =
-        { consumerId = consumerId; meta = serdes.Deserialize(e.Data); payload = unbox e.Context }
+        { consumerId = consumerId; meta = serdes.Deserialize(Encoding.ToBlob e.Data); payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
         inherit Propulsion.Streams.Stats<unit>(log, statsInterval, stateInterval)
@@ -147,7 +147,7 @@ module Helpers =
 
     let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>): Propulsion.Sinks.EventBody * obj =
         let m = Binding.message x
-        System.Text.Encoding.UTF8.GetBytes(m.Value) |> ReadOnlyMemory,
+        System.Text.Encoding.UTF8.GetBytes m.Value |> Encoding.OfBlob,
         box { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value }
 
     let runConsumersStream log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {

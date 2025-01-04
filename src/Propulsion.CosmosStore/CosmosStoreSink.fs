@@ -15,7 +15,8 @@ module private Impl =
     type EventBody = byte[] // V4 defines one directly, here we shim it
     module StreamSpan =
 
-        let toNativeEventBody (xs: Propulsion.Sinks.EventBody): byte[] = xs.ToArray()
+        let toNativeEventBody (x: Propulsion.Sinks.EventBody): EventBody = FsCodec.Encoding.ToBlob(x).ToArray()
+
     // Trimmed edition of what V4 exposes
     module internal Equinox =
         module CosmosStore =
@@ -31,11 +32,7 @@ module private Impl =
 #else
     module StreamSpan =
 
-        // v4 and later use JsonElement, but Propulsion is using ReadOnlyMemory<byte> rather than assuming and/or offering optimization for JSON bodies
-        open System.Text.Json
-        let toNativeEventBody (x: EventBody): JsonElement =
-            if x.IsEmpty then JsonElement()
-            else JsonSerializer.Deserialize<JsonElement>(x.Span)
+        let toNativeEventBody (x: EventBody): Equinox.CosmosStore.Core.EncodedBody = FsCodec.SystemTextJson.Encoding.OfEncodedUtf8 x
 #endif
 
 module Internal =
@@ -65,7 +62,7 @@ module Internal =
         let write (log: ILogger) (ctx: EventsContext) stream (span: Event[]) ct = task {
             let i = StreamSpan.index span
             let n = StreamSpan.next span
-            let mapData = FsCodec.Core.EventData.Map StreamSpan.toNativeEventBody
+            let mapData = FsCodec.Core.EventData.mapBodies StreamSpan.toNativeEventBody
 #if COSMOSV3
             span |> Seq.iter (fun x -> if x.IsUnfold then invalidOp "CosmosStore3 does not [yet] support ingesting unfolds")
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
