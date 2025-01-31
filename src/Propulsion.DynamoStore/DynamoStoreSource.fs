@@ -50,7 +50,7 @@ module private Impl =
         sw.Stop()
         let totalStreams, chosenEvents, totalEvents, streamEvents =
             let all = state.changes |> Seq.collect (fun struct (_i, xs) -> xs) |> AppendsEpoch.flatten |> Array.ofSeq
-            let totalEvents = all |> Array.sumBy _.c.Length
+            let totalEvents = all |> Array.sumBy (fun x -> x.c.Length)
             let mutable chosenEvents = 0
             let chooseStream (span: AppendsEpoch.Events.StreamSpan) =
                 match maybeLoad (IndexStreamId.toStreamName span.p) (span.i, span.c) with

@@ -10,7 +10,7 @@ module Metrics =
     let [<Literal>] PropertyTag = "isMetric"
     let mutable log = Log.ForContext(PropertyTag, true)
     // In a real app, you have a separate module Store with Metrics inside, and the static initializer is not triggered too early
-    // TODO get rid of this; I have up this time around :(
+    // TODO get rid of this; I gave up this time around :(
     let init () = log <- Log.ForContext(PropertyTag, true)
 
 module EnvVar =
