@@ -10,9 +10,7 @@ open Propulsion.Sinks
 #if !COSMOSV3
 module EquinoxSystemTextJsonParser =
 
-    type System.Text.Json.JsonElement with
-        member x.Cast<'T>() = System.Text.Json.JsonSerializer.Deserialize<'T>(x)
-
+    type System.Text.Json.JsonElement with member x.Cast<'T>() = System.Text.Json.JsonSerializer.Deserialize<'T>(x)
     type System.Text.Json.JsonDocument with member x.Cast<'T>() = x.RootElement.Cast<'T>()
     let timestamp (doc: System.Text.Json.JsonDocument) =
         let unixEpoch = System.DateTime.UnixEpoch
