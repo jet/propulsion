@@ -44,7 +44,7 @@ module EquinoxSystemTextJsonParser =
                                               size = size, correlationId = x.correlationId, causationId = x.causationId, isUnfold = isUnfold)
         let events = batch.e |> Seq.mapi (fun offset -> gen false (batch.i + int64 offset))
         // an Unfold won't have a corr/cause id, but that's OK - can't use Tip type as don't want to expand compressed form etc
-        match u |> ValueOption.map (fun u -> u.Cast<Equinox.CosmosStore.Core.Event[]>()) with
+        match u |> ValueOption.map (fun x -> x.Cast<Equinox.CosmosStore.Core.Event[]>()) with
         | ValueNone | ValueSome null | ValueSome [||] -> events
         | ValueSome unfolds -> seq {
             yield! events

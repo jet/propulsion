@@ -96,7 +96,7 @@ module Helpers =
     }
 
     let deserialize consumerId (e: ITimelineEvent<Propulsion.Sinks.EventBody>): ConsumedTestMessage =
-        { consumerId = consumerId; meta = serdes.Deserialize(Encoding.ToBlob e.Data); payload = unbox e.Context }
+        { consumerId = consumerId; meta = serdes.Deserialize(e.Data); payload = unbox e.Context }
 
     type Stats(log, statsInterval, stateInterval) =
         inherit Propulsion.Streams.Stats<unit>(log, statsInterval, stateInterval)
