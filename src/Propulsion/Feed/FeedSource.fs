@@ -133,8 +133,8 @@ module Categories =
 
     let mapFilters categories streamFilter =
         match categories, streamFilter with
-        | None, None ->                   fun _ -> true
-        | Some categories, None -> categoryFilter categories
+        | None, None ->                         fun _ -> true
+        | Some categories, None ->              categoryFilter categories
         | None, Some (filter: Func<_, bool>) -> filter.Invoke
         | Some categories, Some filter ->
             let categoryFilter = categoryFilter categories

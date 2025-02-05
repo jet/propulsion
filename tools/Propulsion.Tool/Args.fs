@@ -57,9 +57,8 @@ module Cosmos =
         | [<AltCommandLine "-s">]           Connection of string
         | [<AltCommandLine "-d">]           Database of string
         | [<AltCommandLine "-c">]           Container of string
-        | [<AltCommandLine "-o">]           Timeout of float
         | [<AltCommandLine "-r">]           Retries of int
-        | [<AltCommandLine "-rt">]          RetriesWaitTime of float
+        | [<AltCommandLine "-o">]           RetriesWaitTime of float
         | [<AltCommandLine "-a"; Unique>]   LeaseContainer of string
         | [<AltCommandLine "-as"; Unique>]  Suffix of string
 
@@ -70,7 +69,6 @@ module Cosmos =
                 | Connection _ ->           "specify a connection string for a Cosmos account. (optional if environment variable " + CONNECTION + " specified)"
                 | Database _ ->             "specify a database name for Cosmos store. (optional if environment variable " + DATABASE + " specified)"
                 | Container _ ->            "specify a container name for Cosmos store. (optional if environment variable " + CONTAINER + " specified)"
-                | Timeout _ ->              "specify operation timeout in seconds (default: 5)."
                 | Retries _ ->              "specify operation retries (default: 1)."
                 | RetriesWaitTime _ ->      "specify max wait-time for retry when being throttled by Cosmos in seconds (default: 5)"
                 | LeaseContainer _ ->       "Specify full Lease Container Name (default: Container + Suffix)."
@@ -80,11 +78,10 @@ module Cosmos =
     type Arguments(c: Configuration, p: ParseResults<Parameters>) =
         let connection =                    p.GetResult(Connection, fun () -> c.CosmosConnection)
         let connector =
-            let timeout =                   p.GetResult(Timeout, 5.) |> TimeSpan.seconds
             let retries =                   p.GetResult(Retries, 1)
             let maxRetryWaitTime =          p.GetResult(RetriesWaitTime, 5.) |> TimeSpan.seconds
             let mode =                      p.TryGetResult ConnectionMode
-            Equinox.CosmosStore.CosmosStoreConnector((connection |> Equinox.CosmosStore.Discovery.ConnectionString), timeout, retries, maxRetryWaitTime, ?mode = mode)
+            Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, retries, maxRetryWaitTime, ?mode = mode)
         let databaseId =                    p.GetResult(Database, fun () -> c.CosmosDatabase)
         let containerId =                   p.GetResult(Container, fun () -> c.CosmosContainer)
         let leasesContainerName =           p.GetResult(LeaseContainer, fun () -> containerId + p.GetResult(Suffix, "-aux"))

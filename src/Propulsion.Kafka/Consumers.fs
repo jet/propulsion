@@ -32,8 +32,8 @@ module private Impl =
 
     /// guesstimate approximate message size in bytes
     let approximateMessageBytes (m: Message<string, string>) =
-        let inline len (x: string) = match x with null -> 0 | x -> sizeof<char> * x.Length
-        16 + len m.Key + len m.Value |> int64
+        let inline stringLen (x: string) = match x with null -> 0 | x -> sizeof<char> * x.Length
+        16 + stringLen m.Key + stringLen m.Value |> int64
 
 module private Binding =
 
@@ -259,7 +259,7 @@ module Core =
         if m = null then invalidOp "Cannot dereference null message"
         let data = System.Text.Encoding.UTF8.GetBytes m.Value
         let context = { topic = result.Topic; partition = Binding.partitionValue result.Partition; offset = Binding.offsetValue result.Offset }
-        (ReadOnlyMemory data, box context)
+        (FsCodec.Encoding.OfBlob data, box context)
 
 /// StreamsSink buffers and deduplicates messages from a contiguous stream with each event bearing a monotonically incrementing `Index`.
 /// Where the messages we consume don't have such characteristics, we need to maintain a fake `Index` by keeping an int per stream in a dictionary
@@ -325,7 +325,7 @@ type StreamNameSequenceGenerator() =
     member x.KeyValueToStreamEvent(KeyValue (k, v: string), ?eventType, ?defaultCategory): StreamEvent seq =
         let sn = Core.parseMessageKey (defaultArg defaultCategory String.Empty) k
         let e = FsCodec.Core.TimelineEvent.Create(x.GenerateIndex sn, defaultArg eventType String.Empty, System.Text.Encoding.UTF8.GetBytes v |> ReadOnlyMemory)
-        Seq.singleton (sn, e)
+        Seq.singleton (sn, FsCodec.Core.TimelineEvent.mapBodies FsCodec.Encoding.OfBlob e)
 
 [<AbstractClass; Sealed>]
 type Factory private () =

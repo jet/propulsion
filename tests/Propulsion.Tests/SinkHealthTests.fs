@@ -35,7 +35,7 @@ type Scenario(testOutput) =
     let dispose () =
         sink.Stop()
         sink.Await() |> Async.Catch |> Async.RunSynchronously |> ignore
-    let mk p c: FsCodec.ITimelineEvent<_> = FsCodec.Core.TimelineEvent.Create(p, c, Propulsion.Sinks.EventBody.Empty)
+    let mk p c: FsCodec.ITimelineEvent<_> = FsCodec.Core.TimelineEvent.Create(p, c, FsCodec.Encoding.OfBlob ReadOnlyMemory.Empty)
     let items: Propulsion.Sinks.StreamEvent[] =
         [|  sid "a-ok", mk 0 "EventType"
             failingSid, mk 0 "EventType"

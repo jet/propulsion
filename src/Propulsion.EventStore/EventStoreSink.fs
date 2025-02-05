@@ -40,9 +40,9 @@ module Internal =
             let i = StreamSpan.index span
             log.Debug("Writing {s}@{i}x{n}", stream, i, span.Length)
 #if EVENTSTORE_LEGACY
-            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (fun span -> span :> _))
+            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (FsCodec.Core.EventData.mapBodies FsCodec.Encoding.ToBlob))
 #else
-            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (fun span -> span :> _), ct)
+            let! res = context.Sync(log, stream, i - 1L, span |> Array.map (FsCodec.Core.EventData.mapBodies FsCodec.Encoding.ToBlob), ct)
 #endif
             let res' =
                 match res with

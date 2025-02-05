@@ -60,15 +60,15 @@ type [<NoEquality; NoComparison>] RenderedSpan =
 module RenderedSpan =
 
     let ofStreamSpan streamName (span: Event[]): RenderedSpan =
-        let ta (x: EventBody) = x.ToArray()
+        let ta (x: EventBody) = FsCodec.Encoding.ToBlob(x).ToArray()
         {   s = FsCodec.StreamName.toString streamName
             i = span[0].Index
             e = span |> Array.map (fun x -> { c = x.EventType; t = x.Timestamp; d = ta x.Data; m = ta x.Meta }) }
 
     let enum (span: RenderedSpan): StreamEvent seq =
         let streamName = Propulsion.Streams.StreamName.internalParseSafe span.s
-        let td (x: byte[]): EventBody = System.ReadOnlyMemory x
-        let inline mkEvent offset (e: RenderedEvent) = FsCodec.Core.TimelineEvent.Create(span.i+int64 offset, e.c, td e.d, td e.m, timestamp = e.t)
+        let td (x: byte[]): EventBody = FsCodec.Encoding.OfBlob x
+        let inline mkEvent offset (e: RenderedEvent) = FsCodec.Core.TimelineEvent.Create(span.i + int64 offset, e.c, td e.d, td e.m, timestamp = e.t)
         span.e |> Seq.mapi (fun i e -> streamName, mkEvent i e)
 
     let parse (spanJson: string): StreamEvent seq =
@@ -92,7 +92,7 @@ type [<NoEquality; NoComparison>] RenderedSummary =
 module RenderedSummary =
 
     let ofStreamEvents (streamName: FsCodec.StreamName) (index: int64) (events: FsCodec.IEventData<EventBody> seq): RenderedSummary =
-        let ta (x: EventBody): byte[] = x.ToArray()
+        let ta (x: EventBody): byte[] = FsCodec.Encoding.ToBlob(x).ToArray()
         {   s = FsCodec.StreamName.toString streamName
             i = index
             u = [| for x in events -> { c = x.EventType; t = x.Timestamp; d = ta x.Data; m = ta x.Meta } |] }
@@ -102,7 +102,7 @@ module RenderedSummary =
 
     let enum (span: RenderedSummary): StreamEvent seq =
         let streamName = Propulsion.Streams.StreamName.internalParseSafe span.s
-        seq { for e in span.u -> streamName, FsCodec.Core.TimelineEvent.Create(span.i, e.c, e.d, e.m, timestamp=e.t, isUnfold=true) }
+        seq { for e in span.u -> streamName, FsCodec.Core.TimelineEvent.Create(span.i, e.c, FsCodec.Encoding.OfBlob e.d, FsCodec.Encoding.OfBlob e.m, timestamp = e.t, isUnfold = true) }
 
     let parse (spanJson: string): StreamEvent seq =
         spanJson |> RenderedSummary.Parse |> enum
