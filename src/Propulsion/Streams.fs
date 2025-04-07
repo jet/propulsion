@@ -1112,7 +1112,7 @@ type Stats<'Outcome>(log: ILogger, statsInterval, statesInterval,
     override _.DumpStats() =
         if resultOk <> 0 then
             log.Information("Projected {mb:n0}MB {completed:n0}r {streams:n0}s {events:n0}e {unfolds:n0}u ({ok:n0} ok)",
-                        Log.miB okBytes, resultOk, okStreams.Count, okEvents, resultOk)
+                        Log.miB okBytes, resultOk, okStreams.Count, okEvents, okUnfolds, resultOk)
             okStreams.Clear(); resultOk <- 0; okEvents <- 0; okUnfolds <- 0; okBytes <- 0L
         if resultExn <> 0 then
             log.Warning(" Exceptions {mb:n0}MB {fails:n0}r {streams:n0}s {events:n0}e {unfolds:n0}u",
