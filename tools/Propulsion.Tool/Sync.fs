@@ -106,17 +106,18 @@ and KafkaArguments(c: Args.Configuration, p: ParseResults<KafkaParameters>) =
     member val Topic =                      p.GetResult(Topic, fun () -> c.KafkaTopic)
     member val Source =                     SourceArguments(c, p.GetResult KafkaParameters.From)
 and [<NoEquality; NoComparison; RequireSubcommand>] CosmosParameters =
+    | [<AltCommandLine "-m">]               ConnectionMode of Microsoft.Azure.Cosmos.ConnectionMode
     | [<AltCommandLine "-s">]               Connection of string
     | [<AltCommandLine "-d">]               Database of string
     | [<AltCommandLine "-c"; Mandatory>]    Container of string
     | [<AltCommandLine "-a">]               LeaseContainerId of string
-    | [<AltCommandLine "-o">]               Timeout of float
     | [<AltCommandLine "-r">]               Retries of int
     | [<AltCommandLine "-rt">]              RetriesWaitTime of float
     | [<AltCommandLine "-kb">]              MaxKiB of int
     | [<CliPrefix(CliPrefix.None); Last>]   From of ParseResults<SourceParameters>
     interface IArgParserTemplate with
         member a.Usage = a |> function
+            | ConnectionMode _ ->           "override the connection mode. Default: Direct."
             | Connection _ ->               $"""specify a connection string for the destination Cosmos account.
                                             Default (From Cosmos): Same as Source.
                                             Default (From Json): optional if environment variable {Args.Configuration.Cosmos.CONNECTION} specified"""
@@ -125,7 +126,6 @@ and [<NoEquality; NoComparison; RequireSubcommand>] CosmosParameters =
                                             Default (From Json): optional if environment variable {Args.Configuration.Cosmos.DATABASE} specified"""
             | Container _ ->                "specify a container name for store."
             | LeaseContainerId _ ->         "store leases in Sync target DB (default: use `-aux` adjacent to the Source Container). Enables the Source to be read via a ReadOnly connection string."
-            | Timeout _ ->                  "specify operation timeout in seconds. Default: 5."
             | Retries _ ->                  "specify operation retries. Default: 2."
             | RetriesWaitTime _ ->          "specify max wait-time for retry when being throttled by Cosmos in seconds. Default: 5."
             | MaxKiB _ ->                   "specify maximum size in KiB to pass to the Sync stored proc (reduce if Malformed Streams due to 413 RequestTooLarge responses). Default: 128."
@@ -139,7 +139,8 @@ and CosmosArguments(c: Args.Configuration, p: ParseResults<CosmosParameters>) =
     let connector =
         let retries =                       p.GetResult(Retries, 2)
         let maxRetryWaitTime =              p.GetResult(RetriesWaitTime, 5) |> TimeSpan.seconds
-        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, retries, maxRetryWaitTime)
+        let mode =                          p.TryGetResult ConnectionMode
+        Equinox.CosmosStore.CosmosStoreConnector(Equinox.CosmosStore.Discovery.ConnectionString connection, retries, maxRetryWaitTime, ?mode = mode)
     let database =                          match source.Store with
                                             | Cosmos c -> p.GetResult(Database, fun () -> c.Database)
                                             | Json _ -> p.GetResult(Database, fun () -> c.CosmosDatabase)

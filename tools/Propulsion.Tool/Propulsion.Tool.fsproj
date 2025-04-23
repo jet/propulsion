@@ -31,7 +31,7 @@
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
     <!-- The tool should use a relatively fresh Cosmos lib; Equinox.CosmosStore has a conservative dependency-->
-    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.46.0" />
+    <PackageReference Include="Microsoft.Azure.Cosmos" Version="3.49.0" />
 
 	<PackageReference Include="Argu" Version="6.2.2" />
     <!-- Required or there'll be an exception at runtime re missing support DLLs when using RBAC -->

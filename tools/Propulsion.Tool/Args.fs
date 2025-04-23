@@ -58,7 +58,7 @@ module Cosmos =
         | [<AltCommandLine "-d">]           Database of string
         | [<AltCommandLine "-c">]           Container of string
         | [<AltCommandLine "-r">]           Retries of int
-        | [<AltCommandLine "-o">]           RetriesWaitTime of float
+        | [<AltCommandLine "-rt">]          RetriesWaitTime of float
         | [<AltCommandLine "-a"; Unique>]   LeaseContainer of string
         | [<AltCommandLine "-as"; Unique>]  Suffix of string
 
