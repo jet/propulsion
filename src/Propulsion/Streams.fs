@@ -7,6 +7,7 @@ open System.Collections.Generic
 
 module Log =
 
+    [<NoEquality; NoComparison>]
     type BufferMetric = { cats: int; streams: int; events: int; bytes: int64 }
     [<RequireQualifiedAccess; NoEquality; NoComparison>]
     type Metric =
@@ -487,7 +488,7 @@ module Scheduling =
                 member x.MaxAge = let _, struct (oldest, _) = x.State in oldest
                 member _.TryGet sn = match state.TryGetValue sn with true, v -> ValueSome v.count | _ -> ValueNone
 
-            type [<Struct>] State = Running | Slow of s: int | Failing of c: int | Stuck of c2: int | Waiting
+            type [<Struct; NoEquality; NoComparison>] State = Running | Slow of s: int | Failing of c: int | Stuck of c2: int | Waiting
             /// Collates all state and reactions to manage the list of busy streams based on callbacks/notifications from the Dispatcher
             type Monitor() =
                 let active, failing, stuck = Active(), Repeating(), Repeating()
