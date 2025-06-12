@@ -398,15 +398,6 @@ The key ingredient in achieving efficiency equivalent to that attainable when wo
 
 NOTE batching should only be used where there is a direct benefit (the batch handler can run every request as part of a single roundtrip). For instance, if the handler needs to do a roundtrip per downstream tenant, it's better to route through a `BatcherDictionary<TenantId, Batcher>` than to force them through a single gate.
 
-# Handler expectations / assumptions
-
-All processing within the Indexer adheres to the following rules and/or conventions:
-- in addition to normal at least once delivery handling, handlers are expected to efficiently handle complete re-traversal of all events as standard function
-- processing logic works on a streams basis: while the behavior is in some cases predicated on specific Event Types, all behaviors work in a batches fashion at the stream level. Each time the handler is invoked, the entire set of buffered events is presented. Within the handler, the processing batches the work to the maximum degree possible.
-- there are no cross-stream ordering requirements/constraints (any handler that has a dependency on data outside of a given stream is expected to internally manage the correlation in an appropriate way, e.g., the handler may implement states within the derived information such that it buffers child information until such time as related parent information is required)
-- checkpoints are maintained in the Main Container's `-aux` Container (by default, there's a container adjacent any source ('Monitored') Container that maintains the checkpoints, this is referred to as the 'Leases Container') per the normal Cosmos ChangeFeed processor convention. (The Leases Container is referred to as that due to the fact that each consumer group's checkpoint )
-- processing stops if an error is encountered; i.e. there is no dead-lettering or similar facility - progress is not marked against the source for any given batch of input events until each and every event has been successfully processed. This philosophy is often referred to as an [Andon cord](https://thinkinsights.net/strategy/andon-cord/) policy.
-
 <a name="write-position"></a>
 # Stream Positions, Buffering and Deduplication
 
