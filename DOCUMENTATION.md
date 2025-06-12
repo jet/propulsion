@@ -494,7 +494,6 @@ In both the calve and append cases above, the events that were being held in the
 
 The most significant effect of storing event in tip on reactors (and projection systems based off the ChangeFeed in general) is the fact that the consumer needs to de-duplicate the events each time the document is received, ideally shedding the existing events and forwarding only the newly appended events for processing.
 
-
 ### Testing
 
 #### Unit testing projections
@@ -514,6 +513,41 @@ The most significant effect of storing event in tip on reactors (and projection 
 #### Contention with overlapping actors
 
 #### Watchdogs
+
+<a name="equinox-views"></a>
+# Using Equinox for Views
+
+## Things to get right
+
+- Idempotency is critical; replays should not trigger writes
+  - safe idempotent processing is non-negotiable
+  - being able to apply updates without triggering null writes is key for most target stores, regardless of whether there is a direct Request Unit measure associated with the consumption
+  - replays should neer expose historic states of the view
+- Think in spans
+    - Similar to how a SQL database woks best when you think in terms of sets, applying events to a derived state should never be thought of as happening one event at a time
+- At least once delivery is a fact of life
+  - as part of managing at least once delivery, the simplest approach is to maintain a high water mark source `version` alongside any derived data you maintain. This enables you to simply disregard inputs that have already been ingested into your model
+- Tolerate gaps
+  - assuming that you are dealing with a contiguous span of events and/or considering a single event's position (sequence number) in its stream is counterproductive
+  - removing this assumption allows you (or the source streams) to be trimmed or filtered in response to the inevitable change that any system worth considering will undergo
+- Set limits
+  - every view needs a basis whereby you guarantee it will not overflow
+  - there are no unlimited data structures in Cosmos DB - items are max 4MB, logical streams max 20/50GB
+  - while cross-partition queries should not be a first choice in Cosmos DB, careful consideration should be given to whether fitting everything into a single logical stream is the correct design
+
+## Sweet spots
+
+- Think in units of 1MB of state. See limits, above. If the back of the envelope says you'll be merging inputs into larger datasets, find a way to split/shard/epoch in order to maintain Billing Model Sympathy
+- If you can get stuff into 1-4MB, you can cache it with periodic checks on read costing 1RU. The state can be compressed internally, so that amount of data can go further than you'd think
+- If you need to do cross-document queries, you can selectively expose (uncompressed) indexes and use CosmosStore.Linq querying to locate items to be loaded efficiently
+
+## Conventions
+
+- Don't version view data structures; just roll a new Category Name
+  - Because replays are efficient, it's easier to lay down a restructured parallel variant of a given view until the last consumer of the old structure is decommissioned, than to have complexiyt in your data structures that you'd normally accept as a fact of life for an actual event sourced model
+- Name your Categories starting with `$Name0.rc1` ala semantic versioning
+  - if in doubt, or you need to validate you can safely and correctly build a given set of views, simply increment the suffix
+  - when a view is stable and/or you're promoting it to production, remove the `.rcn` appendages
 
 # `Propulsion.CosmosStore` facilities
 
