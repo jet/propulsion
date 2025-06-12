@@ -147,7 +147,7 @@ module Helpers =
 
     let mapStreamConsumeResultToDataAndContext (x: ConsumeResult<_,string>): Propulsion.Sinks.EventBody * obj =
         let m = Binding.message x
-        System.Text.Encoding.UTF8.GetBytes(m.Value) |> ReadOnlyMemory,
+        System.Text.Encoding.UTF8.GetBytes m.Value |> Encoding.OfBlob,
         box { key = m.Key; value = m.Value; partition = Binding.partitionValue x.Partition; offset = let o = x.Offset in o.Value }
 
     let runConsumersStream log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {

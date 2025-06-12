@@ -123,13 +123,9 @@ and MemoryStoreMonitor internal (log: Serilog.ILogger, positions: TranchePositio
             if sink.IsCompleted && not sink.RanToCompletion then
                 return! sink.Wait() }
 
-module TimelineEvent =
-
-    let mapEncoded = FsCodec.Core.TimelineEvent.Map(Func<_, _> FsCodec.Compression.EncodedToUtf8)
-
 /// Coordinates forwarding of a VolatileStore's Committed events to a supplied Sink
 /// Supports awaiting the (asynchronous) handling by the Sink of all Committed events from a given point in time
-type MemoryStoreSource(log, store: Equinox.MemoryStore.VolatileStore<FsCodec.EncodedBody>, categoryFilter, sink) =
-    inherit MemoryStoreSource<FsCodec.EncodedBody>(log, store, categoryFilter, TimelineEvent.mapEncoded, sink)
+type MemoryStoreSource(log, store: Equinox.MemoryStore.VolatileStore<FsCodec.Encoded>, categoryFilter, sink) =
+    inherit MemoryStoreSource<FsCodec.Encoded>(log, store, categoryFilter, id, sink)
     new(log, store, categories, sink) =
         MemoryStoreSource(log, store, (fun x -> Array.contains x categories), sink)

@@ -36,8 +36,7 @@ module Mapping =
         member x.Timestamp = DateTimeOffset.FromUnixTimeMilliseconds(x.CreatedEpoch)
 
     let (|PropulsionTimelineEvent|) (x: RecordedEvent): Propulsion.Sinks.Event =
-        let inline len0ToNull (x: _[]) = match x with null -> ReadOnlyMemory.Empty | x when x.Length = 0 -> ReadOnlyMemory.Empty | x -> ReadOnlyMemory x
-        FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, len0ToNull x.Data, len0ToNull x.Metadata, timestamp = x.Timestamp)
+        FsCodec.Core.TimelineEvent.Create(x.EventNumber, x.EventType, FsCodec.Encoding.OfBlob x.Data, FsCodec.Encoding.OfBlob x.Metadata, timestamp = x.Timestamp)
 
     let (|PropulsionStreamEvent|) (x: RecordedEvent): Propulsion.Sinks.StreamEvent =
         Propulsion.Streams.StreamName.internalParseSafe x.EventStreamId, (|PropulsionTimelineEvent|) x

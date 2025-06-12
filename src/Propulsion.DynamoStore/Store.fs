@@ -31,4 +31,4 @@ module Dynamo =
 module internal Codec =
 
     let gen<'t when 't :> TypeShape.UnionContract.IUnionContract> =
-        FsCodec.SystemTextJson.Codec.Create<'t>() |> FsCodec.Compression.EncodeTryCompress
+        FsCodec.SystemTextJson.Codec.Create<'t>() |> FsCodec.Encoder.Compressed
