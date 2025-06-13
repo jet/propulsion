@@ -476,49 +476,49 @@ The most significant effect of storing event in tip on reactors (and projection 
 
 ## Things to get right
 
+- Track versions of inputs for all derived state
+  - At least once delivery is a fact of life - you need to be able to handle the sequence S1E0, S1E1, S1E2, S1E1, S1E3 correctly
+  - simplest approach is to maintain a high water mark source `version` alongside any derived data you maintain. This enables you to easily disregard inputs that have already been ingested into your model
 - Idempotency is critical; replays should not trigger writes
-  - safe idempotent processing is non-negotiable
-  - being able to apply updates without triggering null writes is key for most target stores, regardless of whether there is a direct Request Unit measure associated with the consumption
-  - replays should neer expose historic states of the view
-- Think in spans
-    - Similar to how a SQL database woks best when you think in terms of sets, applying events to a derived state should never be thought of as happening one event at a time
-- At least once delivery is a fact of life
-  - as part of managing at least once delivery, the simplest approach is to maintain a high water mark source `version` alongside any derived data you maintain. This enables you to simply disregard inputs that have already been ingested into your model
-- Tolerate gaps
-  - assuming that you are dealing with a contiguous span of events and/or considering a single event's position (sequence number) in its stream is counterproductive
-  - removing this assumption allows you (or the source streams) to be trimmed or filtered in response to the inevitable change that any system worth considering will undergo
+  - safe idempotent processing is non-negotiable due to at least once delivery
+  - avoiding null writes is key, regardless of whether there is a direct Request Unit measure associated
+  - doing this correctly also avoids exposing historic states during replays
+  - if items can get removed when they reach a terminal state, consider a cached read of the upstream rather than maintaining a tombstone
+- All processing should handle batches of events
+  - Similar to how a SQL database works best when you think in terms of sets, applying events to a derived state should never be thought of as happening one event at a time
+- Tolerate gaps; do not depend on individual event `Index` values
+  - this allows the batch (or the source streams) to be trimmed or filtered in response to the inevitable change that any system worth considering will undergo
 - Set limits
-  - every view needs a basis whereby you guarantee it will not overflow
   - there are no unlimited data structures in CosmosDb - items are max 4MB, logical streams max 20/50GB
-  - while cross-partition queries should not be a first choice in CosmosDb, careful consideration should be given to whether fitting everything into a single logical stream is the correct design
-
-## Sweet spots
-
-- Think in units of 1MB of state. See limits, above. If the back of the envelope says you'll be merging inputs into larger datasets, find a way to split/shard/epoch in order to maintain Billing Model Sympathy
-- If you can get stuff into 1-4MB, you can cache it with periodic checks on read costing 1RU. The state can be compressed internally, so that amount of data can go further than you'd think
-- If you need to do cross-document queries, you can selectively expose (uncompressed) indexes and use CosmosStore.Linq querying to locate items to be loaded efficiently
-
-## Conventions
-
+  - every view needs a basis whereby you guarantee it will not overflow
+    - be careful about accumulating tombstones unless something limits the number that can be created over time
+    - ensure upstreams have guards in place so Views can be kept simple
 - Don't version view data structures; just roll a new Category Name
-  - Because replays are efficient, it's easier to lay down a restructured parallel variant of a given view until the last consumer of the old structure is decommissioned, than to have complexiyt in your data structures that you'd normally accept as a fact of life for an actual event sourced model
+  - avoid complexity and tricks in View data structures that you'd normally accept as a fact of life for an actual event sourced model
+  - Because replays are efficient, it's easier to lay down a restructured parallel variant of a given view until the last consumer of the old structure is decommissioned
 - Name your Categories starting with `$Name0.rc1` ala semantic versioning
-  - if in doubt, or you need to validate you can safely and correctly build a given set of views, simply increment the suffix
-  - when a view is stable and/or you're promoting it to production, remove the `.rcn` appendages
+  - enables validating can safely and correctly build a given set of views at will by simply incrementing the suffix
+  - when a view is stable and/or you're promoting it to production, remove the `.rcN` suffix
 
-## TODO
+## Heuristics
 
-### Testing
+- Think in units of 1MB of state
+  - If the back of the envelope says you'll be merging inputs into larger datasets, find a way to split/shard/epoch in order to maintain Billing Model Sympathy
+- If you can get stuff into 1-4MB, you can cache it with periodic checks on read costing 1RU. The state can be compressed internally, so that amount of data can go further than you'd think
+- while cross-partition queries should not be a first choice in CosmosDb, careful consideration should be given to whether fitting everything into a single logical stream is the correct design
+- If you need to do cross-document queries, you can selectively expose (uncompressed) indexes and use `CosmosStore.Linq` to efficiently pick items to be loaded
 
-#### Unit testing projections
+# Testing
+
+## Unit testing projections
 
 - No Propulsion required, but MemoryStore can help
 
-#### MemoryStore Projector; deterministic projections integration tests
+## MemoryStore Projector; deterministic projections integration tests
 
 - `Propulsion.MemoryStore`; example of deterministic waits in a test
 
-#### Generalising MemoryStore Projector tests to hit a concrete store
+## Generalising MemoryStore Projector tests to hit a concrete store
 
 - Pointers to `proHotel` things
 
