@@ -18,7 +18,7 @@ module Pruner =
         let untilIndex = span[span.Length - 1].Index
         // Depending on the way the events are batched, requests break into three groupings:
         // 1. All requested events already deleted, no writes took place
-        //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the OverrideNextIndex)
+        //    (if trimmedPos is beyond requested Index, Propulsion will discard the requests via the returned writePos value)
         // 2. All events deleted as requested
         //    (N events over M batches were removed)
         // 3. Some deletions deferred
