@@ -24,6 +24,10 @@ jobs:
   pool:
     vmImage: 'ubuntu-latest'
   steps:
+  - task: UseDotNet@2
+    displayName: Temp workaround for ubuntu-latest installing SDK 8.x
+    inputs:
+      useGlobalJson: true
   - script: |
       docker network create kafka-net
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4
@@ -47,9 +51,5 @@ jobs:
   pool:
     vmImage: 'macOS-latest'
   steps:
-  - task: UseDotNet@2
-    displayName: Temp workaround for macOS-latest installing SDK 9.0.202 with F# compiler issue
-    inputs:
-      useGlobalJson: true
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
