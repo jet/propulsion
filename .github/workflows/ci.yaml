@@ -38,6 +38,10 @@ jobs:
           tar -xf /tmp/eventide/message-db.tgz --directory /tmp/eventide
           (cd /tmp/eventide/message-db-${MESSAGE_DB_VERSION}/database && ./install.sh)
           
+      - name: Setup .NET 
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
       - name: Build
         run: dotnet build Propulsion.sln --configuration Release
         
