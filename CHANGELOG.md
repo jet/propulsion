@@ -8,6 +8,9 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## [Unreleased]
 
+<a name="3.0.0"></a>
+## [3.0.0] - 2025-09-23
+
 ### Added
 
 - `Feed`: `Monitor.AwaitCompletion` enables **quasi** deterministic waiting for the processing of async reactions within integration tests [#170](https://github.com/jet/propulsion/pull/170)
@@ -773,7 +776,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/2.12.2...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/3.0.0...HEAD
+[3.0.0]: https://github.com/jet/propulsion/compare/2.12.2...3.0.0
 [2.12.2]: https://github.com/jet/propulsion/compare/2.12.1...2.12.2
 [2.12.1]: https://github.com/jet/propulsion/compare/2.12.0...2.12.1
 [2.12.0]: https://github.com/jet/propulsion/compare/2.12.0-rc.3...2.12.0
