@@ -47,9 +47,5 @@ jobs:
   pool:
     vmImage: 'macOS-latest'
   steps:
-  - task: UseDotNet@2
-    displayName: Temp workaround for macOS-latest installing SDK 9.0.202 with F# compiler issue
-    inputs:
-      useGlobalJson: true
   - script: dotnet pack build.proj
     displayName: dotnet pack build.proj
