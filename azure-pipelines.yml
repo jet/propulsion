@@ -33,6 +33,10 @@ jobs:
           ches/kafka
       sleep 15
     displayName: Docker kafka for integration tests
+  - task: UseDotNet@2
+    displayName: Temp workaround for ubuntu-latest installing SDK 8.x
+    inputs:
+      useGlobalJson: true
   - script: dotnet build build.proj -v d
     displayName: Run Integration tests
     env:
