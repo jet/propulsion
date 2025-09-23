@@ -19,7 +19,7 @@
     <NoWarn>$(NoWarn);FS2003;NU5105;NU5104</NoWarn>
     <PinnedBaseVersion Condition=" '$(Configuration)' == 'Release' ">3.0.0</PinnedBaseVersion>
     <PinnedBaselineRootPackage Condition=" '$(Configuration)' == 'Release' ">[$(PinnedBaseVersion), 4.0.0)</PinnedBaselineRootPackage>
-    <PinnedDynamoStoreRootPackage Condition=" '$(Configuration)' == 'Release' ">[$(PinnedBaseVersion), 4.0.0)</PinnedDynamoStoreRootPackage>
+<!--    <PinnedDynamoStoreRootPackage Condition=" '$(Configuration)' == 'Release' ">[$(PinnedBaseVersion), 4.0.0)</PinnedDynamoStoreRootPackage>-->
   </PropertyGroup>
   <ItemGroup>
     <!-- SourceLink etc -->
