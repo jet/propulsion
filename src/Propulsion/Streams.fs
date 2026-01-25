@@ -108,6 +108,7 @@ module StreamSpan =
 
     let inline index (span: FsCodec.ITimelineEvent<'F>[]) = span[0].Index
     let inline next (span: FsCodec.ITimelineEvent<'F>[]) = let l = span[span.Length - 1] in if l.IsUnfold then l.Index else l.Index + 1L
+    let inline complete (span: FsCodec.ITimelineEvent<'F>[]) = -2L // Sentinel value for completed stream
     let inline dropBefore i = function
         | [||] as xs -> xs
         | xs when next xs < i -> Array.empty
@@ -339,6 +340,8 @@ module Scheduling =
             | Error malformed ->
                 // Flag that the data at the head of the stream is triggering a non-transient error condition from the handler, preventing any further handler dispatches for `stream`
                 merge stream (StreamState<'Format>.Create(ValueNone, null, Revision.initial, malformed = malformed)) |> ignore
+            | Ok (-2L, _dispatchedRevision as up: HandlerProgress) ->
+                states.Remove stream |> ignore // Explicitly drop state for stream; user indicated it has been fully processed.
             | Ok (updatedPos, _dispatchedRevision as up: HandlerProgress)  ->
                 // Ensure we have a position (in case it got purged); Drop any events or unfolds implied by updatedPos
                 merge stream (StreamState<'Format>.Create(ValueSome updatedPos, null, Revision.initial))

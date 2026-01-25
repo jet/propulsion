@@ -20,6 +20,8 @@ module Events =
     let next: Event[] -> int64 = Streams.StreamSpan.next
     /// The Index of the first event as supplied to this handler
     let index: Event[] -> int64 = Streams.StreamSpan.index
+    /// Mark stream completed
+    let complete: Event[] -> int64 = Streams.StreamSpan.complete
 
 /// Internal helpers used to compute buffer sizes for stats
 module Event =
