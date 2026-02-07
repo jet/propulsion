@@ -28,8 +28,8 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValueP
 
             let updated = record.Dynamodb.NewImage
             match record.EventName with
-            | ot when ot = "REMOVE" -> ()
-            | ot when ot = "INSERT" || ot = "MODIFY" ->
+            | ot when ot = string OperationType.REMOVE -> ()
+            | ot when ot = string OperationType.INSERT || ot = string OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 match FsCodec.StreamName.parse p with
                 | AppendsEpoch.Stream.For (partitionId, epochId) ->

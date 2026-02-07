@@ -1,5 +1,6 @@
 module Propulsion.DynamoStore.Indexer.Handler
 
+open Amazon.DynamoDBStreams
 open Amazon.DynamoDBv2
 open Amazon.Lambda.DynamoDBEvents
 open Propulsion.DynamoStore
@@ -16,8 +17,8 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): AppendsEp
 
             let updated = record.Dynamodb.NewImage
             match record.EventName with
-            | ot when ot = "REMOVE" -> ()
-            | ot when ot = "INSERT" || ot = "MODIFY" ->
+            | ot when ot = string OperationType.REMOVE -> ()
+            | ot when ot = string OperationType.INSERT || ot = string OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
                 if p.StartsWith AppendsEpoch.Stream.Category || p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
