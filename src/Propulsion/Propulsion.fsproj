@@ -30,7 +30,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
+    <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
     <!-- Min FSharp.Core version that allows RequireQualifiedAccess on structs -->  
     <PackageReference Include="FSharp.Core" Version="8.0.403" />
     <PackageReference Include="FsCodec" Version="3.1.0" />

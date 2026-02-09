@@ -8,7 +8,7 @@
     </PropertyGroup>
     
     <ItemGroup>
-      <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
+      <PackageReference Include="MinVer" Version="7.0.0" PrivateAssets="All" />
 
       <PackageReference Include="Amazon.Lambda.SQSEvents" Version="2.1.0" />
     </ItemGroup>
