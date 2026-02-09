@@ -34,7 +34,7 @@ type Pipeline(task: Task<unit>, triggerStop) =
         use _ = ct.Register(Action x.Stop)
         return! x.Await() }
 
- type SourcePipeline<'M, 'P>(task, flush: unit -> Task<'P>, triggerStop, monitor: Lazy<'M>) =
+type SourcePipeline<'M, 'P>(task, flush: unit -> Task<'P>, triggerStop, monitor: Lazy<'M>) =
     inherit Pipeline(task, triggerStop)
 
     member _.Monitor = monitor.Value
