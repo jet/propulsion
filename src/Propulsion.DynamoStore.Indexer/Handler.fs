@@ -2,10 +2,9 @@ module Propulsion.DynamoStore.Indexer.Handler
 
 open Amazon.DynamoDBStreams
 open Amazon.DynamoDBv2
-open Amazon.Lambda.DynamoDBEvents
 open Propulsion.DynamoStore
 
-let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): AppendsEpoch.Events.StreamSpan[] =
+let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEvents.DynamoDBEvent): AppendsEpoch.Events.StreamSpan[] =
     let spans, summary = ResizeArray(), System.Text.StringBuilder()
     let mutable indexStream, systemStreams, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do

@@ -1,7 +1,6 @@
 module Propulsion.DynamoStore.Notifier.Handler
 
 open Amazon.DynamoDBStreams
-open Amazon.Lambda.DynamoDBEvents
 open Amazon.SimpleNotificationService
 open Amazon.SimpleNotificationService.Model
 open Propulsion.DynamoStore
@@ -10,7 +9,7 @@ open System.Collections.Generic
 open System.Net
 open System.Threading
 
-let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
+let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEvents.DynamoDBEvent): KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
     let tails = Dictionary()
     let updateTails partitionId checkpoint =
         match tails.TryGetValue partitionId with
