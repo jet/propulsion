@@ -8,6 +8,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## [Unreleased]
 
+### Changed
+
+- Targeted`FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+
 <a name="3.0.0"></a>
 ## [3.0.0] - 2025-09-23
 
