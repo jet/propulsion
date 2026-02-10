@@ -1,7 +1,6 @@
 module Propulsion.DynamoStore.Notifier.Handler
 
-open Amazon.DynamoDBv2
-open Amazon.Lambda.DynamoDBEvents
+open Amazon.DynamoDBStreams
 open Amazon.SimpleNotificationService
 open Amazon.SimpleNotificationService.Model
 open Propulsion.DynamoStore
@@ -10,7 +9,7 @@ open System.Collections.Generic
 open System.Net
 open System.Threading
 
-let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
+let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEvents.DynamoDBEvent): KeyValuePair<AppendsPartitionId, Propulsion.Feed.Position>[]  =
     let tails = Dictionary()
     let updateTails partitionId checkpoint =
         match tails.TryGetValue partitionId with
@@ -20,16 +19,16 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValueP
     let mutable indexStream, otherStream, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do
             match record.Dynamodb.StreamViewType with
-            | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
+            | x when x = string StreamViewType.NEW_IMAGE || x = string StreamViewType.NEW_AND_OLD_IMAGES -> ()
             | x -> invalidOp $"Unexpected StreamViewType {x}"
 
             if summary.Length <> 0 then summary.Append ' ' |> ignore
-            summary.Append(record.EventName.Value[0]) |> ignore
+            summary.Append(record.EventName) |> ignore
 
             let updated = record.Dynamodb.NewImage
             match record.EventName with
-            | ot when ot = OperationType.REMOVE -> ()
-            | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
+            | ot when ot = string OperationType.REMOVE -> ()
+            | ot when ot = string OperationType.INSERT || ot = string OperationType.MODIFY ->
                 let p = record.Dynamodb.Keys["p"].S
                 match FsCodec.StreamName.parse p with
                 | AppendsEpoch.Stream.For (partitionId, epochId) ->
@@ -50,7 +49,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: DynamoDBEvent): KeyValueP
                 | _ ->
                     if p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
                     else otherStream <- otherStream + 1
-            | et -> invalidOp $"Unknown OperationType %s{et.Value}"
+            | et -> invalidOp $"Unknown OperationType %s{et}"
         log.Information("Index {indexCount} Other {otherCount} NoEvents {noEventCount} Tails {tails} {summary:l}",
                         indexStream, otherStream, noEvents, Seq.map ValueTuple.ofKvp tails, summary)
         Array.ofSeq tails
