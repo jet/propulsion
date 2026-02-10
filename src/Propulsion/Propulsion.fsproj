@@ -4,8 +4,6 @@
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <!-- We want to depend on as old a version as possible. That would be 6.0.1, but we need v8 to be able to do RequireQualifiedAccess on a Struct with a V9+ compiler -->  
-    <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
     <PackageValidationBaselineVersion>3.0.0</PackageValidationBaselineVersion>
   </PropertyGroup>
 
@@ -31,7 +29,8 @@
 
   <ItemGroup>
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
-    <!-- Min FSharp.Core version that allows RequireQualifiedAccess on structs -->  
+    <!-- We want to depend on as old a version as possible. That would be 6.0.1, but we need v8 to be able to do RequireQualifiedAccess on a Struct with a V9+ compiler -->
+    <!-- Min FSharp.Core version that allows RequireQualifiedAccess on structs -->
     <PackageReference Include="FSharp.Core" Version="8.0.403" />
     <PackageReference Include="FsCodec" Version="3.1.0" />
     <PackageReference Include="FSharp.Control.TaskSeq" Version="0.4.0" />
