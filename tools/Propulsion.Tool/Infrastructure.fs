@@ -29,7 +29,6 @@ module Sinks =
             if verbose then t else t.Replace("{Properties}", "")
         configuration.WriteTo.Console(theme = Sinks.SystemConsole.Themes.AnsiConsoleTheme.Code, outputTemplate = outputTemplate)
 
-[<System.Runtime.CompilerServices.Extension>]
 type Logging() =
 
     [<System.Runtime.CompilerServices.Extension>]

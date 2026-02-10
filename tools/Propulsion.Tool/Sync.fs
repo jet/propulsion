@@ -37,7 +37,7 @@ type [<NoEquality; NoComparison; RequireSubcommand>] Parameters =
             | RequireAll ->                 "Wait for out of order events to arrive (including waiting for event 0 per stream) before dispatching for any stream. " +
                                             "NOTE normally a large `MaxReadAhead` and `cosmos -b` is required to avoid starving the scheduler. " +
                                             "NOTE This mode does not make sense to apply unless the ProcessorName is fresh; if the consumer group name is not fresh (and hence items are excluded from the feed), there will inevitably be missing events, and processing will stall. " +
-                                            "Default: assume events arrive from the changefeed (and/or the input JSON file) without any gaps or out of order deliveries for any stream."
+                                            "Default: assume events arrive from the ChangeFeed (and/or the input JSON file) without any gaps or out of order deliveries for any stream."
             | EventsOnly ->                 "Exclude Unfolds from processing. Default: Unfolds are read, parsed and processed"
             | Categorize ->                 "Gather handler latency stats by category"
             | MaxItems _ ->                 "Limits RU consumption when reading; impacts checkpointing granularity by adjusting the batch size being loaded from the feed. Default (Sync): 9999. Default: 100 (CosmosClient default)"
