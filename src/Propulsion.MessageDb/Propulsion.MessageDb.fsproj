@@ -4,7 +4,8 @@
 
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
-        <PackageValidationBaselineVersion>3.0.0</PackageValidationBaselineVersion>
+        <!-- To be reinstated on later version. See https://github.com/jet/propulsion/pull/273#issuecomment-4361264441 -->
+        <!-- <PackageValidationBaselineVersion>3.0.0</PackageValidationBaselineVersion> -->
     </PropertyGroup>
 
     <ItemGroup>
@@ -13,10 +14,10 @@
         <Compile Include="ReaderCheckpoint.fs" />
         <None Include="Readme.md" />
     </ItemGroup>
-    
+
     <ItemGroup>
         <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
-        
+
         <PackageReference Include="Npgsql" Version="7.0.7" />
     </ItemGroup>
 
