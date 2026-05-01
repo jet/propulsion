@@ -28,9 +28,6 @@ module private GetLastPosition =
         cmd
 
 module Internal =
-    let inline createConnectionAndOpen (dataSource : Npgsql.NpgsqlDataSource) ct = task {
-        let! conn = dataSource.OpenConnectionAsync(ct)
-        return conn }
 
     let private jsonNull = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes null
 
@@ -40,7 +37,6 @@ module Internal =
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes
 
     type MessageDbCategoryClient(dataSource : Npgsql.NpgsqlDataSource) =
-        let connect ct = createConnectionAndOpen dataSource ct
         let parseRow (reader: System.Data.Common.DbDataReader) =
             let et, data, meta = reader.GetString(1), reader.GetJson 2 |> FsCodec.Encoding.OfBlob, reader.GetJson 3 |> FsCodec.Encoding.OfBlob
             let sz = FsCodec.Encoding.ByteCount data + FsCodec.Encoding.ByteCount meta + et.Length
@@ -58,7 +54,7 @@ module Internal =
             MessageDbCategoryClient(dataSource)
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Batch<_>> = task {
-            use! conn = connect ct
+            use! conn = dataSource.OpenConnectionAsync(ct)
             use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
             use! reader = command.ExecuteReaderAsync(ct)
@@ -68,7 +64,7 @@ module Internal =
             return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 }: Batch<_>) }
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct): Task<int64 voption> = task {
-            use! conn = connect ct
+            use! conn = dataSource.OpenConnectionAsync(ct)
             use command = GetLastPosition.prepareCommand conn category
 
             use! reader = command.ExecuteReaderAsync(ct)

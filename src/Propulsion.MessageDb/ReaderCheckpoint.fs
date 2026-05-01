@@ -42,8 +42,8 @@ module internal Impl =
         use! reader = cmd.ExecuteReaderAsync(ct)
         return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-    let exec dataSource f ct = task {
-        use! conn = Internal.createConnectionAndOpen dataSource ct
+    let exec (dataSource : NpgsqlDataSource) f ct = task {
+        use! conn = dataSource.OpenConnectionAsync(ct)
         return! f conn ct }
 
 type CheckpointStore(dataSource: Npgsql.NpgsqlDataSource, schema: string, consumerGroupName: string) =
