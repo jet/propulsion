@@ -10,6 +10,13 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
+- Upgraded to .NET 10 SDK (`10.0.201`); test projects now target `net10.0` [#274](https://github.com/jet/propulsion/pull/274)
+- Converted `Propulsion.sln` to `Propulsion.slnx` (XML solution format)
+- Switched test projects to `xunit.v3.mtp-v2` v `3.2.2` and `FsCheck.Xunit.v3` v `3.3.3` with Microsoft Testing Platform (MTP) runner
+- Opted into MTP-based `dotnet test` in `global.json` (`"test": { "runner": "Microsoft.Testing.Platform" }`) — no per-project `TestingPlatformDotnetTestSupport` required
+- Switched package validation to .NET 10 SDK-integrated (`EnablePackageValidation`); removed `Microsoft.DotNet.PackageValidation` Sdk from library projects
+- Removed redundant `UseDotNet@2` workaround step from `azure-pipelines.yml` Linux job
+- Updated `actions/checkout@v2` → `actions/checkout@v4` in GitHub Actions CI workflow
 - Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
 - `MessageDb`: Provide additional constructors that accept an `NpgsqlDataSource` [#273](https://github.com/jet/propulsion/pull/273) :pray: [@njlr](https://github.com/njlr)
 

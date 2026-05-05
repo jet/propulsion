@@ -1,7 +1,8 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
     <DefineConstants>TRIM_FEED</DefineConstants>
   </PropertyGroup>
 
@@ -25,14 +26,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FsCheck.Xunit" Version="3.0.0-rc3" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
-	<PackageReference Include="unquote" Version="6.1.0" />
-    <PackageReference Include="xunit" Version="2.7.0" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.3">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
-    </PackageReference>
+    <PackageReference Include="FsCheck.Xunit.v3" Version="3.3.3" />
+    <PackageReference Include="unquote" Version="6.1.0" />
+    <PackageReference Include="xunit.v3.mtp-v2" Version="3.2.2" />
   </ItemGroup>
 
 </Project>

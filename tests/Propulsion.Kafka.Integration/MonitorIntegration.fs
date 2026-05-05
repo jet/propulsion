@@ -42,7 +42,7 @@ let onlyConsumeFirstBatchHandler =
         let partitionId = Binding.partitionValue item.Partition
         if not <| observedPartitions.TryAdd(partitionId,()) then do! Async.Sleep Int32.MaxValue }
 
-let startTimeout () = IntervalTimer(TimeSpan.FromMinutes 14)
+let startTimeout () = IntervalTimer(TimeSpan.FromMinutes 14L)
 
 type IntervalTimer with
     member x.AwaitTimeoutOr(cond) = async {

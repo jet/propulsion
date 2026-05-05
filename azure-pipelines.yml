@@ -24,10 +24,6 @@ jobs:
   pool:
     vmImage: 'ubuntu-latest'
   steps:
-  - task: UseDotNet@2
-    displayName: Temp workaround for ubuntu-latest installing SDK 8.x
-    inputs:
-      useGlobalJson: true
   - script: |
       docker network create kafka-net
       docker run -d --name zookeeper --network kafka-net --publish 2181:2181 zookeeper:3.4

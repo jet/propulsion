@@ -1,0 +1,38 @@
+<Solution>
+  <Folder Name="/.project/">
+    <File Path=".gitattributes" />
+    <File Path=".github/workflows/ci.yaml" />
+    <File Path=".gitignore" />
+    <File Path="azure-pipelines.yml" />
+    <File Path="build.proj" />
+    <File Path="CHANGELOG.md" />
+    <File Path="CONTRIBUTING.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="DOCUMENTATION.md" />
+    <File Path="global.json" />
+    <File Path="LICENSE" />
+    <File Path="Propulsion.slnx" />
+    <File Path="README.md" />
+    <File Path="SECURITY.md" />
+  </Folder>
+  <Project Path="src/Propulsion.CosmosStore/Propulsion.CosmosStore.fsproj" />
+  <Project Path="src/Propulsion.CosmosStore3/Propulsion.CosmosStore3.fsproj" />
+  <Project Path="src/Propulsion.DynamoStore.Constructs/Propulsion.DynamoStore.Constructs.fsproj" />
+  <Project Path="src/Propulsion.DynamoStore.Indexer/Propulsion.DynamoStore.Indexer.fsproj" />
+  <Project Path="src/Propulsion.DynamoStore.Lambda/Propulsion.DynamoStore.Lambda.fsproj" />
+  <Project Path="src/Propulsion.DynamoStore.Notifier/Propulsion.DynamoStore.Notifier.fsproj" />
+  <Project Path="src/Propulsion.DynamoStore/Propulsion.DynamoStore.fsproj" />
+  <Project Path="src/Propulsion.EventStore/Propulsion.EventStore.fsproj" />
+  <Project Path="src/Propulsion.EventStoreDb/Propulsion.EventStoreDb.fsproj" />
+  <Project Path="src/Propulsion.Kafka/Propulsion.Kafka.fsproj" />
+  <Project Path="src/Propulsion.MemoryStore/Propulsion.MemoryStore.fsproj" />
+  <Project Path="src/Propulsion.MessageDb/Propulsion.MessageDb.fsproj" />
+  <Project Path="src/Propulsion.Prometheus/Propulsion.Prometheus.fsproj" />
+  <Project Path="src/Propulsion.SqlStreamStore/Propulsion.SqlStreamStore.fsproj" />
+  <Project Path="src/Propulsion/Propulsion.fsproj" />
+  <Project Path="tests/Propulsion.Kafka.Integration/Propulsion.Kafka.Integration.fsproj" />
+  <Project Path="tests/Propulsion.MessageDb.Integration/Propulsion.MessageDb.Integration.fsproj" />
+  <Project Path="tests/Propulsion.Tests/Propulsion.Tests.fsproj" />
+  <Project Path="tools/Propulsion.Tool/Propulsion.Tool.fsproj" />
+</Solution>
