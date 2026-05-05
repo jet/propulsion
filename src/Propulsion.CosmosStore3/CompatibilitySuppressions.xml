@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Suppressions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Propulsion.Feed.ReaderCheckpoint.Decider`2#Transact``3(Equinox.Decider{``0,``1},Microsoft.FSharp.Core.FSharpFunc{``1,Microsoft.FSharp.Control.FSharpAsync{System.Tuple{``2,``0[]}}},Microsoft.FSharp.Core.Unit)</Target>
+    <Left>lib/net6.0/Propulsion.CosmosStore3.dll</Left>
+    <Right>lib/net6.0/Propulsion.CosmosStore3.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Propulsion.Feed.ReaderCheckpoint.Decider`2#Transact``3(Equinox.Decider{``0,``1},Microsoft.FSharp.Core.FSharpFunc{``1,System.Tuple{``2,``0[]}},Microsoft.FSharp.Core.Unit)</Target>
+    <Left>lib/net6.0/Propulsion.CosmosStore3.dll</Left>
+    <Right>lib/net6.0/Propulsion.CosmosStore3.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+  <Suppression>
+    <DiagnosticId>CP0002</DiagnosticId>
+    <Target>M:Propulsion.Feed.ReaderCheckpoint.Decider`2#Transact``2(Equinox.Decider{``0,``1},Microsoft.FSharp.Core.FSharpFunc{``1,``0[]},Microsoft.FSharp.Core.FSharpOption{Microsoft.FSharp.Core.Unit})</Target>
+    <Left>lib/net6.0/Propulsion.CosmosStore3.dll</Left>
+    <Right>lib/net6.0/Propulsion.CosmosStore3.dll</Right>
+    <IsBaselineSuppression>true</IsBaselineSuppression>
+  </Suppression>
+</Suppressions>

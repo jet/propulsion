@@ -42,16 +42,19 @@ module internal Impl =
         use! reader = cmd.ExecuteReaderAsync(ct)
         return if reader.Read() then ValueSome (reader.GetInt64 0) else ValueNone }
 
-    let exec connString f ct = task {
-        use! conn = Internal.createConnectionAndOpen connString ct
+    let exec (dataSource: NpgsqlDataSource) f ct = task {
+        use! conn = dataSource.OpenConnectionAsync(ct)
         return! f conn ct }
 
-type CheckpointStore(connString: string, schema: string, consumerGroupName) =
-
-    let exec f = Impl.exec connString f
+type CheckpointStore(dataSource: NpgsqlDataSource, schema: string, consumerGroupName: string) =
+    let exec f = Impl.exec dataSource f
     let setPos source tranche pos ct =
         let commit conn = Impl.commitPosition (conn, schema) source tranche consumerGroupName (Position.toInt64 pos)
         exec commit ct
+
+    new(connString: string, schema: string, consumerGroupName: string) =
+        let dataSource = NpgsqlDataSourceBuilder(connString).Build()
+        CheckpointStore(dataSource, schema, consumerGroupName)
 
     member _.CreateSchemaIfNotExists([<O; D null>]?ct) =
         let creat conn = Impl.createIfNotExists (conn, schema)

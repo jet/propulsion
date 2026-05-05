@@ -4,6 +4,7 @@ open Npgsql
 open NpgsqlTypes
 open Propulsion.Feed
 open Propulsion.Internal
+open Serilog
 open System
 
 module private GetCategoryMessages =
@@ -27,10 +28,6 @@ module private GetLastPosition =
         cmd
 
 module Internal =
-    let createConnectionAndOpen connectionString ct = task {
-        let conn = new NpgsqlConnection(connectionString)
-        do! conn.OpenAsync(ct)
-        return conn }
 
     let private jsonNull = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes null
 
@@ -39,8 +36,7 @@ module Internal =
             if reader.IsDBNull(idx) then jsonNull
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes
 
-    type MessageDbCategoryClient(connectionString) =
-        let connect = createConnectionAndOpen connectionString
+    type MessageDbCategoryClient(dataSource: NpgsqlDataSource) =
         let parseRow (reader: System.Data.Common.DbDataReader) =
             let et, data, meta = reader.GetString(1), reader.GetJson 2 |> FsCodec.Encoding.OfBlob, reader.GetJson 3 |> FsCodec.Encoding.OfBlob
             let sz = FsCodec.Encoding.ByteCount data + FsCodec.Encoding.ByteCount meta + et.Length
@@ -53,8 +49,12 @@ module Internal =
             let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
+        new(connectionString: string) =
+            let dataSource = NpgsqlDataSourceBuilder(connectionString).Build()
+            MessageDbCategoryClient(dataSource)
+
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Batch<_>> = task {
-            use! conn = connect ct
+            use! conn = dataSource.OpenConnectionAsync(ct)
             use command = GetCategoryMessages.prepareCommand conn category fromPositionInclusive batchSize
 
             use! reader = command.ExecuteReaderAsync(ct)
@@ -64,7 +64,7 @@ module Internal =
             return ({ checkpoint = Position.parse checkpoint; items = events; isTail = events.Length = 0 }: Batch<_>) }
 
         member _.TryReadCategoryLastVersion(category: TrancheId, ct): Task<int64 voption> = task {
-            use! conn = connect ct
+            use! conn = dataSource.OpenConnectionAsync(ct)
             use command = GetLastPosition.prepareCommand conn category
 
             use! reader = command.ExecuteReaderAsync(ct)
@@ -82,12 +82,12 @@ module Internal =
 type MessageDbSource =
     inherit Propulsion.Feed.Core.TailingFeedSource
     val tranches: TrancheId[]
-    new(log, statsInterval,
-        connectionString, batchSize, tailSleepInterval,
+    new(log: ILogger, statsInterval: TimeSpan,
+        dataSource: NpgsqlDataSource, batchSize: int, tailSleepInterval: TimeSpan,
         checkpoints, sink, categories,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail, ?sourceId) =
-        let client = Internal.MessageDbCategoryClient(connectionString)
+        let client = Internal.MessageDbCategoryClient(dataSource)
         let readStartPosition = match startFromTail with Some true -> Some (Func<_,_,_>(Internal.readTailPositionForTranche client)) | _ -> None
         let tail = Propulsion.Feed.Core.TailingFeedSource.readOne (Internal.readBatch batchSize client)
         { inherit Propulsion.Feed.Core.TailingFeedSource(
@@ -95,6 +95,18 @@ type MessageDbSource =
             readStartPosition,
             sink, string, tail);
             tranches = categories |> Array.map TrancheId.parse }
+
+    new(log: ILogger, statsInterval,
+        connectionString: string, batchSize, tailSleepInterval,
+        checkpoints, sink, categories,
+        // Override default start position to be at the tail of the index. Default: Replay all events.
+        ?startFromTail, ?sourceId) =
+        let dataSource = NpgsqlDataSourceBuilder(connectionString).Build()
+        MessageDbSource(
+            log, statsInterval, dataSource, batchSize, tailSleepInterval,
+            checkpoints, sink, categories,
+            ?startFromTail = startFromTail,
+            ?sourceId = sourceId)
 
     abstract member ListTranches: ct: CancellationToken -> Task<Propulsion.Feed.TrancheId[]>
     default x.ListTranches(_ct) = task { return x.tranches }

@@ -10,7 +10,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Targeted`FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+- Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+- `MessageDb`: Provide additional constructors that accept an `NpgsqlDataSource` [#273](https://github.com/jet/propulsion/pull/273) :pray: [@njlr](https://github.com/njlr)
 
 <a name="3.0.0"></a>
 ## [3.0.0] - 2025-09-23
@@ -276,14 +277,14 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Added
 
-- Streams Scheduler: Tune memory consumption re write positions of inactive streams [#94](https://github.com/jet/propulsion/pull/94) 
+- Streams Scheduler: Tune memory consumption re write positions of inactive streams [#94](https://github.com/jet/propulsion/pull/94)
 
 <a name="2.10.0-rc2"></a>
 ## [2.10.0-rc2] - 2021-01-27
 
 ### Added
 
-- `Propulsion.Prometheus`: Add Buffer, Cpu and Handler latency metrics to `Propulsion.Streams` Scheduler [#93](https://github.com/jet/propulsion/pull/93) 
+- `Propulsion.Prometheus`: Add Buffer, Cpu and Handler latency metrics to `Propulsion.Streams` Scheduler [#93](https://github.com/jet/propulsion/pull/93)
 
 ### Changed
 
@@ -637,7 +638,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 ### Added
 
 - `EventStore`: Switched  `Checkpoints` to correctly only log one event per hour using Equinox `RollingUnfolds`/`transmute` mechanism
-- `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) :pray: [@jgardella](https://github.com/jgardella) 
+- `Kafka`/`Kafka0`: Added `KafkaMonitor` based on [Burrow](https://github.com/linkedin/Burrow) [#12](https://github.com/jet/propulsion/pull/12) :pray: [@jgardella](https://github.com/jgardella)
 - Added overloads, `Codec.RenderedSummary` and `Propulsion.Streams.Sync` to support `dotnet new proSummaryProjector/Consumer` [#23](https://github.com/jet/propulsion/pull/23)
 
 ### Changed
@@ -770,7 +771,7 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Fixed
 
-- Significant tuning / throughput improvements for `ParallelConsumer` 
+- Significant tuning / throughput improvements for `ParallelConsumer`
 
 ## 1.0.0-rc11 - 2019-05-27
 
