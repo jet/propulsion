@@ -10,8 +10,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Targeted`FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
-- `Propulsion.MessageDb`: Provide additional constructors that accept an `NpgsqlDataSource` [#273](https://github.com/jet/propulsion/pull/273)
+- Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+- `MessageDb`: Provide additional constructors that accept an `NpgsqlDataSource` [#273](https://github.com/jet/propulsion/pull/273) :pray: [@njlr](https://github.com/njlr)
 
 <a name="3.0.0"></a>
 ## [3.0.0] - 2025-09-23

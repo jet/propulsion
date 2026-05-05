@@ -36,7 +36,7 @@ module Internal =
             if reader.IsDBNull(idx) then jsonNull
             else reader.GetString(idx) |> Text.Encoding.UTF8.GetBytes
 
-    type MessageDbCategoryClient(dataSource : Npgsql.NpgsqlDataSource) =
+    type MessageDbCategoryClient(dataSource: NpgsqlDataSource) =
         let parseRow (reader: System.Data.Common.DbDataReader) =
             let et, data, meta = reader.GetString(1), reader.GetJson 2 |> FsCodec.Encoding.OfBlob, reader.GetJson 3 |> FsCodec.Encoding.OfBlob
             let sz = FsCodec.Encoding.ByteCount data + FsCodec.Encoding.ByteCount meta + et.Length
@@ -49,8 +49,8 @@ module Internal =
             let sn = reader.GetString(6) |> FsCodec.StreamName.parse
             struct (sn, event)
 
-        new(connectionString : string) =
-            let dataSource = Npgsql.NpgsqlDataSourceBuilder(connectionString).Build()
+        new(connectionString: string) =
+            let dataSource = NpgsqlDataSourceBuilder(connectionString).Build()
             MessageDbCategoryClient(dataSource)
 
         member _.ReadCategoryMessages(category: TrancheId, fromPositionInclusive: int64, batchSize: int, ct): Task<Batch<_>> = task {
@@ -82,14 +82,9 @@ module Internal =
 type MessageDbSource =
     inherit Propulsion.Feed.Core.TailingFeedSource
     val tranches: TrancheId[]
-    new(log : ILogger,
-        statsInterval : TimeSpan,
-        dataSource : Npgsql.NpgsqlDataSource,
-        batchSize : int,
-        tailSleepInterval : TimeSpan,
-        checkpoints,
-        sink,
-        categories,
+    new(log: ILogger, statsInterval: TimeSpan,
+        dataSource: NpgsqlDataSource, batchSize: int, tailSleepInterval: TimeSpan,
+        checkpoints, sink, categories,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail, ?sourceId) =
         let client = Internal.MessageDbCategoryClient(dataSource)
@@ -101,12 +96,12 @@ type MessageDbSource =
             sink, string, tail);
             tranches = categories |> Array.map TrancheId.parse }
 
-    new(log : ILogger, statsInterval,
-        connectionString : string, batchSize, tailSleepInterval,
+    new(log: ILogger, statsInterval,
+        connectionString: string, batchSize, tailSleepInterval,
         checkpoints, sink, categories,
         // Override default start position to be at the tail of the index. Default: Replay all events.
         ?startFromTail, ?sourceId) =
-        let dataSource = Npgsql.NpgsqlDataSourceBuilder(connectionString).Build()
+        let dataSource = NpgsqlDataSourceBuilder(connectionString).Build()
         MessageDbSource(
             log, statsInterval, dataSource, batchSize, tailSleepInterval,
             checkpoints, sink, categories,
