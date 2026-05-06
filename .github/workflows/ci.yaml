@@ -49,4 +49,4 @@ jobs:
         env:
           MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
           CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
-        run: dotnet test Propulsion.slnx --no-restore --verbosity minimal
+        run: dotnet test --solution Propulsion.slnx --no-restore --verbosity minimal

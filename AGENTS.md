@@ -21,7 +21,7 @@ See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for Cop
 dotnet build Propulsion.sln --configuration Release
 
 # Test (requires a local Postgres instance for MessageDb tests)
-dotnet test Propulsion.sln --no-restore --verbosity minimal
+dotnet test --solution Propulsion.sln --no-restore --verbosity minimal
 ```
 
 The CI workflow (`.github/workflows/ci.yaml`) spins up Postgres and installs `message-db` automatically; for local runs without Postgres the MessageDb-related tests will be skipped or fail.
