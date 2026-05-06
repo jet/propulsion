@@ -23,7 +23,7 @@ jobs:
         options: --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install message-db
         env:
@@ -43,10 +43,11 @@ jobs:
         with:
           global-json-file: global.json
       - name: Build
-        run: dotnet build Propulsion.sln --configuration Release
+        run: dotnet build --configuration Release Propulsion.slnx 
         
       - name: Run Tests
         env:
           MSG_DB_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=message_store"
           CHECKPOINT_CONNECTION_STRING: "Host=localhost; Database=message_store; Port=5432; Username=postgres; Password=postgres"
-        run: dotnet test Propulsion.sln --no-restore --verbosity minimal
+        # --ignore-exit-code 8 so Kafka integration tests being skipped due to lack of Broker don't fail the build
+        run: dotnet test --configuration Release --solution Propulsion.slnx --no-restore --verbosity minimal --ignore-exit-code 8

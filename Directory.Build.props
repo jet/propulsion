@@ -20,6 +20,7 @@
     <PinnedBaseVersion Condition=" '$(Configuration)' == 'Release' ">3.0.0</PinnedBaseVersion>
     <PinnedBaselineRootPackage Condition=" '$(Configuration)' == 'Release' ">[$(PinnedBaseVersion), 4.0.0)</PinnedBaselineRootPackage>
     <PinnedDynamoStoreRootPackage Condition=" '$(Configuration)' == 'Release' ">[$(PinnedBaseVersion), 4.0.0)</PinnedDynamoStoreRootPackage>
+    <EnablePackageValidation Condition=" '$(Configuration)' == 'Release' ">true</EnablePackageValidation>
   </PropertyGroup>
   <ItemGroup>
     <!-- SourceLink etc -->

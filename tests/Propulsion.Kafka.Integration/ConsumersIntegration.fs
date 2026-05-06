@@ -61,10 +61,10 @@ module Helpers =
         return! Async.Parallel [for i in 1 .. numProducers -> runProducer i]
     }
 
-    type FactIfBroker() =
+    type FactIfBroker() as self =
         inherit FactAttribute()
-        override x.Skip = if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
-        override x.Timeout = 60 * 15 * 1000
+        do self.Skip <- if null <> Environment.GetEnvironmentVariable "TEST_KAFKA_BROKER" then null else "Skipping as no TEST_KAFKA_BROKER supplied"
+        do self.Timeout <- 60 * 15 * 1000
 
     let runConsumersParallel log (config: KafkaConsumerConfig) (numConsumers: int) (timeout: TimeSpan option) (handler: ConsumerCallback) = async {
         let mkConsumer (consumerId: int) = async {

@@ -176,7 +176,7 @@ let [<FsCheck.Xunit.Property(MaxTest = 1000)>] ``merges retain freshest unfolds,
 // https://bartoszsypytkowski.com/writing-high-performance-f-code
 // https://github.com/SergeyTeplyakov/ObjectLayoutInspector
 //<PackageReference Include="ObjectLayoutInspector" Version="0.1.2" />
-type Perf(out: Xunit.Abstractions.ITestOutputHelper) =
+type Perf(out: Xunit.ITestOutputHelper) =
 
     let [<Fact>] layout () =
         ObjectLayoutInspector.TypeLayout.GetLayout<StreamState<byte[]>>()

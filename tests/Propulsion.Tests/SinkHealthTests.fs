@@ -12,7 +12,7 @@ type Scenario(testOutput) =
 
     let checkpoints = ReaderCheckpoint.MemoryStore.createNull ()
     let abendThreshold = TimeSpan.FromSeconds 3.
-    let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromSeconds 2, TimeSpan.FromSeconds 10, abendThreshold = abendThreshold)
+    let stats = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromSeconds 2L, TimeSpan.FromSeconds 10L, abendThreshold = abendThreshold)
                   with member _.HandleOk x = ()
                        member _.HandleExn(log, x) = ()
                        member _.Classify e =
@@ -24,12 +24,12 @@ type Scenario(testOutput) =
     let failingSid = sid "a-bad"
     let handle sn events = async {
         if sn = stuckSid then
-            do! Async.Sleep (TimeSpan.FromMilliseconds 50)
+            do! Async.Sleep (TimeSpan.FromMilliseconds 50L)
             return ((), Propulsion.Sinks.Events.index events)
         elif sn = failingSid then
             return failwith "transient"
         else
-            do! Async.Sleep (TimeSpan.FromSeconds 1)
+            do! Async.Sleep (TimeSpan.FromSeconds 1L)
             return (), Propulsion.Sinks.Events.next events }
     let sink = Propulsion.Sinks.Factory.StartConcurrent(log, 2, 2, handle, stats)
     let dispose () =
@@ -49,9 +49,9 @@ type Scenario(testOutput) =
 
     [<Fact>]
     let run () = async {
-        let source = SinglePassFeedSource(log, TimeSpan.FromSeconds 5, SourceId.parse "sid", crawl, checkpoints, sink, string)
+        let source = SinglePassFeedSource(log, TimeSpan.FromSeconds 5L, SourceId.parse "sid", crawl, checkpoints, sink, string)
         let src = source.Start(fun _ct -> task { return [| TrancheId.parse "tid" |] })
-        let! monEx = src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1, awaitFullyCaughtUp = true) |> Propulsion.Internal.Async.ofTask |> Async.Catch
+        let! monEx = src.Monitor.AwaitCompletion(propagationDelay = TimeSpan.FromSeconds 1L, awaitFullyCaughtUp = true) |> Propulsion.Internal.Async.ofTask |> Async.Catch
         let me = extractHealthCheckExn monEx
 
         // Await completion of processing; sink should yield exception, and Parallel should emit that

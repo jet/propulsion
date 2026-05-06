@@ -54,7 +54,7 @@ let writeMessagesToCategory conn category = task {
         do! writeMessagesToStream conn streamName
 }
 
-let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1, TimeSpan.FromMinutes 1)
+let stats log = { new Propulsion.Streams.Stats<_>(log, TimeSpan.FromMinutes 1L, TimeSpan.FromMinutes 1L)
                   with member _.HandleOk x = ()
                        member _.HandleExn(log, x) = () }
 
@@ -86,13 +86,13 @@ let ``It processes events for a category`` () = task {
         return struct ((), Propulsion.Sinks.Events.next events) }
     use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 2, 2, handle, stats)
     let source = MessageDbSource(
-        log, TimeSpan.FromMinutes 1,
-        ConnectionString, 1000, TimeSpan.FromMilliseconds 100,
+        log, TimeSpan.FromMinutes 1L,
+        ConnectionString, 1000, TimeSpan.FromMilliseconds 100L,
         checkpoints, sink, [| category1; category2 |])
     use src = source.Start()
     stop <- src.Stop
 
-    Task.Delay(TimeSpan.FromSeconds 30).ContinueWith(fun _ -> src.Stop()) |> ignore
+    Task.Delay(TimeSpan.FromSeconds 30L).ContinueWith(fun _ -> src.Stop()) |> ignore
 
     do! src.Await()
 
@@ -135,13 +135,13 @@ let ``It doesn't read the tail event again`` () = task {
     use sink = Propulsion.Sinks.Factory.StartConcurrentAsync(log, 1, 1, handle, stats)
     let batchSize = 10
     let source = MessageDbSource(
-        log, TimeSpan.FromMilliseconds 1000,
-        ConnectionString, batchSize, TimeSpan.FromMilliseconds 1000,
+        log, TimeSpan.FromMilliseconds 1000L,
+        ConnectionString, batchSize, TimeSpan.FromMilliseconds 1000L,
         checkpoints, sink, [| category |])
 
     use capture = new ActivityCapture()
 
-    do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10), stats.StatsInterval) |> Task.ignore<Propulsion.Feed.TranchePositions>
+    do! source.RunUntilCaughtUp(TimeSpan.FromSeconds(10L), stats.StatsInterval) |> Task.ignore<Propulsion.Feed.TranchePositions>
 
     // 3 batches fetched, 1 checkpoint read, and 1 checkpoint write
     test <@ capture.Operations.Count = 5 @> }
