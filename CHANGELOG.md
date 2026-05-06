@@ -10,15 +10,20 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ### Changed
 
-- Upgraded to .NET 10 SDK (`10.0.201`); test projects now target `net10.0` [#274](https://github.com/jet/propulsion/pull/274)
-- Converted `Propulsion.sln` to `Propulsion.slnx` (XML solution format)
-- Switched test projects to `xunit.v3.mtp-v2` v `3.2.2` and `FsCheck.Xunit.v3` v `3.3.3` with Microsoft Testing Platform (MTP) runner
-- Opted into MTP-based `dotnet test` in `global.json` (`"test": { "runner": "Microsoft.Testing.Platform" }`) — no per-project `TestingPlatformDotnetTestSupport` required
-- Switched package validation to .NET 10 SDK-integrated (`EnablePackageValidation`); removed `Microsoft.DotNet.PackageValidation` Sdk from library projects
-- Removed redundant `UseDotNet@2` workaround step from `azure-pipelines.yml` Linux job
-- Updated `actions/checkout@v2` → `actions/checkout@v4` in GitHub Actions CI workflow
 - Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+
+<a name="3.0.1"></a>
+## [3.0.1] - 2026-05-06
+
+### Added
+
 - `MessageDb`: Provide additional constructors that accept an `NpgsqlDataSource` [#273](https://github.com/jet/propulsion/pull/273) :pray: [@njlr](https://github.com/njlr)
+
+### Changed
+
+- Upgraded to .NET 10 SDK (`10.0.201`); test projects now target `net10.0` via MTP [#274](https://github.com/jet/propulsion/pull/274)
+- Converted `Propulsion.sln` to `Propulsion.slnx` (XML solution format)
+- Switched package validation to .NET 10 SDK-integrated (`EnablePackageValidation`); removed `Microsoft.DotNet.PackageValidation` Sdk from library projects
 
 <a name="3.0.0"></a>
 ## [3.0.0] - 2025-09-23
@@ -788,7 +793,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/3.0.0...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/3.0.1...HEAD
+[3.0.1]: https://github.com/jet/propulsion/compare/3.0.0...3.0.1
 [3.0.0]: https://github.com/jet/propulsion/compare/2.12.2...3.0.0
 [2.12.2]: https://github.com/jet/propulsion/compare/2.12.1...2.12.2
 [2.12.1]: https://github.com/jet/propulsion/compare/2.12.0...2.12.1
