@@ -69,8 +69,9 @@ type MemoryStoreSource<'F>(log, store: Equinox.MemoryStore.VolatileStore<'F>, ca
             // external cancellation (via Stop()) should yield a success result
             use _ = ct.Register(setSuccess)
             Task.start (fun () -> x.Pump ct)
-            do! awaitCompletion ()
-            storeCommitsSubscription.Dispose() }
+            try do! awaitCompletion ()
+            finally storeCommitsSubscription.Dispose()
+                    ingester.Stop() }
         new Pipeline(Task.run supervise, stop)
 
     member _.Monitor = monitor.Value

@@ -8,6 +8,10 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## [Unreleased]
 
+### Fixed
+
+- `MemoryStoreSource`: Added missing Stop of Ingester noted in [#276](https://github.com/jet/propulsion/issues/276) :pray: [@njlr](https://github.com/njlr)
+
 ### Changed
 
 - Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
