@@ -7,14 +7,15 @@ All notable changes to this project will be documented in this file. The format 
 The `Unreleased` section name is replaced by the expected version of next release. A stable version's log contains all changes between that version and the previous stable version (can duplicate the prereleases logs).
 
 ## [Unreleased]
-
-### Fixed
-
-- `MemoryStoreSource`: Added missing Stop of Ingester noted in [#276](https://github.com/jet/propulsion/issues/276) :pray: [@njlr](https://github.com/njlr)
+## [3.0.2] - 2026-06-09
 
 ### Changed
 
 - Targeted `FSharp.Core` v `8.0.403` (To handle SDK >= 9 being strict on `RequireQualifiedAccess` with `Struct`) [#270](https://github.com/jet/propulsion/pull/270)
+
+### Fixed
+
+- `MemoryStoreSource`: Added missing Stop of Ingester noted in [#276](https://github.com/jet/propulsion/issues/276) :pray: [@njlr](https://github.com/njlr)
 
 <a name="3.0.1"></a>
 ## [3.0.1] - 2026-05-06
@@ -797,7 +798,8 @@ The `Unreleased` section name is replaced by the expected version of next releas
 
 ## squashed prior to initial relevant commit
 
-[Unreleased]: https://github.com/jet/propulsion/compare/3.0.1...HEAD
+[Unreleased]: https://github.com/jet/propulsion/compare/3.0.2...HEAD
+[3.0.2]: https://github.com/jet/propulsion/compare/3.0.1...3.0.2
 [3.0.1]: https://github.com/jet/propulsion/compare/3.0.0...3.0.1
 [3.0.0]: https://github.com/jet/propulsion/compare/2.12.2...3.0.0
 [2.12.2]: https://github.com/jet/propulsion/compare/2.12.1...2.12.2
