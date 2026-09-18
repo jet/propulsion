@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-
   <PropertyGroup>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <PackageValidationBaselineVersion>3.0.0</PackageValidationBaselineVersion>
+    <!-- Supress net6.0 not supported anymore warning - it's not supported on AWS either -->
+    <NoWarn>PKV006</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,7 +19,7 @@
   <ItemGroup>
     <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="All" />
 
-    <PackageReference Include="Amazon.CDK.Lib" Version="2.26.0" />
+    <PackageReference Include="Amazon.CDK.Lib" Version="2.270.0" />
   </ItemGroup>
 
 </Project>
