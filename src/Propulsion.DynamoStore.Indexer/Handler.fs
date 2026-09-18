@@ -1,6 +1,6 @@
 module Propulsion.DynamoStore.Indexer.Handler
 
-open Amazon.DynamoDBv2
+open Amazon.DynamoDBStreams
 open Propulsion.DynamoStore
 
 [<RequireQualifiedAccess>]
@@ -17,7 +17,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEve
     let mutable indexStream, systemStreams, noEvents = 0, 0, 0
     try for record in dynamoEvent.Records do
             match record.Dynamodb.StreamViewType with
-            | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
+            | x when x = string StreamViewType.NEW_IMAGE || x = string StreamViewType.NEW_AND_OLD_IMAGES -> ()
             | x -> invalidOp $"Unexpected StreamViewType {x}"
 
             summary.Append(record.EventName) |> ignore

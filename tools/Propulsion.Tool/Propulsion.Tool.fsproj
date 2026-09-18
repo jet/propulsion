@@ -37,10 +37,10 @@
 
 	<PackageReference Include="Argu" Version="6.2.2" />
     <!-- Required or there'll be an exception at runtime re missing support DLLs when using RBAC -->
-    <PackageReference Include="AWSSDK.SecurityToken" Version="3.7.1.177" />
+    <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.5.9" />
     <!-- Required for AWS SSO resolution -->
-    <PackageReference Include="AWSSDK.SSO" Version="3.7.100.69" />
-    <PackageReference Include="AWSSDK.SSOOIDC" Version="3.7.100.69" />
+    <PackageReference Include="AWSSDK.SSO" Version="4.0.2.13" />
+    <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.3.14" />
     <PackageReference Include="Serilog.Sinks.Async" Version="1.5.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
   </ItemGroup>
