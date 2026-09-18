@@ -63,7 +63,7 @@ type DynamoStoreNotifierLambda(scope, id, props: DynamoStoreNotifierLambdaProps)
     let code = Code.FromAsset(props.codePath)
     let fn: Function = Function(stack, "Notifier", FunctionProps(
         Role = role, Description = "Propulsion DynamoStore Notifier",
-        Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_6,
+        Code = code, Architecture = Architecture.ARM_64, Runtime = Runtime.DOTNET_10,
         Handler = "Propulsion.DynamoStore.Notifier::Propulsion.DynamoStore.Notifier.Function::Handle",
         MemorySize = float props.memorySize, Timeout = Amazon.CDK.Duration.Seconds props.timeout.TotalSeconds,
         Environment = dict [ Propulsion.DynamoStore.Lambda.Args.Sns.TOPIC_ARN, topic.TopicArn ]))

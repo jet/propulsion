@@ -3,6 +3,15 @@ module Propulsion.DynamoStore.Indexer.Handler
 open Amazon.DynamoDBv2
 open Propulsion.DynamoStore
 
+[<RequireQualifiedAccess>]
+module private StreamViewType =
+
+    [<Literal>]
+    let NEW_IMAGE = "NEW_IMAGE"
+
+    [<Literal>]
+    let NEW_AND_OLD_IMAGES = "NEW_AND_OLD_IMAGES"
+
 let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEvents.DynamoDBEvent): AppendsEpoch.Events.StreamSpan[] =
     let spans, summary = ResizeArray(), System.Text.StringBuilder()
     let mutable indexStream, systemStreams, noEvents = 0, 0, 0
@@ -11,12 +20,12 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEve
             | x when x = StreamViewType.NEW_IMAGE || x = StreamViewType.NEW_AND_OLD_IMAGES -> ()
             | x -> invalidOp $"Unexpected StreamViewType {x}"
 
-            summary.Append(record.EventName.Value[0]) |> ignore
+            summary.Append(record.EventName) |> ignore
 
             let updated = record.Dynamodb.NewImage
             match record.EventName with
-            | ot when ot = OperationType.REMOVE -> ()
-            | ot when ot = OperationType.INSERT || ot = OperationType.MODIFY ->
+            | ot when ot = OperationType.REMOVE.Value -> ()
+            | ot when ot = OperationType.INSERT.Value || ot = OperationType.MODIFY.Value ->
                 let p = record.Dynamodb.Keys["p"].S
                 let sn, n = IndexStreamId.ofP p, int64 updated["n"].N
                 if p.StartsWith AppendsEpoch.Stream.Category || p.StartsWith AppendsIndex.Stream.Category then indexStream <- indexStream + 1
@@ -40,7 +49,7 @@ let private parse (log: Serilog.ILogger) (dynamoEvent: Amazon.Lambda.DynamoDBEve
                             | [| et |] -> ":" + et
                             | xs -> $":%s{xs[0]}+%d{xs.Length - 1}"
                         summary.Append(p).Append(et).Append(if i = 0 then " " else $"@%d{i} ") |> ignore
-            | et -> invalidOp $"Unknown OperationType %s{et.Value}"
+            | et -> invalidOp $"Unknown OperationType %s{et}"
         let spans = spans.ToArray()
         log.Information("Index {indexCount} System {systemCount} NoEvents {noEventCount} Spans {spanCount} {summary}",
                         indexStream, systemStreams, noEvents, spans.Length, summary)

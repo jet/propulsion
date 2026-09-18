@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <PackageValidationBaselineVersion>3.0.0</PackageValidationBaselineVersion>
         <DefineConstants>PROPULSION_DYNAMOSTORE_LAMBDA</DefineConstants>
+        <!-- Supress net6.0 not supported anymore warning - it's not supported on AWS either -->
+        <NoWarn>PKV006</NoWarn>
     </PropertyGroup>
     
     <ItemGroup>

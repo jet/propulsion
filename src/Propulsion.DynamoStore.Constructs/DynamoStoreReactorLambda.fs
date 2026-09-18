@@ -53,7 +53,7 @@ type DynamoStoreReactorLambda(scope, id, props: DynamoStoreReactorLambdaProps) a
         let attachQueueToTopic (fifo: bool) (topic: ITopic) =
             let queue = Queue(stack, "notifications", QueueProps(VisibilityTimeout = queueVisibilityTimeout, Fifo = fifo))
             topic.AddSubscription(Subscriptions.SqsSubscription(queue, Subscriptions.SqsSubscriptionProps(
-                RawMessageDelivery = true))) // need MessageAttributes to be included in the delivered message
+                RawMessageDelivery = true))) |> ignore<Subscription> // need MessageAttributes to be included in the delivered message
             queue
         match props.updatesSource with
         | UpdatesQueue queueArn -> Queue.FromQueueArn(stack, "Input", queueArn), Nullable()
