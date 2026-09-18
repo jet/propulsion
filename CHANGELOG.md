@@ -7,6 +7,11 @@ All notable changes to this project will be documented in this file. The format 
 The `Unreleased` section name is replaced by the expected version of next release. A stable version's log contains all changes between that version and the previous stable version (can duplicate the prereleases logs).
 
 ## [Unreleased]
+
+### Changed
+
+- `DynamoStore.*`: Changed package TFM and runtime target to `net10.0`; updated CDK dependency to latest [#277](https://github.com/jet/propulsion/pull/277)
+
 ## [3.0.2] - 2026-06-09
 
 ### Changed
